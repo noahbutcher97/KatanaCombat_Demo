@@ -1,0 +1,15 @@
+DEPRECATED FILES - DO NOT USE
+================================
+
+The following files were part of an abandoned Editor Utility Widget approach
+that required Blueprint assets and did not work correctly:
+
+- connection_troubleshooter.py
+- launch_troubleshooter.py
+
+These files are kept for reference only but should NOT be used.
+
+USE INSTEAD:
+- troubleshooter.py (simple console-based tools that actually work)
+
+See TROUBLESHOOTING.md for current usage instructions.

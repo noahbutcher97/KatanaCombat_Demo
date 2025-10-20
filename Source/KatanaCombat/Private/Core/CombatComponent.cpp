@@ -1,105 +1,1160 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/CombatComponent.h"
-#include "Core/TargetingComponent.h"
-#include "Core/WeaponComponent.h"
 #include "Data/AttackData.h"
 #include "Data/CombatSettings.h"
+#include "Core/TargetingComponent.h"
+#include "Core/WeaponComponent.h"
+#include "Interfaces/CombatInterface.h"
+#include "Interfaces/DamageableInterface.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Animation/AnimInstance.h"
-#include "Animation/AnimMontage.h"
 #include "MotionWarpingComponent.h"
+#include "Kismet/KismetMathLibrary.h"
 
 UCombatComponent::UCombatComponent()
 {
     PrimaryComponentTick.bCanEverTick = true;
-    
-    CurrentState = ECombatState::Idle;
-    CurrentPhase = EAttackPhase::None;
-    CurrentAttackData = nullptr;
-    
-    CurrentPosture = 100.0f;
-    ComboCount = 0;
-    bCanCombo = false;
-    bIsInCounterWindow = false;
-    
-    bLightAttackBuffered = false;
-    bHeavyAttackBuffered = false;
-    bEvadeBuffered = false;
-    bLightAttackHeld = false;
-    bHeavyAttackHeld = false;
-    
-    bIsCharging = false;
-    CurrentChargeTime = 0.0f;
-    bIsHolding = false;
-    CurrentHoldTime = 0.0f;
-    
-    bDebugDraw = false;
-    CombatSettings = nullptr;
-    DefaultLightAttack = nullptr;
-    DefaultHeavyAttack = nullptr;
 }
 
 void UCombatComponent::BeginPlay()
 {
     Super::BeginPlay();
-    
+
     OwnerCharacter = Cast<ACharacter>(GetOwner());
     if (OwnerCharacter)
     {
         AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
         TargetingComponent = OwnerCharacter->FindComponentByClass<UTargetingComponent>();
-        MotionWarpingComponent = OwnerCharacter->FindComponentByClass<UMotionWarpingComponent>();
         WeaponComponent = OwnerCharacter->FindComponentByClass<UWeaponComponent>();
+        MotionWarpingComponent = OwnerCharacter->FindComponentByClass<UMotionWarpingComponent>();
+    }
+
+    if (CombatSettings)
+    {
+        CurrentPosture = CombatSettings->MaxPosture;
     }
 }
 
 void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-    
-    RegeneratePosture(DeltaTime);
-    
-    if (bIsCharging)
-    {
-        UpdateHeavyCharging(DeltaTime);
-    }
-    
+
+    UpdatePosture(DeltaTime);
+
+    // Update hold state (works for both light and heavy)
     if (bIsHolding)
     {
-        UpdateLightHold(DeltaTime);
+        UpdateHoldTime(DeltaTime);
     }
-}
 
-// ============================================================================
-// STATE MACHINE
-// ============================================================================
-
-bool UCombatComponent::CanTransitionTo(ECombatState NewState) const
-{
-    // Define valid state transitions
-    switch (CurrentState)
+    // Update playback rate blending for holds
+    if (bIsBlendingToHold)
     {
-        case ECombatState::Idle:
-            return true; // Can transition anywhere from idle
-            
-        case ECombatState::Attacking:
-            return NewState == ECombatState::Evading || 
-                   NewState == ECombatState::Idle ||
-                   NewState == ECombatState::HitStunned;
-            
-        case ECombatState::Blocking:
-            return NewState != ECombatState::Attacking;
-            
-        case ECombatState::GuardBroken:
-        case ECombatState::HitStunned:
-            return NewState == ECombatState::Idle;
-            
-        default:
-            return true;
+        // Blend from 1.0 to 0.0
+        HoldBlendAlpha = FMath::Min(1.0f, HoldBlendAlpha + DeltaTime * HoldBlendSpeed);
+        float PlayRate = FMath::Lerp(1.0f, 0.0f, HoldBlendAlpha);
+
+        if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
+        {
+            AnimInstance->Montage_SetPlayRate(CurrentAttackData->AttackMontage, PlayRate);
+        }
+
+        // Check if we've finished blending to hold
+        if (HoldBlendAlpha >= 1.0f)
+        {
+            bIsBlendingToHold = false;
+            HoldBlendAlpha = 1.0f;  // Clamp to exactly 1.0
+
+            // Ensure playback rate is exactly 0.0
+            if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
+            {
+                AnimInstance->Montage_SetPlayRate(CurrentAttackData->AttackMontage, 0.0f);
+            }
+        }
+    }
+    else if (bIsBlendingFromHold)
+    {
+        // Blend from 0.0 to 1.0
+        HoldBlendAlpha = FMath::Max(0.0f, HoldBlendAlpha - DeltaTime * HoldBlendSpeed);
+        float PlayRate = FMath::Lerp(1.0f, 0.0f, HoldBlendAlpha);
+
+        if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
+        {
+            AnimInstance->Montage_SetPlayRate(CurrentAttackData->AttackMontage, PlayRate);
+        }
+
+        // Check if we've finished blending from hold
+        if (HoldBlendAlpha <= 0.0f)
+        {
+            bIsBlendingFromHold = false;
+            HoldBlendAlpha = 0.0f;  // Clamp to exactly 0.0
+
+            // Ensure playback rate is exactly 1.0
+            if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
+            {
+                AnimInstance->Montage_SetPlayRate(CurrentAttackData->AttackMontage, 1.0f);
+            }
+        }
     }
 }
+
+// ============================================================================
+// INPUT HANDLING - UPDATED FOR QUEUING
+// ============================================================================
+
+void UCombatComponent::OnLightAttackPressed()
+{
+    bLightAttackHeld = true;
+
+    // Safety check to prevent input blocking
+    if (!AnimInstance)
+    {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Light attack blocked - AnimInstance is null"));
+        }
+        return;
+    }
+
+    // If we can attack freely (idle state), execute default light attack
+    if (CanAttack())
+    {
+        if (DefaultLightAttack)
+        {
+            CurrentAttackInputType = EInputType::LightAttack;
+            ExecuteAttack(DefaultLightAttack);
+        }
+    }
+    // Only buffer if currently attacking (not in hold or other states)
+    else if (CurrentState == ECombatState::Attacking)
+    {
+        // ALWAYS buffer input (responsive path)
+        bLightAttackBuffered = true;
+
+        // Tag whether this input occurred during combo window
+        if (bCanCombo)
+        {
+            bLightAttackInComboWindow = true;
+            QueueComboInput(EInputType::LightAttack);
+
+            // If we're in Recovery phase and combo window is open, interrupt immediately
+            if (CurrentPhase == EAttackPhase::Recovery && CurrentAttackData)
+            {
+                if (bDebugDraw)
+                {
+                    UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Light attack during Recovery + combo window - interrupting immediately"));
+                }
+
+                // Execute combo immediately - interrupt recovery
+                UAttackData* NextAttack = CurrentAttackData->NextComboAttack;
+                if (NextAttack)
+                {
+                    bLightAttackBuffered = false;
+                    bLightAttackInComboWindow = false;
+                    ExecuteComboAttackWithHoldTracking(NextAttack, EInputType::LightAttack);
+                    return;
+                }
+            }
+
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Light attack buffered DURING combo window"));
+            }
+        }
+        else
+        {
+            bLightAttackInComboWindow = false;
+
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Light attack buffered OUTSIDE combo window"));
+            }
+        }
+    }
+    // Ignore input if in hold state or blending to prevent buffering during holds
+    else if (CurrentState == ECombatState::HoldingLightAttack || bIsHolding || bIsBlendingToHold)
+    {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Ignoring light attack input during hold/blend state"));
+        }
+    }
+}
+
+void UCombatComponent::OnLightAttackReleased()
+{
+    bLightAttackHeld = false;
+
+    // If we're in hold state, release and execute directional follow-up
+    if (bIsHolding)
+    {
+        ReleaseHeldLight();
+    }
+}
+
+void UCombatComponent::OnHeavyAttackPressed()
+{
+    bHeavyAttackHeld = true;
+
+    // Safety check to prevent input blocking
+    if (!AnimInstance)
+    {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Heavy attack blocked - AnimInstance is null"));
+        }
+        return;
+    }
+
+    // Heavy attacks now work exactly like light attacks: immediate execution, no charging
+    if (CanAttack())
+    {
+        if (DefaultHeavyAttack)
+        {
+            CurrentAttackInputType = EInputType::HeavyAttack;
+            ExecuteAttack(DefaultHeavyAttack);
+        }
+    }
+    // Only buffer if currently attacking (not in hold or other states)
+    else if (CurrentState == ECombatState::Attacking)
+    {
+        // ALWAYS buffer input (responsive path)
+        bHeavyAttackBuffered = true;
+
+        // Tag whether this input occurred during combo window
+        if (bCanCombo)
+        {
+            bHeavyAttackInComboWindow = true;
+            QueueComboInput(EInputType::HeavyAttack);
+
+            // If we're in Recovery phase and combo window is open, interrupt immediately
+            if (CurrentPhase == EAttackPhase::Recovery && CurrentAttackData)
+            {
+                if (bDebugDraw)
+                {
+                    UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Heavy attack during Recovery + combo window - interrupting immediately"));
+                }
+
+                // Execute combo immediately - interrupt recovery
+                UAttackData* NextAttack = CurrentAttackData->HeavyComboAttack;
+                if (NextAttack)
+                {
+                    bHeavyAttackBuffered = false;
+                    bHeavyAttackInComboWindow = false;
+                    ExecuteComboAttackWithHoldTracking(NextAttack, EInputType::HeavyAttack);
+                    return;
+                }
+            }
+
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Heavy attack buffered DURING combo window"));
+            }
+        }
+        else
+        {
+            bHeavyAttackInComboWindow = false;
+
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Heavy attack buffered OUTSIDE combo window"));
+            }
+        }
+    }
+    // Ignore input if in hold state or blending to prevent buffering during holds
+    else if (CurrentState == ECombatState::HoldingLightAttack || bIsHolding || bIsBlendingToHold)
+    {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Ignoring heavy attack input during hold/blend state"));
+        }
+    }
+}
+
+void UCombatComponent::OnHeavyAttackReleased()
+{
+    bHeavyAttackHeld = false;
+
+    // If we're in hold state (during attack animation), release and execute follow-up
+    if (bIsHolding)
+    {
+        ReleaseHeldHeavy();
+    }
+}
+
+void UCombatComponent::OnEvadePressed()
+{
+    if (CurrentState == ECombatState::Idle || CurrentState == ECombatState::Blocking)
+    {
+        SetCombatState(ECombatState::Evading);
+
+        // Reset after evade duration
+        if (GetWorld())
+        {
+            FTimerHandle EvadeTimer;
+            TWeakObjectPtr<UCombatComponent> WeakThis(this);
+            GetWorld()->GetTimerManager().SetTimer(EvadeTimer, [WeakThis]()
+            {
+                if (WeakThis.IsValid())
+                {
+                    WeakThis->SetCombatState(ECombatState::Idle);
+                }
+            }, 0.5f, false);
+        }
+    }
+    else
+    {
+        // Buffer evade if can't execute now
+        bEvadeBuffered = true;
+    }
+}
+
+void UCombatComponent::OnBlockPressed()
+{
+    if (CurrentState == ECombatState::Idle)
+    {
+        // Try to parry first - if no parry opportunity, will default to blocking
+        TryParry();
+    }
+}
+
+void UCombatComponent::OnBlockReleased()
+{
+    if (CurrentState == ECombatState::Blocking)
+    {
+        SetCombatState(ECombatState::Idle);
+    }
+}
+
+void UCombatComponent::SetMovementInput(FVector2D Input)
+{
+    StoredMovementInput = Input;
+}
+
+// ============================================================================
+// ATTACK PHASE CALLBACKS - UPDATED FOR QUEUING AND HOLD
+// ============================================================================
+
+void UCombatComponent::OnAttackPhaseBegin(EAttackPhase Phase)
+{
+    CurrentPhase = Phase;
+
+    switch (Phase)
+    {
+        case EAttackPhase::Windup:
+            // Motion warping could be setup here if needed
+            break;
+
+        case EAttackPhase::Active:
+            // Enable hit detection during active phase
+            if (WeaponComponent)
+            {
+                WeaponComponent->EnableHitDetection();
+            }
+            break;
+
+        case EAttackPhase::Recovery:
+            // Recovery phase started - combo window is controlled by AnimNotifyState_ComboWindow
+            // Do NOT open combo window here - it's animation-driven
+            break;
+
+        default:
+            break;
+    }
+}
+
+void UCombatComponent::OnAttackPhaseEnd(EAttackPhase Phase)
+{
+    switch (Phase)
+    {
+        case EAttackPhase::Active:
+            // Disable hit detection after active phase
+            if (WeaponComponent)
+            {
+                WeaponComponent->DisableHitDetection();
+            }
+
+            // Check if we have combo-window-tagged inputs to execute at end of Active phase
+            if ((bLightAttackInComboWindow && bLightAttackBuffered) ||
+                (bHeavyAttackInComboWindow && bHeavyAttackBuffered))
+            {
+                if (bDebugDraw)
+                {
+                    UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Executing combo input at Active phase end (snappy path)"));
+                }
+
+                // Process the combo immediately - this is the "snappy" path
+                ProcessComboWindowInput();
+            }
+            break;
+
+        case EAttackPhase::Recovery:
+            // Recovery complete - process any remaining buffered inputs
+            ProcessRecoveryComplete();
+            break;
+
+        default:
+            break;
+    }
+}
+
+// ============================================================================
+// COMBO QUEUING SYSTEM - NEW
+// ============================================================================
+
+void UCombatComponent::QueueComboInput(EInputType InputType)
+{
+    if (!bCanCombo || !CurrentAttackData)
+    {
+        return;
+    }
+
+    // Add input to buffer for tracking purposes
+    ComboInputBuffer.Add(InputType);
+    bHasQueuedCombo = true;
+
+    if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Marked input %d as combo window input"), static_cast<int32>(InputType));
+    }
+}
+
+void UCombatComponent::ProcessQueuedCombo()
+{
+    // Check if we have any queued inputs
+    if (ComboInputBuffer.Num() > 0 && CurrentAttackData)
+    {
+        // Get the LATEST valid input from the buffer (last one wins)
+        for (int32 i = ComboInputBuffer.Num() - 1; i >= 0; i--)
+        {
+            EInputType QueuedInput = ComboInputBuffer[i];
+            UAttackData* NextAttack = GetComboFromInput(QueuedInput);
+            if (NextAttack)
+            {
+                // Execute the combo attack WITH the proper input type tracking
+                ExecuteComboAttackWithHoldTracking(NextAttack, QueuedInput);
+                ComboInputBuffer.Empty();
+                bHasQueuedCombo = false;
+                return;
+            }
+        }
+
+        // No valid combos found in buffer
+        ComboInputBuffer.Empty();
+        bHasQueuedCombo = false;
+    }
+
+    // No combo queued - return to idle and process any buffered non-combo inputs
+    SetCombatState(ECombatState::Idle);
+    ProcessBufferedInputs();
+}
+
+void UCombatComponent::ProcessComboWindowInput()
+{
+    // This is called at the END of Active phase for combo-window-tagged inputs
+    // Priority: Check which input was buffered during combo window
+
+    if (bLightAttackInComboWindow && bLightAttackBuffered && CurrentAttackData)
+    {
+        // Clear the flags
+        bLightAttackBuffered = false;
+        bLightAttackInComboWindow = false;
+
+        // Get the next combo attack
+        UAttackData* NextAttack = CurrentAttackData->NextComboAttack;
+        if (NextAttack)
+        {
+            ExecuteComboAttackWithHoldTracking(NextAttack, EInputType::LightAttack);
+            return;
+        }
+    }
+
+    if (bHeavyAttackInComboWindow && bHeavyAttackBuffered && CurrentAttackData)
+    {
+        // Clear the flags
+        bHeavyAttackBuffered = false;
+        bHeavyAttackInComboWindow = false;
+
+        // Get the heavy branch combo
+        UAttackData* NextAttack = CurrentAttackData->HeavyComboAttack;
+        if (NextAttack)
+        {
+            ExecuteComboAttackWithHoldTracking(NextAttack, EInputType::HeavyAttack);
+            return;
+        }
+    }
+}
+
+UAttackData* UCombatComponent::GetComboFromInput(EInputType InputType)
+{
+    if (!CurrentAttackData)
+    {
+        return nullptr;
+    }
+
+    switch (InputType)
+    {
+        case EInputType::LightAttack:
+            return CurrentAttackData->NextComboAttack;
+
+        case EInputType::HeavyAttack:
+            return CurrentAttackData->HeavyComboAttack;
+
+        default:
+            return nullptr;
+    }
+}
+
+void UCombatComponent::ExecuteComboAttackWithHoldTracking(UAttackData* NextAttack, EInputType InputType)
+{
+    if (!NextAttack)
+    {
+        return;
+    }
+
+    ComboCount++;
+    bCanCombo = false;
+    CurrentAttackData = NextAttack;
+
+    // CRITICAL: Set the input type that triggered this combo
+    // This ensures hold detection works correctly for combo attacks
+    CurrentAttackInputType = InputType;
+
+    // Clear combo input tracking since we're executing
+    ComboInputBuffer.Empty();
+    bHasQueuedCombo = false;
+
+    // Ensure we're in attacking state for combo transitions
+    SetCombatState(ECombatState::Attacking);
+
+    // Reset combo timer
+    if (GetWorld() && CombatSettings)
+    {
+        GetWorld()->GetTimerManager().SetTimer(
+            ComboResetTimer,
+            this,
+            &UCombatComponent::ResetComboChain,
+            3.0f, // TODO: Add ComboResetDelay to CombatSettings
+            false
+        );
+    }
+
+    if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("CombatComponent: Executing combo attack %s (Count: %d, Input: %d)"),
+            *NextAttack->GetName(), ComboCount, static_cast<int32>(InputType));
+    }
+
+    PlayAttackMontage(NextAttack);
+}
+
+void UCombatComponent::ExecuteComboAttack(UAttackData* NextAttack)
+{
+    // Wrapper for backward compatibility - tries to infer input type
+    EInputType InferredType = EInputType::None;
+
+    // Try to infer from current buffered states
+    if (bLightAttackHeld || bLightAttackBuffered)
+    {
+        InferredType = EInputType::LightAttack;
+    }
+    else if (bHeavyAttackHeld || bHeavyAttackBuffered)
+    {
+        InferredType = EInputType::HeavyAttack;
+    }
+    else
+    {
+        // Default to light if we can't infer
+        InferredType = EInputType::LightAttack;
+    }
+
+    ExecuteComboAttackWithHoldTracking(NextAttack, InferredType);
+}
+
+// ============================================================================
+// HOLD SYSTEM - UPDATED
+// ============================================================================
+
+void UCombatComponent::UpdateHoldTime(float DeltaTime)
+{
+    if (!CurrentAttackData)
+    {
+        return;
+    }
+
+    CurrentHoldTime += DeltaTime;
+
+    // Don't auto-release on timeout - let the hold window closure handle it
+    // This prevents the animation from jumping to next combo on timeout
+}
+
+void UCombatComponent::ReleaseHeldLight()
+{
+    if (!bIsHolding)
+    {
+        return;
+    }
+
+    bIsHolding = false;
+
+    if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Released held light attack after %.2fs (window expired: %s)"),
+            CurrentHoldTime, bHoldWindowExpired ? TEXT("true") : TEXT("false"));
+    }
+
+    // Re-enable movement
+    if (OwnerCharacter && OwnerCharacter->GetCharacterMovement())
+    {
+        OwnerCharacter->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    }
+
+    // Check if CurrentAttackData is valid (may be null if animation ended during hold)
+    if (!CurrentAttackData)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] ReleaseHeldLight: CurrentAttackData is null - attack likely completed during hold"));
+        bHoldWindowExpired = false;
+        QueuedDirectionalInput = EAttackDirection::None;
+        SetCombatState(ECombatState::Idle);
+        return;
+    }
+
+    // CRITICAL: Check if hold window has EXPIRED (held until timeout)
+    if (bHoldWindowExpired)
+    {
+        // SCENARIO B: Held until timeout → Try directional followups and combos
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Hold timeout release - trying directional followup (direction: %d)"),
+                static_cast<int32>(QueuedDirectionalInput));
+        }
+
+        // Priority 1: Execute directional follow-up if it exists
+        UAttackData* FollowUp = CurrentAttackData->DirectionalFollowUps.FindRef(QueuedDirectionalInput);
+        if (FollowUp)
+        {
+            // Stop blending and execute directional attack as a combo
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = false;
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+            ExecuteComboAttack(FollowUp);
+            return;
+        }
+
+        // Priority 2: If no directional follow-up, try to execute next combo attack
+        if (CurrentAttackData->NextComboAttack)
+        {
+            // Stop blending and execute combo
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = false;
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+            ExecuteComboAttack(CurrentAttackData->NextComboAttack);
+            return;
+        }
+
+        // No followups available, fall through to blend back
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[CombatComponent] No directional followups or combos available - blending back"));
+        }
+    }
+    else
+    {
+        // SCENARIO A: Early release → Skip followups, just finish current attack
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Early release - blending back to finish current attack"));
+        }
+    }
+
+    // Priority 3: Blend back to normal speed and complete current animation
+    // This is reached for:
+    // - Early releases (always)
+    // - Timeout releases with no followup available (fallback)
+    if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
+    {
+        // Check if montage is still playing
+        if (AnimInstance->Montage_IsPlaying(CurrentAttackData->AttackMontage))
+        {
+            // Start blending back to normal speed (0.0 → 1.0)
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = true;
+            // HoldBlendAlpha is already at 1.0 from the hold blend
+
+            // Clear hold window flags
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+
+            // Return to attacking state to complete current animation
+            // After animation ends, ProcessRecoveryComplete will handle next input
+            SetCombatState(ECombatState::Attacking);
+
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Started blend back to normal speed"));
+            }
+        }
+        else
+        {
+            // Montage ended during hold - clean up and return to idle
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Light attack montage ended during hold - returning to idle"));
+            }
+
+            CurrentAttackData = nullptr;
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = false;
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+            SetCombatState(ECombatState::Idle);
+        }
+    }
+    else
+    {
+        // No montage to resume - clean up and return to idle
+        CurrentAttackData = nullptr;
+        bIsBlendingToHold = false;
+        bIsBlendingFromHold = false;
+        bHoldWindowExpired = false;
+        QueuedDirectionalInput = EAttackDirection::None;
+        SetCombatState(ECombatState::Idle);
+    }
+}
+
+void UCombatComponent::ReleaseHeldHeavy()
+{
+    if (!bIsHolding)
+    {
+        return;
+    }
+
+    bIsHolding = false;
+
+    if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Released held heavy attack after %.2fs (window expired: %s)"),
+            CurrentHoldTime, bHoldWindowExpired ? TEXT("true") : TEXT("false"));
+    }
+
+    // Re-enable movement
+    if (OwnerCharacter && OwnerCharacter->GetCharacterMovement())
+    {
+        OwnerCharacter->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+    }
+
+    // Check if CurrentAttackData is valid (may be null if animation ended during hold)
+    if (!CurrentAttackData)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] ReleaseHeldHeavy: CurrentAttackData is null - attack likely completed during hold"));
+        bHoldWindowExpired = false;
+        QueuedDirectionalInput = EAttackDirection::None;
+        SetCombatState(ECombatState::Idle);
+        return;
+    }
+
+    // CRITICAL: Check if hold window has EXPIRED (held until timeout)
+    if (bHoldWindowExpired)
+    {
+        // SCENARIO B: Held until timeout → Try combo attack
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Hold timeout release - trying heavy combo"));
+        }
+
+        // Try to execute heavy combo attack if available
+        if (CurrentAttackData->HeavyComboAttack)
+        {
+            // Stop blending and execute combo
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = false;
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+            ExecuteComboAttack(CurrentAttackData->HeavyComboAttack);
+            return;
+        }
+
+        // Try regular next combo if no heavy-specific combo
+        if (CurrentAttackData->NextComboAttack)
+        {
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = false;
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+            ExecuteComboAttack(CurrentAttackData->NextComboAttack);
+            return;
+        }
+
+        // No combos available, fall through to blend back
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[CombatComponent] No heavy combos available - blending back"));
+        }
+    }
+    else
+    {
+        // SCENARIO A: Early release → Skip combos, just finish current attack
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Early release - blending back to finish current attack"));
+        }
+    }
+
+    // Blend back to normal speed and complete current animation
+    // This is reached for:
+    // - Early releases (always)
+    // - Timeout releases with no combo available (fallback)
+    if (AnimInstance && CurrentAttackData->AttackMontage)
+    {
+        if (AnimInstance->Montage_IsPlaying(CurrentAttackData->AttackMontage))
+        {
+            // Start blending back to normal speed (0.0 → 1.0)
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = true;
+            // HoldBlendAlpha is already at 1.0 from the hold blend
+
+            // Clear hold window flags
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+
+            // Return to attacking state to complete current animation
+            SetCombatState(ECombatState::Attacking);
+
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Blending heavy attack back to normal speed"));
+            }
+        }
+        else
+        {
+            // Montage has ended while we were holding - clean up and return to idle
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Heavy attack montage ended during hold - returning to idle"));
+            }
+
+            CurrentAttackData = nullptr;
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = false;
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+            SetCombatState(ECombatState::Idle);
+        }
+    }
+    else
+    {
+        // No montage to resume - clean up and return to idle
+        CurrentAttackData = nullptr;
+        bIsBlendingToHold = false;
+        bIsBlendingFromHold = false;
+        bHoldWindowExpired = false;
+        QueuedDirectionalInput = EAttackDirection::None;
+        SetCombatState(ECombatState::Idle);
+    }
+}
+
+// ============================================================================
+// HEAVY CHARGE SYSTEM
+// ============================================================================
+
+void UCombatComponent::UpdateHeavyCharging(float DeltaTime)
+{
+    if (!CurrentAttackData)
+    {
+        return;
+    }
+
+    CurrentChargeTime += DeltaTime;
+
+    // Auto-release at max charge
+    if (CurrentAttackData && CurrentChargeTime >= CurrentAttackData->MaxChargeTime)
+    {
+        ReleaseChargedHeavy();
+    }
+}
+
+void UCombatComponent::ReleaseChargedHeavy()
+{
+    if (!bIsCharging)
+    {
+        return;
+    }
+
+    bIsCharging = false;
+    SetCombatState(ECombatState::Attacking);
+
+    // Resume normal playback speed
+    if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
+    {
+        AnimInstance->Montage_SetPlayRate(CurrentAttackData->AttackMontage, 1.0f);
+    }
+
+    if (bDebugDraw && CurrentAttackData)
+    {
+        const float ChargePercent = FMath::Clamp(CurrentChargeTime / CurrentAttackData->MaxChargeTime, 0.0f, 1.0f);
+        UE_LOG(LogTemp, Warning, TEXT("CombatComponent: Released heavy charge at %.1f%% (%.2fs)"), ChargePercent * 100.0f, CurrentChargeTime);
+    }
+}
+
+// ============================================================================
+// DIRECTIONAL FOLLOW-UPS
+// ============================================================================
+
+void UCombatComponent::ExecuteDirectionalFollowUp(EAttackDirection Direction)
+{
+    if (!CurrentAttackData)
+    {
+        return;
+    }
+
+    if (UAttackData* FollowUp = CurrentAttackData->DirectionalFollowUps.FindRef(Direction))
+    {
+        CurrentAttackData = FollowUp;
+        PlayAttackMontage(FollowUp);
+    }
+}
+
+FVector UCombatComponent::GetWorldSpaceMovementInput() const
+{
+    if (!OwnerCharacter || StoredMovementInput.IsNearlyZero())
+    {
+        return FVector::ZeroVector;
+    }
+
+    // Convert 2D input to world space direction
+    const FRotator ControlRotation = OwnerCharacter->GetControlRotation();
+    const FRotator YawRotation(0, ControlRotation.Yaw, 0);
+
+    const FVector ForwardDir = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+    const FVector RightDir = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+
+    const FVector WorldDir = (ForwardDir * StoredMovementInput.Y) + (RightDir * StoredMovementInput.X);
+    return WorldDir.GetSafeNormal();
+}
+
+EAttackDirection UCombatComponent::GetAttackDirectionFromWorldDirection(const FVector& WorldDir) const
+{
+    if (!OwnerCharacter || WorldDir.IsNearlyZero())
+    {
+        return EAttackDirection::Forward;
+    }
+
+    // Get angle relative to character's forward
+    const FVector CharacterForward = OwnerCharacter->GetActorForwardVector();
+    const float DotProduct = FVector::DotProduct(CharacterForward, WorldDir);
+    const FVector CrossProduct = FVector::CrossProduct(CharacterForward, WorldDir);
+
+    // Determine quadrant
+    const float Angle = FMath::RadiansToDegrees(FMath::Acos(DotProduct));
+    const bool bIsRight = CrossProduct.Z > 0.0f;
+
+    // 8-directional to 4-directional mapping
+    if (Angle < 45.0f)
+    {
+        return EAttackDirection::Forward;
+    }
+    else if (Angle > 135.0f)
+    {
+        return EAttackDirection::Backward;
+    }
+    else
+    {
+        return bIsRight ? EAttackDirection::Right : EAttackDirection::Left;
+    }
+}
+
+// ============================================================================
+// COMBO SYSTEM - EXISTING FUNCTIONS
+// ============================================================================
+
+void UCombatComponent::OpenComboWindow(float Duration)
+{
+    // Prevent opening multiple combo windows
+    if (bCanCombo)
+    {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("CombatComponent: Combo window already open - ignoring duplicate"));
+        }
+        return;
+    }
+
+    bCanCombo = true;
+
+    if (GetWorld())
+    {
+        GetWorld()->GetTimerManager().SetTimer(ComboWindowTimer, this, &UCombatComponent::CloseComboWindow, Duration, false);
+    }
+
+    if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("CombatComponent: Combo window OPENED (%.2fs)"), Duration);
+    }
+}
+
+void UCombatComponent::CloseComboWindow()
+{
+    bCanCombo = false;
+
+    if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("CombatComponent: Combo window CLOSED"));
+    }
+}
+
+void UCombatComponent::ResetCombo()
+{
+    ComboCount = 0;
+    bCanCombo = false;
+    CurrentAttackData = nullptr;
+    ComboInputBuffer.Empty();
+
+    if (GetWorld())
+    {
+        GetWorld()->GetTimerManager().ClearTimer(ComboResetTimer);
+    }
+}
+
+void UCombatComponent::ResetComboChain()
+{
+    ResetCombo();
+}
+
+// ============================================================================
+// ATTACK EXECUTION
+// ============================================================================
+
+bool UCombatComponent::CanAttack() const
+{
+    // Can only start fresh attacks from Idle
+    // Combos are handled through buffering system, NOT through CanAttack
+    return CurrentState == ECombatState::Idle;
+}
+
+bool UCombatComponent::ExecuteAttack(UAttackData* AttackData)
+{
+    if (!AttackData)
+    {
+        return false;
+    }
+
+    // ExecuteAttack is ONLY for fresh attacks from Idle
+    // Combos use ExecuteComboAttack instead
+    if (CurrentState != ECombatState::Idle)
+    {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] ExecuteAttack blocked - not in Idle state (State: %d)"), static_cast<int32>(CurrentState));
+        }
+        return false;
+    }
+
+    CurrentAttackData = AttackData;
+
+    // Infer input type from default attack if not already set
+    // (This handles cases where ExecuteAttack is called directly, not from input)
+    if (CurrentAttackInputType == EInputType::None)
+    {
+        if (AttackData == DefaultLightAttack)
+        {
+            CurrentAttackInputType = EInputType::LightAttack;
+        }
+        else if (AttackData == DefaultHeavyAttack)
+        {
+            CurrentAttackInputType = EInputType::HeavyAttack;
+        }
+    }
+
+    SetCombatState(ECombatState::Attacking);
+
+    // Setup motion warping if needed
+    if (AttackData->MotionWarpingConfig.bUseMotionWarping)
+    {
+        SetupMotionWarping(AttackData);
+    }
+
+    // Play montage
+    return PlayAttackMontage(AttackData);
+}
+
+void UCombatComponent::SetupMotionWarping(UAttackData* AttackData)
+{
+    if (!MotionWarpingComponent || !TargetingComponent || !AttackData)
+    {
+        return;
+    }
+
+    // Find target in default direction (forward/none)
+    AActor* Target = TargetingComponent->FindTarget(EAttackDirection::None);
+
+    if (Target)
+    {
+        const FMotionWarpingTarget WarpTarget(
+            AttackData->MotionWarpingConfig.MotionWarpingTargetName,
+            Target->GetActorTransform()
+        );
+        MotionWarpingComponent->AddOrUpdateWarpTarget(WarpTarget);
+    }
+}
+
+bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
+{
+    if (!AnimInstance || !AttackData || !AttackData->AttackMontage)
+    {
+        return false;
+    }
+
+    const float PlayRate = 1.0f;
+    AnimInstance->Montage_Play(AttackData->AttackMontage, PlayRate);
+
+    if (!AttackData->MontageSection.IsNone())
+    {
+        AnimInstance->Montage_JumpToSection(AttackData->MontageSection, AttackData->AttackMontage);
+    }
+
+    // Set up montage end delegate for cleanup when animation completes naturally
+    FOnMontageEnded OnMontageEndDelegate;
+    OnMontageEndDelegate.BindLambda([this](UAnimMontage* Montage, bool bInterrupted)
+    {
+        if (!bInterrupted && CurrentState == ECombatState::Attacking)
+        {
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Attack montage completed naturally - cleaning up"));
+            }
+
+            // Natural completion - clean up and return to idle
+            CurrentAttackData = nullptr;
+            CurrentAttackInputType = EInputType::None;
+            CurrentPhase = EAttackPhase::None;
+            bLightAttackBuffered = false;
+            bHeavyAttackBuffered = false;
+            bLightAttackInComboWindow = false;
+            bHeavyAttackInComboWindow = false;
+            ComboInputBuffer.Empty();
+            bHasQueuedCombo = false;
+
+            // Clear hold and blend states if montage ends during hold
+            bIsHolding = false;
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = false;
+            HoldBlendAlpha = 0.0f;
+
+            SetCombatState(ECombatState::Idle);
+        }
+    });
+    AnimInstance->Montage_SetEndDelegate(OnMontageEndDelegate, AttackData->AttackMontage);
+
+    return true;
+}
+
+// ============================================================================
+// STATE MANAGEMENT
+// ============================================================================
 
 void UCombatComponent::SetCombatState(ECombatState NewState)
 {
@@ -107,40 +1162,185 @@ void UCombatComponent::SetCombatState(ECombatState NewState)
     {
         return;
     }
-    
+
+    // Validate the state transition
     if (!CanTransitionTo(NewState))
     {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Error, TEXT("CombatComponent: Invalid state transition %d -> %d blocked!"),
+                static_cast<int32>(CurrentState), static_cast<int32>(NewState));
+        }
         return;
     }
-    
+
+    const ECombatState OldState = CurrentState;
     CurrentState = NewState;
+
+    // Clear all combat flags when entering idle to prevent input blocking
+    if (NewState == ECombatState::Idle)
+    {
+        // Clear all attack-related state
+        CurrentAttackData = nullptr;
+        CurrentAttackInputType = EInputType::None;
+        CurrentPhase = EAttackPhase::None;
+
+        // Clear buffering flags
+        bLightAttackBuffered = false;
+        bHeavyAttackBuffered = false;
+        bLightAttackInComboWindow = false;
+        bHeavyAttackInComboWindow = false;
+        bEvadeBuffered = false;
+
+        // Clear combo state
+        ComboInputBuffer.Empty();
+        bHasQueuedCombo = false;
+        bCanCombo = false;
+
+        // Clear hold state
+        bIsHolding = false;
+        bIsInHoldWindow = false;
+        CurrentHoldTime = 0.0f;
+        bHoldWindowExpired = false;
+        QueuedDirectionalInput = EAttackDirection::None;
+
+        // Clear blend states
+        bIsBlendingToHold = false;
+        bIsBlendingFromHold = false;
+        HoldBlendAlpha = 0.0f;
+
+        // Clear other window states
+        bIsInParryWindow = false;
+        bIsInCounterWindow = false;
+
+        // Clear any pending timers
+        if (GetWorld())
+        {
+            GetWorld()->GetTimerManager().ClearTimer(ComboWindowTimer);
+            GetWorld()->GetTimerManager().ClearTimer(HoldWindowTimer);
+            GetWorld()->GetTimerManager().ClearTimer(ParryWindowTimer);
+            GetWorld()->GetTimerManager().ClearTimer(CounterWindowTimer);
+        }
+
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Entering Idle - cleared all combat flags"));
+        }
+    }
+
     OnCombatStateChanged.Broadcast(NewState);
+
+    if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("CombatComponent: State %d -> %d"), static_cast<int32>(OldState), static_cast<int32>(NewState));
+    }
+}
+
+bool UCombatComponent::CanTransitionTo(ECombatState NewState) const
+{
+    // Dead state is terminal - no transitions allowed
+    if (CurrentState == ECombatState::Dead)
+    {
+        return false;
+    }
+
+    // Can't transition to the same state
+    if (CurrentState == NewState)
+    {
+        return false;
+    }
+
+    // Define valid state transitions
+    switch (CurrentState)
+    {
+        case ECombatState::Idle:
+            // From Idle, can transition to any action state
+            return NewState == ECombatState::Attacking ||
+                   NewState == ECombatState::Blocking ||
+                   NewState == ECombatState::Evading ||
+                   NewState == ECombatState::HoldingLightAttack ||
+                   NewState == ECombatState::ChargingHeavyAttack ||
+                   NewState == ECombatState::HitStunned ||
+                   NewState == ECombatState::GuardBroken ||
+                   NewState == ECombatState::Dead;
+
+        case ECombatState::Attacking:
+            // From Attacking, can transition to hold states, hit reactions, or idle
+            return NewState == ECombatState::Idle ||
+                   NewState == ECombatState::HoldingLightAttack ||
+                   NewState == ECombatState::ChargingHeavyAttack ||
+                   NewState == ECombatState::HitStunned ||
+                   NewState == ECombatState::GuardBroken ||
+                   NewState == ECombatState::Dead;
+
+        case ECombatState::HoldingLightAttack:
+            // From holding, can return to attacking or idle, or be interrupted
+            return NewState == ECombatState::Attacking ||
+                   NewState == ECombatState::Idle ||
+                   NewState == ECombatState::HitStunned ||
+                   NewState == ECombatState::Dead;
+
+        case ECombatState::ChargingHeavyAttack:
+            // From charging, can release to attacking or be interrupted
+            return NewState == ECombatState::Attacking ||
+                   NewState == ECombatState::Idle ||
+                   NewState == ECombatState::HitStunned ||
+                   NewState == ECombatState::Dead;
+
+        case ECombatState::Blocking:
+            // From blocking, can parry, be guard broken, or return to idle
+            return NewState == ECombatState::Idle ||
+                   NewState == ECombatState::Parrying ||
+                   NewState == ECombatState::GuardBroken ||
+                   NewState == ECombatState::HitStunned ||
+                   NewState == ECombatState::Evading ||
+                   NewState == ECombatState::Dead;
+
+        case ECombatState::Parrying:
+            // From parrying, return to idle or counter attack
+            return NewState == ECombatState::Idle ||
+                   NewState == ECombatState::Attacking ||
+                   NewState == ECombatState::Dead;
+
+        case ECombatState::GuardBroken:
+            // From guard broken, can only recover to idle or die
+            return NewState == ECombatState::Idle ||
+                   NewState == ECombatState::Finishing ||  // Can be finished during guard break
+                   NewState == ECombatState::Dead;
+
+        case ECombatState::Finishing:
+            // From finishing, return to idle or die
+            return NewState == ECombatState::Idle ||
+                   NewState == ECombatState::Dead;
+
+        case ECombatState::HitStunned:
+            // From hit stun, recover to idle or be hit again, or die
+            return NewState == ECombatState::Idle ||
+                   NewState == ECombatState::HitStunned ||  // Can be hit again while stunned
+                   NewState == ECombatState::GuardBroken ||
+                   NewState == ECombatState::Dead;
+
+        case ECombatState::Evading:
+            // From evading, return to idle or attack
+            return NewState == ECombatState::Idle ||
+                   NewState == ECombatState::Attacking ||
+                   NewState == ECombatState::Dead;
+
+        case ECombatState::Dead:
+            // Dead is terminal state - no transitions allowed
+            return false;
+
+        default:
+            // Unknown state - be conservative and deny transition
+            return false;
+    }
 }
 
 bool UCombatComponent::IsAttacking() const
 {
     return CurrentState == ECombatState::Attacking ||
-           CurrentState == ECombatState::HoldingLightAttack ||
-           CurrentState == ECombatState::ChargingHeavyAttack;
-}
-
-// ============================================================================
-// ATTACK EXECUTION
-// ============================================================================
-
-bool UCombatComponent::ExecuteAttack(UAttackData* AttackData)
-{
-    if (!AttackData || !CanAttack())
-    {
-        return false;
-    }
-    
-    return PlayAttackMontage(AttackData);
-}
-
-bool UCombatComponent::CanAttack() const
-{
-    return CurrentState == ECombatState::Idle;
+           CurrentState == ECombatState::ChargingHeavyAttack ||
+           CurrentState == ECombatState::HoldingLightAttack;
 }
 
 void UCombatComponent::StopCurrentAttack()
@@ -149,141 +1349,9 @@ void UCombatComponent::StopCurrentAttack()
     {
         AnimInstance->Montage_Stop(0.2f, CurrentAttackData->AttackMontage);
     }
-    
-    SetCombatState(ECombatState::Idle);
+
     CurrentAttackData = nullptr;
-}
-
-// ============================================================================
-// COMBO SYSTEM
-// ============================================================================
-
-void UCombatComponent::ResetCombo()
-{
-    ComboCount = 0;
-    bCanCombo = false;
-    
-    if (GetWorld())
-    {
-        GetWorld()->GetTimerManager().ClearTimer(ComboResetTimer);
-    }
-}
-
-void UCombatComponent::OpenComboWindow(float Duration)
-{
-    bCanCombo = true;
-    
-    if (GetWorld())
-    {
-        GetWorld()->GetTimerManager().SetTimer(ComboResetTimer, this, &UCombatComponent::CloseComboWindow, Duration, false);
-    }
-}
-
-void UCombatComponent::CloseComboWindow()
-{
-    bCanCombo = false;
-}
-
-// ============================================================================
-// POSTURE SYSTEM
-// ============================================================================
-
-float UCombatComponent::GetMaxPosture() const
-{
-    return CombatSettings ? CombatSettings->MaxPosture : 100.0f;
-}
-
-float UCombatComponent::GetPosturePercent() const
-{
-    const float MaxPosture = GetMaxPosture();
-    return (MaxPosture > 0.0f) ? (CurrentPosture / MaxPosture) : 0.0f;
-}
-
-bool UCombatComponent::ApplyPostureDamage(float Amount)
-{
-    if (Amount <= 0.0f)
-    {
-        return false;
-    }
-    
-    CurrentPosture = FMath::Max(0.0f, CurrentPosture - Amount);
-    OnPostureChanged.Broadcast(CurrentPosture);
-    
-    if (CurrentPosture <= 0.0f)
-    {
-        TriggerGuardBreak();
-        return true;
-    }
-    
-    return false;
-}
-
-void UCombatComponent::TriggerGuardBreak()
-{
-    SetCombatState(ECombatState::GuardBroken);
-    OnGuardBroken.Broadcast();
-    
-    const float RecoveryDuration = CombatSettings ? CombatSettings->GuardBreakStunDuration : 2.0f;
-    
-    if (GetWorld())
-    {
-        GetWorld()->GetTimerManager().SetTimer(GuardBreakRecoveryTimer, this, &UCombatComponent::RecoverFromGuardBreak, RecoveryDuration, false);
-    }
-}
-
-void UCombatComponent::RegeneratePosture(float DeltaTime)
-{
-    if (CurrentPosture >= GetMaxPosture())
-    {
-        return;
-    }
-    
-    const float RegenRate = GetCurrentPostureRegenRate();
-    CurrentPosture = FMath::Min(GetMaxPosture(), CurrentPosture + (RegenRate * DeltaTime));
-    OnPostureChanged.Broadcast(CurrentPosture);
-}
-
-float UCombatComponent::GetCurrentPostureRegenRate() const
-{
-    if (!CombatSettings)
-    {
-        return 20.0f;
-    }
-    
-    switch (CurrentState)
-    {
-        case ECombatState::Attacking:
-        case ECombatState::HoldingLightAttack:
-        case ECombatState::ChargingHeavyAttack:
-            return CombatSettings->PostureRegenRate_Attacking;
-            
-        case ECombatState::Blocking:
-            return 0.0f;
-            
-        case ECombatState::Idle:
-            return CombatSettings->PostureRegenRate_Idle;
-            
-        default:
-            return CombatSettings->PostureRegenRate_NotBlocking;
-    }
-}
-
-void UCombatComponent::RecoverFromGuardBreak()
-{
-    const float RecoveryPercent = CombatSettings ? CombatSettings->GuardBreakRecoveryPercent : 0.5f;
-    CurrentPosture = GetMaxPosture() * RecoveryPercent;
-    
     SetCombatState(ECombatState::Idle);
-    OnPostureChanged.Broadcast(CurrentPosture);
-}
-
-// ============================================================================
-// BLOCKING & PARRY
-// ============================================================================
-
-bool UCombatComponent::CanBlock() const
-{
-    return CurrentState == ECombatState::Idle;
 }
 
 void UCombatComponent::StartBlocking()
@@ -302,38 +1370,227 @@ void UCombatComponent::StopBlocking()
     }
 }
 
-bool UCombatComponent::TryParry()
+bool UCombatComponent::CanBlock() const
 {
-    if (CurrentState != ECombatState::Blocking)
+    return CurrentState == ECombatState::Idle;
+}
+
+void UCombatComponent::TriggerGuardBreak()
+{
+    HandleGuardBreak();
+}
+
+float UCombatComponent::GetPosturePercent() const
+{
+    const float MaxPosture = GetMaxPosture();
+    return MaxPosture > 0.0f ? (CurrentPosture / MaxPosture) : 0.0f;
+}
+
+float UCombatComponent::GetCurrentPostureRegenRate() const
+{
+    if (!CombatSettings)
     {
-        return false;
+        return 0.0f;
     }
-    
-    // Parry logic would check timing against incoming attack
-    // For now, just trigger the state and event
-    SetCombatState(ECombatState::Parrying);
-    
-    // Reset to idle after brief parry window
-    if (GetWorld())
+
+    switch (CurrentState)
     {
-        FTimerHandle ParryTimer;
-        GetWorld()->GetTimerManager().SetTimer(ParryTimer, [this]()
+        case ECombatState::Attacking:
+        case ECombatState::ChargingHeavyAttack:
+        case ECombatState::HoldingLightAttack:
+            return CombatSettings->PostureRegenRate_Attacking;
+
+        case ECombatState::Blocking:
+            return 0.0f;
+
+        case ECombatState::Idle:
+        case ECombatState::Evading:
+        default:
+            return CombatSettings->PostureRegenRate_Idle;
+    }
+}
+
+void UCombatComponent::ClearInputBuffers()
+{
+    ComboInputBuffer.Empty();
+    bEvadeBuffered = false;
+}
+
+void UCombatComponent::ProcessBufferedInputs()
+{
+    // Process non-combo buffered inputs
+    if (bEvadeBuffered)
+    {
+        bEvadeBuffered = false;
+        OnEvadePressed();
+    }
+}
+
+void UCombatComponent::ProcessRecoveryComplete()
+{
+    // This is called at END of Recovery phase
+    // Only process NON-combo-window inputs (combo window inputs were handled at Active phase end)
+
+    // Check buffered inputs that were NOT during combo window (RESPONSIVE PATH)
+    if (bLightAttackBuffered && !bLightAttackInComboWindow)
+    {
+        bLightAttackBuffered = false;
+        bLightAttackInComboWindow = false;
+
+        // Get next combo attack if available
+        if (CurrentAttackData && CurrentAttackData->NextComboAttack)
         {
-            SetCombatState(ECombatState::Idle);
-        }, 0.3f, false);
+            ExecuteComboAttackWithHoldTracking(CurrentAttackData->NextComboAttack, EInputType::LightAttack);
+        }
+        else if (DefaultLightAttack)
+        {
+            // No combo available, start fresh with default attack
+            ResetCombo();
+            CurrentAttackInputType = EInputType::LightAttack;
+            ExecuteAttack(DefaultLightAttack);
+        }
+        return;
     }
-    
-    return true;
+
+    if (bHeavyAttackBuffered && !bHeavyAttackInComboWindow)
+    {
+        bHeavyAttackBuffered = false;
+        bHeavyAttackInComboWindow = false;
+
+        // Get heavy branch if available
+        if (CurrentAttackData && CurrentAttackData->HeavyComboAttack)
+        {
+            ExecuteComboAttackWithHoldTracking(CurrentAttackData->HeavyComboAttack, EInputType::HeavyAttack);
+        }
+        else if (DefaultHeavyAttack)
+        {
+            // No heavy combo, start fresh with default heavy
+            ResetCombo();
+            CurrentAttackInputType = EInputType::HeavyAttack;
+            ExecuteAttack(DefaultHeavyAttack);
+        }
+        return;
+    }
+
+    // Check other buffered inputs
+    if (bEvadeBuffered)
+    {
+        bEvadeBuffered = false;
+        OnEvadePressed();
+        return;
+    }
+
+    // No buffered input or all inputs were already processed - continue current animation
+    // Animation might not be finished yet (could have hold windows after recovery)
+    // Clear only the input buffers, not CurrentAttackInputType
+    bLightAttackBuffered = false;
+    bHeavyAttackBuffered = false;
+    bLightAttackInComboWindow = false;
+    bHeavyAttackInComboWindow = false;
+    ComboInputBuffer.Empty();
+    bHasQueuedCombo = false;
+    // Don't set to idle - let the animation finish naturally
 }
 
 // ============================================================================
-// COUNTER WINDOWS
+// POSTURE SYSTEM
+// ============================================================================
+
+void
+
+UCombatComponent::UpdatePosture(float DeltaTime)
+{
+    if (!CombatSettings || CurrentState == ECombatState::GuardBroken)
+    {
+        return;
+    }
+
+    float RegenRate = 0.0f;
+
+    switch (CurrentState)
+    {
+        case ECombatState::Attacking:
+        case ECombatState::ChargingHeavyAttack:
+        case ECombatState::HoldingLightAttack:
+            RegenRate = CombatSettings->PostureRegenRate_Attacking;
+            break;
+
+        case ECombatState::Blocking:
+            RegenRate = 0.0f;
+            break;
+
+        case ECombatState::Idle:
+        case ECombatState::Evading:
+        default:
+            RegenRate = CombatSettings->PostureRegenRate_Idle;
+            break;
+    }
+
+    if (RegenRate > 0.0f)
+    {
+        RestorePosture(RegenRate * DeltaTime);
+    }
+}
+
+float UCombatComponent::GetMaxPosture() const
+{
+    return CombatSettings ? CombatSettings->MaxPosture : 100.0f;
+}
+
+bool UCombatComponent::ApplyPostureDamage(float Amount)
+{
+    CurrentPosture = FMath::Max(0.0f, CurrentPosture - Amount);
+
+    if (CurrentPosture <= 0.0f)
+    {
+        HandleGuardBreak();
+        return true;
+    }
+
+    return false;
+}
+
+void UCombatComponent::RestorePosture(float Amount)
+{
+    const float MaxPosture = GetMaxPosture();
+    CurrentPosture = FMath::Min(MaxPosture, CurrentPosture + Amount);
+}
+
+void UCombatComponent::HandleGuardBreak()
+{
+    SetCombatState(ECombatState::GuardBroken);
+    OnGuardBroken.Broadcast();
+
+    if (GetWorld() && CombatSettings)
+    {
+        GetWorld()->GetTimerManager().SetTimer(
+            GuardBreakRecoveryTimer,
+            this,
+            &UCombatComponent::RecoverFromGuardBreak,
+            CombatSettings->GuardBreakStunDuration,
+            false
+        );
+    }
+}
+
+void UCombatComponent::RecoverFromGuardBreak()
+{
+    if (CombatSettings)
+    {
+        RestorePosture(CombatSettings->MaxPosture * CombatSettings->GuardBreakRecoveryPercent);
+    }
+
+    SetCombatState(ECombatState::Idle);
+}
+
+// ============================================================================
+// COUNTER SYSTEM
 // ============================================================================
 
 void UCombatComponent::OpenCounterWindow(float Duration)
 {
     bIsInCounterWindow = true;
-    
+
     if (GetWorld())
     {
         GetWorld()->GetTimerManager().SetTimer(CounterWindowTimer, this, &UCombatComponent::CloseCounterWindow, Duration, false);
@@ -343,7 +1600,7 @@ void UCombatComponent::OpenCounterWindow(float Duration)
 void UCombatComponent::CloseCounterWindow()
 {
     bIsInCounterWindow = false;
-    
+
     if (GetWorld())
     {
         GetWorld()->GetTimerManager().ClearTimer(CounterWindowTimer);
@@ -351,395 +1608,274 @@ void UCombatComponent::CloseCounterWindow()
 }
 
 // ============================================================================
-// INPUT HANDLING
+// PARRY WINDOW SYSTEM
 // ============================================================================
 
-void UCombatComponent::OnLightAttackPressed()
+void UCombatComponent::OpenParryWindow(float Duration)
 {
-    bLightAttackHeld = true;
-    
-    if (CanAttack())
+    bIsInParryWindow = true;
+
+    if (GetWorld())
     {
-        if (DefaultLightAttack)
-        {
-            ExecuteAttack(DefaultLightAttack);
-        }
+        GetWorld()->GetTimerManager().SetTimer(ParryWindowTimer, this, &UCombatComponent::CloseParryWindow, Duration, false);
     }
-    else if (bCanCombo && CurrentAttackData && CurrentAttackData->NextComboAttack)
+
+    if (bDebugDraw)
     {
-        ExecuteComboAttack(CurrentAttackData->NextComboAttack);
-    }
-    else
-    {
-        bLightAttackBuffered = true;
+        UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Opened parry window for %f seconds"), Duration);
     }
 }
 
-void UCombatComponent::OnLightAttackReleased()
+void UCombatComponent::CloseParryWindow()
 {
-    bLightAttackHeld = false;
-    
+    bIsInParryWindow = false;
+
+    if (GetWorld())
+    {
+        GetWorld()->GetTimerManager().ClearTimer(ParryWindowTimer);
+    }
+
+    if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Closed parry window"));
+    }
+}
+
+// ============================================================================
+// HOLD WINDOW SYSTEM
+// ============================================================================
+
+void UCombatComponent::OpenHoldWindow(float Duration)
+{
+    bIsInHoldWindow = true;
+
+    // Initialize hold window state
+    bHoldWindowExpired = false;
+    QueuedDirectionalInput = EAttackDirection::None;
+
+    // Check if the SAME input type that queued this attack is STILL HELD
+    bool bInputStillHeld = false;
+
+    if (CurrentAttackInputType == EInputType::LightAttack && bLightAttackHeld)
+    {
+        bInputStillHeld = true;
+    }
+    else if (CurrentAttackInputType == EInputType::HeavyAttack && bHeavyAttackHeld)
+    {
+        bInputStillHeld = true;
+    }
+
+    // If the correct input is still held, enter hold state
+    if (bInputStillHeld && CurrentAttackData && CurrentAttackData->bCanHold)
+    {
+        // Enter hold state
+        bIsHolding = true;
+        CurrentHoldTime = 0.0f;
+
+        // CRITICAL: Clear buffered inputs to prevent them from triggering after hold release
+        // This prevents the combo from cycling when holding the button continuously
+        bLightAttackBuffered = false;
+        bHeavyAttackBuffered = false;
+        bHasQueuedCombo = false;
+        ComboInputBuffer.Empty();
+
+        // Set state based on input type (both use same hold state for simplicity)
+        if (CurrentAttackInputType == EInputType::LightAttack)
+        {
+            SetCombatState(ECombatState::HoldingLightAttack);
+        }
+        else if (CurrentAttackInputType == EInputType::HeavyAttack)
+        {
+            SetCombatState(ECombatState::HoldingLightAttack); // Use same hold state for both
+        }
+
+        // Start smooth blend to hold (1.0 → 0.0 playback rate)
+        bIsBlendingToHold = true;
+        bIsBlendingFromHold = false;
+        HoldBlendAlpha = 0.0f;
+
+        // Lock movement during hold
+        if (OwnerCharacter && OwnerCharacter->GetCharacterMovement())
+        {
+            OwnerCharacter->GetCharacterMovement()->DisableMovement();
+        }
+
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Entered hold state (input type %d still held during hold window)"),
+                static_cast<int32>(CurrentAttackInputType));
+        }
+    }
+    else if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Hold window opened but input not held - continuing normal combo (Input type: %d, Still held: %s)"),
+            static_cast<int32>(CurrentAttackInputType), bInputStillHeld ? TEXT("true") : TEXT("false"));
+    }
+
+    // Set timer to close hold window
+    if (GetWorld())
+    {
+        GetWorld()->GetTimerManager().SetTimer(
+            HoldWindowTimer,
+            this,
+            &UCombatComponent::CloseHoldWindow,
+            Duration,
+            false
+        );
+    }
+
+    if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Opened hold window for %.2fs"), Duration);
+    }
+}
+
+void UCombatComponent::CloseHoldWindow()
+{
+    bIsInHoldWindow = false;
+
+    if (GetWorld())
+    {
+        GetWorld()->GetTimerManager().ClearTimer(HoldWindowTimer);
+    }
+
+    // If button is still held when window closes, mark as "held until timeout"
+    // This enables directional followups when button is eventually released
     if (bIsHolding)
     {
-        ReleaseHeldLight();
-    }
-}
+        bHoldWindowExpired = true;
 
-void UCombatComponent::OnHeavyAttackPressed()
-{
-    bHeavyAttackHeld = true;
-    
-    if (CanAttack())
-    {
-        if (DefaultHeavyAttack)
+        // Sample directional input NOW at moment of timeout
+        const FVector WorldInput = GetWorldSpaceMovementInput();
+        if (!WorldInput.IsNearlyZero())
         {
-            bIsCharging = true;
-            CurrentChargeTime = 0.0f;
-            SetCombatState(ECombatState::ChargingHeavyAttack);
-            CurrentAttackData = DefaultHeavyAttack;
-            
-            if (AnimInstance && DefaultHeavyAttack->AttackMontage)
-            {
-                AnimInstance->Montage_Play(DefaultHeavyAttack->AttackMontage, DefaultHeavyAttack->ChargeTimeScale);
-            }
+            QueuedDirectionalInput = GetAttackDirectionFromWorldDirection(WorldInput);
+        }
+        else
+        {
+            QueuedDirectionalInput = EAttackDirection::Forward; // Default forward
+        }
+
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Hold window expired - queued direction: %d"),
+                static_cast<int32>(QueuedDirectionalInput));
         }
     }
-    else if (bCanCombo && CurrentAttackData && CurrentAttackData->HeavyComboAttack)
-    {
-        ExecuteComboAttack(CurrentAttackData->HeavyComboAttack);
-    }
-    else
-    {
-        bHeavyAttackBuffered = true;
-    }
-}
 
-void UCombatComponent::OnHeavyAttackReleased()
-{
-    bHeavyAttackHeld = false;
-    
-    if (bIsCharging)
+    // IMPORTANT: Do NOT auto-resume when window closes
+    // The hold should remain frozen indefinitely until button is released
+    // This prevents the animation from jumping to next combo on window timeout
+
+    if (bDebugDraw)
     {
-        ReleaseChargedHeavy();
-    }
-}
-
-void UCombatComponent::OnBlockPressed()
-{
-    StartBlocking();
-}
-
-void UCombatComponent::OnBlockReleased()
-{
-    StopBlocking();
-}
-
-void UCombatComponent::OnEvadePressed()
-{
-    if (CurrentState == ECombatState::Idle || CurrentState == ECombatState::Blocking)
-    {
-        SetCombatState(ECombatState::Evading);
-        
-        // Reset after evade duration
-        if (GetWorld())
-        {
-            FTimerHandle EvadeTimer;
-            GetWorld()->GetTimerManager().SetTimer(EvadeTimer, [this]()
-            {
-                SetCombatState(ECombatState::Idle);
-            }, 0.5f, false);
-        }
+        UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Closed hold window (hold state: %s, expired: %s)"),
+            bIsHolding ? TEXT("still holding") : TEXT("not holding"),
+            bHoldWindowExpired ? TEXT("true") : TEXT("false"));
     }
 }
 
 // ============================================================================
-// ATTACK PHASE CALLBACKS
+// PARRY SYSTEM (Defender-Side Detection)
 // ============================================================================
 
-void UCombatComponent::OnAttackPhaseBegin(EAttackPhase Phase)
+bool UCombatComponent::TryParry()
 {
-    CurrentPhase = Phase;
-    
-    switch (Phase)
-    {
-        case EAttackPhase::Active:
-            if (WeaponComponent)
-            {
-                WeaponComponent->EnableHitDetection();
-            }
-            break;
-            
-        case EAttackPhase::Hold:
-            if (bLightAttackHeld && CurrentAttackData && CurrentAttackData->bCanHoldAtEnd)
-            {
-                bIsHolding = true;
-                CurrentHoldTime = 0.0f;
-                SetCombatState(ECombatState::HoldingLightAttack);
-                
-                if (AnimInstance && CurrentAttackData->AttackMontage)
-                {
-                    AnimInstance->Montage_Pause(CurrentAttackData->AttackMontage);
-                }
-            }
-            break;
-            
-        case EAttackPhase::Recovery:
-            OpenComboWindow(CombatSettings ? CombatSettings->ComboInputWindow : 0.6f);
-            break;
-            
-        default:
-            break;
-    }
-}
-
-void UCombatComponent::OnAttackPhaseEnd(EAttackPhase Phase)
-{
-    switch (Phase)
-    {
-        case EAttackPhase::Active:
-            if (WeaponComponent)
-            {
-                WeaponComponent->DisableHitDetection();
-            }
-            break;
-            
-        case EAttackPhase::Recovery:
-            SetCombatState(ECombatState::Idle);
-            ProcessBufferedInputs();
-            break;
-            
-        default:
-            break;
-    }
-}
-
-// ============================================================================
-// INTERNAL HELPERS
-// ============================================================================
-
-void UCombatComponent::HandleComboInput()
-{
-    ProcessBufferedInputs();
-}
-
-void UCombatComponent::ExecuteComboAttack(UAttackData* NextAttack)
-{
-    if (!NextAttack)
-    {
-        return;
-    }
-    
-    ComboCount++;
-    bCanCombo = false;
-    CurrentAttackData = NextAttack;
-    
-    PlayAttackMontage(NextAttack);
-}
-
-void UCombatComponent::ExecuteDirectionalFollowUp(EAttackDirection Direction)
-{
-    if (!CurrentAttackData)
-    {
-        return;
-    }
-    
-    UAttackData* FollowUp = CurrentAttackData->DirectionalFollowUps.FindRef(Direction);
-    
-    if (FollowUp)
-    {
-        CurrentAttackData = FollowUp;
-        PlayAttackMontage(FollowUp);
-    }
-}
-
-void UCombatComponent::ProcessBufferedInputs()
-{
-    if (bEvadeBuffered)
-    {
-        bEvadeBuffered = false;
-        OnEvadePressed();
-    }
-    else if (bLightAttackBuffered)
-    {
-        bLightAttackBuffered = false;
-        OnLightAttackPressed();
-    }
-    else if (bHeavyAttackBuffered)
-    {
-        bHeavyAttackBuffered = false;
-        OnHeavyAttackPressed();
-    }
-}
-
-void UCombatComponent::ClearInputBuffers()
-{
-    bLightAttackBuffered = false;
-    bHeavyAttackBuffered = false;
-    bEvadeBuffered = false;
-}
-
-void UCombatComponent::SetupMotionWarping(UAttackData* AttackData)
-{
-    if (!MotionWarpingComponent || !AttackData || !AttackData->MotionWarpingConfig.bUseMotionWarping || !TargetingComponent)
-    {
-        return;
-    }
-    
-    AActor* Target = TargetingComponent->GetCurrentTarget();
-    if (!Target)
-    {
-        return;
-    }
-    
-    const FVector TargetLocation = Target->GetActorLocation();
-    const FRotator LookAtRotation = (TargetLocation - OwnerCharacter->GetActorLocation()).Rotation();
-    
-    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
-        AttackData->MotionWarpingConfig.MotionWarpingTargetName,
-        TargetLocation,
-        LookAtRotation
-    );
-}
-
-
-bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
-{
-    if (!AttackData || !AnimInstance || !AttackData->AttackMontage)
+    if (!TargetingComponent || !OwnerCharacter)
     {
         return false;
     }
-    
-    CurrentAttackData = AttackData;
-    SetCombatState(ECombatState::Attacking);
-    
-    if (WeaponComponent)
-    {
-        WeaponComponent->ResetHitActors();
-    }
-    
-    SetupMotionWarping(AttackData);
-    
-    AnimInstance->Montage_Play(AttackData->AttackMontage);
-    
-    if (AttackData->MontageSection != NAME_None && AttackData->bJumpToSectionStart)
-    {
-        AnimInstance->Montage_JumpToSection(AttackData->MontageSection, AttackData->AttackMontage);
-    }
-    
-    return true;
-}
 
-void UCombatComponent::ResetComboChain()
-{
-    ResetCombo();
-}
+    // Get default parry window duration from settings
+    const float ParryWindowDuration = CombatSettings ? CombatSettings->ParryWindow : 0.3f;
 
-void UCombatComponent::UpdateHeavyCharging(float DeltaTime)
-{
-    if (!CurrentAttackData)
-    {
-        return;
-    }
-    
-    CurrentChargeTime += DeltaTime;
-    
-    if (CurrentChargeTime >= CurrentAttackData->MaxChargeTime)
-    {
-        ReleaseChargedHeavy();
-    }
-}
+    // Find all nearby enemies in range
+    TArray<AActor*> NearbyEnemies;
+    TargetingComponent->GetAllTargetsInRange(NearbyEnemies);
 
-void UCombatComponent::ReleaseChargedHeavy()
-{
-    if (!bIsCharging)
+    if (bDebugDraw)
     {
-        return;
+        UE_LOG(LogTemp, Log, TEXT("[CombatComponent] TryParry: Found %d nearby enemies"), NearbyEnemies.Num());
     }
-    
-    bIsCharging = false;
-    SetCombatState(ECombatState::Attacking);
-    
-    if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
-    {
-        AnimInstance->Montage_SetPlayRate(CurrentAttackData->AttackMontage, 1.0f);
-    }
-}
 
-void UCombatComponent::UpdateLightHold(float DeltaTime)
-{
-    if (!CurrentAttackData)
+    // Check each enemy to see if they're in parry window
+    for (AActor* Enemy : NearbyEnemies)
     {
-        return;
-    }
-    
-    CurrentHoldTime += DeltaTime;
-    
-    if (CurrentAttackData->bEnforceMaxHoldTime && CurrentHoldTime >= CurrentAttackData->MaxHoldTime)
-    {
-        ReleaseHeldLight();
-    }
-}
-
-void UCombatComponent::ReleaseHeldLight()
-{
-    if (!bIsHolding)
-    {
-        return;
-    }
-    
-    bIsHolding = false;
-    
-    if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
-    {
-        AnimInstance->Montage_Resume(CurrentAttackData->AttackMontage);
-    }
-    
-    // Determine direction from stored movement input
-    EAttackDirection InputDirection = EAttackDirection::Forward; // Default
-    
-    if (TargetingComponent)
-    {
-        if (!StoredMovementInput.IsNearlyZero())
+        if (!Enemy || Enemy == OwnerCharacter)
         {
-            // Convert 2D input to world direction and get attack direction
-            const FVector WorldInput = GetWorldSpaceMovementInput();
-            InputDirection = TargetingComponent->GetAttackDirectionFromInput(WorldInput);
+            continue;
         }
-        // else: no input means forward attack (default)
+
+        // Check if enemy implements combat interface
+        ICombatInterface* EnemyCombat = Cast<ICombatInterface>(Enemy);
+        if (!EnemyCombat)
+        {
+            continue;
+        }
+
+        // Check if enemy is in parry window (CRITICAL: Attacker-side state)
+        if (ICombatInterface::Execute_IsInParryWindow(Enemy))
+        {
+            // SUCCESS: Perfect parry!
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] PARRY SUCCESS on %s!"), *Enemy->GetName());
+            }
+
+            // Transition to parrying state
+            SetCombatState(ECombatState::Parrying);
+
+            // Fully restore parry executor's posture (reward for successful parry)
+            CurrentPosture = GetMaxPosture();
+            OnPostureChanged.Broadcast(CurrentPosture);
+
+            // Apply posture damage to attacker (punish failed attack)
+            const float ParryPostureDamage = CombatSettings ? CombatSettings->ParryPostureDamage : 40.0f;
+            if (IDamageableInterface* EnemyDamageable = Cast<IDamageableInterface>(Enemy))
+            {
+                IDamageableInterface::Execute_ApplyPostureDamage(Enemy, ParryPostureDamage, OwnerCharacter);
+            }
+
+            // Open counter window on attacker (they're vulnerable now)
+            const float CounterDuration = CombatSettings ? CombatSettings->CounterWindowDuration : 1.5f;
+            if (IDamageableInterface* EnemyDamageable = Cast<IDamageableInterface>(Enemy))
+            {
+                IDamageableInterface::Execute_OpenCounterWindow(Enemy, CounterDuration);
+            }
+
+            // Notify attacker they were parried (for animation/feedback)
+            if (IDamageableInterface* EnemyDamageable = Cast<IDamageableInterface>(Enemy))
+            {
+                IDamageableInterface::Execute_OnAttackParried(Enemy, OwnerCharacter);
+            }
+
+            // Broadcast parry success event
+            OnPerfectParry.Broadcast(Enemy);
+
+            // Return to idle after brief parry animation
+            if (GetWorld())
+            {
+                FTimerHandle ParryRecoveryTimer;
+                TWeakObjectPtr<UCombatComponent> WeakThis(this);
+                GetWorld()->GetTimerManager().SetTimer(ParryRecoveryTimer, [WeakThis]()
+                {
+                    if (WeakThis.IsValid() && WeakThis->CurrentState == ECombatState::Parrying)
+                    {
+                        WeakThis->SetCombatState(ECombatState::Idle);
+                    }
+                }, 0.3f, false); // Brief parry recovery window
+            }
+
+            return true;
+        }
     }
-    
-    // Execute directional follow-up
-    ExecuteDirectionalFollowUp(InputDirection);
-}
 
-void UCombatComponent::SetMovementInput(FVector2D Input)
-{
-    StoredMovementInput = Input;
-}
-
-
-FVector UCombatComponent::GetWorldSpaceMovementInput() const
-{
-    if (!OwnerCharacter || StoredMovementInput.IsNearlyZero())
+    // FAIL: No enemy in parry window - this is just a normal block
+    if (bDebugDraw)
     {
-        return FVector::ZeroVector;
+        UE_LOG(LogTemp, Log, TEXT("[CombatComponent] TryParry: No enemies in parry window - defaulting to block"));
     }
-    
-    const APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController());
-    if (!PC)
-    {
-        return OwnerCharacter->GetActorForwardVector();
-    }
-    
-    FRotator ControlRotation = PC->GetControlRotation();
-    ControlRotation.Pitch = 0.0f;
-    ControlRotation.Roll = 0.0f;
-    
-    const FVector Forward = FRotationMatrix(ControlRotation).GetUnitAxis(EAxis::X);
-    const FVector Right = FRotationMatrix(ControlRotation).GetUnitAxis(EAxis::Y);
-    
-    FVector WorldInput = (Forward * StoredMovementInput.Y) + (Right * StoredMovementInput.X);
-    WorldInput.Normalize();
-    
-    return WorldInput;
+
+    StartBlocking();
+    return false;
 }

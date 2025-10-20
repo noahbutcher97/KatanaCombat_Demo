@@ -1,5 +1,4 @@
-﻿
-// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #pragma once
 
@@ -26,7 +25,7 @@ class ACharacter;
  * - State machine (10 combat states)
  * - Attack execution and timing
  * - Posture system (regen, depletion, guard break)
- * - Combo tracking and branching
+ * - Combo tracking and branching (hybrid responsive + snappy system)
  * - Parry/counter windows
  * - Input handling and buffering
  * 
@@ -213,40 +212,83 @@ public:
 
     /**
      * Can block right now?
-     * @return True if able to enter blocking state
+     * @return True if able to block
      */
     UFUNCTION(BlueprintPure, Category = "Combat|Defense")
     bool CanBlock() const;
 
-    /** Start blocking (enter block state) */
+    /** Start blocking */
     UFUNCTION(BlueprintCallable, Category = "Combat|Defense")
     void StartBlocking();
 
-    /** Stop blocking (return to idle) */
+    /** Stop blocking */
     UFUNCTION(BlueprintCallable, Category = "Combat|Defense")
     void StopBlocking();
 
     /**
-     * Attempt to parry an incoming attack
-     * Must be called during enemy windup phase
+     * Attempt perfect parry (call during parry window)
+     * Defender-side detection: Checks nearby attackers for IsInParryWindow()
      * @return True if parry was successful
      */
     UFUNCTION(BlueprintCallable, Category = "Combat|Defense")
     bool TryParry();
 
     // ============================================================================
+    // PARRY WINDOWS
+    // ============================================================================
+
+    /**
+     * Is currently in parry window? (ATTACKER's state)
+     * Defender checks this on nearby attackers to determine if parry is possible
+     * @return True if this character is vulnerable to being parried
+     */
+    UFUNCTION(BlueprintPure, Category = "Combat|Defense")
+    bool IsInParryWindow() const { return bIsInParryWindow; }
+
+    /**
+     * Open parry window (mark attacker as vulnerable to parry)
+     * Called by AnimNotifyState_ParryWindow on ATTACKER's montage
+     * @param Duration - How long window stays open
+     */
+    void OpenParryWindow(float Duration);
+
+    /** Close parry window */
+    void CloseParryWindow();
+
+    // ============================================================================
+    // HOLD WINDOWS
+    // ============================================================================
+
+    /**
+     * Is currently in hold window?
+     * @return True if in window where held button can trigger hold state
+     */
+    UFUNCTION(BlueprintPure, Category = "Combat|Hold")
+    bool IsInHoldWindow() const { return bIsInHoldWindow; }
+
+    /**
+     * Open hold window (check if attack button is still held)
+     * Called by AnimNotifyState_HoldWindow in light attack montages
+     * @param Duration - How long window stays open
+     */
+    void OpenHoldWindow(float Duration);
+
+    /** Close hold window */
+    void CloseHoldWindow();
+
+    // ============================================================================
     // COUNTER WINDOWS
     // ============================================================================
 
     /**
-     * Is in counter window? (vulnerable to bonus damage)
-     * @return True if counter window is active
+     * Is currently in counter window?
+     * @return True if vulnerable to counter attacks
      */
     UFUNCTION(BlueprintPure, Category = "Combat|Counter")
     bool IsInCounterWindow() const { return bIsInCounterWindow; }
 
     /**
-     * Open counter window on this actor (after being parried/evaded)
+     * Open counter window (enemy is vulnerable)
      * @param Duration - How long window stays open
      */
     UFUNCTION(BlueprintCallable, Category = "Combat|Counter")
@@ -260,83 +302,76 @@ public:
     // INPUT HANDLING
     // ============================================================================
 
-    /** Light attack pressed */
-    UFUNCTION(BlueprintCallable, Category = "Combat|Input")
-    void OnLightAttackPressed();
-
-    /** Light attack released */
-    UFUNCTION(BlueprintCallable, Category = "Combat|Input")
-    void OnLightAttackReleased();
-
-    /** Heavy attack pressed */
-    UFUNCTION(BlueprintCallable, Category = "Combat|Input")
-    void OnHeavyAttackPressed();
-
-    /** Heavy attack released */
-    UFUNCTION(BlueprintCallable, Category = "Combat|Input")
-    void OnHeavyAttackReleased();
-
-    /** Block pressed */
-    UFUNCTION(BlueprintCallable, Category = "Combat|Input")
-    void OnBlockPressed();
-
-    /** Block released */
-    UFUNCTION(BlueprintCallable, Category = "Combat|Input")
-    void OnBlockReleased();
-
-    /** Evade pressed */
-    UFUNCTION(BlueprintCallable, Category = "Combat|Input")
-    void OnEvadePressed();
-
-    /** Set last movement input for directional follow-ups */
+    /** Store movement input for directional attacks */
     UFUNCTION(BlueprintCallable, Category = "Combat|Input")
     void SetMovementInput(FVector2D Input);
 
+    /** Light attack button pressed */
+    void OnLightAttackPressed();
+
+    /** Light attack button released */
+    void OnLightAttackReleased();
+
+    /** Heavy attack button pressed */
+    void OnHeavyAttackPressed();
+
+    /** Heavy attack button released */
+    void OnHeavyAttackReleased();
+
+    /** Block button pressed */
+    void OnBlockPressed();
+
+    /** Block button released */
+    void OnBlockReleased();
+
+    /** Evade button pressed */
+    void OnEvadePressed();
+
     // ============================================================================
-    // ATTACK PHASE CALLBACKS (from AnimNotifyStates)
+    // ANIMATION CALLBACKS
     // ============================================================================
 
     /**
-     * Called when an attack phase begins
-     * Routed from AnimInstance via ICombatInterface
-     * @param Phase - Which phase is beginning
+     * Called when attack phase begins (from AnimNotifyState)
+     * @param Phase - Phase that is beginning
      */
     void OnAttackPhaseBegin(EAttackPhase Phase);
 
     /**
-     * Called when an attack phase ends
-     * Routed from AnimInstance via ICombatInterface
-     * @param Phase - Which phase is ending
+     * Called when attack phase ends (from AnimNotifyState)
+     * @param Phase - Phase that is ending
      */
     void OnAttackPhaseEnd(EAttackPhase Phase);
 
     // ============================================================================
     // EVENTS
     // ============================================================================
+    // NOTE: Delegate types are declared in CombatTypes.h (declared ONCE system-wide)
+    // Components only use UPROPERTY to expose them
 
-    /** Event broadcast when combat state changes */
+    /** Broadcast when combat state changes */
     UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
     FOnCombatStateChanged OnCombatStateChanged;
 
-    /** Event broadcast when attack hits an actor */
-    UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
-    FOnAttackHit OnAttackHit;
-
-    /** Event broadcast when posture changes */
+    /** Broadcast when posture changes */
     UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
     FOnPostureChanged OnPostureChanged;
 
-    /** Event broadcast when guard breaks */
+    /** Broadcast when guard is broken */
     UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
     FOnGuardBroken OnGuardBroken;
 
-    /** Event broadcast on successful perfect parry */
+    /** Broadcast on successful perfect parry */
     UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
     FOnPerfectParry OnPerfectParry;
 
-    /** Event broadcast on successful perfect evade */
+    /** Broadcast on successful perfect evade */
     UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
     FOnPerfectEvade OnPerfectEvade;
+
+    /** Broadcast when attack hits a target */
+    UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
+    FOnAttackHit OnAttackHit;
 
 protected:
     virtual void BeginPlay() override;
@@ -370,19 +405,53 @@ private:
     FTimerHandle GuardBreakRecoveryTimer;
 
     // ============================================================================
-    // COMBO
+    // COMBO SYSTEM - HYBRID (Responsive + Snappy)
     // ============================================================================
 
     /** Number of attacks in current combo */
     UPROPERTY(VisibleAnywhere, Category = "Combat|Combo")
     int32 ComboCount = 0;
 
-    /** Can currently input next combo? */
+    /** Can currently input next combo? (combo window is open) */
     UPROPERTY(VisibleAnywhere, Category = "Combat|Combo")
     bool bCanCombo = false;
 
+    /** Timer for combo window */
+    FTimerHandle ComboWindowTimer;
+
     /** Timer to reset combo after timeout */
     FTimerHandle ComboResetTimer;
+
+    /** Queued combo inputs during combo window (snappy path) */
+    TArray<EInputType> ComboInputBuffer;
+
+    /** Flag: Did we queue a combo during combo window? */
+    bool bHasQueuedCombo = false;
+
+    /** Input type that initiated the current attack animation (persists throughout animation lifecycle for hold detection) */
+    EInputType CurrentAttackInputType = EInputType::None;
+
+    // ============================================================================
+    // PARRY WINDOW
+    // ============================================================================
+
+    /** Is parry window currently active? (Attacker is vulnerable to being parried) */
+    UPROPERTY(VisibleAnywhere, Category = "Combat|Parry")
+    bool bIsInParryWindow = false;
+
+    /** Timer to close parry window */
+    FTimerHandle ParryWindowTimer;
+
+    // ============================================================================
+    // HOLD WINDOW
+    // ============================================================================
+
+    /** Is hold window currently active? */
+    UPROPERTY(VisibleAnywhere, Category = "Combat|Hold")
+    bool bIsInHoldWindow = false;
+
+    /** Timer to close hold window */
+    FTimerHandle HoldWindowTimer;
 
     // ============================================================================
     // COUNTER WINDOW
@@ -396,7 +465,7 @@ private:
     FTimerHandle CounterWindowTimer;
 
     // ============================================================================
-    // INPUT BUFFERING
+    // INPUT BUFFERING - RESPONSIVE PATH
     // ============================================================================
 
     /** Buffered light attack input */
@@ -407,6 +476,12 @@ private:
 
     /** Buffered evade input */
     bool bEvadeBuffered = false;
+
+    /** Was light attack buffered during combo window? */
+    bool bLightAttackInComboWindow = false;
+
+    /** Was heavy attack buffered during combo window? */
+    bool bHeavyAttackInComboWindow = false;
 
     /** Is light attack button held? */
     bool bLightAttackHeld = false;
@@ -434,12 +509,28 @@ private:
     /** Current hold time */
     float CurrentHoldTime = 0.0f;
 
+    /** Did the hold window expire while button was still held? */
+    bool bHoldWindowExpired = false;
+
+    /** Directional input queued during hold window (sampled during hold, not on release) */
+    EAttackDirection QueuedDirectionalInput = EAttackDirection::None;
+
+    /** Playback rate blending for holds */
+    bool bIsBlendingToHold = false;
+    bool bIsBlendingFromHold = false;
+    float HoldBlendAlpha = 0.0f;
+
+public:
+
+    UPROPERTY(EditAnywhere, Category = "Combat")
+    float HoldBlendSpeed = 5.0f;  // Speed of blend (0 to 1 in ~0.2 seconds at default 5.0)
+
+private:
     // ============================================================================
     // MOVEMENT INPUT
     // ============================================================================
 
-    /** Last movement input (X = Right, Y = Forward) used for directional follow-ups */
-    UPROPERTY()
+    /** Stored movement input (X = Right, Y = Forward) for directional follow-ups */
     FVector2D StoredMovementInput = FVector2D::ZeroVector;
 
     // ============================================================================
@@ -467,35 +558,23 @@ private:
     TObjectPtr<UMotionWarpingComponent> MotionWarpingComponent;
 
     // ============================================================================
-    // INTERNAL HELPERS
+    // INTERNAL HELPERS - STATE & POSTURE
     // ============================================================================
+
+    /** Update posture regeneration per frame */
+    void UpdatePosture(float DeltaTime);
 
     /** Regenerate posture based on current state */
     void RegeneratePosture(float DeltaTime);
 
+    /** Restore posture by amount */
+    void RestorePosture(float Amount);
+
     /** Get current posture regen rate based on state */
     float GetCurrentPostureRegenRate() const;
 
-    /** Handle combo input during recovery phase */
-    void HandleComboInput();
-
-    /** Execute combo attack */
-    void ExecuteComboAttack(UAttackData* NextAttack);
-
-    /** Execute directional follow-up attack */
-    void ExecuteDirectionalFollowUp(EAttackDirection Direction);
-
-    /** Process all buffered inputs */
-    void ProcessBufferedInputs();
-
-    /** Clear all input buffers */
-    void ClearInputBuffers();
-
-    /** Setup motion warping for attack */
-    void SetupMotionWarping(UAttackData* AttackData);
-
-    /** Play attack montage */
-    bool PlayAttackMontage(UAttackData* AttackData);
+    /** Trigger guard break state */
+    void HandleGuardBreak();
 
     /** Handle guard break recovery after stun duration */
     void RecoverFromGuardBreak();
@@ -503,18 +582,82 @@ private:
     /** Reset combo chain after timeout */
     void ResetComboChain();
 
+    // ============================================================================
+    // INTERNAL HELPERS - COMBO SYSTEM (Hybrid)
+    // ============================================================================
+
+    /** Queue combo input during combo window (SNAPPY PATH) */
+    void QueueComboInput(EInputType InputType);
+
+    /** Cancel recovery and execute combo immediately (SNAPPY PATH) */
+    void CancelRecoveryAndExecuteCombo();
+
+    /** Process queued combo inputs */
+    void ProcessQueuedCombo();
+
+    /** Process combo window inputs at end of Active phase */
+    void ProcessComboWindowInput();
+
+    /** Process recovery completion naturally (RESPONSIVE PATH) */
+    void ProcessRecoveryComplete();
+
+    /** Get combo attack data from input type */
+    UAttackData* GetComboFromInput(EInputType InputType);
+
+    /** Execute combo attack with hold tracking */
+    void ExecuteComboAttackWithHoldTracking(UAttackData* NextAttack, EInputType InputType);
+
+    /** Execute combo attack (wrapper) */
+    void ExecuteComboAttack(UAttackData* NextAttack);
+
+    /** Execute directional follow-up attack */
+    void ExecuteDirectionalFollowUp(EAttackDirection Direction);
+
+    // ============================================================================
+    // INTERNAL HELPERS - INPUT & BUFFERING
+    // ============================================================================
+
+    /** Process all buffered inputs (non-combo inputs) */
+    void ProcessBufferedInputs();
+
+    /** Clear all input buffers */
+    void ClearInputBuffers();
+
+    /** Convert stored 2D input to a normalized world space direction */
+    FVector GetWorldSpaceMovementInput() const;
+
+    /** Convert a world-space direction to an attack direction relative to owner */
+    EAttackDirection GetAttackDirectionFromWorldDirection(const FVector& WorldDir) const;
+
+    // ============================================================================
+    // INTERNAL HELPERS - ANIMATION & MOTION WARPING
+    // ============================================================================
+
+    /** Setup motion warping for attack */
+    void SetupMotionWarping(UAttackData* AttackData);
+
+    /** Play attack montage */
+    bool PlayAttackMontage(UAttackData* AttackData);
+
+    // ============================================================================
+    // INTERNAL HELPERS - CHARGING & HOLDING
+    // ============================================================================
+
+    /** Start charging heavy attack */
+    void StartChargingHeavy();
+
     /** Update heavy attack charging */
     void UpdateHeavyCharging(float DeltaTime);
 
     /** Release charged heavy attack */
     void ReleaseChargedHeavy();
 
-    /** Update light attack hold */
-    void UpdateLightHold(float DeltaTime);
+    /** Update hold time (works for both light and heavy) */
+    void UpdateHoldTime(float DeltaTime);
 
     /** Release held light attack with directional input */
     void ReleaseHeldLight();
 
-    /** Convert stored 2D input to a normalized world space direction */
-    FVector GetWorldSpaceMovementInput() const;
+    /** Release held heavy attack (play follow-through) */
+    void ReleaseHeldHeavy();
 };
