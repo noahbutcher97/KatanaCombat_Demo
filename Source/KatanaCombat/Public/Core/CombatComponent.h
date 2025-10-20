@@ -93,6 +93,14 @@ public:
     UFUNCTION(BlueprintPure, Category = "Combat|State")
     bool IsAttacking() const;
 
+    /**
+     * Is currently holding an attack? (frozen at 0.0 playrate)
+     * Used by AnimInstance to prevent locomotion updates during hold state
+     * @return True if in hold state
+     */
+    UFUNCTION(BlueprintPure, Category = "Combat|State")
+    bool IsHolding() const { return bIsHolding; }
+
     // ============================================================================
     // ATTACK EXECUTION
     // ============================================================================
@@ -655,9 +663,22 @@ private:
     /** Update hold time (works for both light and heavy) */
     void UpdateHoldTime(float DeltaTime);
 
-    /** Release held light attack with directional input */
-    void ReleaseHeldLight();
+    /**
+     * Release held light attack with directional input
+     * @param bWasWindowExpired - Captured state of bHoldWindowExpired at moment of button release (prevents race condition)
+     */
+    void ReleaseHeldLight(bool bWasWindowExpired);
 
-    /** Release held heavy attack (play follow-through) */
-    void ReleaseHeldHeavy();
+    /**
+     * Release held heavy attack (play follow-through)
+     * @param bWasWindowExpired - Captured state of bHoldWindowExpired at moment of button release (prevents race condition)
+     */
+    void ReleaseHeldHeavy(bool bWasWindowExpired);
+
+    /**
+     * Force restore normal playrate (1.0) for all active montages
+     * SAFETY FUNCTION: Ensures we never have movement enabled while animation is frozen
+     * Called when exiting hold state to prevent stuck animations
+     */
+    void ForceRestoreNormalPlayRate();
 };

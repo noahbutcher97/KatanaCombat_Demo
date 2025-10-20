@@ -57,6 +57,17 @@ void USamuraiAnimInstance::UpdateMovement()
         return;
     }
 
+    // CRITICAL: Don't update locomotion during hold state
+    // Prevents animation state machine from reacting to velocity changes
+    // while montage is frozen at 0.0 playrate, which causes animation conflicts
+    if (bIsHoldingAttack)
+    {
+        // Keep current Speed/Direction frozen
+        // This prevents the state machine from trying to transition to idle/locomotion
+        // when player adds movement input during hold
+        return;
+    }
+
     // Get velocity and speed
     const FVector Velocity = MovementComponent->Velocity;
     Speed = Velocity.Size2D();
@@ -100,6 +111,7 @@ void USamuraiAnimInstance::UpdateCombatState()
         bIsAttacking = false;
         bIsBlocking = false;
         bIsGuardBroken = false;
+        bIsHoldingAttack = false;
         return;
     }
 
@@ -109,6 +121,7 @@ void USamuraiAnimInstance::UpdateCombatState()
     bIsAttacking = CombatComponent->IsAttacking();
     bIsBlocking = CombatComponent->IsBlocking();
     bIsGuardBroken = CombatComponent->IsGuardBroken();
+    bIsHoldingAttack = CombatComponent->IsHolding();
 }
 
 void USamuraiAnimInstance::UpdateCombo()

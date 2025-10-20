@@ -50,11 +50,14 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
     }
 
     // Update playback rate blending for holds
+    // PlayRate calculation: 1.0 - Alpha
+    // - Alpha 0.0 → PlayRate 1.0 (normal speed)
+    // - Alpha 1.0 → PlayRate 0.0 (frozen)
     if (bIsBlendingToHold)
     {
-        // Blend from 1.0 to 0.0
+        // Blend TO hold: increment alpha 0.0 → 1.0 (normal → frozen)
         HoldBlendAlpha = FMath::Min(1.0f, HoldBlendAlpha + DeltaTime * HoldBlendSpeed);
-        float PlayRate = FMath::Lerp(1.0f, 0.0f, HoldBlendAlpha);
+        const float PlayRate = 1.0f - HoldBlendAlpha;
 
         if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
         {
@@ -67,7 +70,7 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
             bIsBlendingToHold = false;
             HoldBlendAlpha = 1.0f;  // Clamp to exactly 1.0
 
-            // Ensure playback rate is exactly 0.0
+            // Ensure playback rate is exactly 0.0 (frozen)
             if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
             {
                 AnimInstance->Montage_SetPlayRate(CurrentAttackData->AttackMontage, 0.0f);
@@ -76,9 +79,9 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
     }
     else if (bIsBlendingFromHold)
     {
-        // Blend from 0.0 to 1.0
+        // Blend FROM hold: decrement alpha 1.0 → 0.0 (frozen → normal)
         HoldBlendAlpha = FMath::Max(0.0f, HoldBlendAlpha - DeltaTime * HoldBlendSpeed);
-        float PlayRate = FMath::Lerp(1.0f, 0.0f, HoldBlendAlpha);
+        const float PlayRate = 1.0f - HoldBlendAlpha;
 
         if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
         {
@@ -91,7 +94,7 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
             bIsBlendingFromHold = false;
             HoldBlendAlpha = 0.0f;  // Clamp to exactly 0.0
 
-            // Ensure playback rate is exactly 1.0
+            // Ensure playback rate is exactly 1.0 (normal)
             if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
             {
                 AnimInstance->Montage_SetPlayRate(CurrentAttackData->AttackMontage, 1.0f);
@@ -190,7 +193,11 @@ void UCombatComponent::OnLightAttackReleased()
     // If we're in hold state, release and execute directional follow-up
     if (bIsHolding)
     {
-        ReleaseHeldLight();
+        // CRITICAL: Capture bHoldWindowExpired state AT MOMENT OF RELEASE
+        // This prevents race condition where CloseHoldWindow() might run between
+        // this check and ReleaseHeldLight() execution
+        const bool bWasWindowExpired = bHoldWindowExpired;
+        ReleaseHeldLight(bWasWindowExpired);
     }
 }
 
@@ -280,7 +287,11 @@ void UCombatComponent::OnHeavyAttackReleased()
     // If we're in hold state (during attack animation), release and execute follow-up
     if (bIsHolding)
     {
-        ReleaseHeldHeavy();
+        // CRITICAL: Capture bHoldWindowExpired state AT MOMENT OF RELEASE
+        // This prevents race condition where CloseHoldWindow() might run between
+        // this check and ReleaseHeldHeavy() execution
+        const bool bWasWindowExpired = bHoldWindowExpired;
+        ReleaseHeldHeavy(bWasWindowExpired);
     }
 }
 
@@ -330,6 +341,16 @@ void UCombatComponent::OnBlockReleased()
 
 void UCombatComponent::SetMovementInput(FVector2D Input)
 {
+    // CRITICAL: Ignore movement input entirely during hold state
+    // Prevents conflicts with frozen montage and AnimInstance locomotion updates
+    // Movement input during hold was causing animation state machine conflicts
+    if (bIsHolding)
+    {
+        // Store zero input to ensure clean state
+        StoredMovementInput = FVector2D::ZeroVector;
+        return;
+    }
+
     StoredMovementInput = Input;
 }
 
@@ -590,7 +611,38 @@ void UCombatComponent::UpdateHoldTime(float DeltaTime)
     // This prevents the animation from jumping to next combo on timeout
 }
 
-void UCombatComponent::ReleaseHeldLight()
+void UCombatComponent::ForceRestoreNormalPlayRate()
+{
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    // Restore our tracked montage if it exists
+    if (CurrentAttackData && CurrentAttackData->AttackMontage)
+    {
+        AnimInstance->Montage_SetPlayRate(CurrentAttackData->AttackMontage, 1.0f);
+    }
+
+    // CRITICAL SAFETY: Also restore playrate of ANY currently active montage
+    // This handles cases where:
+    // - The montage changed during hold
+    // - The montage was interrupted by movement input
+    // - State machine tried to transition
+    UAnimMontage* ActiveMontage = AnimInstance->GetCurrentActiveMontage();
+    if (ActiveMontage)
+    {
+        AnimInstance->Montage_SetPlayRate(ActiveMontage, 1.0f);
+
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Force restored playrate to 1.0 for active montage: %s"),
+                *ActiveMontage->GetName());
+        }
+    }
+}
+
+void UCombatComponent::ReleaseHeldLight(bool bWasWindowExpired)
 {
     if (!bIsHolding)
     {
@@ -602,7 +654,7 @@ void UCombatComponent::ReleaseHeldLight()
     if (bDebugDraw)
     {
         UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Released held light attack after %.2fs (window expired: %s)"),
-            CurrentHoldTime, bHoldWindowExpired ? TEXT("true") : TEXT("false"));
+            CurrentHoldTime, bWasWindowExpired ? TEXT("true") : TEXT("false"));
     }
 
     // Re-enable movement
@@ -610,6 +662,11 @@ void UCombatComponent::ReleaseHeldLight()
     {
         OwnerCharacter->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
     }
+
+    // CRITICAL: Force restore playrate IMMEDIATELY after re-enabling movement
+    // This ensures we NEVER have movement enabled while animation is frozen
+    // Fixes bug where movement input during hold causes frozen character to move around
+    ForceRestoreNormalPlayRate();
 
     // Check if CurrentAttackData is valid (may be null if animation ended during hold)
     if (!CurrentAttackData)
@@ -622,7 +679,8 @@ void UCombatComponent::ReleaseHeldLight()
     }
 
     // CRITICAL: Check if hold window has EXPIRED (held until timeout)
-    if (bHoldWindowExpired)
+    // Use captured value to avoid race condition with CloseHoldWindow()
+    if (bWasWindowExpired)
     {
         // SCENARIO B: Held until timeout → Try directional followups and combos
         if (bDebugDraw)
@@ -726,7 +784,7 @@ void UCombatComponent::ReleaseHeldLight()
     }
 }
 
-void UCombatComponent::ReleaseHeldHeavy()
+void UCombatComponent::ReleaseHeldHeavy(bool bWasWindowExpired)
 {
     if (!bIsHolding)
     {
@@ -738,7 +796,7 @@ void UCombatComponent::ReleaseHeldHeavy()
     if (bDebugDraw)
     {
         UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Released held heavy attack after %.2fs (window expired: %s)"),
-            CurrentHoldTime, bHoldWindowExpired ? TEXT("true") : TEXT("false"));
+            CurrentHoldTime, bWasWindowExpired ? TEXT("true") : TEXT("false"));
     }
 
     // Re-enable movement
@@ -746,6 +804,11 @@ void UCombatComponent::ReleaseHeldHeavy()
     {
         OwnerCharacter->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
     }
+
+    // CRITICAL: Force restore playrate IMMEDIATELY after re-enabling movement
+    // This ensures we NEVER have movement enabled while animation is frozen
+    // Fixes bug where movement input during hold causes frozen character to move around
+    ForceRestoreNormalPlayRate();
 
     // Check if CurrentAttackData is valid (may be null if animation ended during hold)
     if (!CurrentAttackData)
@@ -758,7 +821,8 @@ void UCombatComponent::ReleaseHeldHeavy()
     }
 
     // CRITICAL: Check if hold window has EXPIRED (held until timeout)
-    if (bHoldWindowExpired)
+    // Use captured value to avoid race condition with CloseHoldWindow()
+    if (bWasWindowExpired)
     {
         // SCENARIO B: Held until timeout → Try combo attack
         if (bDebugDraw)
@@ -1116,10 +1180,11 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
         AnimInstance->Montage_JumpToSection(AttackData->MontageSection, AttackData->AttackMontage);
     }
 
-    // Set up montage end delegate for cleanup when animation completes naturally
+    // Set up montage end delegate for cleanup when animation completes or is interrupted
     FOnMontageEnded OnMontageEndDelegate;
     OnMontageEndDelegate.BindLambda([this](UAnimMontage* Montage, bool bInterrupted)
     {
+        // Handle natural completion
         if (!bInterrupted && CurrentState == ECombatState::Attacking)
         {
             if (bDebugDraw)
@@ -1145,6 +1210,40 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
             HoldBlendAlpha = 0.0f;
 
             SetCombatState(ECombatState::Idle);
+        }
+        // CRITICAL SAFETY: Handle montage interruption during hold state
+        else if (bInterrupted && (bIsHolding || bIsBlendingToHold || bIsBlendingFromHold))
+        {
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Attack montage interrupted during hold - force cleanup"));
+            }
+
+            // Force restore normal montage playback rate for any active montage
+            if (AnimInstance)
+            {
+                UAnimMontage* ActiveMontage = AnimInstance->GetCurrentActiveMontage();
+                if (ActiveMontage)
+                {
+                    AnimInstance->Montage_SetPlayRate(ActiveMontage, 1.0f);
+                }
+            }
+
+            // Re-enable movement (in case it was disabled during hold)
+            if (OwnerCharacter && OwnerCharacter->GetCharacterMovement())
+            {
+                OwnerCharacter->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+            }
+
+            // Clear all hold-related state
+            bIsHolding = false;
+            bIsInHoldWindow = false;
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = false;
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+            HoldBlendAlpha = 0.0f;
+            CurrentHoldTime = 0.0f;
         }
     });
     AnimInstance->Montage_SetEndDelegate(OnMontageEndDelegate, AttackData->AttackMontage);
@@ -1176,6 +1275,54 @@ void UCombatComponent::SetCombatState(ECombatState NewState)
 
     const ECombatState OldState = CurrentState;
     CurrentState = NewState;
+
+    // CRITICAL SAFETY: Force restore playrate when transitioning OUT of hold state
+    // Ensures animation is never frozen when entering any non-hold state
+    // Catches edge cases where hold state exits via unexpected paths
+    if (OldState == ECombatState::HoldingLightAttack && NewState != ECombatState::HoldingLightAttack)
+    {
+        ForceRestoreNormalPlayRate();
+
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Exited hold state via state transition - forced playrate restore"));
+        }
+    }
+
+    // CRITICAL SAFETY: Force exit hold state if entering Dead state
+    // Prevents frozen corpses and stuck blend states
+    if (NewState == ECombatState::Dead)
+    {
+        if (bIsHolding || bIsBlendingToHold || bIsBlendingFromHold)
+        {
+            // Force restore normal montage playback rate
+            if (AnimInstance && CurrentAttackData && CurrentAttackData->AttackMontage)
+            {
+                AnimInstance->Montage_SetPlayRate(CurrentAttackData->AttackMontage, 1.0f);
+            }
+
+            // Re-enable movement (in case it was disabled during hold)
+            if (OwnerCharacter && OwnerCharacter->GetCharacterMovement())
+            {
+                OwnerCharacter->GetCharacterMovement()->SetMovementMode(MOVE_Walking);
+            }
+
+            // Clear all hold-related state
+            bIsHolding = false;
+            bIsInHoldWindow = false;
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = false;
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+            HoldBlendAlpha = 0.0f;
+            CurrentHoldTime = 0.0f;
+
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Force exited hold state on death"));
+            }
+        }
+    }
 
     // Clear all combat flags when entering idle to prevent input blocking
     if (NewState == ECombatState::Idle)

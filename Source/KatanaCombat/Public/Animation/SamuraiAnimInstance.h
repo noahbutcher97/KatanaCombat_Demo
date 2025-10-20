@@ -70,6 +70,15 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "Combat|State")
     bool bIsStunned = false;
 
+    /**
+     * Is currently holding an attack? (frozen at 0.0 playrate)
+     * CRITICAL: Used to prevent locomotion updates during hold state
+     * When true, UpdateMovement() skips velocity calculations to prevent
+     * animation state machine conflicts with frozen montage
+     */
+    UPROPERTY(BlueprintReadOnly, Category = "Combat|State")
+    bool bIsHoldingAttack = false;
+
     // ============================================================================
     // MOVEMENT (Read by Animation Blueprint)
     // ============================================================================
