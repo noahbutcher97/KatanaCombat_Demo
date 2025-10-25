@@ -97,9 +97,15 @@ bool CanCancelWith(ECancelInputFlags Input) const
 
 ### 7. Delegate Architecture (Centralized)
 
-**ALL system-wide delegates declared ONCE in `CombatTypes.h`**.
+**System-wide delegates** (used across multiple components):
+- Declared ONCE in `CombatTypes.h`
+- Components use `UPROPERTY` only, never `DECLARE_DYNAMIC_MULTICAST_DELEGATE`
 
-Components use `UPROPERTY` only, never `DECLARE_DYNAMIC_MULTICAST_DELEGATE`.
+**Component-specific delegates** (used only within one component):
+- Declared in component header
+- Example: `FOnWeaponHit` in `WeaponComponent.h`
+
+This distinction keeps system-wide events centralized while allowing components to expose their own specific events.
 
 ---
 
@@ -180,7 +186,7 @@ ComboInputWindow:             0.6s
 ParryWindow:                  0.3s
 PerfectEvadeWindow:           0.2s
 CounterWindowDuration:        1.5s
-ComboResetDelay:              2.0s
+ComboResetDelay:              3.0s  // TODO: Move to CombatSettings (currently hardcoded)
 ```
 
 ### Posture
@@ -296,6 +302,37 @@ bool IsVulnerableToFinisher() const;
 8. **Centralize Delegates** - CombatTypes.h only
 9. **Data-Driven Tuning** - All values in assets
 10. **Extensible States** - Add as needed
+
+---
+
+---
+
+## Automated Testing
+
+KatanaCombat includes a comprehensive **C++ unit test suite** (`KatanaCombatTest` module):
+
+### Test Coverage (7 Test Suites, 45+ Assertions)
+
+1. **StateTransitionTests** - State machine validation
+2. **InputBufferingTests** - Hybrid responsive + snappy system
+3. **HoldWindowTests** - Button state detection
+4. **ParryDetectionTests** - Defender-side parry
+5. **AttackExecutionTests** - ExecuteAttack vs ExecuteComboAttack
+6. **MemorySafetyTests** - Null handling, edge cases
+7. **PhasesVsWindowsTests** - Architectural separation
+
+### Running Tests
+
+**In Editor**:
+- Window → Developer Tools → Session Frontend
+- Automation tab → Filter: "KatanaCombat"
+
+**Command Line**:
+```bash
+UnrealEditor.exe "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat"
+```
+
+**See** `Source/KatanaCombatTest/README.md` for complete test documentation.
 
 ---
 

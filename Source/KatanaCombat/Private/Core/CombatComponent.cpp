@@ -142,25 +142,6 @@ void UCombatComponent::OnLightAttackPressed()
             bLightAttackInComboWindow = true;
             QueueComboInput(EInputType::LightAttack);
 
-            // If we're in Recovery phase and combo window is open, interrupt immediately
-            if (CurrentPhase == EAttackPhase::Recovery && CurrentAttackData)
-            {
-                if (bDebugDraw)
-                {
-                    UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Light attack during Recovery + combo window - interrupting immediately"));
-                }
-
-                // Execute combo immediately - interrupt recovery
-                UAttackData* NextAttack = CurrentAttackData->NextComboAttack;
-                if (NextAttack)
-                {
-                    bLightAttackBuffered = false;
-                    bLightAttackInComboWindow = false;
-                    ExecuteComboAttackWithHoldTracking(NextAttack, EInputType::LightAttack);
-                    return;
-                }
-            }
-
             if (bDebugDraw)
             {
                 UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Light attack buffered DURING combo window"));
@@ -174,6 +155,37 @@ void UCombatComponent::OnLightAttackPressed()
             {
                 UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Light attack buffered OUTSIDE combo window"));
             }
+        }
+
+        // FIX: ALWAYS interrupt during Recovery phase, regardless of combo window state
+        // This ensures input never requires waiting for natural animation completion
+        if (CurrentPhase == EAttackPhase::Recovery && CurrentAttackData)
+        {
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[RECOVERY INTERRUPT] Light attack during Recovery - interrupting immediately (combo window: %s)"),
+                    bCanCombo ? TEXT("open") : TEXT("closed"));
+            }
+
+            // Determine which attack to execute based on combo availability
+            UAttackData* NextAttack = CurrentAttackData->NextComboAttack;
+            if (NextAttack)
+            {
+                // Combo available - execute combo
+                bLightAttackBuffered = false;
+                bLightAttackInComboWindow = false;
+                ExecuteComboAttackWithHoldTracking(NextAttack, EInputType::LightAttack);
+            }
+            else if (DefaultLightAttack)
+            {
+                // No combo available - start fresh with default attack
+                bLightAttackBuffered = false;
+                bLightAttackInComboWindow = false;
+                ResetCombo();
+                CurrentAttackInputType = EInputType::LightAttack;
+                ExecuteAttack(DefaultLightAttack);
+            }
+            return;
         }
     }
     // Ignore input if in hold state or blending to prevent buffering during holds
@@ -190,14 +202,35 @@ void UCombatComponent::OnLightAttackReleased()
 {
     bLightAttackHeld = false;
 
-    // If we're in hold state, release and execute directional follow-up
-    if (bIsHolding)
+    if (bDebugDraw)
     {
+        UE_LOG(LogTemp, Log, TEXT("[LIGHT INPUT] Light attack RELEASED (Hold: %s, Current input type: %d)"),
+            bIsHolding ? TEXT("yes") : TEXT("no"),
+            static_cast<int32>(CurrentAttackInputType));
+    }
+
+    // FIX: Only release if we're holding a LIGHT attack
+    // This prevents heavy attack releases from triggering light release logic
+    if (bIsHolding && CurrentAttackInputType == EInputType::LightAttack)
+    {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[LIGHT INPUT] Releasing held LIGHT attack"));
+        }
+
         // CRITICAL: Capture bHoldWindowExpired state AT MOMENT OF RELEASE
         // This prevents race condition where CloseHoldWindow() might run between
         // this check and ReleaseHeldLight() execution
         const bool bWasWindowExpired = bHoldWindowExpired;
         ReleaseHeldLight(bWasWindowExpired);
+    }
+    else if (bIsHolding && CurrentAttackInputType != EInputType::LightAttack)
+    {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[LIGHT INPUT] Ignoring light release - currently holding %s attack"),
+                CurrentAttackInputType == EInputType::HeavyAttack ? TEXT("HEAVY") : TEXT("OTHER"));
+        }
     }
 }
 
@@ -205,12 +238,20 @@ void UCombatComponent::OnHeavyAttackPressed()
 {
     bHeavyAttackHeld = true;
 
+    if (bDebugDraw)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[HEAVY INPUT] Heavy attack PRESSED (State: %d, Attacking: %s, Hold: %s)"),
+            static_cast<int32>(CurrentState),
+            CurrentState == ECombatState::Attacking ? TEXT("yes") : TEXT("no"),
+            bIsHolding ? TEXT("yes") : TEXT("no"));
+    }
+
     // Safety check to prevent input blocking
     if (!AnimInstance)
     {
         if (bDebugDraw)
         {
-            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Heavy attack blocked - AnimInstance is null"));
+            UE_LOG(LogTemp, Warning, TEXT("[HEAVY INPUT] Heavy attack blocked - AnimInstance is null"));
         }
         return;
     }
@@ -220,6 +261,10 @@ void UCombatComponent::OnHeavyAttackPressed()
     {
         if (DefaultHeavyAttack)
         {
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[HEAVY INPUT] Executing default heavy attack from Idle"));
+            }
             CurrentAttackInputType = EInputType::HeavyAttack;
             ExecuteAttack(DefaultHeavyAttack);
         }
@@ -236,28 +281,9 @@ void UCombatComponent::OnHeavyAttackPressed()
             bHeavyAttackInComboWindow = true;
             QueueComboInput(EInputType::HeavyAttack);
 
-            // If we're in Recovery phase and combo window is open, interrupt immediately
-            if (CurrentPhase == EAttackPhase::Recovery && CurrentAttackData)
-            {
-                if (bDebugDraw)
-                {
-                    UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Heavy attack during Recovery + combo window - interrupting immediately"));
-                }
-
-                // Execute combo immediately - interrupt recovery
-                UAttackData* NextAttack = CurrentAttackData->HeavyComboAttack;
-                if (NextAttack)
-                {
-                    bHeavyAttackBuffered = false;
-                    bHeavyAttackInComboWindow = false;
-                    ExecuteComboAttackWithHoldTracking(NextAttack, EInputType::HeavyAttack);
-                    return;
-                }
-            }
-
             if (bDebugDraw)
             {
-                UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Heavy attack buffered DURING combo window"));
+                UE_LOG(LogTemp, Warning, TEXT("[HEAVY INPUT] Heavy attack buffered DURING combo window"));
             }
         }
         else
@@ -266,8 +292,46 @@ void UCombatComponent::OnHeavyAttackPressed()
 
             if (bDebugDraw)
             {
-                UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Heavy attack buffered OUTSIDE combo window"));
+                UE_LOG(LogTemp, Warning, TEXT("[HEAVY INPUT] Heavy attack buffered OUTSIDE combo window"));
             }
+        }
+
+        // FIX: ALWAYS interrupt during Recovery phase, regardless of combo window state
+        // This ensures input never requires waiting for natural animation completion
+        if (CurrentPhase == EAttackPhase::Recovery && CurrentAttackData)
+        {
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[RECOVERY INTERRUPT] Heavy attack during Recovery - interrupting immediately (combo window: %s)"),
+                    bCanCombo ? TEXT("open") : TEXT("closed"));
+            }
+
+            // Determine which attack to execute based on heavy combo availability
+            UAttackData* NextAttack = CurrentAttackData->HeavyComboAttack;
+            if (NextAttack)
+            {
+                // Heavy combo available - execute it
+                bHeavyAttackBuffered = false;
+                bHeavyAttackInComboWindow = false;
+                ExecuteComboAttackWithHoldTracking(NextAttack, EInputType::HeavyAttack);
+            }
+            else if (CurrentAttackData->NextComboAttack)
+            {
+                // No heavy-specific combo, use regular combo
+                bHeavyAttackBuffered = false;
+                bHeavyAttackInComboWindow = false;
+                ExecuteComboAttackWithHoldTracking(CurrentAttackData->NextComboAttack, EInputType::HeavyAttack);
+            }
+            else if (DefaultHeavyAttack)
+            {
+                // No combo available - start fresh with default heavy attack
+                bHeavyAttackBuffered = false;
+                bHeavyAttackInComboWindow = false;
+                ResetCombo();
+                CurrentAttackInputType = EInputType::HeavyAttack;
+                ExecuteAttack(DefaultHeavyAttack);
+            }
+            return;
         }
     }
     // Ignore input if in hold state or blending to prevent buffering during holds
@@ -275,7 +339,8 @@ void UCombatComponent::OnHeavyAttackPressed()
     {
         if (bDebugDraw)
         {
-            UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Ignoring heavy attack input during hold/blend state"));
+            UE_LOG(LogTemp, Warning, TEXT("[HEAVY INPUT] Ignoring heavy attack input during hold/blend state (Current input type: %d)"),
+                static_cast<int32>(CurrentAttackInputType));
         }
     }
 }
@@ -284,14 +349,35 @@ void UCombatComponent::OnHeavyAttackReleased()
 {
     bHeavyAttackHeld = false;
 
-    // If we're in hold state (during attack animation), release and execute follow-up
-    if (bIsHolding)
+    if (bDebugDraw)
     {
+        UE_LOG(LogTemp, Warning, TEXT("[HEAVY INPUT] Heavy attack RELEASED (Hold: %s, Current input type: %d)"),
+            bIsHolding ? TEXT("yes") : TEXT("no"),
+            static_cast<int32>(CurrentAttackInputType));
+    }
+
+    // FIX: Only release if we're holding a HEAVY attack
+    // This prevents light attack releases from triggering heavy release logic
+    if (bIsHolding && CurrentAttackInputType == EInputType::HeavyAttack)
+    {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[HEAVY INPUT] Releasing held HEAVY attack"));
+        }
+
         // CRITICAL: Capture bHoldWindowExpired state AT MOMENT OF RELEASE
         // This prevents race condition where CloseHoldWindow() might run between
         // this check and ReleaseHeldHeavy() execution
         const bool bWasWindowExpired = bHoldWindowExpired;
         ReleaseHeldHeavy(bWasWindowExpired);
+    }
+    else if (bIsHolding && CurrentAttackInputType != EInputType::HeavyAttack)
+    {
+        if (bDebugDraw)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[HEAVY INPUT] Ignoring heavy release - currently holding %s attack"),
+                CurrentAttackInputType == EInputType::LightAttack ? TEXT("LIGHT") : TEXT("OTHER"));
+        }
     }
 }
 
@@ -546,6 +632,17 @@ void UCombatComponent::ExecuteComboAttackWithHoldTracking(UAttackData* NextAttac
     // Clear combo input tracking since we're executing
     ComboInputBuffer.Empty();
     bHasQueuedCombo = false;
+
+    // FIX: Clear hold state from previous attack to prevent hold interruption handler
+    // from firing during combo transitions
+    bIsHolding = false;
+    bIsInHoldWindow = false;
+    bIsBlendingToHold = false;
+    bIsBlendingFromHold = false;
+    bHoldWindowExpired = false;
+    QueuedDirectionalInput = EAttackDirection::None;
+    HoldBlendAlpha = 0.0f;
+    CurrentHoldTime = 0.0f;
 
     // Ensure we're in attacking state for combo transitions
     SetCombatState(ECombatState::Attacking);
@@ -827,36 +924,50 @@ void UCombatComponent::ReleaseHeldHeavy(bool bWasWindowExpired)
         // SCENARIO B: Held until timeout → Try combo attack
         if (bDebugDraw)
         {
-            UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Hold timeout release - trying heavy combo"));
+            UE_LOG(LogTemp, Warning, TEXT("[HEAVY RELEASE] Hold timeout release - trying heavy combo"));
         }
 
         // Try to execute heavy combo attack if available
         if (CurrentAttackData->HeavyComboAttack)
         {
-            // Stop blending and execute combo
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[HEAVY RELEASE] Executing heavy combo attack: %s"),
+                    *CurrentAttackData->HeavyComboAttack->GetName());
+            }
+
+            // Stop blending and execute combo WITH EXPLICIT HEAVY INPUT TYPE
             bIsBlendingToHold = false;
             bIsBlendingFromHold = false;
             bHoldWindowExpired = false;
             QueuedDirectionalInput = EAttackDirection::None;
-            ExecuteComboAttack(CurrentAttackData->HeavyComboAttack);
+            // FIX: Use explicit EInputType::HeavyAttack instead of inference
+            ExecuteComboAttackWithHoldTracking(CurrentAttackData->HeavyComboAttack, EInputType::HeavyAttack);
             return;
         }
 
         // Try regular next combo if no heavy-specific combo
         if (CurrentAttackData->NextComboAttack)
         {
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[HEAVY RELEASE] No heavy-specific combo, executing next combo: %s"),
+                    *CurrentAttackData->NextComboAttack->GetName());
+            }
+
             bIsBlendingToHold = false;
             bIsBlendingFromHold = false;
             bHoldWindowExpired = false;
             QueuedDirectionalInput = EAttackDirection::None;
-            ExecuteComboAttack(CurrentAttackData->NextComboAttack);
+            // FIX: Use explicit EInputType::HeavyAttack instead of inference
+            ExecuteComboAttackWithHoldTracking(CurrentAttackData->NextComboAttack, EInputType::HeavyAttack);
             return;
         }
 
         // No combos available, fall through to blend back
         if (bDebugDraw)
         {
-            UE_LOG(LogTemp, Log, TEXT("[CombatComponent] No heavy combos available - blending back"));
+            UE_LOG(LogTemp, Warning, TEXT("[HEAVY RELEASE] No heavy combos available - blending back"));
         }
     }
     else
@@ -1182,8 +1293,20 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 
     // Set up montage end delegate for cleanup when animation completes or is interrupted
     FOnMontageEnded OnMontageEndDelegate;
-    OnMontageEndDelegate.BindLambda([this](UAnimMontage* Montage, bool bInterrupted)
+    OnMontageEndDelegate.BindLambda([this, AttackDataPtr = AttackData](UAnimMontage* Montage, bool bInterrupted)
     {
+        // FIX: Detect intentional interruptions (combo transitions)
+        // If the montage that ended is NOT the current attack, this was a combo transition
+        // In that case, don't reset to Idle - the new attack is already active
+        if (bInterrupted && CurrentAttackData != nullptr && CurrentAttackData != AttackDataPtr)
+        {
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Log, TEXT("[CombatComponent] Old montage interrupted by new combo - ignoring (intentional)"));
+            }
+            return; // Combo transition - do nothing
+        }
+
         // Handle natural completion
         if (!bInterrupted && CurrentState == ECombatState::Attacking)
         {
@@ -1244,6 +1367,50 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
             QueuedDirectionalInput = EAttackDirection::None;
             HoldBlendAlpha = 0.0f;
             CurrentHoldTime = 0.0f;
+
+            // FIX: Clear attack state and return to Idle to prevent lockout
+            CurrentAttackData = nullptr;
+            CurrentAttackInputType = EInputType::None;
+            CurrentPhase = EAttackPhase::None;
+            bLightAttackBuffered = false;
+            bHeavyAttackBuffered = false;
+            bLightAttackInComboWindow = false;
+            bHeavyAttackInComboWindow = false;
+            ComboInputBuffer.Empty();
+            bHasQueuedCombo = false;
+
+            SetCombatState(ECombatState::Idle);
+        }
+        // FIX: SAFETY - Handle ANY other interruption during Attacking/Holding state
+        else if (bInterrupted && (CurrentState == ECombatState::Attacking || CurrentState == ECombatState::HoldingLightAttack))
+        {
+            if (bDebugDraw)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[CombatComponent] Attack montage interrupted (non-hold) - force return to Idle"));
+            }
+
+            // Full state cleanup
+            CurrentAttackData = nullptr;
+            CurrentAttackInputType = EInputType::None;
+            CurrentPhase = EAttackPhase::None;
+            bLightAttackBuffered = false;
+            bHeavyAttackBuffered = false;
+            bLightAttackInComboWindow = false;
+            bHeavyAttackInComboWindow = false;
+            ComboInputBuffer.Empty();
+            bHasQueuedCombo = false;
+
+            // Clear hold state (redundant safety)
+            bIsHolding = false;
+            bIsInHoldWindow = false;
+            bIsBlendingToHold = false;
+            bIsBlendingFromHold = false;
+            bHoldWindowExpired = false;
+            QueuedDirectionalInput = EAttackDirection::None;
+            HoldBlendAlpha = 0.0f;
+            CurrentHoldTime = 0.0f;
+
+            SetCombatState(ECombatState::Idle);
         }
     });
     AnimInstance->Montage_SetEndDelegate(OnMontageEndDelegate, AttackData->AttackMontage);

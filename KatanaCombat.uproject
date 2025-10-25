@@ -18,6 +18,11 @@
 			"Name": "KatanaCombatEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "KatanaCombatTest",
+			"Type": "UncookedOnly",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [
@@ -36,9 +41,14 @@
 			"Name": "GameplayStateTree",
 			"Enabled": true
 		},
-        {
-            "Name": "MotionWarping",
-            "Enabled": true
-        }
+		{
+			"Name": "MotionWarping",
+			"Enabled": true
+		},
+		{
+			"Name": "ModuleGenerator",
+			"Enabled": true,
+			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/ec36ec6e94f74075819e2a04f7cb97f3"
+		}
 	]
 }

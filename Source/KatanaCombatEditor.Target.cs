@@ -8,6 +8,7 @@ public class KatanaCombatEditorTarget : TargetRules
 	public KatanaCombatEditorTarget(TargetInfo Target) : base(Target)
 	{
 		Type = TargetType.Editor;
+		ExtraModuleNames.AddRange( new string[] { "KatanaCombatTest" } );
 		DefaultBuildSettings = BuildSettingsVersion.V5;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_6;
 		ExtraModuleNames.Add("KatanaCombat");

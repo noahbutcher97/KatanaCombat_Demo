@@ -207,6 +207,7 @@ Combo chains or return to Idle
 - **[ATTACK_CREATION.md](ATTACK_CREATION.md)** - Attack authoring workflow
 - **[API_REFERENCE.md](API_REFERENCE.md)** - Complete API documentation
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[Source/KatanaCombatTest/README.md](../Source/KatanaCombatTest/README.md)** - C++ unit test suite documentation
 
 ---
 
@@ -279,6 +280,38 @@ DirectionalFollowUps[Right] = RightSweep
 6. Assign to `DefaultLightAttack` / `DefaultHeavyAttack`
 7. Configure hit reactions in `HitReactionComponent`
 8. AI uses `ExecuteAttack()` from Behavior Tree tasks
+
+---
+
+## Testing & Quality Assurance
+
+KatanaCombat includes a comprehensive **C++ unit test suite** to validate core design principles and catch regressions.
+
+### Test Suite
+
+The `KatanaCombatTest` module provides **7 test files** with **45+ assertions** covering:
+
+- **State Machine** - Valid/invalid transitions, edge cases
+- **Input Buffering** - Always-buffered, responsive vs snappy paths
+- **Hold Mechanics** - Button state detection (not duration tracking)
+- **Parry System** - Defender-side detection, contextual blocking
+- **Attack Execution** - ExecuteAttack vs ExecuteComboAttack separation
+- **Memory Safety** - Null handling, graceful fallbacks
+- **Architecture** - Phases vs windows separation validation
+
+### Running Tests
+
+**In Editor**:
+1. Window → Developer Tools → Session Frontend
+2. Automation tab → Filter: "KatanaCombat"
+3. Select tests and click "Start Tests"
+
+**Command Line**:
+```bash
+UnrealEditor.exe "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat"
+```
+
+**See** [KatanaCombatTest README](../Source/KatanaCombatTest/README.md) for complete test documentation.
 
 ---
 

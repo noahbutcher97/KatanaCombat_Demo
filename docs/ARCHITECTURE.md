@@ -1559,7 +1559,8 @@ protected:
 ```cpp
 enum class ECombatState : uint8;          // 11 states
 enum class EAttackType : uint8;           // None, Light, Heavy, Special
-enum class EAttackPhase : uint8;          // None, Windup, Active, Recovery, Hold, HoldWindow, CancelWindow
+enum class EAttackPhase : uint8;          // None, Windup, Active, Recovery
+                                          // NOTE: Hold, HoldWindow, CancelWindow are WINDOWS (booleans), NOT phases
 enum class EAttackDirection : uint8;      // None, Forward, Backward, Left, Right
 enum class EHitReactionType : uint8;      // 9 types (Flinch, Light, Medium, Heavy, etc.)
 enum class EInputType : uint8;            // None, LightAttack, HeavyAttack, Block, Evade, Special
@@ -1710,11 +1711,21 @@ public:
 
 ### Data-Driven Delegates
 **Problem**: Hardcoded delegates scattered across components
-**Solution**: Declare ALL system delegates in CombatTypes.h, components use UPROPERTY
+**Solution**: Centralize system-wide delegates in CombatTypes.h, allow component-specific delegates in component headers
+
+**System-wide delegates** (used across multiple components):
+- Declared ONCE in `CombatTypes.h`
+- Components use `UPROPERTY` only, never `DECLARE_DYNAMIC_MULTICAST_DELEGATE`
+- Examples: FOnCombatStateChanged, FOnAttackHit, FOnPostureChanged
+
+**Component-specific delegates** (used only within one component):
+- Declared in component header
+- Examples: FOnWeaponHit (WeaponComponent), FOnDamageReceived (HitReactionComponent)
 
 **Why**:
-- Single source of truth
-- Easy to find all system events
+- Single source of truth for system-wide events
+- Easy to find all cross-component communication
+- Components can still expose their own specific events
 - No duplicate delegate declarations
 
 ### Bitmask for Cancel Inputs
@@ -1817,6 +1828,107 @@ void UCombatComponent::BeginPlay()
 - Hit pause (frame freeze on impact)
 - Dynamic camera angles during attacks
 - Training mode with frame data display
+
+---
+
+## Automated Testing
+
+KatanaCombat includes a comprehensive **C++ unit test suite** (`KatanaCombatTest` module) that validates core design principles and system behavior.
+
+### Test Coverage
+
+The test suite includes **7 test files** with **45+ assertions** covering:
+
+1. **StateTransitionTests.cpp** - State machine validation
+   - Valid/invalid state transitions
+   - State machine edge cases
+   - Transition rule enforcement
+
+2. **InputBufferingTests.cpp** - Hybrid responsive + snappy system
+   - Always-buffered input validation
+   - Snappy path (combo window open, early cancel)
+   - Responsive path (combo window closed, wait for recovery)
+   - Input priority handling
+
+3. **HoldWindowTests.cpp** - Button state detection
+   - Hold window activation based on button state
+   - Release timing for directional follow-ups
+   - No duration tracking (checks button state at window start)
+
+4. **ParryDetectionTests.cpp** - Defender-side parry
+   - Parry window on attacker's montage
+   - Defender checking `IsInParryWindow()` on nearby enemies
+   - Parry vs block contextual behavior
+
+5. **AttackExecutionTests.cpp** - ExecuteAttack vs ExecuteComboAttack
+   - `ExecuteAttack()` only works from Idle state
+   - `ExecuteComboAttack()` works during Attacking state
+   - State validation before execution
+
+6. **MemorySafetyTests.cpp** - Null handling, edge cases
+   - Null `CurrentAttackData` handling
+   - Mid-combo data clearing doesn't crash
+   - Graceful fallbacks for missing data
+
+7. **PhasesVsWindowsTests.cpp** - Architectural separation
+   - Phases are mutually exclusive (only ONE active)
+   - Windows are independent booleans (MULTIPLE active)
+   - Window states persist through phase transitions
+   - `EAttackPhase` has exactly 4 values (None, Windup, Active, Recovery)
+
+### Running Tests
+
+**In Unreal Editor**:
+1. Window → Developer Tools → Session Frontend
+2. Automation tab → Filter: "KatanaCombat"
+3. Select tests and click "Start Tests"
+
+**Command Line**:
+```bash
+UnrealEditor.exe "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat"
+```
+
+### Test Module Structure
+
+```
+Source/KatanaCombatTest/
+├── KatanaCombatTest.Build.cs          # Module configuration
+├── Public/
+│   └── CombatTestHelpers.h            # Test utility functions
+├── Private/
+│   ├── StateTransitionTests.cpp
+│   ├── InputBufferingTests.cpp
+│   ├── HoldWindowTests.cpp
+│   ├── ParryDetectionTests.cpp
+│   ├── AttackExecutionTests.cpp
+│   ├── MemorySafetyTests.cpp
+│   └── PhasesVsWindowsTests.cpp
+└── README.md                          # Complete test documentation
+```
+
+### Test Helpers
+
+The test suite includes helper functions for common test operations:
+
+```cpp
+// From CombatTestHelpers.h
+UWorld* CreateTestWorld();
+void DestroyTestWorld(UWorld* World);
+ACharacter* CreateTestCharacterWithCombat(UWorld* World, UCombatComponent*& OutCombatComp);
+UAttackData* CreateTestAttack(EAttackType Type);
+```
+
+### Validation Coverage
+
+Tests validate all **Critical Design Corrections** from system architecture:
+- ✓ Phases are exclusive (Windup, Active, Recovery only)
+- ✓ Windows are independent (can overlap)
+- ✓ Input always buffered (combo window modifies WHEN, not WHETHER)
+- ✓ Hold detection checks button state (not duration)
+- ✓ Parry is defender-side detection
+- ✓ ExecuteAttack vs ExecuteComboAttack separation
+
+**See** `Source/KatanaCombatTest/README.md` for complete test documentation and implementation details.
 
 ---
 

@@ -196,7 +196,8 @@ Heavy1  Heavy2   Heavy3   Heavy4  (Heavy branches)
 ### CombatTypes.h Enums
 - `ECombatState`: Idle, Attacking, HoldingLightAttack, ChargingHeavyAttack, Blocking, Parrying, GuardBroken, Finishing, HitStunned, Evading, Dead
 - `EAttackType`: None, Light, Heavy, Special
-- `EAttackPhase`: None, Windup, Active, Recovery, Hold, HoldWindow, CancelWindow
+- `EAttackPhase`: None, Windup, Active, Recovery
+  - **NOTE**: Hold, HoldWindow, CancelWindow are WINDOWS (tracked as booleans), NOT phases
 - `EAttackDirection`: None, Forward, Backward, Left, Right
 - `EHitReactionType`: None, Flinch, Light, Medium, Heavy, Knockback, Knockdown, Launch, Custom
 - `EInputType`: None, LightAttack, HeavyAttack, Block, Evade, Special
@@ -212,13 +213,21 @@ Heavy1  Heavy2   Heavy3   Heavy4  (Heavy branches)
 - `FMotionWarpingConfig`: Warp settings (min/max distance, rotation speed, line of sight)
 
 ### Delegates
+
+**System-wide delegates** (declared in `CombatTypes.h`):
 - `FOnCombatStateChanged(ECombatState NewState)`
 - `FOnAttackHit(AActor* HitActor, float Damage)`
 - `FOnPostureChanged(float NewPosture)`
 - `FOnGuardBroken()`
 - `FOnPerfectParry(AActor* ParriedActor)`
 - `FOnPerfectEvade(AActor* EvadedActor)`
-- `FOnComboCountChanged(int32 NewCount, int32 MaxCombo)`
+- `FOnFinisherAvailable(AActor* Target)`
+
+**Component-specific delegates** (declared in component headers):
+- `FOnWeaponHit` (WeaponComponent) - Hit detection events
+- `FOnDamageReceived` (HitReactionComponent) - Damage application
+- `FOnHitReactionStarted` (HitReactionComponent) - Hit reaction playback
+- `FOnStunBegin/FOnStunEnd` (HitReactionComponent) - Stun state changes
 
 ---
 

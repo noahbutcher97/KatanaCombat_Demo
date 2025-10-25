@@ -37,6 +37,17 @@ class KATANACOMBAT_API UCombatComponent : public UActorComponent
 {
     GENERATED_BODY()
 
+#if WITH_AUTOMATION_TESTS
+    // Friend declarations for test classes
+    friend class FStateTransitionTest;
+    friend class FInputBufferingTest;
+    friend class FHoldWindowTest;
+    friend class FParryDetectionTest;
+    friend class FAttackExecutionTest;
+    friend class FMemorySafetyTest;
+    friend class FPhasesVsWindowsTest;
+#endif
+
 public:
     UCombatComponent();
 
