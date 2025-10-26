@@ -188,11 +188,12 @@ Source/KatanaCombat/Public/
 │   ├── AttackData.h                 ← Attack configuration
 │   └── CombatSettings.h             ← Global tuning
 ├── Animation/
-│   ├── AnimNotifyState_AttackPhase.h
-│   ├── AnimNotifyState_ParryWindow.h
-│   ├── AnimNotifyState_HoldWindow.h
-│   ├── AnimNotifyState_ComboWindow.h
-│   └── AnimNotify_ToggleHitDetection.h
+│   ├── AnimNotify_AttackPhaseTransition.h          ← Phase transitions (NEW)
+│   ├── AnimNotifyState_ParryWindow.h               ← Parry detection window
+│   ├── AnimNotifyState_HoldWindow.h                ← Hold detection window
+│   ├── AnimNotifyState_ComboWindow.h               ← Combo input window
+│   ├── AnimNotifyState_AttackPhase.h               ← DEPRECATED - Old phase system
+│   └── AnimNotify_ToggleHitDetection.h             ← DEPRECATED - Now automatic
 └── Interfaces/
     ├── CombatInterface.h
     └── DamageableInterface.h
@@ -208,6 +209,7 @@ Source/KatanaCombat/Public/
 | Quick value lookup | `docs/ARCHITECTURE_QUICK.md` |
 | Implementing complex feature | `docs/ARCHITECTURE.md` |
 | Adding new attack | `docs/ATTACK_CREATION.md` |
+| Migrating from old phase system | `docs/PHASE_SYSTEM_MIGRATION.md` |
 | Function signatures | `docs/API_REFERENCE.md` |
 | Debugging issue | `docs/TROUBLESHOOTING.md` |
 | Setting up project | `docs/GETTING_STARTED.md` |
@@ -305,9 +307,12 @@ When modifying code:
 
 **Hits not detecting**:
 1. Verify weapon sockets exist (`WeaponStart`, `WeaponEnd`)
-2. Check `AnimNotify_ToggleHitDetection` in montage
-3. Verify trace channel matches target collision
-4. Enable weapon debug draw to see traces
+2. Check `AnimNotify_AttackPhaseTransition(Active)` is present (hit detection automatic)
+3. Verify Active phase timing matches expected hit window
+4. Verify trace channel matches target collision
+5. Enable weapon debug draw to see traces
+
+**Note**: Hit detection is now automatic with Active phase. Old `AnimNotify_ToggleHitDetection` is deprecated.
 
 **Parry not working**:
 1. Ensure `AnimNotifyState_ParryWindow` on ATTACKER's montage
@@ -372,6 +377,62 @@ UnrealEditor.exe "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCo
 **Time Investment**: ~15 minutes of reading = Hours saved in debugging and refactoring
 
 **Remember**: This system has specific architectural decisions (phases vs windows, input buffering, parry detection, delegate centralization) that differ from typical implementations. Understanding these upfront prevents incorrect assumptions.
+
+---
+
+## GPU Crash Fix (RTX 5090 + UE 5.6)
+
+**Issue**: NVIDIA RTX 5090 driver 581.57 (Game Ready) causes GPU crashes with DirectX 12 in UE 5.6 editor during:
+- Batch operations on large animation sets (1000+ assets)
+- Opening multiple animation previews
+- Skeleton replacement operations
+
+**Symptoms**:
+```
+LogD3D12RHI: Error: GPU crash detected: DXGI_ERROR_DEVICE_REMOVED
+LogNvidiaAftermath: Warning: Timed out while waiting for Aftermath to start the GPU crash dump
+```
+
+**Temporary Fix Applied**: Switched to DirectX 11 (2025-10-24)
+
+**Config File**: `Config/DefaultEngine.ini`
+**Changed Line**: Line 47
+
+---
+
+### How to Revert to DirectX 12
+
+**Option A: When you have stable drivers**
+
+1. Open: `D:\UnrealProjects\5.6\KatanaCombat\Config\DefaultEngine.ini`
+2. Find line 47: `DefaultGraphicsRHI=DefaultGraphicsRHI_DX11`
+3. Change to: `DefaultGraphicsRHI=DefaultGraphicsRHI_DX12`
+4. Save file
+5. Restart Unreal Editor
+
+**Option B: Install NVIDIA Studio Driver 580.97** (Recommended for long-term stability)
+
+1. Download: https://www.nvidia.com/en-us/drivers/details/252609/
+2. Use DDU (Display Driver Uninstaller) to clean current driver:
+   - Download DDU from: https://www.guru3d.com/files-details/display-driver-uninstaller-download.html
+   - Boot into Safe Mode
+   - Run DDU, select "Clean and Restart"
+3. Install Studio Driver 580.97
+4. Revert to DX12 using Option A steps above
+
+**Why Studio Driver 580.97?**
+- August 2025 release with proven stability for RTX 5090
+- Optimized for content creation apps (Unreal Engine, Blender, etc.)
+- User reports show 581.xx series has known RTX 5090 stability issues
+
+**Performance Impact of DX11**:
+- ~5-10% lower editor viewport performance (barely noticeable)
+- Packaged games still use DX12 (only editor affected)
+- No impact on final game performance
+
+---
+
+**Crash Logs Location**: `Saved/Crashes/` (for reference if issues persist)
 
 ---
 
