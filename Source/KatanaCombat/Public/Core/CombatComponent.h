@@ -3,8 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Components/ActorComponent.h"
 #include "CombatTypes.h"
+#include "Components/ActorComponent.h"
 #include "CombatComponent.generated.h"
 
 // Forward declarations
@@ -99,6 +99,9 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "Combat|State")
     void SetCombatState(ECombatState NewState);
+
+    /** Force set combat state bypassing validation - FOR TESTING ONLY */
+    void ForceSetStateForTest(ECombatState NewState) { CurrentState = NewState; }
 
     /** Is currently in any attack state? */
     UFUNCTION(BlueprintPure, Category = "Combat|State")
@@ -362,6 +365,36 @@ public:
      */
     void OnAttackPhaseEnd(EAttackPhase Phase);
 
+    /**
+     * Called when transitioning to a new attack phase (from AnimNotify_AttackPhaseTransition)
+     * NEW PHASE SYSTEM: Single-event transitions instead of NotifyState ranges
+     *
+     * This handles:
+     * - Phase end logic for OLD phase
+     * - Phase transition
+     * - Phase begin logic for NEW phase (including auto hit detection)
+     *
+     * @param NewPhase - Phase we're transitioning TO (Active or Recovery)
+     */
+    void OnAttackPhaseTransition(EAttackPhase NewPhase);
+
+private:
+    /**
+     * Handle phase begin logic
+     * - Active: Enable hit detection
+     * - Recovery: Nothing special
+     */
+    void HandlePhaseBegin(EAttackPhase Phase);
+
+    /**
+     * Handle phase end logic
+     * - Windup: Nothing special
+     * - Active: Disable hit detection, process combo window inputs
+     * - Recovery: Process responsive inputs
+     */
+    void HandlePhaseEnd(EAttackPhase Phase);
+
+public:
     // ============================================================================
     // EVENTS
     // ============================================================================

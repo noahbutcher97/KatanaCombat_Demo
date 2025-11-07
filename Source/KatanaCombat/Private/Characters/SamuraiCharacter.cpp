@@ -270,6 +270,14 @@ void ASamuraiCharacter::OnAttackPhaseEnd_Implementation(EAttackPhase Phase)
     }
 }
 
+void ASamuraiCharacter::OnAttackPhaseTransition_Implementation(EAttackPhase NewPhase)
+{
+    if (CombatComponent)
+    {
+        CombatComponent->OnAttackPhaseTransition(NewPhase);
+    }
+}
+
 bool ASamuraiCharacter::IsInParryWindow_Implementation() const
 {
     return CombatComponent ? CombatComponent->IsInParryWindow() : false;

@@ -15,11 +15,14 @@ public class KatanaCombatTest : ModuleRules
 			"KatanaCombat"  // Main module we're testing
 		});
 
-		// Test framework dependencies
-		PrivateDependencyModuleNames.AddRange(new string[]
+		// Test framework dependencies (editor-only)
+		if (Target.Type == TargetType.Editor)
 		{
-			"UnrealEd"  // For editor utilities in tests
-		});
+			PrivateDependencyModuleNames.AddRange(new string[]
+			{
+				"UnrealEd"  // For editor utilities in tests
+			});
+		}
 
 		PublicIncludePaths.AddRange(new string[] {"KatanaCombatTest/Public"});
 		PrivateIncludePaths.AddRange(new string[] {"KatanaCombatTest/Private"});

@@ -72,8 +72,9 @@ bool FHoldWindowTest::RunTest(const FString& Parameters)
 	UAttackData* NonHoldableAttack = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
 	NonHoldableAttack->bCanHold = false;
 
+	// Set non-holdable as default so auto-execution uses it
+	CombatComp->DefaultLightAttack = NonHoldableAttack;
 	CombatComp->OnLightAttackPressed();
-	CombatComp->ExecuteAttack(NonHoldableAttack);
 	CombatComp->CurrentAttackInputType = EInputType::LightAttack;
 
 	CombatComp->OpenHoldWindow(0.5f);
@@ -88,8 +89,9 @@ bool FHoldWindowTest::RunTest(const FString& Parameters)
 	UAttackData* HeavyAttack = FCombatTestHelpers::CreateTestAttack(EAttackType::Heavy);
 	HeavyAttack->bCanHold = true;
 
+	// Set as default so auto-execution uses it
+	CombatComp->DefaultHeavyAttack = HeavyAttack;
 	CombatComp->OnHeavyAttackPressed();
-	CombatComp->ExecuteAttack(HeavyAttack);
 	CombatComp->CurrentAttackInputType = EInputType::HeavyAttack;
 
 	CombatComp->OpenHoldWindow(0.5f);

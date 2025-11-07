@@ -1,0 +1,41 @@
+What should be the minimum hold duration to distinguish a 'tap' from a 'hold'?
+  1. 0.15 seconds
+     Very responsive, distinguishes rapid taps easily. May be too sensitive for some players.
+  2. 0.25 seconds
+     Balanced threshold, works well for most playstyles. Recommended default.
+  3. 0.35 seconds
+     More deliberate, reduces accidental holds. Requires conscious player intent.
+❯ 4. Currently we have holds defined by events. If you hold an attack input when you
+     are able to attack, if you keep holding that same input without lifting your
+     finger until the attack that plays reaches the point in the animation that the
+     hold window animnotifystate begins at, then the action is registered as a hold
+     action and this results in the blend to playrate 0 over the course of the hold
+     window. I like this design but perhaps there needs to be more nuanced sorting
+     of inputs before the event logic stage to ensure we are capturing user intent
+     correctly. Again with this i need your help coming up with possible options as
+     I dont have so much experience with input systems. 
+
+
+
+How should the system handle input queue overflow (too many rapid inputs)?
+  1. FIFO (First In First Out)
+     Keep oldest inputs, discard new ones when full. Preserves player's initial intent.
+  2. LIFO (Last In First Out)
+     Keep newest inputs, discard old ones. Player's latest decision takes priority.
+  3. Priority-based
+     Defensive inputs (block/evade) always kept, attacks can be discarded. Safest option.
+❯ 4. What are some other options. I was thinking that we can have stages of input
+     reading. One that simply collects the input buffer and handles the memory
+     aspect of it (queue size etc). Then there can be an analytical stage that looks
+     at the inputs and determines which were purposeful, what the user intent
+     behind each one was to decide which are relevant. Then there could be a 3rd
+     stage that considers our combat rules and the animation event and notify state
+     timing to determine what the actual input that is consumed is. This may be
+     overcomplicated. This is like a mix between heuristic based FIFO -  
+
+
+
+shouldn't we be able to set the weapon collision data for the component by assigning a skeletal mesh component or static mesh component to the weaponcomponent and defining the socket in the mesh asset or perhaps even assigning the socket locations as scene components attached to the weapon mesh in the blueprint itself? Also, the autogeneration of anim notifies doesnt seem to be working
+
+
+yes i like option a. Is there a way to allow for sectioning of the montage to be done in an attackdata asset as well to allow for specification about which montage sequence is being targeted for generation of notifies and allowing flexibility to affect only the desired part of the montage?

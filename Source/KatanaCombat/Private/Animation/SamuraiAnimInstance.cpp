@@ -222,6 +222,15 @@ void USamuraiAnimInstance::OnAttackPhaseEnd(EAttackPhase Phase)
     }
 }
 
+void USamuraiAnimInstance::OnAttackPhaseTransition(EAttackPhase NewPhase)
+{
+    // Route to ICombatInterface on owner
+    if (OwnerCharacter && OwnerCharacter->Implements<UCombatInterface>())
+    {
+        ICombatInterface::Execute_OnAttackPhaseTransition(OwnerCharacter, NewPhase);
+    }
+}
+
 void USamuraiAnimInstance::OnComboWindowOpened(float Duration)
 {
     if (CombatComponent)

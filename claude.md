@@ -436,4 +436,102 @@ LogNvidiaAftermath: Warning: Timed out while waiting for Aftermath to start the 
 
 ---
 
+## Build Configuration Changes (2025-11-03)
+
+**Issue**: Marketplace plugin name conflicts preventing compilation
+- Multiple engine-level marketplace plugins with duplicate class/enum names
+- UnrealHeaderTool scans ALL Engine/Plugins/Marketplace regardless of .uproject settings
+- Rider failing to build due to plugin compilation errors
+
+**Symptoms**:
+```
+Error: Class 'UStateMachineComponent' shares engine name 'StateMachineComponent' with class 'UStateMachineComponent'
+Error: Enum 'EObjectOrientation' shares engine name 'EObjectOrientation' with enum 'EObjectOrientation'
+Error: Enum 'ESnapMode' shares engine name 'ESnapMode' with enum 'ESnapMode'
+Error: Enum 'EScaleMode' shares engine name 'EScaleMode' with enum 'EScaleMode'
+```
+
+**Conflicting Plugins**:
+- StateMachineSystem vs UFSM (both define UStateMachineComponent)
+- ObjectDistribution vs BuildingTools (EObjectOrientation)
+- FreeBoneSnapper vs TweenMaker (ESnapMode)
+- Figma2UMG vs SimpleScatter (EScaleMode)
+
+---
+
+### Changes Applied
+
+**1. Project-Level Plugin Disabling**
+
+**File**: `KatanaCombat.uproject` (lines 53-109)
+
+Added explicit `"Enabled": false` for 14 conflicting marketplace plugins:
+- StateMachineSystem, UFSM
+- ObjectDistribution, BuildingTools
+- FreeBoneSnapper, TweenMaker
+- Figma2UMG, SimpleScatterPlugin
+- InteractiveStoryPlugin, DataTrackerPlugin
+- PlayerStatistics, EmperiaTool
+- MiniGraph, OdysseyProceduralTools
+
+**2. Global Build Configuration**
+
+**File**: `C:\Users\posne\AppData\Roaming\Unreal\UnrealBuildTool\BuildConfiguration.xml`
+
+Created UBT config with:
+```xml
+<BuildConfiguration>
+    <bIgnoreInvalidFiles>true</bIgnoreInvalidFiles>
+</BuildConfiguration>
+```
+
+**3. Build Method Change**
+
+**Issue**: Renaming Engine/Plugins/Marketplace folder breaks RiderLink plugin compilation with ArgumentNullException.
+
+**Solution**: Marketplace folder kept as-is. Plugin disabling in .uproject (step 1) is sufficient when building through **Unreal Editor**. RiderLink requires intact engine structure.
+
+---
+
+### KatanaCombat Plugin Configuration
+
+**Only 4 engine plugins enabled**:
+- ModelingToolsEditorMode (Editor tools)
+- StateTree (AI/Logic)
+- GameplayStateTree (AI/Logic)
+- MotionWarping (Combat animation)
+
+**Note**: ModuleGenerator disabled - it's a marketplace plugin in the disabled list.
+
+**All marketplace plugins disabled** in .uproject to prevent name conflicts during compilation.
+
+---
+
+### Impact on KatanaCombat
+
+**None.** KatanaCombat does not use any of the disabled marketplace plugins. The 5 enabled plugins are engine built-ins or essential for combat system functionality.
+
+**Build Status After Changes**: Should compile successfully without plugin conflicts.
+
+---
+
+### Troubleshooting
+
+**If build still fails after these changes:**
+
+1. **Clean build artifacts**:
+   ```
+   rmdir /s /q Binaries
+   rmdir /s /q Intermediate
+   rmdir /s /q Saved
+   ```
+
+2. **Regenerate project files**: Right-click `KatanaCombat.uproject` → "Generate Visual Studio project files"
+
+3. **Build through Unreal Editor instead**: Open KatanaCombat.uproject in Unreal Editor - it will auto-compile and respects .uproject plugin settings
+
+4. **Rider-specific**: If RiderLink fails to build (ArgumentNullException), open project in Unreal Editor first - Rider will connect after Editor builds successfully
+
+---
+
 **Happy coding!** 🗡️

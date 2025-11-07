@@ -6,6 +6,7 @@
 #include "Misc/AutomationTest.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
+#include "Animation/AnimMontage.h"
 #include "Core/CombatComponent.h"
 #include "Core/TargetingComponent.h"
 #include "Data/CombatSettings.h"
@@ -55,11 +56,16 @@ public:
 	{
 		ACharacter* Character = World->SpawnActor<ACharacter>();
 		OutCombat = NewObject<UCombatComponent>(Character);
-		OutCombat->RegisterComponent();
 
 		// Setup minimal combat settings
 		UCombatSettings* Settings = NewObject<UCombatSettings>();
+		Settings->MaxPosture = 100.0f;
+		Settings->PostureRegenRate_Idle = 20.0f;
+		Settings->PostureRegenRate_Attacking = 50.0f;
+		Settings->PostureRegenRate_NotBlocking = 30.0f;
 		OutCombat->CombatSettings = Settings;
+
+		OutCombat->RegisterComponent();
 
 		return Character;
 	}
@@ -96,6 +102,11 @@ public:
 		Attack->BaseDamage = (Type == EAttackType::Light) ? 25.0f : 50.0f;
 		Attack->PostureDamage = (Type == EAttackType::Light) ? 10.0f : 25.0f;
 		Attack->bCanHold = (Type == EAttackType::Light);
+
+		// Create a mock montage for testing
+		// This allows ExecuteAttack to proceed without a real animation asset
+		Attack->AttackMontage = NewObject<UAnimMontage>();
+
 		return Attack;
 	}
 

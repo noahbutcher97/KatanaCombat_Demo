@@ -168,6 +168,15 @@ public:
     void OnAttackPhaseEnd(EAttackPhase Phase);
 
     /**
+     * Called by AnimNotify_AttackPhaseTransition when transitioning to a new phase
+     * NEW PHASE SYSTEM: Single-event transitions instead of NotifyState ranges
+     * Routes to CombatComponent
+     * @param NewPhase - Phase we're transitioning TO (Active or Recovery)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Animation")
+    void OnAttackPhaseTransition(EAttackPhase NewPhase);
+
+    /**
      * Called by AnimNotifyState_ComboWindow when combo window opens
      * Routes to CombatComponent
      * @param Duration - How long window stays open

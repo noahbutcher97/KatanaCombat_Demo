@@ -7,7 +7,7 @@
 - **Hybrid Combo System**: Blending responsive (input buffering) and snappy (animation canceling) attack chains
 - **Posture-Based Defense**: Guard meter management with guard breaks, parries, and counter windows
 - **Data-Driven Design**: AttackData assets with montage section support for reusable animations
-- **Animation-Driven Timing**: AnimNotifyStates control phases, hit detection, and combo windows
+- **Animation-Driven Timing**: AnimNotify events control phase transitions, AnimNotifyStates control windows (combo, hold, parry)
 - **Component-Based Architecture**: Modular, reusable components for combat, targeting, weapons, and hit reactions
 
 ---
@@ -37,13 +37,17 @@ Attacks are defined as **UAttackData** DataAssets containing:
 - Timing modes (AnimNotify-driven vs manual fallbacks)
 
 ### 3. Animation-Driven Timing
-Attack phases are marked with **AnimNotifyState_AttackPhase**:
-- **Windup**: Telegraphing, parry-vulnerable, motion warping active
-- **Active**: Hit detection enabled, damage dealt
-- **Recovery**: Vulnerable, combo window opens
-- **Hold** (optional): Light attack pause for directional input
+Attack phases are marked with **AnimNotify_AttackPhaseTransition** events:
+- **Windup**: Montage start → Active transition (implicit, auto-begins)
+- **Active**: Transition event → Recovery transition (hit detection automatic)
+- **Recovery**: Transition event → Montage end (implicit, auto-ends)
+- **Hold** (optional): Window notify for light attack pause (separate from phases)
 
-The system reads timing from notifies in montages, with fallback to auto-calculated or manual timing.
+**Event-Based System**:
+- Phases use **2 transition events** (Active, Recovery) instead of 6 NotifyStates
+- Hit detection **automatically** enables/disables with Active phase (no manual toggles)
+- Implicit boundaries eliminate phase gaps and timing desync
+- Windows (Hold, Combo, Parry, etc.) remain as NotifyStates (duration-based, non-contiguous)
 
 ### 4. Hybrid Combo System
 Combines two paradigms:
@@ -88,11 +92,17 @@ State transitions are validated via `CanTransitionTo()` to prevent illegal trans
    - Setup motion warping to nearest target
    - Play attack montage (section-aware if specified)
    - Transition to `Attacking` state
-6. AnimNotifyState_AttackPhase fires callbacks:
-   - `OnAttackPhaseBegin(Windup)` → Motion warping active
-   - `OnAttackPhaseBegin(Active)` → `WeaponComponent::EnableHitDetection()`
-   - `OnAttackPhaseEnd(Active)` → `WeaponComponent::DisableHitDetection()`
-   - `OnAttackPhaseBegin(Recovery)` → Check buffered inputs, open combo window
+6. Attack montage plays with phase transitions:
+   - **Montage Start** → `CurrentPhase = Windup` (implicit, automatic)
+   - **AnimNotify_AttackPhaseTransition(Active)** → `HandlePhaseBegin(Active)`:
+     * Automatically enables hit detection (no manual toggle needed)
+     * Sets `CurrentPhase = Active`
+   - **AnimNotify_AttackPhaseTransition(Recovery)** → `HandlePhaseEnd(Active)`:
+     * Automatically disables hit detection
+     * Processes combo window inputs (snappy path)
+     * Sets `CurrentPhase = Recovery`
+   - **Montage End** → `CurrentPhase = None` (implicit, automatic)
+     * Processes buffered inputs (responsive path)
 7. During combo window:
    - Input queued → Snappy path (cancel recovery, execute immediately)
    - OR wait for recovery to complete → Responsive path (execute buffered attack)
@@ -100,11 +110,15 @@ State transitions are validated via `CanTransitionTo()` to prevent illegal trans
 
 ### Hit Detection System
 **UWeaponComponent** performs **swept sphere traces** from `weapon_start` to `weapon_end` sockets:
-- Enabled via `AnimNotify_ToggleHitDetection` or automatically during Active phase
+- **Automatically enabled/disabled** with Active phase (no manual toggles)
+- `HandlePhaseBegin(Active)` → `WeaponComponent::EnableHitDetection()`
+- `HandlePhaseEnd(Active)` → `WeaponComponent::DisableHitDetection()`
 - Traces every tick while enabled
 - Stores hit actors to prevent double-hitting
 - Broadcasts `OnWeaponHit` event with `HitActor`, `HitResult`, `AttackData`
 - Character receives event, applies damage via `IDamageableInterface::ApplyDamage()`
+
+**NOTE**: Manual `AnimNotify_ToggleHitDetection` is deprecated - hit detection is now tied directly to Active phase timing.
 
 ### Damage Flow
 1. `WeaponComponent` detects hit, fires `OnWeaponHit`
@@ -238,21 +252,27 @@ Heavy1  Heavy2   Heavy3   Heavy4  (Heavy branches)
 2. Assign attack montage and section name (if using sections)
 3. Configure damage, posture damage, hitstun
 4. Set up combo chains (NextComboAttack, HeavyComboAttack)
-5. Choose timing mode:
-   - **AnimNotify-Driven** (preferred): Place `AnimNotifyState_AttackPhase` notifies in montage
-   - **Manual**: Specify timing values in `ManualTiming` struct
-   - **Auto-Calculate**: System calculates reasonable timing from section length
+5. Place notifies in montage:
+   - **AnimNotify_AttackPhaseTransition(Active)**: At end of windup (where damage begins)
+   - **AnimNotify_AttackPhaseTransition(Recovery)**: At end of active (where damage ends)
+   - **AnimNotifyState_ComboWindow** (optional): During recovery for combo chaining
+   - **AnimNotifyState_HoldWindow** (optional): During windup for charge/directional input
+   - **AnimNotifyState_ParryWindow** (optional): During attacker's windup for parry detection
 
 ### UAttackDataTools (Editor Module)
 Static utility functions for editor automation:
-- `AutoCalculateTiming()`: Generate timing based on attack type heuristics
-- `GenerateAttackPhaseNotifies()`: Create Windup/Active/Recovery notifies
-- `GenerateHitDetectionNotifies()`: Place Enable/Disable hit detection notifies
+- `GeneratePhaseTransitionNotifies()`: Create Active/Recovery transition events (2 notifies)
 - `GenerateComboWindowNotify()`: Add combo window during recovery
-- `GenerateAllNotifies()`: One-click notify setup
+- `GenerateHoldWindowNotify()`: Add hold window during windup (for heavy attacks)
+- `GenerateParryWindowNotify()`: Add parry window on attacker's windup
+- `GenerateAllNotifies()`: One-click notify setup (transitions + windows)
 - `ValidateMontageSection()`: Check for errors (missing section, invalid references)
+- `ValidatePhaseSetup()`: Verify correct phase transition placement
 - `FindSectionConflicts()`: Detect multiple attacks using same section
+- `MigrateFromOldPhaseSystem()`: Convert deprecated NotifyStates to new event system
 - `BatchGenerateNotifies()`: Process multiple assets at once
+
+**Note**: Old functions `GenerateAttackPhaseNotifies()` and `GenerateHitDetectionNotifies()` are deprecated - use `GeneratePhaseTransitionNotifies()` instead.
 
 Exposed as Blueprint-callable functions for Editor Utility Widgets.
 
@@ -294,7 +314,9 @@ Each AttackData reads timing from notifies **within its section**, allowing prec
 - **Enums**: `ECombatState`, `EAttackType`, `EAttackPhase`
 - **Structs**: `FHitReactionInfo`, `FAttackPhaseTiming`
 - **Delegates**: `FOnCombatStateChanged`, `FOnPostureChanged`
-- **AnimNotifies**: `AnimNotifyState_AttackPhase`, `AnimNotify_ToggleHitDetection`
+- **AnimNotifies (Phases)**: `AnimNotify_AttackPhaseTransition`
+- **AnimNotifies (Windows)**: `AnimNotifyState_ComboWindow`, `AnimNotifyState_HoldWindow`, `AnimNotifyState_ParryWindow`
+- **AnimNotifies (Deprecated)**: `AnimNotifyState_AttackPhase`, `AnimNotify_ToggleHitDetection`
 
 ### Code Organization
 ```
@@ -310,9 +332,12 @@ Source/
         AttackData.h
         CombatSettings.h
       Animation/            # AnimNotifies and AnimInstance
-        AnimNotifyState_AttackPhase.h
-        AnimNotifyState_ComboWindow.h
-        AnimNotify_ToggleHitDetection.h
+        AnimNotify_AttackPhaseTransition.h          # Phase transitions (NEW)
+        AnimNotifyState_ComboWindow.h               # Combo window
+        AnimNotifyState_HoldWindow.h                # Hold detection window
+        AnimNotifyState_ParryWindow.h               # Parry detection window
+        AnimNotifyState_AttackPhase.h               # DEPRECATED - Old phase system
+        AnimNotify_ToggleHitDetection.h             # DEPRECATED - Hit detection now automatic
         SamuraiAnimInstance.h
       Characters/           # Character classes
         SamuraiCharacter.h
@@ -392,13 +417,20 @@ Current implementation is **single-player focused**, but structured for future n
 ### Adding a New Attack
 1. Open attack montage in Animation Editor
 2. Create new section (or use existing section range)
-3. Place `AnimNotifyState_AttackPhase` notifies (Windup, Active, Recovery)
-4. Place `AnimNotify_ToggleHitDetection` at Active start/end (optional, auto-handled)
+3. Place `AnimNotify_AttackPhaseTransition` notifies:
+   - **First notify**: At end of windup, set `TransitionToPhase = Active`
+   - **Second notify**: At end of active, set `TransitionToPhase = Recovery`
+4. Place window notifies (optional):
+   - `AnimNotifyState_ComboWindow` during recovery (for combo chaining)
+   - `AnimNotifyState_HoldWindow` during windup (for heavy attack charge)
+   - `AnimNotifyState_ParryWindow` during windup (for parry vulnerability)
 5. Create `UAttackData` asset
 6. Assign montage + section name
-7. Configure damage, posture, hitstun, timing mode
+7. Configure damage, posture, hitstun values
 8. Link into combo chain via `NextComboAttack` or `HeavyComboAttack`
 9. Assign to `DefaultLightAttack` or `DefaultHeavyAttack` if starter attack
+
+**Note**: Hit detection is automatic - no manual toggles needed! Enabled/disabled automatically with Active phase.
 
 ### Creating a Combo Chain
 ```
@@ -569,9 +601,9 @@ Common issues:
 
 1. **Deep combat mechanics** (posture, parries, combos, counters)
 2. **Data-driven design** (AttackData assets, montage sections)
-3. **Animation-driven timing** (AnimNotifyStates control phases)
+3. **Event-based phase timing** (AnimNotify transitions with automatic hit detection)
 4. **Reusable components** (player and enemies share same systems)
-5. **Editor-friendly workflow** (tools for automation, validation, batch operations)
+5. **Editor-friendly workflow** (tools for automation, validation, batch operations, migration)
 
 The system is structured for extensibility, supporting future features like multiplayer, aerial combat, finishers, and special attacks while maintaining clean separation of concerns and designer-friendly workflows.
 

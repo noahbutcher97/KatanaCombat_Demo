@@ -41,13 +41,13 @@ bool FStateTransitionTest::RunTest(const FString& Parameters)
 		CombatComp->CanTransitionTo(ECombatState::Attacking));
 
 	// Test 4: Blocking → Parrying (valid)
-	CombatComp->SetCombatState(ECombatState::Idle);
+	CombatComp->ForceSetStateForTest(ECombatState::Idle);  // Force reset after Dead
 	CombatComp->SetCombatState(ECombatState::Blocking);
 	TestTrue("Can transition Blocking → Parrying",
 		CombatComp->CanTransitionTo(ECombatState::Parrying));
 
 	// Test 5: Dead is truly terminal (cannot transition to any other state)
-	CombatComp->SetCombatState(ECombatState::Idle);
+	CombatComp->ForceSetStateForTest(ECombatState::Idle);  // Force reset
 	CombatComp->SetCombatState(ECombatState::Dead);
 	TestFalse("Cannot transition Dead → Idle",
 		CombatComp->CanTransitionTo(ECombatState::Idle));
@@ -57,19 +57,19 @@ bool FStateTransitionTest::RunTest(const FString& Parameters)
 		CombatComp->CanTransitionTo(ECombatState::Evading));
 
 	// Test 6: Attacking → HoldingLightAttack (valid)
-	CombatComp->SetCombatState(ECombatState::Idle);
+	CombatComp->ForceSetStateForTest(ECombatState::Idle);  // Force reset after Dead
 	CombatComp->SetCombatState(ECombatState::Attacking);
 	TestTrue("Can transition Attacking → HoldingLightAttack",
 		CombatComp->CanTransitionTo(ECombatState::HoldingLightAttack));
 
 	// Test 7: GuardBroken → Idle (valid recovery)
-	CombatComp->SetCombatState(ECombatState::Idle);
+	CombatComp->ForceSetStateForTest(ECombatState::Idle);  // Force reset after Dead
 	CombatComp->SetCombatState(ECombatState::GuardBroken);
 	TestTrue("Can transition GuardBroken → Idle",
 		CombatComp->CanTransitionTo(ECombatState::Idle));
 
 	// Test 8: Cannot transition to same state
-	CombatComp->SetCombatState(ECombatState::Idle);
+	CombatComp->ForceSetStateForTest(ECombatState::Idle);  // Force reset after GuardBroken
 	TestFalse("Cannot transition to same state (Idle → Idle)",
 		CombatComp->CanTransitionTo(ECombatState::Idle));
 

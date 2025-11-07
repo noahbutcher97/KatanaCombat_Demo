@@ -3,6 +3,7 @@
 #include "Data/AttackData.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotifyState_AttackPhase.h"
+#include "Animation/AnimNotify_AttackPhaseTransition.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogAttackData, Log, All);
 
@@ -79,43 +80,56 @@ bool UAttackData::HasValidNotifyTimingInSection() const
     {
         return false;
     }
-    
+
     float SectionStart, SectionEnd;
     GetSectionTimeRange(SectionStart, SectionEnd);
-    
-    bool bHasWindup = false;
-    bool bHasActive = false;
-    bool bHasRecovery = false;
-    
-    // Check for required phase notifies in section
+
+    bool bHasActiveTransition = false;
+    bool bHasRecoveryTransition = false;
+
+    // NEW SYSTEM: Check for AnimNotify_AttackPhaseTransition events
+    // We need exactly 2 transition events:
+    // 1. Windup → Active transition
+    // 2. Active → Recovery transition
+
     for (const FAnimNotifyEvent& NotifyEvent : AttackMontage->Notifies)
     {
         const float NotifyTime = NotifyEvent.GetTriggerTime();
-        
+
         // Check if notify is within our section
         if (NotifyTime >= SectionStart && NotifyTime < SectionEnd)
         {
+            // Check for new event-based phase transitions
+            if (const UAnimNotify_AttackPhaseTransition* TransitionNotify = Cast<UAnimNotify_AttackPhaseTransition>(NotifyEvent.Notify))
+            {
+                if (TransitionNotify->TransitionToPhase == EAttackPhase::Active)
+                {
+                    bHasActiveTransition = true;
+                }
+                else if (TransitionNotify->TransitionToPhase == EAttackPhase::Recovery)
+                {
+                    bHasRecoveryTransition = true;
+                }
+            }
+
+            // DEPRECATED: Also check for old AnimNotifyState_AttackPhase for backward compatibility
             if (const UAnimNotifyState_AttackPhase* PhaseNotify = Cast<UAnimNotifyState_AttackPhase>(NotifyEvent.NotifyStateClass))
             {
-                switch (PhaseNotify->Phase)
+                // Old system is deprecated but still functional
+                // If found, consider it valid (but log deprecation warning)
+                static bool bDeprecationWarningLogged = false;
+                if (!bDeprecationWarningLogged)
                 {
-                    case EAttackPhase::Windup:
-                        bHasWindup = true;
-                        break;
-                    case EAttackPhase::Active:
-                        bHasActive = true;
-                        break;
-                    case EAttackPhase::Recovery:
-                        bHasRecovery = true;
-                        break;
-                    default:
-                        break;
+                    UE_LOG(LogTemp, Warning, TEXT("[AttackData] Found deprecated AnimNotifyState_AttackPhase in montage. Please migrate to AnimNotify_AttackPhaseTransition."));
+                    bDeprecationWarningLogged = true;
                 }
+                return true; // Old system found - consider valid for now
             }
         }
     }
-    
-    return bHasWindup && bHasActive && bHasRecovery;
+
+    // NEW SYSTEM: Valid if has both required transitions
+    return bHasActiveTransition && bHasRecoveryTransition;
 }
 
 void UAttackData::GetEffectiveTiming(float& OutWindup, float& OutActive, float& OutRecovery) const

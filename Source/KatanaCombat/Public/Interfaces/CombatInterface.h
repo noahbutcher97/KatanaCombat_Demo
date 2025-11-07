@@ -88,6 +88,20 @@ public:
 	void OnAttackPhaseEnd(EAttackPhase Phase);
 
 	/**
+	 * Called when transitioning to a new attack phase (from AnimNotify_AttackPhaseTransition)
+	 * NEW PHASE SYSTEM: Replaces NotifyState approach with single-event transitions
+	 *
+	 * Phases are contiguous and implicitly defined:
+	 * - Windup: Montage start → Active transition
+	 * - Active: Active transition → Recovery transition
+	 * - Recovery: Recovery transition → Montage end
+	 *
+	 * @param NewPhase - The phase we're transitioning TO (Active or Recovery)
+	 */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
+	void OnAttackPhaseTransition(EAttackPhase NewPhase);
+
+	/**
 	 * Is this actor currently in parry window? (Attacker-side state)
 	 * Defender checks this on nearby attackers to determine if parry is possible
 	 * @return True if this actor is vulnerable to being parried

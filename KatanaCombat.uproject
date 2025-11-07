@@ -47,8 +47,64 @@
 		},
 		{
 			"Name": "ModuleGenerator",
-			"Enabled": true,
+			"Enabled": false,
 			"MarketplaceURL": "com.epicgames.launcher://ue/marketplace/product/ec36ec6e94f74075819e2a04f7cb97f3"
+		},
+		{
+			"Name": "StateMachineSystem",
+			"Enabled": false
+		},
+		{
+			"Name": "UFSM",
+			"Enabled": false
+		},
+		{
+			"Name": "ObjectDistribution",
+			"Enabled": false
+		},
+		{
+			"Name": "BuildingTools",
+			"Enabled": false
+		},
+		{
+			"Name": "FreeBoneSnapper",
+			"Enabled": false
+		},
+		{
+			"Name": "TweenMaker",
+			"Enabled": false
+		},
+		{
+			"Name": "Figma2UMG",
+			"Enabled": false
+		},
+		{
+			"Name": "SimpleScatterPlugin",
+			"Enabled": false
+		},
+		{
+			"Name": "InteractiveStoryPlugin",
+			"Enabled": false
+		},
+		{
+			"Name": "DataTrackerPlugin",
+			"Enabled": false
+		},
+		{
+			"Name": "PlayerStatistics",
+			"Enabled": false
+		},
+		{
+			"Name": "EmperiaTool",
+			"Enabled": false
+		},
+		{
+			"Name": "MiniGraph",
+			"Enabled": false
+		},
+		{
+			"Name": "OdysseyProceduralTools",
+			"Enabled": false
 		}
 	]
 }

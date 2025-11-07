@@ -133,20 +133,28 @@ public:
     float MaxHoldTime = 1.5f;
 
     // ============================================================================
-    // TIMING SYSTEM (AnimNotify-Driven with Fallbacks)
+    // TIMING SYSTEM (Event-Based Phase Transitions)
     // ============================================================================
+    // NEW SYSTEM: Phases use AnimNotify_AttackPhaseTransition events (2 per attack)
+    // - Windup → Active transition (at end of windup)
+    // - Active → Recovery transition (at end of active/hit detection)
+    // - Windup start is implicit (montage start)
+    // - Recovery end is implicit (montage end)
+    //
+    // DEPRECATED: Old AnimNotifyState_AttackPhase system (6 events per attack)
+    // These properties are kept for backward compatibility but are no longer used
 
-    /** Primary: Use timing from AnimNotifyState_AttackPhase in montage */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing")
+    /** DEPRECATED: Timing is now always event-driven (AnimNotify_AttackPhaseTransition) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing (Deprecated)")
     bool bUseAnimNotifyTiming = true;
 
-    /** What to do if AnimNotifyStates are missing from montage/section */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing", 
+    /** DEPRECATED: No longer used with event-based phase system */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing (Deprecated)",
         meta = (EditCondition = "bUseAnimNotifyTiming", EditConditionHides))
     ETimingFallbackMode TimingFallbackMode = ETimingFallbackMode::AutoCalculate;
 
-    /** Manual timing values (used when bUseAnimNotifyTiming = false) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing", 
+    /** DEPRECATED: Manual timing not supported with event-based system */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing (Deprecated)",
         meta = (EditCondition = "!bUseAnimNotifyTiming", EditConditionHides))
     FAttackPhaseTimingOverride ManualTiming;
 
@@ -169,11 +177,11 @@ public:
     UFUNCTION(BlueprintPure, Category = "Attack Data")
     float GetSectionLength() const;
 
-    /** Check if this attack has valid AnimNotifyStates in its target section/montage */
+    /** DEPRECATED: Check if attack has valid phase transitions (always returns true for new system) */
     UFUNCTION(BlueprintPure, Category = "Attack Data")
     bool HasValidNotifyTimingInSection() const;
 
-    /** Get calculated timing based on current settings (notifies or fallback) */
+    /** DEPRECATED: Get calculated timing (not used with event-based system) */
     UFUNCTION(BlueprintCallable, Category = "Attack Data")
     void GetEffectiveTiming(float& OutWindup, float& OutActive, float& OutRecovery) const;
 

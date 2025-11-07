@@ -11,12 +11,20 @@ UAnimNotifyState_AttackPhase::UAnimNotifyState_AttackPhase()
 void UAnimNotifyState_AttackPhase::NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference)
 {
     Super::NotifyBegin(MeshComp, Animation, TotalDuration, EventReference);
-    
+
+    // DEPRECATION WARNING: Log once per session
+    static bool bDeprecationWarningLogged = false;
+    if (!bDeprecationWarningLogged)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[DEPRECATED] AnimNotifyState_AttackPhase is deprecated. Use AnimNotify_AttackPhaseTransition instead. See docs/PHASE_SYSTEM_MIGRATION.md"));
+        bDeprecationWarningLogged = true;
+    }
+
     if (!MeshComp || !MeshComp->GetOwner())
     {
         return;
     }
-    
+
     // Route to combat interface
     if (ICombatInterface* CombatInterface = Cast<ICombatInterface>(MeshComp->GetOwner()))
     {

@@ -97,6 +97,7 @@ public:
     virtual void OnDisableHitDetection_Implementation() override;
     virtual void OnAttackPhaseBegin_Implementation(EAttackPhase Phase) override;
     virtual void OnAttackPhaseEnd_Implementation(EAttackPhase Phase) override;
+    virtual void OnAttackPhaseTransition_Implementation(EAttackPhase NewPhase) override;
     virtual bool IsInParryWindow_Implementation() const override;
 
     // ============================================================================
