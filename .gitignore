@@ -62,6 +62,9 @@ __pycache__/
 Plugins/
 Plugins
 
+# Ignore Nul
+nul
+
 # Optional: If using git-lfs, don't ignore uasset/umap here
 # Instead, track them explicitly:
 git lfs track "*.uasset"
