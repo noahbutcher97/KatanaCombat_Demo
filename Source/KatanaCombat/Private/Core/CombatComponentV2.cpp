@@ -8,6 +8,7 @@
 #include "Animation/AnimMontage.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Characters/SamuraiCharacter.h"
 #include "Utilities/MontageUtilityLibrary.h"
 
@@ -59,31 +60,14 @@ void UCombatComponentV2::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (!CombatComponent)
-	{
-		return;
-	}
+	// PHASE 9 COMPLETE: V2 is now fully event-driven!
+	// - Input processing: OnInputEvent (immediate)
+	// - Queue execution: ProcessQueuedActions (called on phase transitions)
+	// - Hold easing: OnEaseTimerTick (timer-based, 60Hz)
+	// - Phase tracking: OnPhaseTransition (AnimNotify events)
+	//
+	// Only debug visualization remains in tick (harmless, can be disabled)
 
-	// Get current montage time using utility library (encapsulates repetitive null checks)
-	ACharacter* Character = Cast<ACharacter>(GetOwner());
-	float CurrentTime = UMontageUtilityLibrary::GetCurrentMontageTime(Character);
-
-	if (CurrentTime >= 0.0f) // Valid montage time
-	{
-		// Process queue at current montage time
-		ProcessQueue(CurrentTime);
-
-		// Clear expired checkpoints
-		ClearExpiredCheckpoints(CurrentTime);
-	}
-
-	// Update hold playrate if active
-	if (HoldState.bIsHolding)
-	{
-		UpdateHoldPlayRate(DeltaTime);
-	}
-
-	// Debug visualization
 	if (GetDebugDraw())
 	{
 		DrawDebugInfo();
@@ -237,13 +221,93 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 	FActionQueueEntry Entry(InputAction, AttackData, ExecMode);
 	Entry.Priority = CalculatePriority(Entry);
 
+	// PHASE 9: Set TargetPhase for event-driven execution
+	// Immediate: Execute synchronously (no phase wait)
+	// Queued: Execute on Recovery phase transition (when Active ends)
+	Entry.TargetPhase = (ExecMode == EActionExecutionMode::Immediate)
+		? EAttackPhase::None      // Synchronous execution
+		: EAttackPhase::Recovery; // Execute when Active phase ends
+
 	// Immediate mode: Execute synchronously (right now)
 	if (ExecMode == EActionExecutionMode::Immediate)
 	{
-		// CRITICAL: Clear all pending queued actions before starting new attack
-		// This prevents old buffered inputs from executing after the new action
-		if (ActionQueue.Num() > 0)
+		// COMBO-AWARE QUEUE MANAGEMENT:
+		// Check if the executing action has combo branches (NextComboAttack, HeavyComboAttack, etc.)
+		// If YES: Preserve ONLY valid combo inputs (enables alternating light/heavy chains)
+		// If NO: Clear all pending (combo chain ended, starting fresh)
+
+		UAttackData* ExecutingAttack = Entry.AttackData;
+		bool bHasComboBranches = ExecutingAttack &&
+			(ExecutingAttack->NextComboAttack != nullptr ||
+			 ExecutingAttack->HeavyComboAttack != nullptr ||
+			 ExecutingAttack->DirectionalFollowUps.Num() > 0 ||
+			 ExecutingAttack->HeavyDirectionalFollowUps.Num() > 0);
+
+		if (bHasComboBranches && ActionQueue.Num() > 0)
 		{
+			// This attack has combo branches - preserve ONLY the FIRST valid combo of each type
+			// This prevents button mashing from executing entire combo chains (max 1 Light + 1 Heavy queued)
+			TArray<FActionQueueEntry> ValidCombos;
+			bool bHasQueuedLight = false;
+			bool bHasQueuedHeavy = false;
+			int32 CancelledCount = 0;
+
+			for (FActionQueueEntry& QueuedEntry : ActionQueue)
+			{
+				if (!QueuedEntry.IsPending())
+				{
+					ValidCombos.Add(QueuedEntry); // Keep non-pending
+					continue;
+				}
+
+				// Check if this queued action is a valid combo from executing attack
+				bool bIsValidCombo = false;
+				bool bAlreadyQueued = false;
+
+				if (QueuedEntry.InputAction.InputType == EInputType::LightAttack)
+				{
+					bIsValidCombo = (ExecutingAttack->NextComboAttack != nullptr);
+					bAlreadyQueued = bHasQueuedLight;
+					if (bIsValidCombo && !bAlreadyQueued)
+					{
+						bHasQueuedLight = true; // Mark that we've queued a Light
+					}
+				}
+				else if (QueuedEntry.InputAction.InputType == EInputType::HeavyAttack)
+				{
+					bIsValidCombo = (ExecutingAttack->HeavyComboAttack != nullptr);
+					bAlreadyQueued = bHasQueuedHeavy;
+					if (bIsValidCombo && !bAlreadyQueued)
+					{
+						bHasQueuedHeavy = true; // Mark that we've queued a Heavy
+					}
+				}
+
+				if (bIsValidCombo && !bAlreadyQueued)
+				{
+					ValidCombos.Add(QueuedEntry); // Keep FIRST valid combo of this type
+				}
+				else
+				{
+					// Cancel: either invalid combo OR duplicate input (spam prevention)
+					QueuedEntry.State = EActionState::Cancelled;
+					QueueStats.ActionsCancelled++;
+					CancelledCount++;
+				}
+			}
+
+			// Replace queue with only valid combos (max 1 Light + 1 Heavy)
+			ActionQueue = ValidCombos;
+
+			if (GetDebugDraw())
+			{
+				UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Combo-aware clear: Preserved %d valid combos (anti-spam), cancelled %d"),
+					ValidCombos.Num(), CancelledCount);
+			}
+		}
+		else if (ActionQueue.Num() > 0)
+		{
+			// No combo branches - clear all pending (starting fresh attack chain)
 			int32 ClearedCount = 0;
 			for (FActionQueueEntry& QueuedEntry : ActionQueue)
 			{
@@ -259,7 +323,7 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 
 			if (GetDebugDraw() && ClearedCount > 0)
 			{
-				UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Cleared %d pending actions before IMMEDIATE execution"), ClearedCount);
+				UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Cleared %d pending actions (no combo branches - chain ended)"), ClearedCount);
 			}
 		}
 
@@ -310,13 +374,93 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 	}
 }
 
-void UCombatComponentV2::ProcessQueue(float CurrentMontageTime)
+void UCombatComponentV2::ProcessQueuedActions(EAttackPhase TargetPhase)
 {
+	// PHASE 9: EVENT-DRIVEN QUEUE PROCESSING (NOT tick-based!)
+	// Execute actions that are waiting for this phase transition
+	// This completely replaces montage-time-based polling
+
 	if (ActionQueue.Num() == 0)
 	{
 		return;
 	}
 
+	int32 ExecutedCount = 0;
+
+	// Process actions targeting this phase (FIFO order maintained)
+	for (int32 i = ActionQueue.Num() - 1; i >= 0; --i)
+	{
+		FActionQueueEntry& Entry = ActionQueue[i];
+
+		if (!Entry.IsPending())
+		{
+			continue; // Skip non-pending actions
+		}
+
+		// Check if this action targets the current phase transition
+		bool bShouldExecute = (Entry.TargetPhase == TargetPhase);
+
+		if (bShouldExecute)
+		{
+			// Execute action
+			if (ExecuteAction(Entry))
+			{
+				Entry.State = EActionState::Completed;
+				QueueStats.ActionsExecuted++;
+
+				if (Entry.ExecutionMode == EActionExecutionMode::Queued)
+				{
+					QueueStats.QueuedExecutions++;
+				}
+
+				ExecutedCount++;
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[V2 EVENT-DRIVEN] Executed action on phase %s (TargetPhase: %s)"),
+						*UEnum::GetValueAsString(TargetPhase),
+						*UEnum::GetValueAsString(Entry.TargetPhase));
+				}
+
+				// Remove from queue after successful execution
+				ActionQueue.RemoveAt(i);
+			}
+			else
+			{
+				// Execution failed - mark as cancelled
+				Entry.State = EActionState::Cancelled;
+				QueueStats.ActionsCancelled++;
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Warning, TEXT("[V2 EVENT-DRIVEN] Action execution failed on phase %s, cancelled"),
+						*UEnum::GetValueAsString(TargetPhase));
+				}
+
+				ActionQueue.RemoveAt(i);
+			}
+		}
+	}
+
+	if (GetDebugDraw() && ExecutedCount > 0)
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 EVENT-DRIVEN] Processed %d queued actions on phase %s"),
+			ExecutedCount, *UEnum::GetValueAsString(TargetPhase));
+	}
+}
+
+void UCombatComponentV2::ProcessQueue(float CurrentMontageTime)
+{
+	// DEPRECATED: Tick-based queue processing
+	// Replaced by event-driven ProcessQueuedActions(TargetPhase) in Phase 9
+	// Keeping this stub for potential backward compatibility or debugging
+
+	if (ActionQueue.Num() == 0)
+	{
+		return;
+	}
+
+	// OLD TICK-BASED LOGIC (no longer used):
 	// Process actions that have reached their scheduled time
 	for (int32 i = ActionQueue.Num() - 1; i >= 0; --i)
 	{
@@ -419,6 +563,9 @@ bool UCombatComponentV2::ExecuteAction(FActionQueueEntry& Action)
 				// Track current attack for combo progression
 				CurrentAttackData = Action.AttackData;
 				CurrentAttackInputType = Action.InputAction.InputType;
+
+				// CRITICAL FIX: Reset hold state for new attack (clears bActivatedThisAttack)
+				HoldState.Reset();
 
 				// Broadcast attack started event
 				bool bIsCombo = (CurrentPhase == EAttackPhase::Recovery || CurrentPhase == EAttackPhase::Active);
@@ -693,28 +840,131 @@ float UCombatComponentV2::GetExecutionCheckpoint(const FActionQueueEntry& Action
 // HOLD SYSTEM (V2)
 // ============================================================================
 
-void UCombatComponentV2::CheckHoldActivation()
+void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 {
-	if (!CombatComponent || HoldState.bActivatedThisAttack)
+	// V2 EVENT-DRIVEN HOLD DETECTION:
+	// AnimNotify fires at hold window start, we check if button is STILL pressed
+	// This replaces tick-based CheckHoldActivation with event-driven pattern
+
+	if (!CombatComponent || !CurrentAttackData || HoldState.bActivatedThisAttack)
 	{
 		return;
 	}
 
-	// Find hold checkpoint
-	FTimerCheckpoint* HoldCheckpoint = FindCheckpoint(EActionWindowType::Hold);
-	if (!HoldCheckpoint)
+	// Check if the specified input is currently pressed (via HeldInputs map)
+	const float* PressTime = HeldInputs.Find(InputType);
+	if (!PressTime)
 	{
-		return;
-	}
-
-	// Check if any attack input is currently held
-	for (const TPair<EInputType, float>& Pair : HeldInputs)
-	{
-		if (Pair.Key == EInputType::LightAttack || Pair.Key == EInputType::HeavyAttack)
+		// Button not held - normal combo flow
+		if (GetDebugDraw())
 		{
-			// Input is held - activate hold
-			ActivateHold(Pair.Key, 0.2f); // Slow playrate
-			break;
+			UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Window start, but button not held: %s"),
+				*UEnum::GetValueAsString(InputType));
+		}
+		return;
+	}
+
+	// Button is held - activate hold behavior
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Button held at window start: %s, activating hold"),
+			*UEnum::GetValueAsString(InputType));
+	}
+
+	// Determine hold behavior based on attack type
+	if (CurrentAttackData->AttackType == EAttackType::Heavy)
+	{
+		// HEAVY ATTACK HOLD: Jump to and loop charge section
+		ACharacter* Character = Cast<ACharacter>(GetOwner());
+		if (Character && CurrentAttackData->ChargeLoopSection != NAME_None)
+		{
+			// STEP 1: Jump to the charge section WITH BLEND (smooths transition from attack → charge loop)
+			bool bJumped = UMontageUtilityLibrary::JumpToSectionWithBlend(
+				Character,
+				CurrentAttackData->ChargeLoopSection,
+				CurrentAttackData->ChargeLoopBlendTime  // Blends initial attack anim → charge loop
+			);
+
+			if (!bJumped)
+			{
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] Failed to jump to charge section: %s"),
+						*CurrentAttackData->ChargeLoopSection.ToString());
+				}
+				return;
+			}
+
+			// STEP 2: Set up the loop (section jumps back to itself)
+			bool bLooped = UMontageUtilityLibrary::LoopMontageSection(Character, CurrentAttackData->ChargeLoopSection);
+
+			if (bLooped)
+			{
+				// STEP 3: Activate hold state (no playrate change for heavy attacks - loops at normal speed)
+				ActivateHold(InputType, 1.0f);
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack charge loop started: jumped to '%s' and looping"),
+						*CurrentAttackData->ChargeLoopSection.ToString());
+				}
+			}
+			else if (GetDebugDraw())
+			{
+				UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] Failed to loop charge section: %s"),
+					*CurrentAttackData->ChargeLoopSection.ToString());
+			}
+		}
+		else if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] Heavy attack has no ChargeLoopSection defined"));
+		}
+	}
+	else if (CurrentAttackData->AttackType == EAttackType::Light)
+	{
+		// LIGHT ATTACK HOLD: Begin EASE-IN slowdown (bidirectional easing system)
+		// Smoothly transition from normal speed to hold slowdown using UE Timer System (NOT tick!)
+
+		// Activate hold state (marks hold as active)
+		HoldState.Activate(InputType, GetWorld()->GetTimeSeconds(), 1.0f);
+
+		// DISABLE CHARACTER MOVEMENT/ROTATION during hold (prevents character from moving while animation frozen)
+		if (ASamuraiCharacter* Character = GetOwnerCharacter())
+		{
+			if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
+			{
+				MovementComp->DisableMovement();
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Character movement DISABLED during hold"));
+				}
+			}
+		}
+
+		// Initialize EASE-IN transition state (1.0 → HoldTargetPlayRate)
+		HoldState.bIsEasing = true;
+		HoldState.bIsEasingOut = false; // EASE-IN direction
+		HoldState.EaseStartTime = GetWorld()->GetTimeSeconds();
+		HoldState.EaseStartPlayRate = 1.0f; // Current playrate (normal speed)
+
+		// Start timer for ease updates (60 Hz for smooth transitions)
+		// Timer calls OnEaseTimerTick() repeatedly until ease completes or is cancelled
+		float TimerInterval = 1.0f / 60.0f; // 60 Hz update rate
+		GetWorld()->GetTimerManager().SetTimer(
+			EaseTimerHandle,
+			this,
+			&UCombatComponentV2::OnEaseTimerTick,
+			TimerInterval,
+			true // Loop
+		);
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 HOLD TIMER] Light attack EASE-IN started (1.0 → %.2f over %.2fs using %s @ 60Hz)"),
+				CurrentAttackData->HoldTargetPlayRate,
+				CurrentAttackData->HoldEaseInDuration,
+				*UEnum::GetValueAsString(CurrentAttackData->HoldEaseInType));
 		}
 	}
 }
@@ -742,27 +992,289 @@ void UCombatComponentV2::ActivateHold(EInputType InputType, float PlayRate)
 
 void UCombatComponentV2::DeactivateHold()
 {
-	if (!HoldState.bIsHolding)
+	if (!HoldState.bIsHolding || !CurrentAttackData)
 	{
 		return;
 	}
 
-	HoldState.Deactivate();
-
-	// Restore normal playrate using utility library
-	ACharacter* Character = Cast<ACharacter>(GetOwner());
-	UMontageUtilityLibrary::SetMontagePlayRate(Character, 1.0f);
-
-	if ( GetDebugDraw())
+	// Clear any existing ease timer (ease-in may still be running)
+	if (GetWorld() && EaseTimerHandle.IsValid())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Deactivated"));
+		GetWorld()->GetTimerManager().ClearTimer(EaseTimerHandle);
+	}
+
+	// HEAVY ATTACK: Jump to release section (no easing)
+	if (CurrentAttackData->AttackType == EAttackType::Heavy)
+	{
+		ACharacter* Character = Cast<ACharacter>(GetOwner());
+
+		// Jump to the configured release section WITH BLEND (smooths transition from charge loop → release attack)
+		if (Character && CurrentAttackData->ChargeReleaseSection != NAME_None)
+		{
+			bool bJumped = UMontageUtilityLibrary::JumpToSectionWithBlend(
+				Character,
+				CurrentAttackData->ChargeReleaseSection,
+				CurrentAttackData->ChargeReleaseBlendTime  // Blends charge loop → release attack
+			);
+
+			if (GetDebugDraw())
+			{
+				if (bJumped)
+				{
+					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack released: jumping to release section '%s'"),
+						*CurrentAttackData->ChargeReleaseSection.ToString());
+				}
+				else
+				{
+					UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] Failed to jump to release section '%s'"),
+						*CurrentAttackData->ChargeReleaseSection.ToString());
+				}
+			}
+		}
+		else
+		{
+			// FALLBACK: No release section configured - blend out montage to return to idle
+			if (Character)
+			{
+				UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance();
+				if (AnimInstance)
+				{
+					UAnimMontage* CurrentMontage = UMontageUtilityLibrary::GetCurrentMontage(Character);
+					if (CurrentMontage)
+					{
+						// Blend out using ChargeReleaseBlendTime (reuse same blend duration)
+						AnimInstance->Montage_Stop(CurrentAttackData->ChargeReleaseBlendTime, CurrentMontage);
+
+						if (GetDebugDraw())
+						{
+							UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack has no ChargeReleaseSection - blending to idle (%.2fs)"),
+								CurrentAttackData->ChargeReleaseBlendTime);
+						}
+
+						// CRITICAL: Clear attack state immediately (no follow-up attack)
+						// OnMontageEnded will fire after blend completes, but we need to reset NOW
+						CurrentAttackData = nullptr;
+						CurrentAttackInputType = EInputType::None;
+						SetPhase(EAttackPhase::None);
+						Checkpoints.Empty();
+						ActionQueue.Empty(); // Discard any queued actions - returning to idle
+
+						if (GetDebugDraw())
+						{
+							UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack state cleared - ready for new input"));
+						}
+					}
+				}
+			}
+		}
+
+		// Deactivate hold state immediately (no easing for heavy attacks)
+		HoldState.Deactivate();
+		return;
+	}
+
+	// LIGHT ATTACK: Begin EASE-OUT transition (HoldTargetPlayRate → 1.0)
+	// Reuse the same timer system but reverse the transition
+
+	// CRITICAL FIX: Query ACTUAL montage playrate instead of HoldState.CurrentPlayRate
+	// If button released during ease-in, HoldState may not match AnimInstance's actual playrate
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	float CurrentPlayRate = UMontageUtilityLibrary::GetMontagePlayRate(Character);
+
+	// Fallback to HoldState if query fails (shouldn't happen, but safety first)
+	if (CurrentPlayRate <= 0.0f)
+	{
+		CurrentPlayRate = HoldState.CurrentPlayRate;
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] Failed to query montage playrate, using HoldState: %.2f"), CurrentPlayRate);
+		}
+	}
+
+	// Initialize EASE-OUT transition state
+	HoldState.bIsEasing = true;
+	HoldState.bIsEasingOut = true; // EASE-OUT direction
+	HoldState.EaseStartTime = GetWorld()->GetTimeSeconds();
+	HoldState.EaseStartPlayRate = CurrentPlayRate; // Start from ACTUAL current playrate
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Light attack EASE-OUT starting from ACTUAL playrate: %.2f → 1.0"), CurrentPlayRate);
+	}
+
+	// NOTE: We keep HoldState.bIsHolding = true during ease-out
+	// This prevents re-activation during the transition
+	// Deactivate() will be called when ease-out complete
+	// Start timer for EASE-OUT (60 Hz for smooth transitions)
+	float TimerInterval = 1.0f / 60.0f; // 60 Hz update rate
+	GetWorld()->GetTimerManager().SetTimer(
+		EaseTimerHandle,
+		this,
+		&UCombatComponentV2::OnEaseTimerTick,
+		TimerInterval,
+		true // Loop
+	);
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD TIMER] EASE-OUT started (%.2f → 1.0 over %.2fs using %s @ 60Hz)"),
+			CurrentPlayRate,
+			CurrentAttackData->HoldEaseOutDuration,
+			*UEnum::GetValueAsString(CurrentAttackData->HoldEaseOutType));
 	}
 }
 
-void UCombatComponentV2::UpdateHoldPlayRate(float DeltaTime)
+void UCombatComponentV2::OnEaseTimerTick()
 {
-	// Hold playrate updates could be implemented here
-	// For now, hold maintains constant playrate set at activation
+	// V2 TIMER-BASED EASE TRANSITION (NOT tick-based!)
+	// This function is called by FTimerHandle at regular intervals (60 Hz)
+	// Handles BOTH ease-in (1.0 → HoldTargetPlayRate) AND ease-out (HoldTargetPlayRate → 1.0)
+
+	if (!HoldState.bIsEasing || !CurrentAttackData)
+	{
+		// Ease cancelled or completed - clear timer
+		if (GetWorld())
+		{
+			GetWorld()->GetTimerManager().ClearTimer(EaseTimerHandle);
+		}
+		return;
+	}
+
+	// Calculate elapsed time since ease started
+	float CurrentTime = GetWorld()->GetTimeSeconds();
+	float ElapsedTime = CurrentTime - HoldState.EaseStartTime;
+
+	// Determine if we're easing IN or OUT using dedicated flag (NOT playrate comparison)
+	// CRITICAL FIX: Using playrate comparison fails when button released during ease-in
+	// EASE-IN: Start = 1.0, Target = HoldTargetPlayRate (bIsEasingOut = false)
+	// EASE-OUT: Start = current playrate, Target = 1.0 (bIsEasingOut = true)
+	bool bIsEasingIn = !HoldState.bIsEasingOut; // Use flag instead of playrate comparison
+	float TargetPlayRate = bIsEasingIn ? CurrentAttackData->HoldTargetPlayRate : 1.0f;
+	float EaseDuration = bIsEasingIn ? CurrentAttackData->HoldEaseInDuration : CurrentAttackData->HoldEaseOutDuration;
+	EEasingType EasingType = bIsEasingIn ? CurrentAttackData->HoldEaseInType : CurrentAttackData->HoldEaseOutType;
+
+	// Check if ease transition is complete
+	if (ElapsedTime >= EaseDuration)
+	{
+		// Ease complete - ensure we're at final target playrate
+		HoldState.bIsEasing = false;
+		HoldState.CurrentPlayRate = TargetPlayRate;
+
+		ACharacter* CharacterRef = Cast<ACharacter>(GetOwner());
+		UMontageUtilityLibrary::SetMontagePlayRate(CharacterRef, HoldState.CurrentPlayRate);
+
+		// Clear timer - ease complete
+		GetWorld()->GetTimerManager().ClearTimer(EaseTimerHandle);
+
+		// If EASE-OUT just completed, execute follow-up attack and cleanup
+		if (!bIsEasingIn)
+		{
+			// EXECUTE FOLLOW-UP ATTACK (directional or normal combo)
+			// This happens AFTER ease-out completes for smooth transition
+			UAttackData* FollowUpAttack = nullptr;
+
+			// Check for directional follow-up based on held direction
+			if (CurrentAttackData && HoldState.HoldDirection != EAttackDirection::None)
+			{
+				// Try to find directional follow-up (TMap returns TObjectPtr<UAttackData>*)
+				TObjectPtr<UAttackData>* DirectionalAttack = CurrentAttackData->DirectionalFollowUps.Find(HoldState.HoldDirection);
+				if (DirectionalAttack && DirectionalAttack->Get())
+				{
+					FollowUpAttack = DirectionalAttack->Get();
+
+					if (GetDebugDraw())
+					{
+						UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Directional follow-up found: Direction=%s, Attack=%s"),
+							*UEnum::GetValueAsString(HoldState.HoldDirection),
+							*FollowUpAttack->GetName());
+					}
+				}
+			}
+
+			// FALLBACK: Use normal combo if no directional follow-up
+			if (!FollowUpAttack && CurrentAttackData)
+			{
+				FollowUpAttack = CurrentAttackData->NextComboAttack;
+
+				if (FollowUpAttack && GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Using normal combo follow-up: %s"), *FollowUpAttack->GetName());
+				}
+			}
+
+			// Queue the follow-up attack if found
+			if (FollowUpAttack)
+			{
+				FQueuedInputAction FollowUpInput(
+					HoldState.HeldInputType,              // Same input type as hold
+					EInputEventType::Press,                // Treat as press event
+					GetWorld()->GetTimeSeconds(),          // Current time
+					false                                   // Not in combo window
+				);
+
+				QueueAction(FollowUpInput, FollowUpAttack);
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Follow-up attack queued: %s"), *FollowUpAttack->GetName());
+				}
+			}
+			else if (GetDebugDraw())
+			{
+				UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] No follow-up attack configured (no directional or combo follow-up)"));
+			}
+
+			// Deactivate hold state (clears HoldDirection, bIsHolding, etc.)
+			HoldState.Deactivate();
+
+			// RE-ENABLE CHARACTER MOVEMENT after ease-out completes
+			if (ASamuraiCharacter* SamuraiChar = GetOwnerCharacter())
+			{
+				if (UCharacterMovementComponent* MovementComp = SamuraiChar->GetCharacterMovement())
+				{
+					MovementComp->SetMovementMode(MOVE_Walking);
+
+					if (GetDebugDraw())
+					{
+						UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Character movement RE-ENABLED after ease-out"));
+					}
+				}
+			}
+		}
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 HOLD TIMER] %s complete, final playrate: %.2f"),
+				bIsEasingIn ? TEXT("EASE-IN") : TEXT("EASE-OUT"),
+				HoldState.CurrentPlayRate);
+		}
+		return;
+	}
+
+	// PROCEDURAL EASING: Calculate playrate using CalculateTransitionPlayRate
+	// This eliminates need for authored curves!
+	float NewPlayRate = UMontageUtilityLibrary::CalculateTransitionPlayRate(
+		HoldState.EaseStartPlayRate,         // Start rate (1.0 or HoldTargetPlayRate)
+		TargetPlayRate,                       // Target rate (HoldTargetPlayRate or 1.0)
+		ElapsedTime,                          // Current time in transition
+		EaseDuration,                         // Transition duration (from AttackData)
+		EasingType                            // Easing curve (EaseInType or EaseOutType)
+	);
+
+	// Update hold state
+	HoldState.CurrentPlayRate = NewPlayRate;
+
+	// Apply playrate to montage
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	UMontageUtilityLibrary::SetMontagePlayRate(Character, NewPlayRate);
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Verbose, TEXT("[V2 HOLD TIMER] %s playrate: %.2f → %.2f (%.1f%% complete)"),
+			bIsEasingIn ? TEXT("EASE-IN") : TEXT("EASE-OUT"),
+			HoldState.EaseStartPlayRate, TargetPlayRate,
+			(ElapsedTime / EaseDuration) * 100.0f);
+	}
 }
 
 // ============================================================================
@@ -775,32 +1287,15 @@ void UCombatComponentV2::OnPhaseTransition(EAttackPhase NewPhase)
 	// This ensures DetermineExecutionMode sees the correct phase for incoming input
 	SetPhase(NewPhase);
 
-	// Register phase transition as a checkpoint for execution timing (V1 AnimNotify integration)
-	// Queued inputs (buffered during Windup/Active) execute when Active ends (transitioning to Recovery)
-	if (ACharacter* Character = Cast<ACharacter>(GetOwner()))
+	// PHASE 9: EVENT-DRIVEN QUEUE PROCESSING
+	// Execute queued actions that target this phase transition
+	// This replaces tick-based ProcessQueue() polling!
+	ProcessQueuedActions(NewPhase);
+
+	if (GetDebugDraw())
 	{
-		if (UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance())
-		{
-			if (UAnimMontage* CurrentMontage = AnimInstance->GetCurrentActiveMontage())
-			{
-				float CurrentTime = AnimInstance->Montage_GetPosition(CurrentMontage);
-
-				// Only register checkpoint when transitioning TO Recovery (end of Active phase)
-				// This is when queued inputs should execute
-				if (NewPhase == EAttackPhase::Recovery)
-				{
-					// Active phase ended - register execution checkpoint for queued inputs
-					// Use EActionWindowType::Combo to identify this as the "Active end" checkpoint
-					RegisterCheckpoint(EActionWindowType::Combo, CurrentTime, 0.0f);
-
-					if (GetDebugDraw())
-					{
-						UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Registered Active-end checkpoint at %.2f for queued input execution"),
-							CurrentTime);
-					}
-				}
-			}
-		}
+		UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Phase transition complete: %s (queue processed event-driven)"),
+			*UEnum::GetValueAsString(NewPhase));
 	}
 }
 

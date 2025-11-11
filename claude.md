@@ -770,3 +770,6 @@ Created UBT config with:
 - FLinearColor cannot be converted to FColor directly
 - also please try to encapsulate repetitive calls and operations as much as possible to  improve clarity and reduce code bloat as well as consolidate relevant systems
 - please try to encapsulate repetitive calls and operations as much as possible to  improve clarity and reduce code bloat as well as consolidate relevant systems
+- prefer overhauling existing code to creating new code and leaving the old code in a state of disuse
+- prefer updating existing documentation to creating new documentation
+- Dont create extremely similar functions with different names or "_Advanced" or "_V2" suffix designations. Prefer overhauling the original function to use the updated logic and thus preserve downstream call sites

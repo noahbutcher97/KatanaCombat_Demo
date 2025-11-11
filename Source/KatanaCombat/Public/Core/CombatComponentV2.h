@@ -116,11 +116,18 @@ public:
 	void QueueAction(const FQueuedInputAction& InputAction, UAttackData* AttackData = nullptr);
 
 	/**
-	 * Process queued actions at current montage time
-	 * Called each tick to check for checkpoint arrivals
+	 * Process queued actions at current montage time (DEPRECATED - tick-based)
+	 * Replaced by event-driven ProcessQueuedActions(TargetPhase)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Queue")
 	void ProcessQueue(float CurrentMontageTime);
+
+	/**
+	 * Process queued actions targeting specific phase (EVENT-DRIVEN - Phase 9)
+	 * Called from OnPhaseTransition instead of tick
+	 * @param TargetPhase - Execute actions queued for this phase
+	 */
+	void ProcessQueuedActions(EAttackPhase TargetPhase);
 
 	/**
 	 * Execute action from queue
@@ -188,11 +195,19 @@ public:
 	// ============================================================================
 
 	/**
-	 * Check if hold should activate
-	 * V2: Checks button state at hold window, not duration
+	 * Called when hold window starts (from AnimNotify_HoldWindowStart)
+	 * V2 SYSTEM: Event-driven hold detection - checks button state at window start
+	 *
+	 * Implementation:
+	 * - Checks if corresponding button is STILL pressed (via HeldInputs map)
+	 * - Light attacks: Calls ActivateHold() to begin ease slowdown
+	 * - Heavy attacks: Calls ActivateHold() and loops charge section
+	 *
+	 * @param InputType - Which input to check (LightAttack or HeavyAttack)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Hold")
-	void CheckHoldActivation();
+	void OnHoldWindowStart(EInputType InputType);
+
 
 	/**
 	 * Activate hold state
@@ -208,12 +223,6 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Hold")
 	void DeactivateHold();
 
-	/**
-	 * Update hold playrate
-	 * Called each frame during hold
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Combat|Hold")
-	void UpdateHoldPlayRate(float DeltaTime);
 
 	// ============================================================================
 	// PHASE TRANSITION SYSTEM (V2)
@@ -365,9 +374,15 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	EInputType CurrentAttackInputType = EInputType::None;
 
+	/** Timer handle for light attack ease transition (V2 timer-based, NOT tick-based) */
+	FTimerHandle EaseTimerHandle;
+
 	// ============================================================================
 	// INTERNAL HELPERS
 	// ============================================================================
+
+	/** Timer callback for procedural ease transitions (V2 timer-based, NOT tick-based) */
+	void OnEaseTimerTick();
 
 	/** Match press/release pairs */
 	void ProcessInputPair(const FQueuedInputAction& PressEvent, const FQueuedInputAction& ReleaseEvent);

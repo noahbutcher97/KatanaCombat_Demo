@@ -122,6 +122,7 @@ public:
     virtual void OnAttackPhaseEnd_Implementation(EAttackPhase Phase) override;
     virtual void OnAttackPhaseTransition_Implementation(EAttackPhase NewPhase) override;
     virtual bool IsInParryWindow_Implementation() const override;
+    virtual void OnHoldWindowStart_Implementation(EInputType InputType) override;
 
     // ============================================================================
     // IDamageableInterface IMPLEMENTATION

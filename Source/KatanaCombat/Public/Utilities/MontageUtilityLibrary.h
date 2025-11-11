@@ -451,6 +451,31 @@ public:
 	static void LogCheckpoints(const TArray<FTimerCheckpoint>& Checkpoints, const FString& Prefix = TEXT(""));
 
 	// ============================================================================
+	// HOLD SYSTEM HELPERS
+	// ============================================================================
+
+	/**
+	 * Set montage section to loop back to itself
+	 * Used for heavy attack charge loops
+	 *
+	 * @param Character - Character playing montage
+	 * @param LoopSectionName - Section to loop
+	 * @return True if loop was set up successfully
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Montage Utilities|Hold System", meta = (DisplayName = "Loop Montage Section"))
+	static bool LoopMontageSection(ACharacter* Character, FName LoopSectionName);
+
+	/**
+	 * Convert directional input (movement stick) to attack direction enum
+	 *
+	 * @param DirectionInput - 2D input from movement stick (X=Forward/Back, Y=Left/Right)
+	 * @param DeadzoneThreshold - Minimum magnitude to register direction (default: 0.3)
+	 * @return Attack direction based on dominant axis
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Montage Utilities|Hold System", meta = (DisplayName = "Get Direction From Input"))
+	static EAttackDirection GetDirectionFromInput(FVector2D DirectionInput, float DeadzoneThreshold = 0.3f);
+
+	// ============================================================================
 	// ATTACK RESOLUTION (Combo Progression)
 	// ============================================================================
 

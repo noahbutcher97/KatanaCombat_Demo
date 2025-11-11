@@ -54,6 +54,12 @@ private:
     /** Create montage section selector widget */
     TSharedRef<SWidget> CreateSectionSelector(IDetailLayoutBuilder& DetailBuilder);
 
+    /** Create charge loop section selector widget (for heavy attacks) */
+    TSharedRef<SWidget> CreateChargeLoopSelector(IDetailLayoutBuilder& DetailBuilder);
+
+    /** Create charge release section selector widget (for heavy attacks) */
+    TSharedRef<SWidget> CreateChargeReleaseSelector(IDetailLayoutBuilder& DetailBuilder);
+
     /** Create section info widget (shows time range) */
     TSharedRef<SWidget> CreateSectionInfoWidget();
 

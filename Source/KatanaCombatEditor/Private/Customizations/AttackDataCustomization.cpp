@@ -68,22 +68,56 @@ void FAttackDataCustomization::CustomizeDetails(IDetailLayoutBuilder& DetailBuil
         ]
     ];
     
+    // Customize "Heavy Attack" category
+    IDetailCategoryBuilder& HeavyCategory = DetailBuilder.EditCategory(
+        TEXT("Heavy Attack"),
+        LOCTEXT("HeavyAttackCategory", "Heavy Attack")
+    );
+
+    // Add charge loop section selector
+    HeavyCategory.AddCustomRow(LOCTEXT("ChargeLoopSelectorRow", "Charge Loop Selector"))
+    .NameContent()
+    [
+        SNew(STextBlock)
+        .Text(LOCTEXT("ChargeLoopSection", "Charge Loop Section"))
+        .ToolTipText(LOCTEXT("ChargeLoopSectionTooltip", "Montage section that loops during charge (NAME_None = no loop)"))
+        .Font(IDetailLayoutBuilder::GetDetailFontBold())
+    ]
+    .ValueContent()
+    [
+        CreateChargeLoopSelector(DetailBuilder)
+    ];
+
+    // Add charge release section selector
+    HeavyCategory.AddCustomRow(LOCTEXT("ChargeReleaseSelectorRow", "Charge Release Selector"))
+    .NameContent()
+    [
+        SNew(STextBlock)
+        .Text(LOCTEXT("ChargeReleaseSection", "Charge Release Section"))
+        .ToolTipText(LOCTEXT("ChargeReleaseSectionTooltip", "Montage section to play on release - the actual attack after charging (NAME_None = continue normal)"))
+        .Font(IDetailLayoutBuilder::GetDetailFontBold())
+    ]
+    .ValueContent()
+    [
+        CreateChargeReleaseSelector(DetailBuilder)
+    ];
+
     // Customize Timing category
     IDetailCategoryBuilder& TimingCategory = DetailBuilder.EditCategory(TEXT("Timing"));
-    
+
     // Add timing editor and action buttons
     TimingCategory.AddCustomRow(LOCTEXT("TimingToolsRow", "Timing Tools"))
     .WholeRowContent()
     [
         SNew(SVerticalBox)
-        
+
         + SVerticalBox::Slot()
         .AutoHeight()
         .Padding(0.0f, 4.0f)
         [
             CreateActionButtons()
         ]
-        
+
         + SVerticalBox::Slot()
         .AutoHeight()
         .Padding(0.0f, 8.0f)
@@ -246,6 +280,114 @@ TSharedRef<SWidget> FAttackDataCustomization::CreateSectionSelector(IDetailLayou
             ]
         ]
         
+        + SHorizontalBox::Slot()
+        .AutoWidth()
+        .Padding(4.0f, 0.0f)
+        [
+            SNew(SButton)
+            .Text(LOCTEXT("RefreshSections", "↻"))
+            .ToolTipText(LOCTEXT("RefreshSectionsTooltip", "Refresh section list from montage"))
+            .OnClicked_Lambda([this]() -> FReply
+            {
+                RefreshSectionOptions();
+                RefreshDetails();
+                return FReply::Handled();
+            })
+        ];
+}
+
+TSharedRef<SWidget> FAttackDataCustomization::CreateChargeLoopSelector(IDetailLayoutBuilder& DetailBuilder)
+{
+    return SNew(SHorizontalBox)
+
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        [
+            SNew(SComboBox<TSharedPtr<FName>>)
+            .OptionsSource(&SectionOptions)
+            .OnGenerateWidget_Lambda([](const TSharedPtr<FName>& Section) -> TSharedRef<SWidget>
+            {
+                FName DisplayName = (*Section == NAME_None) ?
+                                   FName("(No Loop)") : *Section;
+                return SNew(STextBlock).Text(FText::FromName(DisplayName));
+            })
+            .OnSelectionChanged_Lambda([this](const TSharedPtr<FName>& NewSelection, ESelectInfo::Type SelectType)
+            {
+                if (CachedAttackData.IsValid() && NewSelection.IsValid())
+                {
+                    CachedAttackData->ChargeLoopSection = *NewSelection;
+                    CachedAttackData->MarkPackageDirty();
+                    RefreshDetails();
+                }
+            })
+            [
+                SNew(STextBlock)
+                .Text_Lambda([this]() -> FText
+                {
+                    if (!CachedAttackData.IsValid())
+                        return LOCTEXT("NoneSelected", "(None)");
+
+                    FName DisplayName = (CachedAttackData->ChargeLoopSection == NAME_None) ?
+                                       FName("(No Loop)") : CachedAttackData->ChargeLoopSection;
+                    return FText::FromName(DisplayName);
+                })
+            ]
+        ]
+
+        + SHorizontalBox::Slot()
+        .AutoWidth()
+        .Padding(4.0f, 0.0f)
+        [
+            SNew(SButton)
+            .Text(LOCTEXT("RefreshSections", "↻"))
+            .ToolTipText(LOCTEXT("RefreshSectionsTooltip", "Refresh section list from montage"))
+            .OnClicked_Lambda([this]() -> FReply
+            {
+                RefreshSectionOptions();
+                RefreshDetails();
+                return FReply::Handled();
+            })
+        ];
+}
+
+TSharedRef<SWidget> FAttackDataCustomization::CreateChargeReleaseSelector(IDetailLayoutBuilder& DetailBuilder)
+{
+    return SNew(SHorizontalBox)
+
+        + SHorizontalBox::Slot()
+        .FillWidth(1.0f)
+        [
+            SNew(SComboBox<TSharedPtr<FName>>)
+            .OptionsSource(&SectionOptions)
+            .OnGenerateWidget_Lambda([](const TSharedPtr<FName>& Section) -> TSharedRef<SWidget>
+            {
+                FName DisplayName = (*Section == NAME_None) ?
+                                   FName("(Continue Normal)") : *Section;
+                return SNew(STextBlock).Text(FText::FromName(DisplayName));
+            })
+            .OnSelectionChanged_Lambda([this](const TSharedPtr<FName>& NewSelection, ESelectInfo::Type SelectType)
+            {
+                if (CachedAttackData.IsValid() && NewSelection.IsValid())
+                {
+                    CachedAttackData->ChargeReleaseSection = *NewSelection;
+                    CachedAttackData->MarkPackageDirty();
+                    RefreshDetails();
+                }
+            })
+            [
+                SNew(STextBlock)
+                .Text_Lambda([this]() -> FText
+                {
+                    if (!CachedAttackData.IsValid())
+                        return LOCTEXT("NoneSelected", "(None)");
+
+                    FName DisplayName = (CachedAttackData->ChargeReleaseSection == NAME_None) ?
+                                       FName("(Continue Normal)") : CachedAttackData->ChargeReleaseSection;
+                    return FText::FromName(DisplayName);
+                })
+            ]
+        ]
+
         + SHorizontalBox::Slot()
         .AutoWidth()
         .Padding(4.0f, 0.0f)

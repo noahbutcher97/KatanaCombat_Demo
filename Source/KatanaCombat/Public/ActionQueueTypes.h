@@ -188,7 +188,11 @@ struct FActionQueueEntry
 	UPROPERTY(BlueprintReadOnly, Category = "Action")
 	int32 Priority = 0;
 
-	/** Checkpoint this action is scheduled at (if snap/responsive) */
+	/** Phase transition that triggers execution (event-driven - new system) */
+	UPROPERTY(BlueprintReadOnly, Category = "Action")
+	EAttackPhase TargetPhase = EAttackPhase::None;
+
+	/** DEPRECATED: Checkpoint this action is scheduled at (old time-based system, kept for Phase 6 migration) */
 	UPROPERTY(BlueprintReadOnly, Category = "Action")
 	float ScheduledTime = 0.0f;
 
@@ -200,6 +204,7 @@ struct FActionQueueEntry
 		, ExecutionMode(InMode)
 		, State(EActionState::Pending)
 		, Priority(InPriority)
+		, TargetPhase(EAttackPhase::None)
 		, ScheduledTime(0.0f)
 	{
 	}
@@ -245,6 +250,26 @@ struct FHoldState
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
 	bool bActivatedThisAttack = false;
 
+	/** Directional input during hold (for follow-ups) */
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	EAttackDirection HoldDirection = EAttackDirection::None;
+
+	/** Ease transition state for light attack holds */
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	bool bIsEasing = false;
+
+	/** Ease transition start time */
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	float EaseStartTime = 0.0f;
+
+	/** Ease transition start playrate */
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	float EaseStartPlayRate = 1.0f;
+
+	/** Is this an ease-out transition? (false = ease-in, true = ease-out) */
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	bool bIsEasingOut = false;
+
 	FHoldState() = default;
 
 	/** Activate hold state */
@@ -264,6 +289,10 @@ struct FHoldState
 		HeldInputType = EInputType::None;
 		HoldStartTime = 0.0f;
 		CurrentPlayRate = 1.0f;
+		HoldDirection = EAttackDirection::None;
+		bIsEasing = false;
+		EaseStartTime = 0.0f;
+		EaseStartPlayRate = 1.0f;
 		// Keep bActivatedThisAttack until reset
 	}
 

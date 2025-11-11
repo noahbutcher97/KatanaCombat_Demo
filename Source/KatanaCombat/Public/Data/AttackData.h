@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
 #include "CombatTypes.h"
+#include "Utilities/MontageUtilityLibrary.h"
 #include "AttackData.generated.h"
 
 class UAnimMontage;
@@ -95,42 +96,87 @@ public:
     float ComboInputWindow = 0.6f;
 
     // ============================================================================
-    // HEAVY ATTACK CHARGING
+    // HEAVY ATTACK CHARGING (Only visible when AttackType == Heavy)
     // ============================================================================
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heavy Attack", 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float MaxChargeTime = 2.0f;
 
     /** Animation playback speed during charge windup (< 1.0 = slower) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heavy Attack", 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float ChargeTimeScale = 0.5f;
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heavy Attack", 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float MaxChargeDamageMultiplier = 2.5f;
 
     /** Posture damage at full charge */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heavy Attack", 
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float ChargedPostureDamage = 40.0f;
 
+    /** Montage section that loops during charge (NAME_None = use default animation) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
+    FName ChargeLoopSection = NAME_None;
+
+    /** Montage section to play on release (the actual attack after charging). If NAME_None, blends to idle instead. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
+    FName ChargeReleaseSection = NAME_None;
+
+    /** Blend time when transitioning from initial attack animation INTO charge loop section (0 = instant jump) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
+    float ChargeLoopBlendTime = 0.3f;
+
+    /** Blend time when transitioning OUT of charge loop to release section (0 = instant jump) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
+    float ChargeReleaseBlendTime = 0.2f;
+
     // ============================================================================
-    // LIGHT ATTACK HOLD & FOLLOW-UP
+    // LIGHT ATTACK HOLD & FOLLOW-UP (Only visible when AttackType == Light)
     // ============================================================================
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Attack",
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
         meta = (EditCondition = "AttackType == EAttackType::Light", EditConditionHides))
     bool bCanHold = true;
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Attack",
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
         meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold", EditConditionHides))
     bool bEnforceMaxHoldTime = false;
 
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Attack",
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
         meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold && bEnforceMaxHoldTime", EditConditionHides))
     float MaxHoldTime = 1.5f;
+
+    /** Duration to ease animation to stop when hold activates (0 = instant stop) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold", EditConditionHides))
+    float HoldEaseInDuration = 0.5f;
+
+    /** Easing curve for hold slow-down transition (EaseOutQuad recommended) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold", EditConditionHides))
+    EEasingType HoldEaseInType = EEasingType::EaseOutQuad;
+
+    /** Target playrate when hold is fully activated (0.0 = freeze, 0.2 = very slow) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold", EditConditionHides))
+    float HoldTargetPlayRate = 0.0f;
+
+    /** Duration to ease animation back to normal speed on release (0 = instant restore) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold", EditConditionHides))
+    float HoldEaseOutDuration = 0.3f;
+
+    /** Easing curve for hold speed-up transition on release (EaseInQuad recommended) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold", EditConditionHides))
+    EEasingType HoldEaseOutType = EEasingType::EaseInQuad;
 
     // ============================================================================
     // TIMING SYSTEM (Event-Based Phase Transitions)

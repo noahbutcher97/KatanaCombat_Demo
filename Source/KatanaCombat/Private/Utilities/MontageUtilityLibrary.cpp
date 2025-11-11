@@ -465,10 +465,40 @@ bool UMontageUtilityLibrary::JumpToSectionWithBlend(ACharacter* Character, FName
 		return false;
 	}
 
-	// Note: BlendTime parameter is for future implementation
+	// BLEND IMPLEMENTATION:
 	// UE's Montage_JumpToSection doesn't support blend time (instant jump)
-	// Could be implemented with custom blend logic if needed
-	AnimInstance->Montage_JumpToSection(SectionName, CurrentMontage);
+	// We implement blending by re-playing the montage at the target section with blend settings
+
+	if (BlendTime <= 0.0f)
+	{
+		// Instant jump (no blend requested)
+		AnimInstance->Montage_JumpToSection(SectionName, CurrentMontage);
+	}
+	else
+	{
+		// Get current section and target section indices
+		int32 TargetSectionIndex = CurrentMontage->GetSectionIndex(SectionName);
+		if (TargetSectionIndex == INDEX_NONE)
+		{
+			return false; // Section doesn't exist
+		}
+
+		// Get target section start time
+		float TargetSectionStartTime = CurrentMontage->GetAnimCompositeSection(TargetSectionIndex).GetTime();
+
+		// Get current playrate to maintain it through the blend
+		float CurrentPlayRate = AnimInstance->Montage_GetPlayRate(CurrentMontage);
+
+		// Stop current montage with blend-out, then play at target section with blend-in
+		// This creates a crossfade from current animation → target section
+		FAlphaBlendArgs BlendIn(BlendTime);
+
+		// Stop current montage with blend out
+		AnimInstance->Montage_Stop(BlendTime, CurrentMontage);
+
+		// Re-play montage at target section with blend in
+		AnimInstance->Montage_PlayWithBlendSettings(CurrentMontage, BlendIn, CurrentPlayRate, EMontagePlayReturnType::MontageLength, TargetSectionStartTime, false);
+	}
 
 	return true;
 }
@@ -924,4 +954,95 @@ UAttackData* UMontageUtilityLibrary::ResolveNextAttack(
 	}
 
 	return ResolvedAttack;
+}
+
+// ============================================================================
+// HOLD SYSTEM HELPERS
+// ============================================================================
+
+bool UMontageUtilityLibrary::LoopMontageSection(ACharacter* Character, FName LoopSectionName)
+{
+	if (!Character)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Hold] LoopMontageSection failed: Character is nullptr"));
+		return false;
+	}
+
+	UAnimInstance* AnimInstance = GetAnimInstance(Character);
+	if (!AnimInstance)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Hold] LoopMontageSection failed: AnimInstance is nullptr"));
+		return false;
+	}
+
+	UAnimMontage* CurrentMontage = AnimInstance->GetCurrentActiveMontage();
+	if (!CurrentMontage)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Hold] LoopMontageSection failed: No active montage"));
+		return false;
+	}
+
+	// Verify section exists
+	int32 SectionIndex = CurrentMontage->GetSectionIndex(LoopSectionName);
+	if (SectionIndex == INDEX_NONE)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Hold] LoopMontageSection failed: Section '%s' not found in montage '%s'"),
+			*LoopSectionName.ToString(), *CurrentMontage->GetName());
+		return false;
+	}
+
+	// Set section to loop back to itself
+	AnimInstance->Montage_SetNextSection(LoopSectionName, LoopSectionName, CurrentMontage);
+
+	UE_LOG(LogTemp, Log, TEXT("[Hold] Section '%s' set to loop in montage '%s'"),
+		*LoopSectionName.ToString(), *CurrentMontage->GetName());
+
+	return true;
+}
+
+EAttackDirection UMontageUtilityLibrary::GetDirectionFromInput(FVector2D DirectionInput, float DeadzoneThreshold)
+{
+	// Check if input magnitude is below deadzone
+	float InputMagnitude = DirectionInput.Length();
+	if (InputMagnitude < DeadzoneThreshold)
+	{
+		return EAttackDirection::None;
+	}
+
+	// Normalize input
+	FVector2D NormalizedInput = DirectionInput.GetSafeNormal();
+
+	// Calculate angle in degrees (0° = forward, increases clockwise)
+	// Atan2 returns radians, convert to degrees
+	// Note: Y is forward in UE, X is right
+	float Angle = FMath::Atan2(NormalizedInput.X, NormalizedInput.Y) * (180.0f / PI);
+
+	// Normalize angle to [0, 360)
+	if (Angle < 0.0f)
+	{
+		Angle += 360.0f;
+	}
+
+	// Map angle to 4 cardinal directions (90° quadrants)
+	// Forward: 315° to 45° (90° cone)
+	// Right: 45° to 135° (90° cone)
+	// Backward: 135° to 225° (90° cone)
+	// Left: 225° to 315° (90° cone)
+
+	if (Angle >= 315.0f || Angle < 45.0f)
+	{
+		return EAttackDirection::Forward;
+	}
+	else if (Angle >= 45.0f && Angle < 135.0f)
+	{
+		return EAttackDirection::Right;
+	}
+	else if (Angle >= 135.0f && Angle < 225.0f)
+	{
+		return EAttackDirection::Backward;
+	}
+	else // 225.0° to 315.0°
+	{
+		return EAttackDirection::Left;
+	}
 }

@@ -339,6 +339,15 @@ bool ASamuraiCharacter::IsInParryWindow_Implementation() const
     return CombatComponent ? CombatComponent->IsInParryWindow() : false;
 }
 
+void ASamuraiCharacter::OnHoldWindowStart_Implementation(EInputType InputType)
+{
+    // V2-only feature - forward to V2 system if enabled
+    if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
+    {
+        CombatComponentV2->OnHoldWindowStart(InputType);
+    }
+}
+
 // ============================================================================
 // IDamageableInterface IMPLEMENTATION
 // ============================================================================

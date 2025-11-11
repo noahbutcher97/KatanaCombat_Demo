@@ -108,4 +108,19 @@ public:
 	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
 	bool IsInParryWindow() const;
+
+	/**
+	 * Called when a hold window starts (from AnimNotify_HoldWindowStart)
+	 * V2 SYSTEM: Event-driven hold detection - checks button state at window start
+	 *
+	 * Hold Detection Pattern:
+	 * - AnimNotify fires at hold window start time
+	 * - System checks if button is STILL pressed (not tracking duration)
+	 * - Light attacks: Begin ease slowdown, wait for release + direction
+	 * - Heavy attacks: Loop charge section, wait for release
+	 *
+	 * @param InputType - Which input to check (LightAttack or HeavyAttack)
+	 */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
+	void OnHoldWindowStart(EInputType InputType);
 };
