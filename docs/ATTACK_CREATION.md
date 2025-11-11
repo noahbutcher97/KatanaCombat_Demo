@@ -323,6 +323,38 @@ MotionWarpingConfig:
 - AOE attacks
 - Finishers (camera control instead)
 
+### Combo Blending (Added 2025-11-11)
+
+```
+ComboBlendOutTime: 0.1 (Blend-out when FROM this attack)
+ComboBlendInTime:  0.1 (Blend-in when this attack is TARGET)
+```
+
+**Purpose**: Smooth transitions between combo attacks.
+
+**How It Works**:
+- **ComboBlendOutTime**: When this attack transitions to a combo follow-up, blend out over this duration (default: 0.1s)
+- **ComboBlendInTime**: When this attack is the target of a combo transition, blend in over this duration (default: 0.1s)
+- Both can be tuned independently per attack
+- Applies to ALL combo types: light→light, light→heavy, directional follow-ups, etc.
+
+**Tuning Guidelines**:
+```
+Instant/Snappy (0.0s):           Cancel-heavy attacks, frame-tight combos
+Quick (0.05s - 0.1s):            Most light attacks, responsive chains
+Smooth (0.1s - 0.2s):            Standard combo transitions
+Deliberate (0.2s - 0.3s):        Heavy attacks, finishers
+```
+
+**Example**:
+```
+Light1 → Light2 → Heavy Finisher
+
+Light1->ComboBlendOutTime = 0.05f  (Fast exit)
+Light2->ComboBlendOutTime = 0.1f   (Standard exit)
+HeavyFinisher->ComboBlendInTime = 0.3f  (Slow, deliberate entry for impact)
+```
+
 ---
 
 ## Combo Chains
@@ -490,7 +522,28 @@ AnimNotifyState_HoldWindow
 └─ End: 2.2s (extends Windup for charging)
 ```
 
-**3. Configure VFX Timing** (optional):
+**3. Configure Charge Sections** (optional, advanced):
+```cpp
+ChargeLoopSection:            "ChargeLoop"     // Section that loops during hold (NAME_None = use default animation)
+ChargeReleaseSection:         "Release"        // Section to play on release (NAME_None = blend to idle)
+ChargeLoopBlendTime:          0.3f             // Blend time when entering charge loop
+ChargeReleaseBlendTime:       0.2f             // Blend time when transitioning to release
+```
+
+**Purpose**: Use montage sections to create distinct charge loop and release animations.
+
+**Example Montage Structure**:
+```
+AM_HeavyAttack:
+┌────────┬────────────┬────────┐
+│ Windup │ ChargeLoop │Release │
+│ 0.0-   │ 0.5-       │ 2.0-   │
+│ 0.5s   │ 2.0s       │ 3.0s   │
+└────────┴────────────┴────────┘
+         (loops)
+```
+
+**4. Configure VFX Timing** (optional):
 ```
 Add AnimNotifies for charge VFX:
 ├─ 25% charge: Glow starts

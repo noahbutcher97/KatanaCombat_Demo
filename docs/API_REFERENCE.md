@@ -1126,6 +1126,20 @@ float ComboInputWindow = 0.6f;
 ```
 Time window for combo input (after this attack starts recovery).
 
+### Combo Transition Blending (Added 2025-11-11)
+
+```cpp
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combos|Blending")
+float ComboBlendOutTime = 0.1f;
+```
+Blend-out time when transitioning FROM this attack to any combo follow-up (0 = instant).
+
+```cpp
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combos|Blending")
+float ComboBlendInTime = 0.1f;
+```
+Blend-in time when this attack is the TARGET of a combo transition (0 = instant).
+
 ### Heavy Attack Charging
 
 ```cpp
@@ -1151,6 +1165,30 @@ UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heavy Attack")
 float ChargedPostureDamage = 40.0f;
 ```
 Posture damage at full charge.
+
+```cpp
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heavy Attack")
+FName ChargeLoopSection = NAME_None;
+```
+Montage section that loops during charge (NAME_None = use default animation).
+
+```cpp
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heavy Attack")
+FName ChargeReleaseSection = NAME_None;
+```
+Montage section to play on release (the actual attack after charging). If NAME_None, blends to idle instead.
+
+```cpp
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heavy Attack")
+float ChargeLoopBlendTime = 0.3f;
+```
+Blend time when transitioning from initial attack animation INTO charge loop section (0 = instant jump).
+
+```cpp
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Heavy Attack")
+float ChargeReleaseBlendTime = 0.2f;
+```
+Blend time when transitioning OUT of charge loop to release section (0 = instant jump).
 
 ### Light Attack Hold & Follow-Up
 

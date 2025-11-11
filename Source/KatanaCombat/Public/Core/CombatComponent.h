@@ -429,6 +429,7 @@ public:
     FOnAttackHit OnAttackHit;
 
 protected:
+    
     virtual void BeginPlay() override;
 
 private:

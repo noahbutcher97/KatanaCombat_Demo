@@ -6,6 +6,27 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 
 ---
 
+## Recent Updates (2025-11-11)
+
+**Universal Combo Blending System** - All combo transitions now support configurable blend times:
+- `ComboBlendOutTime` - Smooth exit when transitioning FROM this attack (default: 0.1s)
+- `ComboBlendInTime` - Smooth entry when this attack is the TARGET of transition (default: 0.1s)
+- Works for all combo types: light→light, light→heavy, directional follow-ups
+
+**Heavy Attack Charge System Enhancements**:
+- `ChargeLoopSection` / `ChargeReleaseSection` - Montage section support for distinct charge/release animations
+- `ChargeLoopBlendTime` / `ChargeReleaseBlendTime` - Smooth transitions between charge phases (0.3s/0.2s defaults)
+- Fallback to idle when no release section configured
+
+**Critical Bug Fixes**:
+- Fixed light attack early release freeze (ease-out direction tracking)
+- Fixed input lockout after charged heavy with fallback
+- Implemented proper section-to-section blending in `JumpToSectionWithBlend()`
+
+**V2 System Status**: Core mechanics complete (input queue, phase management, combo system, hold mechanics, blending). Next: Parry & Evade systems.
+
+---
+
 ## Features
 
 ### Core Combat Mechanics

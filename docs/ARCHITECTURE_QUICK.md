@@ -189,6 +189,14 @@ CounterWindowDuration:        1.5s
 ComboResetDelay:              3.0s  // TODO: Move to CombatSettings (currently hardcoded)
 ```
 
+### Blending (Added 2025-11-11)
+```cpp
+ComboBlendOutTime:            0.1s  // Blend-out when transitioning FROM this attack
+ComboBlendInTime:             0.1s  // Blend-in when this attack is TARGET of combo
+ChargeLoopBlendTime:          0.3s  // Blend into charge loop (heavy attacks)
+ChargeReleaseBlendTime:       0.2s  // Blend out of charge loop on release
+```
+
 ### Posture
 ```cpp
 MaxPosture:                   100.0f
