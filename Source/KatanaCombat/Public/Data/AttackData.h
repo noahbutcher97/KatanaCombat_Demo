@@ -96,6 +96,20 @@ public:
     float ComboInputWindow = 0.6f;
 
     // ============================================================================
+    // COMBO TRANSITION BLENDING
+    // ============================================================================
+
+    /** Blend-out time when transitioning FROM this attack to any combo follow-up (0 = instant) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combos|Blending",
+        meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "0.5"))
+    float ComboBlendOutTime = 0.1f;
+
+    /** Blend-in time when this attack is the TARGET of a combo transition (0 = instant) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combos|Blending",
+        meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "0.5"))
+    float ComboBlendInTime = 0.1f;
+
+    // ============================================================================
     // HEAVY ATTACK CHARGING (Only visible when AttackType == Heavy)
     // ============================================================================
 

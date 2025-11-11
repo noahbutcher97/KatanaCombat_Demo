@@ -635,11 +635,56 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 		return false;
 	}
 
-	// Play montage (V2 does NOT touch V1 state machine)
+	// COMBO BLENDING: Determine blend times for smooth transitions
+	// - Blend-out: Current attack's ComboBlendOutTime (0 = instant for first attack)
+	// - Blend-in: New attack's ComboBlendInTime (configurable per attack)
+
+	float BlendOutTime = 0.0f;  // Default: instant (first attack or no previous attack)
+	float BlendInTime = AttackData->ComboBlendInTime;  // New attack's blend-in time
+
+	if (CurrentAttackData)
+	{
+		// We have a previous attack - use its blend-out time for smooth transition
+		BlendOutTime = CurrentAttackData->ComboBlendOutTime;
+
+		if (GetDebugDraw() && (BlendOutTime > 0.0f || BlendInTime > 0.0f))
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 BLEND] Combo transition: %s (out=%.2fs) → %s (in=%.2fs)"),
+				*CurrentAttackData->GetName(), BlendOutTime,
+				*AttackData->GetName(), BlendInTime);
+		}
+	}
+
+	// BLEND-OUT: Stop current montage if blending is requested
+	UAnimMontage* CurrentMontage = AnimInstance->GetCurrentActiveMontage();
+	if (CurrentMontage && BlendOutTime > 0.0f)
+	{
+		AnimInstance->Montage_Stop(BlendOutTime, CurrentMontage);
+	}
+
+	// BLEND-IN: Play new montage with blend settings
 	// Note: OnMontageEnded delegate already bound in BeginPlay() for event-driven phase management
 	const float PlayRate = 1.0f;
 	const float StartPosition = 0.0f;
-	AnimInstance->Montage_Play(AttackData->AttackMontage, PlayRate, EMontagePlayReturnType::MontageLength, StartPosition);
+
+	if (BlendInTime > 0.0f)
+	{
+		// Play with custom blend-in
+		FAlphaBlendArgs BlendIn(BlendInTime);
+		AnimInstance->Montage_PlayWithBlendSettings(
+			AttackData->AttackMontage,
+			BlendIn,
+			PlayRate,
+			EMontagePlayReturnType::MontageLength,
+			StartPosition,
+			false  // Don't stop all montages
+		);
+	}
+	else
+	{
+		// Play with default blend (instant)
+		AnimInstance->Montage_Play(AttackData->AttackMontage, PlayRate, EMontagePlayReturnType::MontageLength, StartPosition);
+	}
 
 	// Handle montage sections if specified
 	if (!AttackData->MontageSection.IsNone())
