@@ -9,6 +9,19 @@
 #include "Characters/SamuraiCharacter.h"
 #include "CombatComponentV2.generated.h"
 
+// ============================================================================
+// LOG CATEGORY
+// ============================================================================
+
+/**
+ * Log category for Combat System
+ * Usage: UE_LOG(LogCombat, Log, TEXT("Message"));
+ * Console: Log LogCombat Verbose (enable detailed logging)
+ * Console: Log LogCombat Warning (only warnings/errors)
+ * Console: Log LogCombat Off (disable all combat logging)
+ */
+DECLARE_LOG_CATEGORY_EXTERN(LogCombat, Log, All);
+
 /**
  * V2 Combat System - Timer-Based Action Queue
  *
@@ -352,18 +365,6 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	EInputType CurrentAttackInputType = EInputType::None;
 
-	/** Commit window state - prevents input spam during attack startup */
-	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
-	bool bInCommitWindow = false;
-
-	/** Commit window start time (montage time) */
-	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
-	float CommitWindowStartTime = 0.0f;
-
-	/** Commit window duration (default 0.15s - first frames of attack) */
-	UPROPERTY(EditAnywhere, Category = "Combat|Tuning")
-	float CommitWindowDuration = 0.25f;
-
 	// ============================================================================
 	// INTERNAL HELPERS
 	// ============================================================================
@@ -389,12 +390,6 @@ protected:
 	/** Clear expired checkpoints */
 	void ClearExpiredCheckpoints(float CurrentTime);
 
-	/** Start commit window (locks input during attack startup) */
-	void StartCommitWindow();
-
-	/** Check if currently in commit window */
-	bool IsInCommitWindow() const;
-
-	/** Check if can accept new input (not in commit window, not spamming) */
+	/** Check if can accept new input (prevents double-queueing same input) */
 	bool CanAcceptNewInput(EInputType InputType) const;
 };

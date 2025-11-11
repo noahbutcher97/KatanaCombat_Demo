@@ -11,6 +11,12 @@
 #include "Characters/SamuraiCharacter.h"
 #include "Utilities/MontageUtilityLibrary.h"
 
+// ============================================================================
+// LOG CATEGORY DEFINITION
+// ============================================================================
+
+DEFINE_LOG_CATEGORY(LogCombat);
+
 UCombatComponentV2::UCombatComponentV2()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -32,7 +38,7 @@ void UCombatComponentV2::BeginPlay()
 		CombatComponent = OwnerCharacter->FindComponentByClass<UCombatComponent>();
 		if (!CombatComponent)
 		{
-			UE_LOG(LogTemp, Error, TEXT("[CombatComponentV2] No CombatComponent found on %s"), *OwnerCharacter->GetName());
+			UE_LOG(LogCombat, Error, TEXT("[CombatComponentV2] No CombatComponent found on %s"), *OwnerCharacter->GetName());
 		}
 
 		// Bind to montage event delegates for event-driven phase transitions
@@ -43,7 +49,7 @@ void UCombatComponentV2::BeginPlay()
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogTemp, Log, TEXT("[V2 INIT] Montage event delegates bound (BlendingOut, Ended)"));
+				UE_LOG(LogCombat, Log, TEXT("[V2 INIT] Montage event delegates bound (BlendingOut, Ended)"));
 			}
 		}
 	}
@@ -69,18 +75,6 @@ void UCombatComponentV2::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 
 		// Clear expired checkpoints
 		ClearExpiredCheckpoints(CurrentTime);
-
-		// Check commit window expiration
-		if (bInCommitWindow && !IsInCommitWindow()) //TODO:: Check is redundant (bInCommitWindow && !IsInCommitWindow()))
-		{
-			bInCommitWindow = false;
-
-			if (GetDebugDraw())
-			{
-				UE_LOG(LogTemp, Log, TEXT("[V2 COMMIT] Commit window ended (%.2fs elapsed)"),
-					CurrentTime - CommitWindowStartTime);
-			}
-		}
 	}
 
 	// Update hold playrate if active
@@ -120,6 +114,16 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 		return;
 	}
 
+	// CRITICAL FIX: Check if input can be processed (gate stunned/dead/guard broken states)
+	if (!CanProcessInput(InputType))
+	{
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT] Input REJECTED - Cannot process in current combat state"));
+		}
+		return;
+	}
+
 	// Get current game time
 	const float CurrentTime = GetWorld()->GetTimeSeconds();
 
@@ -139,7 +143,7 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 
 		if ( GetDebugDraw())
 		{
-			UE_LOG(LogTemp, Log, TEXT("[V2 INPUT] %s PRESSED at %.2f (Combo: %s)"),
+			UE_LOG(LogCombat, Log, TEXT("[V2 INPUT] %s PRESSED at %.2f (Combo: %s)"),
 				*UEnum::GetValueAsString(InputType),
 				CurrentTime,
 				bComboWindowActive ? TEXT("YES") : TEXT("NO"));
@@ -157,7 +161,7 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 
 		if ( GetDebugDraw())
 		{
-			UE_LOG(LogTemp, Log, TEXT("[V2 INPUT] %s RELEASED at %.2f"),
+			UE_LOG(LogCombat, Log, TEXT("[V2 INPUT] %s RELEASED at %.2f"),
 				*UEnum::GetValueAsString(InputType),
 				CurrentTime);
 		}
@@ -236,19 +240,6 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 	// Immediate mode: Execute synchronously (right now)
 	if (ExecMode == EActionExecutionMode::Immediate)
 	{
-		// Commit window check: Block immediate execution to prevent animation restart spam
-		if (IsInCommitWindow())
-		{
-			if (GetDebugDraw())
-			{
-				ASamuraiCharacter* Character = GetOwnerCharacter();
-				float ElapsedTime = Character ? UMontageUtilityLibrary::GetCurrentMontageTime(Character) - CommitWindowStartTime : 0.0f;
-				UE_LOG(LogTemp, Warning, TEXT("[V2 QUEUE] Immediate execution BLOCKED by commit window (%.2fs / %.2fs elapsed)"),
-					ElapsedTime, CommitWindowDuration);
-			}
-			return; // Reject immediate execution during commit window
-		}
-
 		// CRITICAL: Clear all pending queued actions before starting new attack
 		// This prevents old buffered inputs from executing after the new action
 		if (ActionQueue.Num() > 0)
@@ -268,35 +259,32 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 
 			if (GetDebugDraw() && ClearedCount > 0)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[V2 QUEUE] Cleared %d pending actions before IMMEDIATE execution"), ClearedCount);
+				UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Cleared %d pending actions before IMMEDIATE execution"), ClearedCount);
 			}
 		}
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogTemp, Log, TEXT("[V2 QUEUE] Executing IMMEDIATE action: Type=%s"),
+			UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Executing IMMEDIATE action: Type=%s"),
 				*UEnum::GetValueAsString(InputAction.InputType));
 		}
 
 		// Execute immediately
 		if (ExecuteAction(Entry))
 		{
-			// Start commit window to prevent input spam from restarting animation
-			StartCommitWindow();
-
 			QueueStats.ActionsExecuted++;
 			QueueStats.ImmediateExecutions++;
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogTemp, Log, TEXT("[V2 QUEUE] Immediate execution SUCCESS"));
+				UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Immediate execution SUCCESS"));
 			}
 		}
 		else
 		{
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[V2 QUEUE] Immediate execution FAILED"));
+				UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Immediate execution FAILED"));
 			}
 		}
 
@@ -314,7 +302,7 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 QUEUE] Added queued action: Type=%s, Mode=%s, Scheduled=%.2f, Priority=%d"),
+		UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Added queued action: Type=%s, Mode=%s, Scheduled=%.2f, Priority=%d"),
 			*UEnum::GetValueAsString(InputAction.InputType),
 			*UEnum::GetValueAsString(ExecMode),
 			Entry.ScheduledTime,
@@ -379,7 +367,7 @@ void UCombatComponentV2::ProcessQueue(float CurrentMontageTime)
 
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogTemp, Log, TEXT("[V2 QUEUE] Executed action at %.2f (scheduled: %.2f)"),
+					UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Executed action at %.2f (scheduled: %.2f)"),
 						CurrentMontageTime, Entry.ScheduledTime);
 				}
 
@@ -392,7 +380,7 @@ void UCombatComponentV2::ProcessQueue(float CurrentMontageTime)
 				// Mark as cancelled if it keeps failing
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogTemp, Warning, TEXT("[V2 QUEUE] Action execution failed at %.2f, keeping in queue"),
+					UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Action execution failed at %.2f, keeping in queue"),
 						CurrentMontageTime);
 				}
 			}
@@ -441,14 +429,14 @@ bool UCombatComponentV2::ExecuteAction(FActionQueueEntry& Action)
 					FString SectionName = Action.AttackData->MontageSection.IsNone() ?
 						TEXT("Default") : Action.AttackData->MontageSection.ToString();
 
-					UE_LOG(LogTemp, Log, TEXT("[V2 EXECUTE] ═══════════════════════════════════════"));
-					UE_LOG(LogTemp, Log, TEXT("[V2 EXECUTE] Attack Data: %s"), *Action.AttackData->GetName());
-					UE_LOG(LogTemp, Log, TEXT("[V2 EXECUTE] Montage: %s"), *Action.AttackData->AttackMontage->GetName());
-					UE_LOG(LogTemp, Log, TEXT("[V2 EXECUTE] Section: %s"), *SectionName);
-					UE_LOG(LogTemp, Log, TEXT("[V2 EXECUTE] Input Type: %s"), *UEnum::GetValueAsString(CurrentAttackInputType));
-					UE_LOG(LogTemp, Log, TEXT("[V2 EXECUTE] Is Combo: %s"), bIsCombo ? TEXT("YES") : TEXT("NO"));
-					UE_LOG(LogTemp, Log, TEXT("[V2 EXECUTE] Checkpoints Discovered: %d"), Checkpoints.Num());
-					UE_LOG(LogTemp, Log, TEXT("[V2 EXECUTE] ═══════════════════════════════════════"));
+					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] ═══════════════════════════════════════"));
+					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Attack Data: %s"), *Action.AttackData->GetName());
+					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Montage: %s"), *Action.AttackData->AttackMontage->GetName());
+					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Section: %s"), *SectionName);
+					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Input Type: %s"), *UEnum::GetValueAsString(CurrentAttackInputType));
+					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Is Combo: %s"), bIsCombo ? TEXT("YES") : TEXT("NO"));
+					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Checkpoints Discovered: %d"), Checkpoints.Num());
+					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] ═══════════════════════════════════════"));
 				}
 			}
 			break;
@@ -475,7 +463,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 	{
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[V2 MONTAGE] Failed - Invalid AttackData or Montage"));
+			UE_LOG(LogCombat, Warning, TEXT("[V2 MONTAGE] Failed - Invalid AttackData or Montage"));
 		}
 		return false;
 	}
@@ -485,7 +473,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 	{
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[V2 MONTAGE] Failed - No character or mesh"));
+			UE_LOG(LogCombat, Warning, TEXT("[V2 MONTAGE] Failed - No character or mesh"));
 		}
 		return false;
 	}
@@ -495,7 +483,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 	{
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[V2 MONTAGE] Failed - No AnimInstance"));
+			UE_LOG(LogCombat, Warning, TEXT("[V2 MONTAGE] Failed - No AnimInstance"));
 		}
 		return false;
 	}
@@ -518,7 +506,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogTemp, Log, TEXT("[V2 MONTAGE] Section-only mode: %s (no auto-advance)"),
+				UE_LOG(LogCombat, Log, TEXT("[V2 MONTAGE] Section-only mode: %s (no auto-advance)"),
 					*AttackData->MontageSection.ToString());
 			}
 		}
@@ -526,7 +514,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 MONTAGE] Playing: %s | Section: %s | Delegate bound"),
+		UE_LOG(LogCombat, Log, TEXT("[V2 MONTAGE] Playing: %s | Section: %s | Delegate bound"),
 			*AttackData->AttackMontage->GetName(),
 			*AttackData->MontageSection.ToString());
 	}
@@ -569,7 +557,7 @@ void UCombatComponentV2::ClearQueue(bool bCancelCurrent)
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 QUEUE] Cleared (CancelCurrent=%s) - Combo state reset"), bCancelCurrent ? TEXT("YES") : TEXT("NO"));
+		UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Cleared (CancelCurrent=%s) - Combo state reset"), bCancelCurrent ? TEXT("YES") : TEXT("NO"));
 	}
 }
 
@@ -587,7 +575,7 @@ void UCombatComponentV2::CancelActionsWithPriority(int32 MinPriority)
 
 			if ( GetDebugDraw())
 			{
-				UE_LOG(LogTemp, Log, TEXT("[V2 QUEUE] Cancelled action (Priority %d < %d)"),
+				UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Cancelled action (Priority %d < %d)"),
 					Entry.Priority, MinPriority);
 			}
 		}
@@ -613,7 +601,7 @@ void UCombatComponentV2::DiscoverCheckpoints(UAnimMontage* Montage)
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 CHECKPOINTS] Discovered %d checkpoints from montage: %s"),
+		UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINTS] Discovered %d checkpoints from montage: %s"),
 			NumDiscovered,
 			*Montage->GetName());
 
@@ -651,7 +639,7 @@ void UCombatComponentV2::RegisterCheckpoint(EActionWindowType WindowType, float 
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 CHECKPOINTS] Registered: Type=%s, Start=%.2f, Duration=%.2f"),
+		UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINTS] Registered: Type=%s, Start=%.2f, Duration=%.2f"),
 			*UEnum::GetValueAsString(WindowType),
 			StartTime,
 			Duration);
@@ -682,7 +670,7 @@ float UCombatComponentV2::GetExecutionCheckpoint(const FActionQueueEntry& Action
 			// Return the checkpoint time (Active phase end)
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogTemp, Log, TEXT("[V2 CHECKPOINT] Found Active-end checkpoint at %.2f for queued execution"),
+				UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINT] Found Active-end checkpoint at %.2f for queued execution"),
 					Checkpoint.MontageTime);
 			}
 
@@ -694,7 +682,7 @@ float UCombatComponentV2::GetExecutionCheckpoint(const FActionQueueEntry& Action
 	// The checkpoint will be created when Active→Recovery transition happens via OnPhaseTransition
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 CHECKPOINT] Active-end checkpoint not found yet, will execute when created"));
+		UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINT] Active-end checkpoint not found yet, will execute when created"));
 	}
 
 	//TODO: Consider warning if no Active-end checkpoint found after montage ends
@@ -746,7 +734,7 @@ void UCombatComponentV2::ActivateHold(EInputType InputType, float PlayRate)
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 HOLD] Activated: Input=%s, PlayRate=%.2f"),
+		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Activated: Input=%s, PlayRate=%.2f"),
 			*UEnum::GetValueAsString(InputType),
 			PlayRate);
 	}
@@ -767,7 +755,7 @@ void UCombatComponentV2::DeactivateHold()
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 HOLD] Deactivated"));
+		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Deactivated"));
 	}
 }
 
@@ -807,7 +795,7 @@ void UCombatComponentV2::OnPhaseTransition(EAttackPhase NewPhase)
 
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogTemp, Log, TEXT("[V2 PHASE] Registered Active-end checkpoint at %.2f for queued input execution"),
+						UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Registered Active-end checkpoint at %.2f for queued input execution"),
 							CurrentTime);
 					}
 				}
@@ -828,7 +816,7 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 PHASE] Phase transition: %d → %d"),
+		UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Phase transition: %d → %d"),
 			static_cast<int32>(OldPhase),
 			static_cast<int32>(NewPhase));
 	}
@@ -839,13 +827,19 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 	// Handle phase-specific logic
 	switch (NewPhase)
 	{
+		case EAttackPhase::Recovery:
+
+			if (GetDebugDraw())
+			{
+				UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Recovery entered - Commit window cleared"));
+			}
+			break;
+
 		case EAttackPhase::None:
 			// Attack finished - reset combo state for next attack
 			CurrentAttackData = nullptr;
 			CurrentAttackInputType = EInputType::None;
-
-			// Clear commit window (attack completely finished)
-			bInCommitWindow = false;
+			CurrentAttackInputType = EInputType::None;
 
 			// Clear hold state for next attack
 			if (HoldState.bIsHolding)
@@ -855,7 +849,7 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogTemp, Log, TEXT("[V2 PHASE] Attack finished - Combo state reset"));
+				UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Attack finished - Combo state reset"));
 			}
 			break;
 
@@ -869,7 +863,7 @@ void UCombatComponentV2::OnMontageBlendingOut(UAnimMontage* Montage, bool bInter
 {
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 MONTAGE] Montage blending out: %s | Interrupted: %s"),
+		UE_LOG(LogCombat, Log, TEXT("[V2 MONTAGE] Montage blending out: %s | Interrupted: %s"),
 			Montage ? *Montage->GetName() : TEXT("None"),
 			bInterrupted ? TEXT("YES") : TEXT("NO"));
 	}
@@ -886,7 +880,7 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 {
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 MONTAGE] Montage ended: %s | Interrupted: %s"),
+		UE_LOG(LogCombat, Log, TEXT("[V2 MONTAGE] Montage ended: %s | Interrupted: %s"),
 			Montage ? *Montage->GetName() : TEXT("None"),
 			bInterrupted ? TEXT("YES") : TEXT("NO"));
 	}
@@ -901,7 +895,7 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 	{
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[V2 MONTAGE] Montage ended with %d queued actions - checking which are ready"), ActionQueue.Num());
+			UE_LOG(LogCombat, Warning, TEXT("[V2 MONTAGE] Montage ended with %d queued actions - checking which are ready"), ActionQueue.Num());
 		}
 
 		// Get montage end time to check if actions reached their checkpoint
@@ -927,7 +921,7 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 				{
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogTemp, Warning, TEXT("[V2 QUEUE] Discarding action (checkpoint never reached): Type=%s, ScheduledTime=%.2f"),
+						UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Discarding action (checkpoint never reached): Type=%s, ScheduledTime=%.2f"),
 							*UEnum::GetValueAsString(Entry.InputAction.InputType), Entry.ScheduledTime);
 					}
 
@@ -942,7 +936,7 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 				{
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogTemp, Log, TEXT("[V2 QUEUE] Executing action from ended montage: Type=%s, ScheduledTime=%.2f, MontageEndTime=%.2f"),
+						UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Executing action from ended montage: Type=%s, ScheduledTime=%.2f, MontageEndTime=%.2f"),
 							*UEnum::GetValueAsString(Entry.InputAction.InputType), Entry.ScheduledTime, MontageEndTime);
 					}
 
@@ -950,9 +944,6 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 					if (ExecuteAction(Entry))
 					{
 						ActionQueue.RemoveAt(i);
-
-						// Start commit window
-						StartCommitWindow();
 
 						QueueStats.ActionsExecuted++;
 
@@ -964,7 +955,7 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 				{
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogTemp, Warning, TEXT("[V2 QUEUE] Discarding action (montage ended before checkpoint): Type=%s, ScheduledTime=%.2f, MontageEndTime=%.2f"),
+						UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Discarding action (montage ended before checkpoint): Type=%s, ScheduledTime=%.2f, MontageEndTime=%.2f"),
 							*UEnum::GetValueAsString(Entry.InputAction.InputType), Entry.ScheduledTime, MontageEndTime);
 					}
 
@@ -1151,7 +1142,7 @@ void UCombatComponentV2::ProcessInputPair(const FQueuedInputAction& PressEvent, 
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 INPUT] Pair processed: %s held for %.2fs"),
+		UE_LOG(LogCombat, Log, TEXT("[V2 INPUT] Pair processed: %s held for %.2fs"),
 			*UEnum::GetValueAsString(PressEvent.InputType),
 			HoldDuration);
 	}
@@ -1210,7 +1201,7 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType) const
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogTemp, Log, TEXT("[V2 COMBO] Allowing combo from phase %s (CurrentAttack=%s)"),
+			UE_LOG(LogCombat, Log, TEXT("[V2 COMBO] Allowing combo from phase %s (CurrentAttack=%s)"),
 				*UEnum::GetValueAsString(CurrentPhase),
 				*CurrentAttackData->GetName());
 		}
@@ -1219,7 +1210,7 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType) const
 	// Debug: Log combo resolution context
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[V2 COMBO DEBUG] GetAttackForInput: Phase=%s, CurrentAttack=%s, ComboWindow=%s, bShouldCombo=%s"),
+		UE_LOG(LogCombat, Warning, TEXT("[V2 COMBO DEBUG] GetAttackForInput: Phase=%s, CurrentAttack=%s, ComboWindow=%s, bShouldCombo=%s"),
 			*UEnum::GetValueAsString(CurrentPhase),
 			CurrentAttackData ? *CurrentAttackData->GetName() : TEXT("nullptr"),
 			bComboWindowActive ? TEXT("ACTIVE") : TEXT("Inactive"),
@@ -1240,7 +1231,7 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType) const
 	// Debug: Log resolved attack
 	if (GetDebugDraw() && ResolvedAttack)
 	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 COMBO RESOLVE] Resolved to: '%s' (bShouldCombo=%s)"),
+		UE_LOG(LogCombat, Log, TEXT("[V2 COMBO RESOLVE] Resolved to: '%s' (bShouldCombo=%s)"),
 			*ResolvedAttack->GetName(),
 			bShouldCombo ? TEXT("TRUE") : TEXT("FALSE"));
 	}
@@ -1313,7 +1304,7 @@ void UCombatComponentV2::ClearExpiredCheckpoints(float CurrentTime)
 
 			if ( GetDebugDraw())
 			{
-				UE_LOG(LogTemp, Log, TEXT("[V2 CHECKPOINTS] Expired: Type=%s at %.2f"),
+				UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINTS] Expired: Type=%s at %.2f"),
 					*UEnum::GetValueAsString(Checkpoint.WindowType),
 					CurrentTime);
 			}
@@ -1321,46 +1312,6 @@ void UCombatComponentV2::ClearExpiredCheckpoints(float CurrentTime)
 			Checkpoints.RemoveAt(i);
 		}
 	}
-}
-
-void UCombatComponentV2::StartCommitWindow()
-{
-	ASamuraiCharacter* Character = GetOwnerCharacter();
-	if (!Character)
-	{
-		return;
-	}
-
-	float CurrentMontageTime = UMontageUtilityLibrary::GetCurrentMontageTime(Character);
-
-	bInCommitWindow = true;
-	CommitWindowStartTime = CurrentMontageTime;
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogTemp, Log, TEXT("[V2 COMMIT] Commit window started at %.2f (duration: %.2fs)"),
-			CurrentMontageTime, CommitWindowDuration);
-	}
-}
-
-bool UCombatComponentV2::IsInCommitWindow() const
-{
-	if (!bInCommitWindow)
-	{
-		return false;
-	}
-
-	ASamuraiCharacter* Character = GetOwnerCharacter();
-	if (!Character)
-	{
-		return false;
-	}
-
-	float CurrentMontageTime = UMontageUtilityLibrary::GetCurrentMontageTime(Character);
-	float ElapsedTime = CurrentMontageTime - CommitWindowStartTime;
-
-	// Still within commit window duration
-	return ElapsedTime < CommitWindowDuration;
 }
 
 bool UCombatComponentV2::CanAcceptNewInput(EInputType InputType) const
@@ -1376,7 +1327,7 @@ bool UCombatComponentV2::CanAcceptNewInput(EInputType InputType) const
 		{
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogTemp, Warning, TEXT("[V2 INPUT] Input REJECTED - Already queued action of same type"));
+				UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT] Input REJECTED - Already queued action of same type"));
 			}
 			return false;
 		}
