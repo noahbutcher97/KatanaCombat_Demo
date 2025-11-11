@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Animation/AnimNotifies/AnimNotifyState.h"
+#include "Animation/AnimNotifyState_ActionWindow_Base.h"
 #include "AnimNotifyState_ParryWindow.generated.h"
 
 /**
@@ -17,7 +17,8 @@
  * - If enemy NOT in parry window → Block action (posture damage)
  *
  * Usage:
- * 1. Add to attack montage during early Windup phase
+ * 1. Add to attack montage during early Windup ph
+ * ase
  * 2. Typically 0.3s duration (first 30% of windup)
  * 3. Marks the telegraphing window where defender can parry
  *
@@ -42,23 +43,25 @@
  * This design matches Sekiro's deflect system: timed block during enemy attack startup.
  */
 UCLASS(meta = (DisplayName = "Parry Window"))
-class KATANACOMBAT_API UAnimNotifyState_ParryWindow : public UAnimNotifyState
+class KATANACOMBAT_API UAnimNotifyState_ParryWindow : public UAnimNotifyState_ActionWindow_Base
 {
 	GENERATED_BODY()
 
 public:
 	UAnimNotifyState_ParryWindow();
 
-	// ============================================================================
-	// ANIMNOTIFYSTATE INTERFACE
-	// ============================================================================
-
-	virtual void NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference) override;
-	virtual void NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
-
 	virtual FString GetNotifyName_Implementation() const override;
 
 #if WITH_EDITOR
 	virtual bool CanBePlaced(UAnimSequenceBase* Animation) const override { return true; }
 #endif
+
+protected:
+	// ============================================================================
+	// ACTIONWINDOW_BASE INTERFACE
+	// ============================================================================
+
+	virtual EActionWindowType GetWindowType() const override { return EActionWindowType::Parry; }
+	virtual void OnOpenWindow_V1(class UCombatComponent* CombatComp, float Duration) override;
+	virtual void OnCloseWindow_V1(class UCombatComponent* CombatComp) override;
 };

@@ -25,7 +25,13 @@ bool FInputBufferingTest::RunTest(const FString& Parameters)
 	UAttackData* Attack1 = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
 	UAttackData* Attack2 = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
 	Attack1->NextComboAttack = Attack2;
-	CombatComp->DefaultLightAttack = Attack1;
+
+	// Set default attack via AttackConfiguration (new modular system)
+	ASamuraiCharacter* SamuraiCharacter = Cast<ASamuraiCharacter>(TestCharacter);
+	if (SamuraiCharacter && SamuraiCharacter->CombatSettings && SamuraiCharacter->CombatSettings->AttackConfiguration)
+	{
+		SamuraiCharacter->CombatSettings->AttackConfiguration->DefaultLightAttack = Attack1;
+	}
 
 	// Test 1: Input buffered OUTSIDE combo window (responsive path)
 	CombatComp->ExecuteAttack(Attack1);

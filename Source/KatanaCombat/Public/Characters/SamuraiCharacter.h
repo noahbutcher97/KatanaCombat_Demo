@@ -11,6 +11,8 @@
 
 // Forward declarations
 class UCombatComponent;
+class UCombatComponentV2;
+class UCombatDebugWidget;
 class UTargetingComponent;
 class UMotionWarpingComponent;
 class UWeaponComponent;
@@ -41,6 +43,14 @@ public:
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
     // ============================================================================
+    // CONFIGURATION
+    // ============================================================================
+
+    /** Global combat settings (posture rates, timing windows, V1/V2 system selection, debug flags) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Settings")
+    TObjectPtr<class UCombatSettings> CombatSettings;
+
+    // ============================================================================
     // COMPONENTS
     // ============================================================================
 
@@ -58,6 +68,16 @@ public:
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
     TObjectPtr<UMotionWarpingComponent> MotionWarpingComponent;
+
+    /** V2 combat component (alternative implementation) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+    TObjectPtr<UCombatComponentV2> CombatComponentV2;
+
+    /** Debug visualization widget for V2 system */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
+    TObjectPtr<UCombatDebugWidget> CombatDebugWidget;
+
+
 
     // ============================================================================
     // ENHANCED INPUT
@@ -83,6 +103,9 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
     TObjectPtr<UInputAction> EvadeAction;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+    TObjectPtr<UInputAction> ToggleDebugAction;
 
     // ============================================================================
     // ICombatInterface IMPLEMENTATION
@@ -150,6 +173,8 @@ protected:
     /** Evade button pressed */
     void OnEvadeStarted(const FInputActionValue& Value);
 
+    /** Debug toggle button pressed */
+    void OnToggleDebug(const FInputActionValue& Value);
 
     // ============================================================================
     // WEAPON HIT PROCESSING

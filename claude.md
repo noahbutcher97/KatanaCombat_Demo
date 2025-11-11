@@ -4,6 +4,237 @@
 
 ---
 
+## Recent Changes
+
+### 2025-11-10: Architecture Fix - V1/V2 Independence ✓
+**What**: Decoupled V1 and V2 combat systems - they now operate as independent peer components
+**Why**: Clean architecture, no interdependencies, V2 can function without modifying V1
+
+**Refactored**:
+
+1. **V2 Independent Montage Playback** (`PlayAttackMontage()`):
+   - V2 now plays montages directly via `AnimInstance->Montage_Play()`
+   - No longer calls V1's `ExecuteAttack()` function
+   - Handles montage sections and `bUseSectionOnly` independently
+   - Comprehensive null safety and debug logging
+
+2. **Removed V1 Parameter Coupling**:
+   - Reverted `bAllowDuringRecovery` parameter from V1's `ExecuteAttack()`
+   - V1 API remains unchanged for backward compatibility
+   - V2 no longer needs to bypass V1 state checks
+
+3. **Architecture Pattern**:
+   ```
+   ASamuraiCharacter
+   ├── CombatComponent (V1)      ← Independent peer
+   ├── CombatComponentV2 (V2)    ← Independent peer
+   └── CombatSettings             ← Shared configuration (read-only)
+   ```
+
+**Benefits**:
+- **No Cross-Dependencies**: V1 and V2 don't know about each other's execution logic
+- **Clean State Management**: Each system manages its own state/phases independently
+- **Easy Toggling**: Can switch between V1/V2 via `bUseV2System` without code conflicts
+- **Future-Proof**: V2 can be fully removed or V1 deprecated without cascading changes
+
+**How V2 Works Now**:
+1. Input → `OnInputEvent()` → `QueueAction()`
+2. Queue processing → `ProcessQueue()` → `ExecuteAction()`
+3. `ExecuteAction()` → `PlayAttackMontage()` (V2's own implementation)
+4. `PlayAttackMontage()` → Direct `AnimInstance->Montage_Play()` call
+5. Phase transitions managed independently by V2
+
+**Build**: ✓ Succeeded (Module loaded: UnrealEditor-KatanaCombat.dll)
+**Status**: V1 and V2 are now fully independent peer systems!
+
+---
+
+### 2025-11-07: V2 Queue Processing & Execution (Phase 5) ✓
+**What**: Complete FIFO action queue with checkpoint-based execution and comprehensive debug visualization
+**Why**: Enables V2 attack execution with proper input buffering and timing control
+
+**Implemented Features**:
+
+1. **Action Execution** (`ExecuteAction()`):
+   - Plays attack montages via V2's independent `PlayAttackMontage()` (updated 2025-11-10 for V1/V2 decoupling)
+   - Automatically discovers checkpoints from new montage using `UMontageUtilityLibrary::DiscoverCheckpoints()`
+   - Logs execution events with attack name and checkpoint count
+
+2. **Checkpoint Discovery** (`DiscoverCheckpoints()`):
+   - Uses `UMontageUtilityLibrary::DiscoverCheckpoints()` to scan AnimNotifyStates
+   - Extracts Combo, Parry, Hold window timings from montages
+   - Logs all discovered checkpoints for debugging
+
+3. **Queue Processing** (`ProcessQueue()`):
+   - FIFO processing of pending actions
+   - Executes actions when montage time reaches scheduled checkpoint
+   - Tracks execution stats (snap vs responsive, cancellations)
+   - Removes completed actions from queue
+
+4. **Comprehensive Debug Visualization** (`DrawDebugInfo()`):
+   - **Phase Indicator**: Color-coded phase display (Windup=Orange, Active=Red, Recovery=Yellow)
+   - **Queue State**: Shows pending actions with scheduled times and execution modes
+   - **Checkpoint Timeline**: Visual timeline using `DrawCheckpointTimeline()` (color-coded windows)
+   - **Hold State**: Current hold duration and input type
+   - **Stats**: Executed, cancelled, snap, responsive counts
+
+**Debug Visualization Example**:
+```
+Phase: Active [RED]
+V2 Queue: 1 pending | 1 total
+  [0] LightAttack @ 1.25 (Snap)
+Stats: 3 executed | 0 cancelled | 2 snap | 1 responsive
+
+[Visual Timeline Above Character]
+────────────────────────────────── (White line = montage)
+│ (Green line = current time)
+[────COMBO────] (Yellow = Combo window)
+  [──PARRY──] (Red = Parry window)
+```
+
+**V2 Execution Model**:
+- Input **always buffered** (differs from V1)
+- Checkpoints mark execution points (Active end for "snap", immediate for "responsive")
+- "Snap" mode = execute at Active end (input during Windup/Active)
+- "Immediate" mode = execute right away (input during Recovery/Idle)
+- Queue processes in FIFO order at checkpoint times
+
+**How to Use**:
+1. Enable V2 system: `CombatSettings->bUseV2System = true`
+2. Enable debug: `CombatSettings->bDebugDraw = true`
+3. Press attack during Windup/Active → Queued action appears in debug UI
+4. Watch checkpoint timeline show when action will execute
+5. See real-time stats for execution modes
+
+**Build**: ✓ Succeeded
+**Status**: V2 can now execute attacks! Try pressing light attack during an animation to see input buffering in action.
+
+**Note on Dope Sheet**: The Slate dope sheet widget from Phase 1b is deferred - in-world debug visualization (`DrawCheckpointTimeline()`) provides better real-time feedback during gameplay.
+
+---
+
+### 2025-11-07: MontageUtilityLibrary Advanced Features (Phase 4d) ✓
+**What**: Extended utility library with 19 new functions for procedural easing, advanced hold mechanics, section navigation, window queries, blending, and debug visualization
+**Why**: Eliminates need for authored curves, enables smooth playrate transitions, provides comprehensive montage control
+
+**New Features** (6 categories, 19 functions):
+
+1. **Procedural Easing** (Stateless calculations):
+   - `EvaluateEasing()` - 10 easing types (Linear, Quad, Cubic, Expo, Sine)
+   - `EaseLerp()` - Ease-interpolate between values
+   - `CalculateTransitionPlayRate()` - Smooth playrate transitions (procedural OR curve)
+
+2. **Advanced Hold Mechanics**:
+   - `CalculateChargeLevel()` - Charge level with easing (0.0-1.0)
+   - `GetMultiStageHoldPlayRate()` - Multi-stage hold progression (Stage 1: 0.8x, Stage 2: 0.4x, etc.)
+   - `GetHoldStageIndex()` - Current hold stage
+
+3. **Montage Section Utilities**:
+   - `GetMontageSections()` - List all sections
+   - `GetSectionStartTime()`, `GetSectionDuration()` - Section timing
+   - `GetCurrentSectionName()` - Active section
+   - `JumpToSectionWithBlend()` - Navigate sections
+
+4. **Window State Queries**:
+   - `GetActiveWindows()` - All active window types at current time
+   - `IsWindowActive()` - Check specific window type
+   - `GetWindowTimeRemaining()` - Time left in window
+   - `GetNextCheckpoint()` - Find next window of type
+
+5. **Montage Blending**:
+   - `CrossfadeMontage()` - Smooth transition between montages
+   - `BlendOutMontage()` - Gradual blend out
+
+6. **Debug & Visualization**:
+   - `DrawCheckpointTimeline()` - Visual timeline with color-coded windows
+   - `LogCheckpoints()` - Console logging with details
+
+**Key Innovation - Procedural Easing**:
+```cpp
+// No curve assets needed! Procedurally generated smooth transitions
+float PlayRate = CalculateTransitionPlayRate(
+    1.0f,                      // Start rate
+    0.2f,                      // Target rate (hold slowdown)
+    ElapsedTime,               // Current time in transition
+    0.5f,                      // Transition duration
+    EEasingType::EaseOutQuad   // Smooth deceleration
+);
+```
+
+**Architecture**: Component-owned state, library-provided calculations
+- Components own transition state (tracked in `TickComponent()`)
+- Library provides **stateless** utilities (pure calculations)
+- Blueprint-friendly with designer-tunable parameters
+
+**Use Cases**:
+- **Hold system**: Smooth slowdown instead of instant freeze (EaseOutQuad)
+- **Charge attacks**: Visual charge meter with EaseInQuad curve
+- **Directional attacks**: Jump to different montage sections
+- **V2 windows**: Query active windows for AI decision-making
+- **Debug**: Visual timeline for tuning window timings
+
+**Build**: ✓ Succeeded
+**Total Functions**: 27 (8 from Phase 4c + 19 from Phase 4d)
+
+---
+
+### 2025-11-07: Montage Utility Library (Phase 4c) ✓
+**What**: Created Blueprint Function Library for montage timing utilities and checkpoint discovery
+**Why**: Separation of concerns, Blueprint exposure, reusability across systems (V2, AI, animations)
+
+**New Utilities** (`MontageUtilityLibrary.h/.cpp`):
+- **Montage Time Queries**: `GetCurrentMontageTime()`, `GetCurrentMontage()`, `GetAnimInstance()`
+- **Playback Control**: `SetMontagePlayRate()`, `GetMontagePlayRate()`
+- **Checkpoint Discovery**: `DiscoverCheckpoints()` - Scans AnimNotifyStates for window timings
+- **Timing Validation**: `GetMontageDuration()`, `IsTimeInWindow()`
+
+**Changes**:
+- **Created**: `MontageUtilityLibrary.h/.cpp` - Blueprint Function Library with 8 utility functions
+- **Refactored**: `CombatComponentV2.cpp` - Uses utility library in `TickComponent()`, `ActivateHold()`, `DeactivateHold()`
+- **Fixed**: `AttackExecutionTests.cpp` - Updated to use `ASamuraiCharacter*` for CombatSettings access
+
+**Benefits**:
+- Encapsulates repetitive null checks (Character→Mesh→AnimInstance→Montage chains)
+- Blueprint exposure enables designer-friendly timing queries
+- V2 checkpoint discovery automates window timing extraction from montages
+- Reduces CombatComponentV2 code bloat by consolidating timing utilities
+
+**Build**: ✓ Succeeded
+**Tests**: ✓ All 7 tests passing with updated helpers
+
+---
+
+### 2025-11-07: AttackConfiguration PDA Refactoring ✓
+**What**: Created modular attack data ownership system with three-tier architecture
+**Why**: Enables mix-and-match of combat rules with different attack movesets
+
+**Architecture**:
+```
+ASamuraiCharacter
+  └─ CombatSettings (combat style package)
+      └─ AttackConfiguration (attack moveset)
+          ├─ DefaultLightAttack (UAttackData)
+          ├─ DefaultHeavyAttack (UAttackData)
+          ├─ SprintAttack (UAttackData, optional)
+          ├─ JumpAttack (UAttackData, optional)
+          └─ PlungingAttack (UAttackData, optional)
+```
+
+**Changes**:
+- **Created**: `AttackConfiguration.h/.cpp` - New PDA for attack movesets
+- **Modified**: `CombatSettings.h` - Removed animation-driven timing windows, added AttackConfiguration reference
+- **Refactored**: `CombatComponent` - Attack data now accessed via `GetDefaultLightAttack()` / `GetDefaultHeavyAttack()`
+- **Updated**: All test files and `CombatTestHelpers.h` to use new system
+
+**Benefits**:
+- Create weapon variations without duplicating combat settings
+- Example: `CombatSettings_Aggressive` + `AttackConfig_Katana` vs `AttackConfig_Greatsword`
+
+**Build**: ✓ Succeeded
+**Tests**: ✓ All 7 tests updated and passing
+
+---
+
 ## Instant Context (Read This First)
 
 **Project**: Ghost of Tsushima-inspired melee combat system for Unreal Engine 5.6 (C++)
@@ -535,3 +766,7 @@ Created UBT config with:
 ---
 
 **Happy coding!** 🗡️
+- FGeometry::GetRenderTransform() doesn't exist in UE 5.6
+- FLinearColor cannot be converted to FColor directly
+- also please try to encapsulate repetitive calls and operations as much as possible to  improve clarity and reduce code bloat as well as consolidate relevant systems
+- please try to encapsulate repetitive calls and operations as much as possible to  improve clarity and reduce code bloat as well as consolidate relevant systems

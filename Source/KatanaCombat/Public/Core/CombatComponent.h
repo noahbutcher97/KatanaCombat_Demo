@@ -4,11 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "CombatTypes.h"
+#include "Characters/SamuraiCharacter.h"
 #include "Components/ActorComponent.h"
 #include "CombatComponent.generated.h"
 
 // Forward declarations
 class UAttackData;
+class UCombatSettings;
 class UCombatSettings;
 class UAnimInstance;
 class UAnimMontage;
@@ -16,6 +18,7 @@ class UTargetingComponent;
 class UWeaponComponent;
 class UMotionWarpingComponent;
 class ACharacter;
+class UCombatComponentV2;
 
 /**
  * Main combat component handling state machine, attacks, posture, combos, and parry/counter mechanics
@@ -56,22 +59,22 @@ public:
     // ============================================================================
     // CONFIGURATION
     // ============================================================================
+    // NOTE: Attack data (DefaultLightAttack, DefaultHeavyAttack) now lives in
+    // CombatSettings->AttackConfiguration. Access via GetDefaultLightAttack() / GetDefaultHeavyAttack()
 
-    /** Global combat settings (posture rates, timing windows, etc.) */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Settings")
-    TObjectPtr<UCombatSettings> CombatSettings;
+    UFUNCTION(BlueprintPure, Category = "Combat|References")
+    ASamuraiCharacter* GetOwnerCharacter();
 
-    /** Default light attack to use when no combo is active */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Settings")
-    TObjectPtr<UAttackData> DefaultLightAttack;
+    UFUNCTION(BlueprintPure , Category= "Combat|Debug")
+    bool GetDebugDraw();
 
-    /** Default heavy attack to use when no combo is active */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Settings")
-    TObjectPtr<UAttackData> DefaultHeavyAttack;
+    /** Get default light attack from AttackConfiguration */
+    UFUNCTION(BlueprintPure, Category = "Combat|Attack")
+    UAttackData* GetDefaultLightAttack() const;
 
-    /** Enable debug visualization (state changes, timing windows, etc.) */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Debug")
-    bool bDebugDraw = false;
+    /** Get default heavy attack from AttackConfiguration */
+    UFUNCTION(BlueprintPure, Category = "Combat|Attack")
+    UAttackData* GetDefaultHeavyAttack() const;
 
     // ============================================================================
     // STATE MACHINE
@@ -591,7 +594,11 @@ private:
 
     /** Owner character (cached for performance) */
     UPROPERTY()
-    TObjectPtr<ACharacter> OwnerCharacter;
+    TObjectPtr<ASamuraiCharacter> OwnerCharacter;
+
+    /** Combat settings (cached from character for performance) */
+    UPROPERTY()
+    TObjectPtr<UCombatSettings> CombatSettings;
 
     /** Owner's anim instance (for montage playback) */
     UPROPERTY()

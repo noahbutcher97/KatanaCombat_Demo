@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Animation/AnimNotifies/AnimNotifyState.h"
+#include "Animation/AnimNotifyState_ActionWindow_Base.h"
 #include "AnimNotifyState_HoldWindow.generated.h"
 
 /**
@@ -38,23 +38,25 @@
  * - Phases are mutually exclusive (only one active at a time)
  */
 UCLASS(meta = (DisplayName = "Hold Window"))
-class KATANACOMBAT_API UAnimNotifyState_HoldWindow : public UAnimNotifyState
+class KATANACOMBAT_API UAnimNotifyState_HoldWindow : public UAnimNotifyState_ActionWindow_Base
 {
     GENERATED_BODY()
 
 public:
     UAnimNotifyState_HoldWindow();
 
-    // ============================================================================
-    // ANIMNOTIFYSTATE INTERFACE
-    // ============================================================================
-
-    virtual void NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference) override;
-    virtual void NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
-
     virtual FString GetNotifyName_Implementation() const override;
 
 #if WITH_EDITOR
     virtual bool CanBePlaced(UAnimSequenceBase* Animation) const override { return true; }
 #endif
+
+protected:
+    // ============================================================================
+    // ACTIONWINDOW_BASE INTERFACE
+    // ============================================================================
+
+    virtual EActionWindowType GetWindowType() const override { return EActionWindowType::Hold; }
+    virtual void OnOpenWindow_V1(class UCombatComponent* CombatComp, float Duration) override;
+    virtual void OnCloseWindow_V1(class UCombatComponent* CombatComp) override;
 };

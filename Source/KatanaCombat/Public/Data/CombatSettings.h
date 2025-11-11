@@ -19,6 +19,18 @@ public:
     UCombatSettings();
 
     // ============================================================================
+    // SYSTEM CONFIGURATION
+    // ============================================================================
+
+    /** Enable V2 combat system (timer-based action queue) instead of V1 (immediate execution) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+    bool bUseV2System = false;
+
+    /** Enable debug visualization for combat system state */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
+    bool bDebugDraw = false;
+
+    // ============================================================================
     // POSTURE SYSTEM
     // ============================================================================
 
@@ -47,27 +59,23 @@ public:
     float GuardBreakRecoveryPercent = 0.5f;
 
     // ============================================================================
-    // TIMING WINDOWS
+    // ATTACK CONFIGURATION
     // ============================================================================
 
-    /** Time window to input next combo (from start of recovery) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing")
-    float ComboInputWindow = 0.6f;
+    /** Attack moveset configuration (default attacks, movement attacks) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attacks")
+    TObjectPtr<class UAttackConfiguration> AttackConfiguration;
 
-    /** Perfect parry timing window (during enemy windup) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing")
-    float ParryWindow = 0.3f;
-
-    /** Perfect evade timing window (during enemy active phase) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing")
-    float PerfectEvadeWindow = 0.2f;
+    // ============================================================================
+    // COUNTER SYSTEM
+    // ============================================================================
 
     /** How long counter window stays open after parry/evade */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing")
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Counter")
     float CounterWindowDuration = 1.5f;
 
     /** Damage multiplier during counter window */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing")
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Counter")
     float CounterDamageMultiplier = 1.5f;
 
     // ============================================================================

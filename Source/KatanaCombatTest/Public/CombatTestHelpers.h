@@ -6,11 +6,13 @@
 #include "Misc/AutomationTest.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
+#include "Characters/SamuraiCharacter.h"
 #include "Animation/AnimMontage.h"
 #include "Core/CombatComponent.h"
 #include "Core/TargetingComponent.h"
 #include "Data/CombatSettings.h"
 #include "Data/AttackData.h"
+#include "Data/AttackConfiguration.h"
 
 /**
  * Shared test utilities for KatanaCombat test suite
@@ -52,20 +54,27 @@ public:
 	 * @param OutCombat - Output parameter for created combat component
 	 * @return Created character
 	 */
-	static ACharacter* CreateTestCharacterWithCombat(UWorld* World, UCombatComponent*& OutCombat)
+	static ASamuraiCharacter* CreateTestCharacterWithCombat(UWorld* World, UCombatComponent*& OutCombat)
 	{
-		ACharacter* Character = World->SpawnActor<ACharacter>();
-		OutCombat = NewObject<UCombatComponent>(Character);
+		ASamuraiCharacter* Character = World->SpawnActor<ASamuraiCharacter>();
 
-		// Setup minimal combat settings
+		// Setup minimal attack configuration
+		UAttackConfiguration* AttackConfig = NewObject<UAttackConfiguration>();
+		// Default attacks are set by tests as needed
+
+		// Setup minimal combat settings on the character (owner of CombatSettings)
 		UCombatSettings* Settings = NewObject<UCombatSettings>();
 		Settings->MaxPosture = 100.0f;
 		Settings->PostureRegenRate_Idle = 20.0f;
 		Settings->PostureRegenRate_Attacking = 50.0f;
 		Settings->PostureRegenRate_NotBlocking = 30.0f;
-		OutCombat->CombatSettings = Settings;
+		Settings->AttackConfiguration = AttackConfig;
+		Settings->CounterWindowDuration = 1.5f;
+		Settings->CounterDamageMultiplier = 1.5f;
+		Character->CombatSettings = Settings;
 
-		OutCombat->RegisterComponent();
+		// Get the existing combat component (created by character constructor)
+		OutCombat = Character->CombatComponent;
 
 		return Character;
 	}
@@ -77,15 +86,15 @@ public:
 	 * @param OutTargeting - Output parameter for created targeting component
 	 * @return Created character
 	 */
-	static ACharacter* CreateTestCharacterWithCombatAndTargeting(
+	static ASamuraiCharacter* CreateTestCharacterWithCombatAndTargeting(
 		UWorld* World,
 		UCombatComponent*& OutCombat,
 		UTargetingComponent*& OutTargeting)
 	{
-		ACharacter* Character = CreateTestCharacterWithCombat(World, OutCombat);
+		ASamuraiCharacter* Character = CreateTestCharacterWithCombat(World, OutCombat);
 
-		OutTargeting = NewObject<UTargetingComponent>(Character);
-		OutTargeting->RegisterComponent();
+		// Get the existing targeting component (created by character constructor)
+		OutTargeting = Character->TargetingComponent;
 
 		return Character;
 	}

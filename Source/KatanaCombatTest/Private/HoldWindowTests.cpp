@@ -24,7 +24,13 @@ bool FHoldWindowTest::RunTest(const FString& Parameters)
 	// Create holdable attack
 	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
 	Attack->bCanHold = true;
-	CombatComp->DefaultLightAttack = Attack;
+
+	// Set default attack via AttackConfiguration (new modular system)
+	ASamuraiCharacter* SamuraiCharacter = Cast<ASamuraiCharacter>(TestCharacter);
+	if (SamuraiCharacter && SamuraiCharacter->CombatSettings && SamuraiCharacter->CombatSettings->AttackConfiguration)
+	{
+		SamuraiCharacter->CombatSettings->AttackConfiguration->DefaultLightAttack = Attack;
+	}
 
 	// Test 1: Button HELD when window opens → Enter hold state
 	CombatComp->OnLightAttackPressed();  // Hold button down
@@ -73,7 +79,10 @@ bool FHoldWindowTest::RunTest(const FString& Parameters)
 	NonHoldableAttack->bCanHold = false;
 
 	// Set non-holdable as default so auto-execution uses it
-	CombatComp->DefaultLightAttack = NonHoldableAttack;
+	if (SamuraiCharacter && SamuraiCharacter->CombatSettings && SamuraiCharacter->CombatSettings->AttackConfiguration)
+	{
+		SamuraiCharacter->CombatSettings->AttackConfiguration->DefaultLightAttack = NonHoldableAttack;
+	}
 	CombatComp->OnLightAttackPressed();
 	CombatComp->CurrentAttackInputType = EInputType::LightAttack;
 
@@ -90,7 +99,10 @@ bool FHoldWindowTest::RunTest(const FString& Parameters)
 	HeavyAttack->bCanHold = true;
 
 	// Set as default so auto-execution uses it
-	CombatComp->DefaultHeavyAttack = HeavyAttack;
+	if (SamuraiCharacter && SamuraiCharacter->CombatSettings && SamuraiCharacter->CombatSettings->AttackConfiguration)
+	{
+		SamuraiCharacter->CombatSettings->AttackConfiguration->DefaultHeavyAttack = HeavyAttack;
+	}
 	CombatComp->OnHeavyAttackPressed();
 	CombatComp->CurrentAttackInputType = EInputType::HeavyAttack;
 

@@ -1,12 +1,16 @@
-﻿
+
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Characters/SamuraiCharacter.h"
 #include "Core/CombatComponent.h"
+#include "Core/CombatComponentV2.h"
 #include "Core/TargetingComponent.h"
 #include "Core/WeaponComponent.h"
 #include "Core/HitReactionComponent.h"
+#include "Debug/CombatDebugWidget.h"
 #include "Data/AttackData.h"
+#include "Data/CombatSettings.h"
+#include "ActionQueueTypes.h"
 #include "MotionWarpingComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -19,6 +23,8 @@ ASamuraiCharacter::ASamuraiCharacter()
 
     // Create combat components
     CombatComponent = CreateDefaultSubobject<UCombatComponent>(TEXT("CombatComponent"));
+    CombatComponentV2 = CreateDefaultSubobject<UCombatComponentV2>(TEXT("CombatComponentV2"));
+    CombatDebugWidget = CreateDefaultSubobject<UCombatDebugWidget>(TEXT("CombatDebugWidget"));
     TargetingComponent = CreateDefaultSubobject<UTargetingComponent>(TEXT("TargetingComponent"));
     WeaponComponent = CreateDefaultSubobject<UWeaponComponent>(TEXT("WeaponComponent"));
     HitReactionComponent = CreateDefaultSubobject<UHitReactionComponent>(TEXT("HitReactionComponent"));
@@ -107,6 +113,12 @@ void ASamuraiCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
         {
             EnhancedInputComponent->BindAction(EvadeAction, ETriggerEvent::Started, this, &ASamuraiCharacter::OnEvadeStarted);
         }
+
+        // Toggle Debug Overlay
+        if (ToggleDebugAction)
+        {
+            EnhancedInputComponent->BindAction(ToggleDebugAction, ETriggerEvent::Started, this, &ASamuraiCharacter::OnToggleDebug);
+        }
     }
 }
 
@@ -155,7 +167,12 @@ void ASamuraiCharacter::Look(const FInputActionValue& Value)
 
 void ASamuraiCharacter::OnLightAttackStarted(const FInputActionValue& Value)
 {
-    if (CombatComponent)
+    // Check CombatSettings for V2 system enabled
+    if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
+    {
+        CombatComponentV2->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
+    }
+    else if (CombatComponent)
     {
         CombatComponent->OnLightAttackPressed();
     }
@@ -163,7 +180,11 @@ void ASamuraiCharacter::OnLightAttackStarted(const FInputActionValue& Value)
 
 void ASamuraiCharacter::OnLightAttackCompleted(const FInputActionValue& Value)
 {
-    if (CombatComponent)
+    if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
+    {
+        CombatComponentV2->OnInputEvent(EInputType::LightAttack, EInputEventType::Release);
+    }
+    else if (CombatComponent)
     {
         CombatComponent->OnLightAttackReleased();
     }
@@ -171,7 +192,11 @@ void ASamuraiCharacter::OnLightAttackCompleted(const FInputActionValue& Value)
 
 void ASamuraiCharacter::OnHeavyAttackStarted(const FInputActionValue& Value)
 {
-    if (CombatComponent)
+    if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
+    {
+        CombatComponentV2->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Press);
+    }
+    else if (CombatComponent)
     {
         CombatComponent->OnHeavyAttackPressed();
     }
@@ -179,7 +204,11 @@ void ASamuraiCharacter::OnHeavyAttackStarted(const FInputActionValue& Value)
 
 void ASamuraiCharacter::OnHeavyAttackCompleted(const FInputActionValue& Value)
 {
-    if (CombatComponent)
+    if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
+    {
+        CombatComponentV2->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Release);
+    }
+    else if (CombatComponent)
     {
         CombatComponent->OnHeavyAttackReleased();
     }
@@ -187,7 +216,11 @@ void ASamuraiCharacter::OnHeavyAttackCompleted(const FInputActionValue& Value)
 
 void ASamuraiCharacter::OnBlockStarted(const FInputActionValue& Value)
 {
-    if (CombatComponent)
+    if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
+    {
+        CombatComponentV2->OnInputEvent(EInputType::Block, EInputEventType::Press);
+    }
+    else if (CombatComponent)
     {
         CombatComponent->OnBlockPressed();
     }
@@ -195,7 +228,11 @@ void ASamuraiCharacter::OnBlockStarted(const FInputActionValue& Value)
 
 void ASamuraiCharacter::OnBlockCompleted(const FInputActionValue& Value)
 {
-    if (CombatComponent)
+    if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
+    {
+        CombatComponentV2->OnInputEvent(EInputType::Block, EInputEventType::Release);
+    }
+    else if (CombatComponent)
     {
         CombatComponent->OnBlockReleased();
     }
@@ -203,9 +240,21 @@ void ASamuraiCharacter::OnBlockCompleted(const FInputActionValue& Value)
 
 void ASamuraiCharacter::OnEvadeStarted(const FInputActionValue& Value)
 {
-    if (CombatComponent)
+    if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
+    {
+        CombatComponentV2->OnInputEvent(EInputType::Evade, EInputEventType::Press);
+    }
+    else if (CombatComponent)
     {
         CombatComponent->OnEvadePressed();
+    }
+}
+
+void ASamuraiCharacter::OnToggleDebug(const FInputActionValue& Value)
+{
+    if (CombatDebugWidget)
+    {
+        CombatDebugWidget->ToggleDebugOverlay();
     }
 }
 
@@ -272,9 +321,16 @@ void ASamuraiCharacter::OnAttackPhaseEnd_Implementation(EAttackPhase Phase)
 
 void ASamuraiCharacter::OnAttackPhaseTransition_Implementation(EAttackPhase NewPhase)
 {
+    // Forward to V1 system (always runs for compatibility)
     if (CombatComponent)
     {
         CombatComponent->OnAttackPhaseTransition(NewPhase);
+    }
+
+    // Also forward to V2 if enabled
+    if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
+    {
+        CombatComponentV2->OnPhaseTransition(NewPhase);
     }
 }
 
@@ -417,6 +473,8 @@ void ASamuraiCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult& Hi
     // Check if target implements IDamageableInterface
     if (HitActor->Implements<UDamageableInterface>())
     {
+
+        
         // Build hit reaction info
         FHitReactionInfo HitInfo;
         HitInfo.Attacker = this;

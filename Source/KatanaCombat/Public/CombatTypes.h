@@ -397,6 +397,13 @@ struct FMotionWarpingConfig
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCombatStateChanged, ECombatState, NewState);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAttackHit, AActor*, HitActor, float, Damage);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPostureChanged, float, NewPosture);
+
+// V2 Combat System Event Delegates
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnV2AttackStarted, UAttackData*, AttackData, EInputType, InputType, bool, bIsCombo);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnV2PhaseChanged, EAttackPhase, OldPhase, EAttackPhase, NewPhase);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnV2ComboWindowChanged, bool, bActive, float, Duration);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnV2HoldActivated, EInputType, InputType, float, HoldDuration);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnV2MontageEvent, UAnimMontage*, Montage, bool, bInterrupted, FName, EventName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnGuardBroken);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectParry, AActor*, ParriedActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectEvade, AActor*, EvadedActor);

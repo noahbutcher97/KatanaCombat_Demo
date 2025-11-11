@@ -13,7 +13,7 @@ bool FAttackExecutionTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ACharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -25,7 +25,12 @@ bool FAttackExecutionTest::RunTest(const FString& Parameters)
 	UAttackData* Attack1 = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
 	UAttackData* Attack2 = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
 	Attack1->NextComboAttack = Attack2;
-	CombatComp->DefaultLightAttack = Attack1;
+
+	// Set default attack via AttackConfiguration (new modular system)
+	if (TestCharacter->CombatSettings && TestCharacter->CombatSettings->AttackConfiguration)
+	{
+		TestCharacter->CombatSettings->AttackConfiguration->DefaultLightAttack = Attack1;
+	}
 
 	// Test 1: ExecuteAttack from Idle (valid)
 	bool bExecuteSuccess = CombatComp->ExecuteAttack(Attack1);

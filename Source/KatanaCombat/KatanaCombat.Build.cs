@@ -20,6 +20,7 @@ public class KatanaCombat : ModuleRules
 			"GameplayStateTreeModule",
 			"UMG",
 			"Slate",
+			"SlateCore",
 			"MotionWarping"
 		});
 
