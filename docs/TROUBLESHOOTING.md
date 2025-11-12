@@ -290,6 +290,80 @@ float ComboResetDelay = 2.0f;  // Should be ~2 seconds
 
 **Fix**: Increase ComboResetDelay in CombatSettings asset.
 
+#### Symptom: Directional Follow-Up Infinite Loop (V2 SYSTEM) ⚠️
+
+**Status**: ❌ **KNOWN BUG** - Attempted fix in Phase 1 did NOT resolve issue (2025-11-12)
+
+**Symptom**:
+- User holds directional input (Forward) and presses Light/Heavy repeatedly
+- Same directional follow-up attack plays infinitely
+- Different directional attacks loop if direction is changed while spamming
+- Only affects V2 combat system (`CombatSettings->bUseV2System = true`)
+
+**Root Cause**:
+Action queue captures `LastDirectionalInput` at **queue time**, not execution time. When multiple inputs are queued before first directional attack executes, they ALL capture the same stale direction value:
+
+```
+Timeline:
+T=0.0s: Hold Forward + Press Light → Queued with Direction=Forward
+T=0.1s: Press Light again → Queued with Direction=Forward (STALE)
+T=0.2s: Press Light again → Queued with Direction=Forward (STALE)
+T=0.5s: First action executes → Directional follow-up plays
+T=1.0s: Second action executes → STILL has Forward in queue entry
+T=1.5s: Third action executes → STILL has Forward in queue entry
+Result: Infinite directional loop
+```
+
+**Attempted Fix (Phase 1 - Failed)**:
+- Added `bShouldClearDirectionalInput` flag to `FAttackResolutionResult`
+- Cleared `LastDirectionalInput` in `GetAttackForInput()` when directional resolved
+- **Why it failed**: Clearing happens during resolution, but already-queued actions retain stale direction data
+
+**Recommended Fixes** (see CLAUDE.md "Attempted Fix Analysis & Next Steps" section for full details):
+
+1. **Option 1: Per-Action Direction Storage (RECOMMENDED)**
+   - Store `CapturedDirection` in each `FActionQueueEntry`
+   - Clear ALL pending actions' directions when directional follow-up executes
+   - Effort: ~2 hours
+   - Files: `ActionQueueTypes.h`, `CombatComponentV2.cpp` (QueueAction, ExecuteAction)
+
+2. **Option 2: Single-Use Directional Flag**
+   - Add `bDirectionalInputConsumed` boolean to component
+   - Mark as consumed when directional follow-up resolves
+   - Check flag in `GetAttackForInput()` before using direction
+   - Effort: ~1 hour
+   - Files: `CombatComponentV2.h`, `CombatComponentV2.cpp` (OnInputEvent, GetAttackForInput)
+
+3. **Option 3: Immediate Queue Filtering**
+   - Remove/invalidate directional actions from queue after execution
+   - More complex, requires determining which actions are "directional"
+   - Effort: ~3 hours
+
+**Temporary Workaround**:
+Disable V2 system and use V1 (does not have this bug):
+```cpp
+// In CombatSettings asset or Blueprint
+CombatSettings->bUseV2System = false;
+```
+
+**Debug Logging** (add to track issue):
+```cpp
+// CombatComponentV2.cpp - QueueAction()
+UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Captured Direction=%s at queue time"),
+    *UEnum::GetValueAsString(LastDirectionalInput));
+
+// CombatComponentV2.cpp - ExecuteAction()
+UE_LOG(LogCombat, Warning, TEXT("[EXECUTE] Using Direction=%s (queued earlier)"),
+    *UEnum::GetValueAsString(Action.CapturedDirection));
+```
+
+**See Also**:
+- CLAUDE.md → "Attempted Fix Analysis & Next Steps" (lines 100-348)
+- Source files: `CombatComponentV2.cpp:1958-2040` (resolution logic)
+- Related: `ActionQueueTypes.h` (FActionQueueEntry struct)
+
+---
+
 ### Hits Not Detecting
 
 #### Symptom: Weapon Passes Through Enemies

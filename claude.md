@@ -6,9 +6,10 @@
 
 ## Recent Changes
 
-### 2025-11-12: Context-Aware Attack Resolution System (Phase 1 Complete) ✓
-**What**: Fixed directional follow-up infinite loop bug with context-aware resolution and GameplayTag system
+### 2025-11-12: Context-Aware Attack Resolution System (Phase 1 - INCOMPLETE) ⚠️
+**What**: Attempted to fix directional follow-up infinite loop bug with context-aware resolution and GameplayTag system
 **Why**: Eliminates band-aid flags, prevents combo chain cycles, enables future context-sensitive attacks
+**Status**: ❌ **BUG NOT FIXED** - In-game testing shows directional loop still occurs
 
 **Implemented Features**:
 
@@ -94,7 +95,257 @@
 - `KatanaCombat.Build.cs` - Added GameplayTags module dependency (~1 line)
 
 **Build**: ✓ Succeeded (Module loaded: UnrealEditor-KatanaCombat.dll)
-**Status**: Directional loop bug FIXED! Context system ready for future expansion (Phase 2: Graph Editor)
+**Testing Result**: ❌ **FAILED** - Directional loop bug persists in-game
+
+---
+
+## Attempted Fix Analysis & Next Steps
+
+### What Was Tried (Phase 1 Approach)
+
+**Theory**: `LastDirectionalInput` persists after directional follow-up execution, causing repeated resolution to same directional attack.
+
+**Implementation**:
+- Added `bShouldClearDirectionalInput` flag to `FAttackResolutionResult`
+- Set flag to `true` when resolving directional follow-ups
+- Cleared `LastDirectionalInput` in `GetAttackForInput()` when flag detected
+
+**Why It Failed**:
+The fix only clears directional input **during attack resolution**, but doesn't address the **root timing issue**:
+
+1. **Queuing Problem**: Multiple inputs are queued BEFORE first directional attack executes
+2. **State Persistence**: Each queued action captures the SAME `LastDirectionalInput` value at queue time
+3. **Execution Order**: Clearing happens too late - subsequent queued actions already have stale direction data
+4. **Action Queue Independence**: Each `FActionQueueEntry` is independent - clearing component state doesn't affect already-queued actions
+
+**Example Timeline** (Bug Still Occurring):
+```
+T=0.0s: User holds Forward + presses Light (queued with Direction=Forward)
+T=0.1s: User presses Light again (queued with Direction=Forward)  ← CAPTURES STALE VALUE
+T=0.2s: User presses Light again (queued with Direction=Forward)  ← CAPTURES STALE VALUE
+T=0.5s: First action executes → Directional follow-up plays
+        → LastDirectionalInput cleared ← TOO LATE, other actions already queued
+T=1.0s: Second action executes → STILL HAS Direction=Forward in queue entry
+T=1.5s: Third action executes → STILL HAS Direction=Forward in queue entry
+Result: Infinite directional loop continues
+```
+
+### Recommended Next Steps (Priority Order)
+
+#### **Option 1: Clear Direction in Action Queue Entries (RECOMMENDED)**
+
+**Approach**: Store direction in `FActionQueueEntry`, clear it when directional follow-up executes
+
+**Changes Required**:
+```cpp
+// ActionQueueTypes.h - Add direction to queue entry
+struct FActionQueueEntry
+{
+    // ... existing fields ...
+    EInputDirection CapturedDirection;  // NEW: Direction at queue time
+    bool bDirectionConsumed = false;    // NEW: Has this been used for directional?
+};
+
+// CombatComponentV2.cpp - QueueAction()
+void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAttackData* AttackData)
+{
+    FActionQueueEntry Entry;
+    Entry.CapturedDirection = LastDirectionalInput;  // Capture at queue time
+    // ... rest of queueing logic ...
+}
+
+// CombatComponentV2.cpp - ExecuteAction()
+bool UCombatComponentV2::ExecuteAction(FActionQueueEntry& Action)
+{
+    // Use Action.CapturedDirection instead of LastDirectionalInput
+    FAttackResolutionResult Result = UMontageUtilityLibrary::ResolveNextAttack_V2(
+        CurrentAttackData,
+        Action.InputAction.InputType,
+        Action.CapturedDirection,  // ← Use captured value
+        // ... other params ...
+    );
+
+    // If directional follow-up resolved, mark as consumed
+    if (Result.Path == EResolutionPath::DirectionalFollowUp)
+    {
+        Action.bDirectionConsumed = true;
+        // Clear ALL pending actions' captured directions
+        for (FActionQueueEntry& PendingAction : ActionQueue)
+        {
+            PendingAction.CapturedDirection = EInputDirection::None;
+        }
+    }
+}
+```
+
+**Why This Works**: Directional state is per-action, and clearing affects ALL queued actions immediately.
+
+**Effort**: ~2 hours (add fields, update queueing, update resolution)
+
+---
+
+#### **Option 2: Single-Use Directional Input Flag (ALTERNATIVE)**
+
+**Approach**: Track whether directional input has been "consumed" separately from the value itself
+
+**Changes Required**:
+```cpp
+// CombatComponentV2.h
+bool bDirectionalInputConsumed = false;  // NEW: Has current direction been used?
+
+// CombatComponentV2.cpp - OnInputEvent()
+void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection)
+{
+    if (InputDirection != EInputDirection::None)
+    {
+        LastDirectionalInput = InputDirection;
+        bDirectionalInputConsumed = false;  // Reset on new directional input
+    }
+    // ... rest of input handling ...
+}
+
+// CombatComponentV2.cpp - GetAttackForInput()
+UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType) const
+{
+    // Only use direction if NOT consumed
+    EAttackDirection AttackDirection = EAttackDirection::None;
+    if (!bDirectionalInputConsumed && LastDirectionalInput != EInputDirection::None)
+    {
+        AttackDirection = CombatHelpers::InputToAttackDirection(LastDirectionalInput);
+    }
+
+    FAttackResolutionResult Result = UMontageUtilityLibrary::ResolveNextAttack_V2(
+        // ... params ...
+    );
+
+    if (Result.Path == EResolutionPath::DirectionalFollowUp)
+    {
+        const_cast<UCombatComponentV2*>(this)->bDirectionalInputConsumed = true;  // Mark as consumed
+    }
+}
+```
+
+**Why This Works**: Direction value persists (for debugging), but consumption flag prevents reuse.
+
+**Effort**: ~1 hour (add flag, update input handler, update resolution)
+
+---
+
+#### **Option 3: Immediate Queue Filtering (COMPLEX)**
+
+**Approach**: When directional follow-up executes, immediately filter/modify all pending queue entries
+
+**Changes Required**:
+```cpp
+// CombatComponentV2.cpp - ExecuteAction()
+bool UCombatComponentV2::ExecuteAction(FActionQueueEntry& Action)
+{
+    FAttackResolutionResult Result = UMontageUtilityLibrary::ResolveNextAttack_V2(/* ... */);
+
+    if (Result.Path == EResolutionPath::DirectionalFollowUp)
+    {
+        // Clear LastDirectionalInput
+        LastDirectionalInput = EInputDirection::None;
+
+        // ALSO: Invalidate all pending actions that were queued with directional input
+        for (int32 i = ActionQueue.Num() - 1; i >= 0; --i)
+        {
+            // Option A: Remove directional actions entirely
+            if (ActionQueue[i]./* has directional context */)
+            {
+                ActionQueue.RemoveAt(i);
+            }
+
+            // Option B: Convert to default attacks
+            // ActionQueue[i]./* clear directional flags */
+        }
+    }
+}
+```
+
+**Why This Might Fail**: Difficult to determine which queued actions are "directional" without storing that metadata.
+
+**Effort**: ~3 hours (add queue filtering logic, handle edge cases, extensive testing)
+
+---
+
+### Debugging Steps (Before Implementing Fix)
+
+1. **Add Queue State Logging**:
+   ```cpp
+   // Log each queued action's captured direction
+   UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Action %d: Type=%s, Direction=%s, Time=%.2f"),
+       i, *UEnum::GetValueAsString(Entry.InputAction.InputType),
+       *UEnum::GetValueAsString(Entry.CapturedDirection), Entry.ScheduledTime);
+   ```
+
+2. **Verify Clear Signal Fires**:
+   ```cpp
+   // Confirm bShouldClearDirectionalInput is set correctly
+   UE_LOG(LogCombat, Warning, TEXT("[RESOLVE] DirectionalFollowUp resolved, ClearSignal=%s"),
+       Result.bShouldClearDirectionalInput ? TEXT("TRUE") : TEXT("FALSE"));
+   ```
+
+3. **Track Direction Lifecycle**:
+   ```cpp
+   // Log whenever LastDirectionalInput changes
+   UE_LOG(LogCombat, Warning, TEXT("[DIRECTION] Changed: %s → %s"),
+       *UEnum::GetValueAsString(OldDirection),
+       *UEnum::GetValueAsString(NewDirection));
+   ```
+
+4. **Monitor Queue Execution**:
+   ```cpp
+   // Log actual direction used during execution
+   UE_LOG(LogCombat, Warning, TEXT("[EXECUTE] Using Direction=%s for InputType=%s"),
+       *UEnum::GetValueAsString(AttackDirection),
+       *UEnum::GetValueAsString(Action.InputAction.InputType));
+   ```
+
+---
+
+### Rollback Consideration
+
+**If Phase 1 changes cause other issues**, consider reverting to previous `bCurrentAttackIsDirectionalFollowUp` approach:
+- The old flag-based system was a "band-aid" but DID work for single directional inputs
+- Phase 1 added complexity without solving the core queuing problem
+- Could restore old behavior and implement Option 1 or Option 2 cleanly
+
+**Rollback Command**:
+```bash
+git revert HEAD  # Revert Phase 1 commit
+git checkout HEAD~1 -- Source/KatanaCombat/Private/Core/CombatComponentV2.cpp
+```
+
+---
+
+### Long-Term Solution (Phase 2 Consideration)
+
+**Root Issue**: V2 action queue captures state at queue time, but directional input is global component state.
+
+**Architectural Fix**:
+- Move ALL input state into `FActionQueueEntry` (not just direction)
+- Make queue entries fully self-contained snapshots
+- Resolution uses ONLY data from queue entry, never component state
+- This prevents ALL stale state issues, not just directional input
+
+**Future Refactor**:
+```cpp
+struct FActionQueueEntry
+{
+    FQueuedInputAction InputAction;
+    EInputDirection CapturedDirection;
+    bool bWasHolding;
+    bool bComboWindowWasActive;
+    FGameplayTagContainer CapturedContext;  // Snapshot of ActiveContextTags
+    UAttackData* CurrentAttackSnapshot;
+    // ... all resolution inputs captured at queue time ...
+};
+```
+
+---
+
+**Status**: Phase 1 infrastructure (tags, validation, cycle detection) is valuable and should be kept. Only the directional clearing mechanism needs fixing. **Recommend Option 1 or Option 2 above** as fastest path to resolution.
 
 ---
 
@@ -438,26 +689,34 @@ ASamuraiCharacter
 
 ---
 
-## Current State of the Project (As of 2025-11-11)
+## Current State of the Project (As of 2025-11-12)
 
-### V2 Combat System Status: ✅ Feature Complete for Core Mechanics
+### V2 Combat System Status: ⚠️ Core Mechanics Complete with Known Bug
 
 **Implemented and Working**:
 1. ✅ **Input System**: Timestamped input queue with press/release matching
 2. ✅ **Action Queue**: FIFO execution with snap/responsive/immediate modes
 3. ✅ **Phase Management**: Event-driven phase transitions (Windup→Active→Recovery→None)
 4. ✅ **Combo System**: Light→Light, Light→Heavy, Heavy branching with input buffering
-5. ✅ **Hold Mechanics**:
-   - Light attacks: Procedural ease slowdown with bidirectional easing
-   - Heavy attacks: Charge loop with time-based damage scaling
-   - Directional follow-ups after hold-and-release
+5. ⚠️ **Hold Mechanics** (PARTIAL):
+   - Light attacks: Procedural ease slowdown with bidirectional easing ✅
+   - Heavy attacks: Charge loop with time-based damage scaling ✅
+   - Directional follow-ups after hold-and-release ❌ **BROKEN (infinite loop bug)**
 6. ✅ **Blending System**: Universal combo crossfade with per-attack blend-out/blend-in times
 7. ✅ **Debug Visualization**: Phase indicators, queue state, checkpoint timeline, stats
 8. ✅ **Montage Utilities**: 27 utility functions for timing queries, section navigation, easing
 9. ✅ **Editor Tools**: Custom AttackData details panel with section selectors and validation
+10. ✅ **Context System** (Phase 1): GameplayTag-based attack resolution with cycle detection
 
 **Known Issues**:
-- ⚠️ **None currently** - All critical bugs fixed as of 2025-11-11
+- ❌ **CRITICAL BUG**: Directional follow-up infinite loop (V2 only)
+  - **Symptom**: Holding direction + spamming attack button causes infinite loop of same directional attack
+  - **Affected System**: V2 action queue's directional input capture
+  - **Root Cause**: Queued actions capture stale `LastDirectionalInput` value at queue time
+  - **Attempted Fix**: Phase 1 clear signal (FAILED - clears too late, queued actions unaffected)
+  - **Workaround**: Use V1 system (`bUseV2System = false`) - V1 does not have this bug
+  - **Recommended Fixes**: See CLAUDE.md lines 133-231 (3 options, ~1-3 hours each)
+  - **Details**: TROUBLESHOOTING.md lines 293-365
 
 **Performance**:
 - V2 uses timer-based easing (60Hz) instead of tick-based for smooth procedural transitions
@@ -472,9 +731,30 @@ ASamuraiCharacter
 
 ## Planned Next Steps
 
-### Immediate Priority (Phase 6): Parry & Evade Systems
+### Immediate Priority (URGENT): Fix Directional Follow-Up Infinite Loop Bug
 
-**Goal**: Implement defensive mechanics for complete combat loop
+**Goal**: Resolve V2 action queue directional input capture bug (see CLAUDE.md lines 102-348 for full analysis)
+
+**Recommended Approach**: Option 2 - Single-Use Directional Flag (~1 hour)
+- Add `bDirectionalInputConsumed` boolean to `CombatComponentV2.h`
+- Reset flag on new directional input in `OnInputEvent()`
+- Check flag before using direction in `GetAttackForInput()`
+- Mark as consumed when directional follow-up resolves
+
+**Alternative Approach**: Option 1 - Per-Action Direction Storage (~2 hours, more robust)
+- Store `CapturedDirection` + `bDirectionConsumed` in `FActionQueueEntry`
+- Clear ALL pending actions' directions when directional executes
+- Prevents all stale state issues in action queue
+
+**Files to Modify**:
+- Option 2: `CombatComponentV2.h` (add flag), `CombatComponentV2.cpp` (OnInputEvent, GetAttackForInput)
+- Option 1: `ActionQueueTypes.h` (add fields), `CombatComponentV2.cpp` (QueueAction, ExecuteAction)
+
+---
+
+### Medium Priority (Phase 6): Parry & Evade Systems
+
+**Goal**: Implement defensive mechanics for complete combat loop (after bug fix)
 
 **Tasks**:
 1. **Parry Detection** (V2 implementation):
