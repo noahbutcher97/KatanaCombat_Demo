@@ -6,6 +6,7 @@
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "Animation/AnimMontage.h"
 #include "Curves/CurveFloat.h"
+#include "GameplayTagContainer.h"
 #include "CombatTypes.h"
 #include "MontageUtilityLibrary.generated.h"
 
@@ -49,6 +50,89 @@ enum class EEasingType : uint8
 
 	/** Sine ease in-out - very smooth, natural feeling transition */
 	EaseInOutSine
+};
+
+// ============================================================================
+// ATTACK RESOLUTION SYSTEM (Phase 1 - Context-Aware Resolution)
+// ============================================================================
+
+/**
+ * Enum tracking HOW an attack was resolved
+ * Provides metadata about resolution path for debugging and system behavior
+ */
+UENUM(BlueprintType)
+enum class EResolutionPath : uint8
+{
+	/** Default attack (no combo chain, no context) */
+	Default,
+
+	/** Normal combo chain (NextComboAttack or HeavyComboAttack) */
+	NormalCombo,
+
+	/** Directional follow-up after hold-and-release */
+	DirectionalFollowUp,
+
+	/** Parry counter attack (future use) */
+	ParryCounter,
+
+	/** Low-health finisher (future use) */
+	LowHealthFinisher,
+
+	/** Custom context-sensitive attack (future use) */
+	ContextSensitive
+};
+
+/**
+ * Result of attack resolution with metadata
+ * Replaces simple UAttackData* return value with rich context information
+ *
+ * Key Benefits:
+ * - Clear directional input after directional follow-ups (fixes infinite loop)
+ * - Track resolution path for debugging and telemetry
+ * - Detect cycles during resolution (safety check)
+ * - Future-proof for context-sensitive attacks
+ */
+USTRUCT(BlueprintType)
+struct KATANACOMBAT_API FAttackResolutionResult
+{
+	GENERATED_BODY()
+
+	/** Resolved attack to execute (nullptr = no valid attack found) */
+	UPROPERTY(BlueprintReadOnly, Category = "Resolution")
+	TObjectPtr<class UAttackData> Attack = nullptr;
+
+	/** How was this attack resolved? (for debugging/telemetry) */
+	UPROPERTY(BlueprintReadOnly, Category = "Resolution")
+	EResolutionPath Path = EResolutionPath::Default;
+
+	/** Should clear LastDirectionalInput after this resolution? (KEY FIX for directional loop) */
+	UPROPERTY(BlueprintReadOnly, Category = "Resolution")
+	bool bShouldClearDirectionalInput = false;
+
+	/** Was a cycle detected during resolution? (safety check) */
+	UPROPERTY(BlueprintReadOnly, Category = "Resolution")
+	bool bCycleDetected = false;
+
+	/** Default constructor */
+	FAttackResolutionResult()
+		: Attack(nullptr)
+		, Path(EResolutionPath::Default)
+		, bShouldClearDirectionalInput(false)
+		, bCycleDetected(false)
+	{
+	}
+
+	/** Convenience constructor for simple cases */
+	FAttackResolutionResult(UAttackData* InAttack, EResolutionPath InPath, bool bClearDirectional = false)
+		: Attack(InAttack)
+		, Path(InPath)
+		, bShouldClearDirectionalInput(bClearDirectional)
+		, bCycleDetected(false)
+	{
+	}
+
+	/** Is resolution valid? (has attack and no cycle) */
+	bool IsValid() const { return Attack != nullptr && !bCycleDetected; }
 };
 
 /**
@@ -506,6 +590,45 @@ public:
 		class UAttackData* DefaultLightAttack,
 		class UAttackData* DefaultHeavyAttack,
 		EAttackDirection Direction = EAttackDirection::None
+	);
+
+	/**
+	 * V2 Context-Aware Attack Resolution (Phase 1)
+	 *
+	 * Enhanced resolution with:
+	 * - Context tag filtering (parry counters, finishers, etc.)
+	 * - Cycle detection (prevents infinite loops)
+	 * - Resolution path tracking (debugging/telemetry)
+	 * - Directional input clear signal (KEY FIX for loop bug)
+	 *
+	 * Resolution Priority:
+	 * 1. Context-sensitive attacks (if RequiredContextTags match ActiveContext)
+	 * 2. Directional follow-ups (if bIsHolding + Direction != None)
+	 * 3. Normal combo chain (if bComboWindowActive)
+	 * 4. Default attacks (fallback)
+	 *
+	 * @param CurrentAttack - Currently executing attack (null if no combo active)
+	 * @param InputType - Input type being triggered (Light/Heavy)
+	 * @param Direction - Movement direction (for directional follow-ups)
+	 * @param bIsHolding - Is button currently held? (for directional follow-ups)
+	 * @param bComboWindowActive - Is combo window currently active?
+	 * @param DefaultLightAttack - Fallback light attack
+	 * @param DefaultHeavyAttack - Fallback heavy attack
+	 * @param ActiveContext - Current runtime context tags (parry counter, low health, etc.)
+	 * @param VisitedAttacks - Set of already-visited attacks for cycle detection (pass by reference, modified during traversal)
+	 * @return Resolution result with attack, path metadata, and clear signal
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Montage Utilities|Attack Resolution", meta = (DisplayName = "Resolve Next Attack V2"))
+	static FAttackResolutionResult ResolveNextAttack_V2(
+		class UAttackData* CurrentAttack,
+		EInputType InputType,
+		EAttackDirection Direction,
+		bool bIsHolding,
+		bool bComboWindowActive,
+		class UAttackData* DefaultLightAttack,
+		class UAttackData* DefaultHeavyAttack,
+		const FGameplayTagContainer& ActiveContext,
+		UPARAM(ref) TSet<class UAttackData*>& VisitedAttacks
 	);
 
 	/**

@@ -8,22 +8,36 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 
 ## Recent Updates (2025-11-11)
 
+### V2 Combat System - Feature Complete (Core Mechanics)
+
+**Status**: ✅ Input system, action queue, phase management, combos, hold mechanics, and blending fully implemented
+
 **Universal Combo Blending System** - All combo transitions now support configurable blend times:
 - `ComboBlendOutTime` - Smooth exit when transitioning FROM this attack (default: 0.1s)
 - `ComboBlendInTime` - Smooth entry when this attack is the TARGET of transition (default: 0.1s)
-- Works for all combo types: light→light, light→heavy, directional follow-ups
+- Works for all combo types: light→light, light→heavy, heavy→any, hold→directional follow-ups
+- Designer-tunable per-attack via data assets (0.0-1.0s range, 0.0-0.5s recommended)
 
 **Heavy Attack Charge System Enhancements**:
 - `ChargeLoopSection` / `ChargeReleaseSection` - Montage section support for distinct charge/release animations
 - `ChargeLoopBlendTime` / `ChargeReleaseBlendTime` - Smooth transitions between charge phases (0.3s/0.2s defaults)
-- Fallback to idle when no release section configured
+- Time-based damage scaling with configurable charge time
+- Directional follow-ups after charge release
+- Editor UI combo boxes for section selection with montage integration
 
-**Critical Bug Fixes**:
-- Fixed light attack early release freeze (ease-out direction tracking)
-- Fixed input lockout after charged heavy with fallback
-- Implemented proper section-to-section blending in `JumpToSectionWithBlend()`
+**Light Attack Hold System**:
+- Procedural easing with bidirectional transitions (ease-in to slowdown, ease-out back to normal)
+- Timer-based updates (60Hz) for smooth playrate interpolation
+- 10 easing types supported (Linear, Quad, Cubic, Expo, Sine with In/Out/InOut variants)
+- Fixed critical freeze bug (explicit ease direction tracking via `bIsEasingOut` flag)
 
-**V2 System Status**: Core mechanics complete (input queue, phase management, combo system, hold mechanics, blending). Next: Parry & Evade systems.
+**V2 Architecture Improvements**:
+- **Independent Peer Systems**: V1 and V2 now operate without cross-dependencies
+- **Event-Driven Phases**: `AnimNotify_AttackPhaseTransition` replaces state-based windows
+- **Comprehensive Debug Visualization**: Phase indicators, queue state, checkpoint timelines, execution stats
+- **27 Montage Utilities**: Blueprint-exposed library for timing queries, blending, easing, section navigation
+
+**Next Steps**: Phase 6 (Parry & Evade systems), Phase 7 (Posture integration), Phase 8+ (Polish & AI)
 
 ---
 
@@ -37,10 +51,14 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 - **Directional Follow-ups**: Hold-and-release mechanics for branching combo paths
 
 ### Technical Highlights
+- **Dual Combat Systems**: V1 (stable) and V2 (next-gen with advanced features) running as independent peers
 - **Component-Based Architecture**: Four modular components (Combat, Targeting, Weapon, HitReaction) that work on any character
 - **Animation-Driven Timing**: AnimNotifyStates control attack phases, hit detection, and combo windows
 - **Montage Section Reuse**: Multiple attacks share one animation montage via section markers
-- **Editor Tools**: Automated AnimNotify generation, timing validation, conflict detection
+- **Procedural Easing**: 10 easing types for smooth playrate transitions without authored curves
+- **27 Montage Utilities**: Blueprint-exposed library for timing queries, blending, section navigation
+- **Universal Blending**: Configurable crossfade times for all combo transitions (per-attack control)
+- **Editor Tools**: Automated AnimNotify generation, timing validation, custom details panels with section selectors
 
 ### Design Philosophy
 - **Feel First**: Combat prioritizes responsive controls and impactful hits
@@ -118,21 +136,27 @@ For complete setup instructions, see [GETTING_STARTED.md](GETTING_STARTED.md).
 Source/KatanaCombat/
 ├── Public/
 │   ├── CombatTypes.h                    # Enums, structs, system-wide delegates
+│   ├── ActionQueueTypes.h               # V2 input/action queue data structures
 │   ├── Core/                            # Core combat components
-│   │   ├── CombatComponent.h            # State machine, attacks, posture, combos
+│   │   ├── CombatComponent.h            # V1 - State machine, attacks, posture, combos
+│   │   ├── CombatComponentV2.h          # V2 - Event-driven combat with FIFO queue
 │   │   ├── TargetingComponent.h         # Cone-based targeting, motion warp setup
 │   │   ├── WeaponComponent.h            # Socket-based hit detection
 │   │   └── HitReactionComponent.h       # Damage reception, hit reactions
+│   ├── Utilities/                       # Utility libraries
+│   │   └── MontageUtilityLibrary.h      # 27 Blueprint functions for montage operations
 │   ├── Data/                            # Data assets
 │   │   ├── AttackData.h                 # Attack configuration
+│   │   ├── AttackConfiguration.h        # Attack moveset package (PDA)
 │   │   └── CombatSettings.h             # Global tuning values
 │   ├── Animation/                       # AnimNotifies and AnimInstance
 │   │   ├── SamuraiAnimInstance.h        # Animation Blueprint bridge
-│   │   ├── AnimNotifyState_AttackPhase.h
+│   │   ├── AnimNotify_AttackPhaseTransition.h  # V2 event-driven phase transitions
+│   │   ├── AnimNotifyState_AttackPhase.h       # V1 state-based phases (legacy)
 │   │   ├── AnimNotifyState_ComboWindow.h
 │   │   ├── AnimNotifyState_ParryWindow.h
 │   │   ├── AnimNotifyState_HoldWindow.h
-│   │   └── AnimNotify_ToggleHitDetection.h
+│   │   └── AnimNotify_ToggleHitDetection.h     # V1 hit detection (now automatic in V2)
 │   ├── Characters/                      # Character implementations
 │   │   └── SamuraiCharacter.h
 │   └── Interfaces/                      # Interface contracts
@@ -142,9 +166,14 @@ Source/KatanaCombat/
 
 Source/KatanaCombatEditor/              # Editor-only tools
 ├── Public/
-│   └── AttackDataTools.h                # Automated notify generation, validation
+│   ├── AttackDataTools.h                # Automated notify generation, validation
+│   └── AttackDataCustomization.h        # Custom details panel for AttackData
 └── Private/
     └── (implementations)
+
+Source/KatanaCombatTest/                # C++ Unit Test Suite
+├── README.md                            # Test documentation
+└── (7 test files with 45+ assertions)
 ```
 
 ---
@@ -336,19 +365,73 @@ UnrealEditor.exe "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCo
 
 ---
 
+## V1 vs V2 Combat Systems
+
+KatanaCombat now features **two independent combat implementations**:
+
+### V1 (CombatComponent) - Original Implementation
+- **Architecture**: State-based with manual phase tracking via `AnimNotifyState_AttackPhase`
+- **Input System**: Direct buffering with combo window checks
+- **Hit Detection**: Manual toggle via `AnimNotify_ToggleHitDetection`
+- **Status**: Stable, production-ready, backward compatible
+- **Use Case**: Proven system for immediate production use
+
+### V2 (CombatComponentV2) - Next-Gen Implementation
+- **Architecture**: Event-driven with `AnimNotify_AttackPhaseTransition` callbacks
+- **Input System**: Timestamped FIFO queue with snap/responsive/immediate modes
+- **Phase Management**: Automatic transitions based on AnimNotify events
+- **Hit Detection**: Automatic during Active phase (no manual toggles needed)
+- **Blending**: Universal combo crossfade with per-attack blend times
+- **Hold Mechanics**: Procedural easing with 10 easing types, bidirectional transitions
+- **Debug Tools**: Comprehensive visualization (phase timeline, queue state, execution stats)
+- **Status**: Core mechanics complete, parry/evade systems next
+- **Use Case**: Advanced features, cleaner architecture, future development
+
+### Switching Between V1 and V2
+Toggle in `CombatSettings` data asset:
+```cpp
+bUseV2System = false;  // Use V1 (default)
+bUseV2System = true;   // Use V2
+```
+
+Both systems are **independent peers** - no cross-dependencies, can be enabled/disabled without code changes.
+
+---
+
 ## Debugging
 
 Enable debug visualization:
 ```cpp
+// V1 System
 CombatComponent->bDebugDraw = true;    // State, phase, timing windows
+
+// V2 System (Enhanced Visualization)
+CombatSettings->bDebugDraw = true;     // Phase indicators, queue state, checkpoint timeline, stats
+
+// Other Components
 TargetingComponent->bDebugDraw = true;  // Cone, targets, distances
 WeaponComponent->bDebugDraw = true;     // Swept traces, hit points
 ```
 
+**V2 Debug Visualization Features**:
+- Color-coded phase indicators (Windup=Orange, Active=Red, Recovery=Yellow)
+- Real-time action queue state with scheduled execution times
+- Visual checkpoint timeline with window overlays
+- Hold state tracking (duration, input type, ease direction)
+- Execution statistics (snap vs responsive, cancellations)
+
 Check logs:
 - `LogCombat` - State transitions, attack execution
+- `LogCombatV2` - V2-specific events, queue processing, checkpoint discovery
 - `LogAnimation` - Montage playback issues
 - `LogWeapon` - Hit detection events
+
+Console commands:
+```
+showdebug animation  // View current state, montage info
+stat fps             // Performance monitoring
+slomo 0.3            // Slow motion for timing verification
+```
 
 ---
 

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "GameplayTagContainer.h"
 #include "ActionQueueTypes.h"
 #include "CombatTypes.h"
 #include "Characters/SamuraiCharacter.h"
@@ -93,9 +94,12 @@ public:
 	/**
 	 * Unified input event handler
 	 * All input goes through here (light, heavy, dodge, block)
+	 * @param InputType - Type of input (LightAttack, HeavyAttack, Evade, Block)
+	 * @param EventType - Press or Release
+	 * @param InputDirection - Optional 8-way directional input (captured from movement stick/keys)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Input")
-	void OnInputEvent(EInputType InputType, EInputEventType EventType);
+	void OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection = EInputDirection::None);
 
 	/**
 	 * Check if input can be processed
@@ -269,7 +273,7 @@ public:
 
 	/** Is currently in hold state? */
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
-	bool IsHolding() const { return HoldState.bIsHolding; }
+	bool IsHolding() const { return HoldState.IsHolding(); }
 
 	/** Get hold duration */
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
@@ -343,6 +347,38 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	TMap<EInputType, float> HeldInputs;
 
+	/** Last captured 8-way directional input (used for directional attacks, evades, holds) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
+	EInputDirection LastDirectionalInput = EInputDirection::None;
+
+	// ============================================================================
+	// CONTEXT TRACKING (Phase 1 - Context-Aware Resolution)
+	// ============================================================================
+
+	/**
+	 * Active runtime context tags (e.g., ParryCounter, LowHealthFinisher)
+	 * Used by ResolveNextAttack_V2 for context-sensitive attack resolution
+	 * Updated dynamically based on combat events (parry success, health thresholds, etc.)
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Context")
+	FGameplayTagContainer ActiveContextTags;
+
+	/**
+	 * Visited attacks during current resolution (cycle detection)
+	 * Cleared at start of each resolution, prevents infinite loops
+	 * Passed to ResolveNextAttack_V2 by reference
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Context")
+	TSet<UAttackData*> VisitedAttacks;
+
+	/**
+	 * Maximum chain depth for combo resolution (safety limit)
+	 * Prevents stack overflow from malformed attack data
+	 * Default: 10 attacks per chain
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Context")
+	int32 MaxChainDepth = 10;
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -377,12 +413,34 @@ protected:
 	/** Timer handle for light attack ease transition (V2 timer-based, NOT tick-based) */
 	FTimerHandle EaseTimerHandle;
 
+	/** Is character movement currently disabled? (for procedural sync) */
+	bool bMovementCurrentlyDisabled = false;
+
+	/** Is currently in combo blend transition? (prevents premature phase reset) */
+	bool bInComboBlend = false;
+
+	/** Was current attack triggered by directional follow-up? (prevents infinite directional loops) */
+	bool bCurrentAttackIsDirectionalFollowUp = false;
+
 	// ============================================================================
 	// INTERNAL HELPERS
 	// ============================================================================
 
 	/** Timer callback for procedural ease transitions (V2 timer-based, NOT tick-based) */
 	void OnEaseTimerTick();
+
+	/**
+	 * Procedurally update movement state based on montage/hold state
+	 * Called from: TickComponent, PlayAttackMontage, OnEaseTimerTick
+	 * Ensures movement is always synced with animation state
+	 */
+	void UpdateMovementFromMontageState();
+
+	/**
+	 * Clear hold state completely (ease timer, flags, movement)
+	 * Called when starting new attack or on montage end
+	 */
+	void ClearHoldState();
 
 	/** Match press/release pairs */
 	void ProcessInputPair(const FQueuedInputAction& PressEvent, const FQueuedInputAction& ReleaseEvent);

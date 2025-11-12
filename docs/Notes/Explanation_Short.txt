@@ -1,0 +1,18 @@
+> You are on the right track but still missing some nuance. First of all we have the attack configuration dataasset which holds the 
+moveset already (container for Arrays of attack data i believe). This is something to note when deciding how to use existing system. More
+ importantly, you are still referencing some elements that we have since deprecated, "ComboWindow" in particular is no longer a part of 
+the project. We have adopted a no dropped inputs philosophy such that we always collect inputs and simply decide what to do with them 
+based on timing, context and attack phase. We use attack phase to determine if a valid attack input should be played and when. Any input 
+made during the current animation can trigger the next animation in the combo. It is a forgiving system. If you input attack during the 
+windup, or active phases, then that input is queued until the end of the active phase (beginning of recovery) when it then executes 
+interrupting the current animation and blending to the next combo animation. If valid attack input is pressed (and released) during the 
+recovery phase, it interrupts the current animation immediately and progresses to the next combo animation with blending. If the current 
+attack phase is none, then the default attack should be the next attack played in response to attack input. In none phase (or idle 
+state), attack inputs are executed immediately while respecting animation blending so as not to cause blend artifacts if phase has 
+changed but animation does not reflect that change yet. Do you understand this? The only contexts where this logic can be contravened 
+occurs during cancel windows where attacks can be cancelled into other actions depending on the cancellable actions list of the 
+cancelwindow which only allows inputs included in that list to interrupt the current attack or action. We activate hold logic by checking
+ to see if matching attack input was pressed prior to the hold_start event (animnotify) and if so, we execute the proper next action 
+(charge attack path for heavy attacks freeze and directional followup on release for light attacks). These occur only if the hold input 
+is held for the entirety of the blendin time (until charge loop anim blend is finished for heavies or until animplayrate == 0 for 
+lights). Please ensure you enshrine this logic and check it against documentation logic and if there is a discrepancy, update and fix it 

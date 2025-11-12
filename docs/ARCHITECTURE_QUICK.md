@@ -113,7 +113,7 @@ This distinction keeps system-wide events centralized while allowing components 
 
 ```
 Character
-├── CombatComponent (~1000 lines)
+├── CombatComponent (V1) (~1000 lines) - State-based system
 │   ├── State machine
 │   ├── Attack execution
 │   ├── Phase & window tracking
@@ -121,6 +121,22 @@ Character
 │   ├── Posture system
 │   ├── Parry detection
 │   └── Combo tracking
+│
+├── CombatComponentV2 (~800 lines) - Event-driven system
+│   ├── Timestamped input queue (FIFO)
+│   ├── Action queue with checkpoints
+│   ├── Phase management (via AnimNotify events)
+│   ├── Procedural easing (10 types)
+│   ├── Universal blending system
+│   ├── Hold mechanics (ease-in/ease-out)
+│   └── Comprehensive debug visualization
+│
+├── MontageUtilityLibrary (27 functions)
+│   ├── Timing queries
+│   ├── Section navigation
+│   ├── Procedural easing
+│   ├── Blend operations
+│   └── Window state queries
 │
 ├── TargetingComponent (~300 lines)
 │   ├── Cone-based targeting
@@ -135,6 +151,10 @@ Character
     ├── Damage application
     └── Hit reactions
 ```
+
+**V1 vs V2**: Toggle via `CombatSettings->bUseV2System`
+- V1: Production-ready, manual phase tracking
+- V2: Next-gen, event-driven, advanced features
 
 ---
 
@@ -163,6 +183,7 @@ Windows (Overlapping):
 
 ## AnimNotify Requirements
 
+### V1 System (State-Based)
 **Minimum (Basic Attack)**:
 1. `AnimNotifyState_AttackPhase` (Windup)
 2. `AnimNotifyState_AttackPhase` (Active)
@@ -175,6 +196,20 @@ Windows (Overlapping):
 - `AnimNotifyState_ParryWindow` - Parryable attacks
 - `AnimNotifyState_HoldWindow` - Hold-and-release
 - `AnimNotifyState_CancelWindow` - Cancellable moves
+
+### V2 System (Event-Driven)
+**Minimum (Basic Attack)**:
+1. `AnimNotify_AttackPhaseTransition` (None → Windup)
+2. `AnimNotify_AttackPhaseTransition` (Windup → Active)
+3. `AnimNotify_AttackPhaseTransition` (Active → Recovery)
+4. `AnimNotify_AttackPhaseTransition` (Recovery → None)
+
+**Note**: Hit detection is automatic during Active phase in V2 (no toggle notifies needed)
+
+**Optional** (same as V1):
+- `AnimNotifyState_ComboWindow`
+- `AnimNotifyState_ParryWindow`
+- `AnimNotifyState_HoldWindow`
 
 ---
 
@@ -238,21 +273,27 @@ ParryPostureDamage:           40.0f  // To attacker
 ```
 Source/KatanaCombat/Public/
 ├── CombatTypes.h                    # Enums, structs, DELEGATES
+├── ActionQueueTypes.h               # V2 input/action queue structures
 ├── Core/
-│   ├── CombatComponent.h
+│   ├── CombatComponent.h            # V1 - State-based combat
+│   ├── CombatComponentV2.h          # V2 - Event-driven combat
 │   ├── TargetingComponent.h
 │   ├── WeaponComponent.h
 │   └── HitReactionComponent.h
+├── Utilities/
+│   └── MontageUtilityLibrary.h      # 27 utility functions (BP-exposed)
 ├── Data/
-│   ├── AttackData.h
-│   └── CombatSettings.h
+│   ├── AttackData.h                 # Attack configuration
+│   ├── AttackConfiguration.h        # Attack moveset package (PDA)
+│   └── CombatSettings.h             # Global combat tuning
 ├── Animation/
 │   ├── SamuraiAnimInstance.h
-│   ├── AnimNotifyState_AttackPhase.h
+│   ├── AnimNotify_AttackPhaseTransition.h  # V2 event-driven phases
+│   ├── AnimNotifyState_AttackPhase.h       # V1 state-based phases
 │   ├── AnimNotifyState_ParryWindow.h
 │   ├── AnimNotifyState_HoldWindow.h
 │   ├── AnimNotifyState_ComboWindow.h
-│   └── AnimNotify_ToggleHitDetection.h
+│   └── AnimNotify_ToggleHitDetection.h     # V1 only (V2 is automatic)
 └── Interfaces/
     ├── CombatInterface.h
     └── DamageableInterface.h
@@ -341,6 +382,97 @@ UnrealEditor.exe "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCo
 ```
 
 **See** `Source/KatanaCombatTest/README.md` for complete test documentation.
+
+---
+
+---
+
+## V2 System Quick Reference
+
+### Input Queue (FIFO)
+```cpp
+struct FInputEvent
+{
+    EInputType Type;         // LightPress, LightRelease, HeavyPress, etc.
+    float Timestamp;         // When input occurred
+    bool bConsumed;          // Processed flag
+};
+```
+
+### Action Queue (Checkpoint-Based)
+```cpp
+struct FQueuedAction
+{
+    UAttackData* AttackData; // Attack to execute
+    float ScheduledTime;     // When to execute (checkpoint time)
+    EExecutionMode Mode;     // Snap, Responsive, Immediate
+};
+```
+
+### Execution Modes
+- **Snap**: Execute at Active phase end (input during Windup/Active)
+- **Responsive**: Execute at Recovery phase end (input during Recovery)
+- **Immediate**: Execute right now (input during Idle)
+
+### Procedural Easing Types
+```cpp
+enum class EEasingType : uint8
+{
+    Linear,
+    EaseInQuad, EaseOutQuad, EaseInOutQuad,
+    EaseInCubic, EaseOutCubic, EaseInOutCubic,
+    EaseInExpo, EaseOutExpo, EaseInOutExpo,
+    EaseInSine, EaseOutSine, EaseInOutSine
+};
+```
+
+### Hold Mechanics
+**Light Attacks**: Procedural ease to slowdown (0.2x playrate default)
+- Timer-based bidirectional easing (60Hz updates)
+- Configurable HoldSlowdownRate, FreezePlayRate, EasingType
+- Explicit ease direction tracking via bIsEasingOut flag
+
+**Heavy Attacks**: Charge loop with time-based damage scaling
+- ChargeLoopSection + ChargeReleaseSection montage navigation
+- Configurable ChargeTime, MaxChargeDamageMultiplier
+- Smooth blending between sections (ChargeLoopBlendTime/ChargeReleaseBlendTime)
+
+### Universal Blending
+All combo transitions support configurable blend times:
+```cpp
+// In AttackData:
+ComboBlendOutTime:   0.1s  // Blend OUT when transitioning FROM this attack
+ComboBlendInTime:    0.1s  // Blend IN when this attack is combo TARGET
+```
+
+Applies to:
+- Light→Light, Light→Heavy, Heavy→Any
+- Hold→Directional follow-ups
+- Charge loop transitions
+
+**Tuning Examples**:
+- Fast/snappy: 0.05-0.1s
+- Weighty/deliberate: 0.15-0.25s
+- Mixed: Light fast (0.05s), Heavy slow (0.2s)
+
+### Debug Visualization
+Enable with `CombatSettings->bDebugDraw = true`
+
+**Displays**:
+- Color-coded phase indicators (Orange/Red/Yellow)
+- Action queue state with scheduled times
+- Visual checkpoint timeline with window overlays
+- Hold state tracking (duration, ease direction)
+- Execution statistics (snap vs responsive, cancellations)
+
+### MontageUtilityLibrary Categories
+1. **Montage Time Queries**: GetCurrentMontageTime, GetMontagePlayRate
+2. **Procedural Easing**: EvaluateEasing, EaseLerp, CalculateTransitionPlayRate
+3. **Hold Mechanics**: CalculateChargeLevel, GetMultiStageHoldPlayRate
+4. **Section Navigation**: JumpToSectionWithBlend, GetMontageSections
+5. **Window Queries**: GetActiveWindows, IsWindowActive, GetWindowTimeRemaining
+6. **Blending**: CrossfadeMontage, BlendOutMontage
+7. **Debug**: DrawCheckpointTimeline, LogCheckpoints
 
 ---
 

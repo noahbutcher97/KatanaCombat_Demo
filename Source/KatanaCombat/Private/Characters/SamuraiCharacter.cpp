@@ -130,6 +130,9 @@ void ASamuraiCharacter::Move(const FInputActionValue& Value)
 {
     const FVector2D MovementVector = Value.Get<FVector2D>();
 
+    // Cache for directional input (used by attack handlers)
+    LastMovementInput = MovementVector;
+
     // Forward movement input to combat component for directional attacks
     if (CombatComponent)
     {
@@ -144,7 +147,7 @@ void ASamuraiCharacter::Move(const FInputActionValue& Value)
 
         // Get forward vector
         const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-        
+
         // Get right vector
         const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
@@ -170,7 +173,9 @@ void ASamuraiCharacter::OnLightAttackStarted(const FInputActionValue& Value)
     // Check CombatSettings for V2 system enabled
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
-        CombatComponentV2->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
+        // Convert current movement input to directional input
+        EInputDirection Direction = GetDirectionalInputFromMovement(LastMovementInput);
+        CombatComponentV2->OnInputEvent(EInputType::LightAttack, EInputEventType::Press, Direction);
     }
     else if (CombatComponent)
     {
@@ -182,7 +187,9 @@ void ASamuraiCharacter::OnLightAttackCompleted(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
-        CombatComponentV2->OnInputEvent(EInputType::LightAttack, EInputEventType::Release);
+        // Convert current movement input to directional input
+        EInputDirection Direction = GetDirectionalInputFromMovement(LastMovementInput);
+        CombatComponentV2->OnInputEvent(EInputType::LightAttack, EInputEventType::Release, Direction);
     }
     else if (CombatComponent)
     {
@@ -194,7 +201,9 @@ void ASamuraiCharacter::OnHeavyAttackStarted(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
-        CombatComponentV2->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Press);
+        // Convert current movement input to directional input
+        EInputDirection Direction = GetDirectionalInputFromMovement(LastMovementInput);
+        CombatComponentV2->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Press, Direction);
     }
     else if (CombatComponent)
     {
@@ -206,7 +215,9 @@ void ASamuraiCharacter::OnHeavyAttackCompleted(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
-        CombatComponentV2->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Release);
+        // Convert current movement input to directional input
+        EInputDirection Direction = GetDirectionalInputFromMovement(LastMovementInput);
+        CombatComponentV2->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Release, Direction);
     }
     else if (CombatComponent)
     {
@@ -508,5 +519,74 @@ void ASamuraiCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult& Hi
         {
             CombatComponent->OnAttackHit.Broadcast(HitActor, DamageDealt);
         }
+    }
+}
+
+// ============================================================================
+// DIRECTIONAL INPUT HELPERS
+// ============================================================================
+
+EInputDirection ASamuraiCharacter::GetDirectionalInputFromMovement(const FVector2D& MovementVector) const
+{
+    // Minimum magnitude threshold to register directional input (deadzone)
+    constexpr float MinMagnitude = 0.25f;
+
+    // Check if input is below deadzone threshold
+    if (MovementVector.SizeSquared() < MinMagnitude * MinMagnitude)
+    {
+        return EInputDirection::None;
+    }
+
+    // Calculate angle in degrees (0° = right, 90° = forward, 180° = left, 270° = backward)
+    // Note: FVector2D(X, Y) where X = right, Y = forward
+    float Angle = FMath::Atan2(MovementVector.Y, MovementVector.X) * (180.0f / PI);
+
+    // Normalize to [0, 360) range
+    if (Angle < 0)
+    {
+        Angle += 360.0f;
+    }
+
+    // Convert angle to 8-way directional input
+    // Each direction covers a 45° slice (22.5° on each side of cardinal/diagonal)
+    // Right: 337.5° - 22.5° (0°)
+    if (Angle >= 337.5f || Angle < 22.5f)
+    {
+        return EInputDirection::Right;
+    }
+    // ForwardRight: 22.5° - 67.5° (45°)
+    else if (Angle >= 22.5f && Angle < 67.5f)
+    {
+        return EInputDirection::ForwardRight;
+    }
+    // Forward: 67.5° - 112.5° (90°)
+    else if (Angle >= 67.5f && Angle < 112.5f)
+    {
+        return EInputDirection::Forward;
+    }
+    // ForwardLeft: 112.5° - 157.5° (135°)
+    else if (Angle >= 112.5f && Angle < 157.5f)
+    {
+        return EInputDirection::ForwardLeft;
+    }
+    // Left: 157.5° - 202.5° (180°)
+    else if (Angle >= 157.5f && Angle < 202.5f)
+    {
+        return EInputDirection::Left;
+    }
+    // BackwardLeft: 202.5° - 247.5° (225°)
+    else if (Angle >= 202.5f && Angle < 247.5f)
+    {
+        return EInputDirection::BackwardLeft;
+    }
+    // Backward: 247.5° - 292.5° (270°)
+    else if (Angle >= 247.5f && Angle < 292.5f)
+    {
+        return EInputDirection::Backward;
+    }
+    // BackwardRight: 292.5° - 337.5° (315°)
+    else // Angle >= 292.5f && Angle < 337.5f
+    {
+        return EInputDirection::BackwardRight;
     }
 }

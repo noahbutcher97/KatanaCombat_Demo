@@ -68,6 +68,9 @@ void UCombatComponentV2::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 	//
 	// Only debug visualization remains in tick (harmless, can be disabled)
 
+	// NOTE: Movement sync is EVENT-DRIVEN (called from phase transitions, playrate changes)
+	// NO per-frame logic here except debug visualization
+
 	if (GetDebugDraw())
 	{
 		DrawDebugInfo();
@@ -90,7 +93,7 @@ bool UCombatComponentV2::GetDebugDraw() const
 // INPUT PROCESSING (V2)
 // ============================================================================
 
-void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType EventType)
+void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection)
 {
 	// Early exit if V2 system is not enabled or dependencies missing
 	if (!CombatSettings || !CombatSettings->bUseV2System || !CombatComponent)
@@ -106,6 +109,39 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 			UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT] Input REJECTED - Cannot process in current combat state"));
 		}
 		return;
+	}
+
+	// LAST INPUT PRIORITIZED: Capture directional input if provided (8-way support)
+	// This updates on EVERY input event, so the most recent direction is always stored
+	if (InputDirection != EInputDirection::None)
+	{
+		LastDirectionalInput = InputDirection;
+
+		// If we're holding, update the hold's direction (for directional follow-ups)
+		if (HoldState.IsHolding())
+		{
+			EAttackDirection AttackDir = CombatHelpers::InputToAttackDirection(InputDirection);
+			HoldState.CurrentHold.Direction = AttackDir;
+
+			if (GetDebugDraw())
+			{
+				UE_LOG(LogCombat, Log, TEXT("[V2 INPUT DIRECTION] Updated hold direction: %s (8-way: %s)"),
+					*UEnum::GetValueAsString(AttackDir),
+					*UEnum::GetValueAsString(InputDirection));
+			}
+		}
+
+		// ALWAYS log directional input capture for debugging
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT DIRECTION] Captured: %s (will be used for next attack resolution)"),
+				*UEnum::GetValueAsString(InputDirection));
+		}
+	}
+	else if (GetDebugDraw())
+	{
+		// Log when NO directional input provided (this means Blueprint isn't passing it)
+		UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT DIRECTION] NO DIRECTION PROVIDED - Blueprint must pass movement stick direction to OnInputEvent()"));
 	}
 
 	// Get current game time
@@ -127,10 +163,11 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 
 		if ( GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 INPUT] %s PRESSED at %.2f (Combo: %s)"),
+			UE_LOG(LogCombat, Log, TEXT("[V2 INPUT] %s PRESSED at %.2f (Combo: %s, Direction: %s)"),
 				*UEnum::GetValueAsString(InputType),
 				CurrentTime,
-				bComboWindowActive ? TEXT("YES") : TEXT("NO"));
+				bComboWindowActive ? TEXT("YES") : TEXT("NO"),
+				InputDirection != EInputDirection::None ? *UEnum::GetValueAsString(InputDirection) : TEXT("None"));
 		}
 	}
 	else // Release
@@ -151,7 +188,7 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 		}
 
 		// Handle hold deactivation
-		if (HoldState.bIsHolding && HoldState.HeldInputType == InputType)
+		if (HoldState.IsHolding() && HoldState.GetHeldInputType() == InputType)
 		{
 			DeactivateHold();
 		}
@@ -635,6 +672,10 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 		return false;
 	}
 
+	// PHASE 1 FIX: Clear any active hold state when starting new attack
+	// This prevents hold state leaks (easing, movement locks) from previous attack
+	ClearHoldState();
+
 	// COMBO BLENDING: Determine blend times for smooth transitions
 	// - Blend-out: Current attack's ComboBlendOutTime (0 = instant for first attack)
 	// - Blend-in: New attack's ComboBlendInTime (configurable per attack)
@@ -659,8 +700,19 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 	UAnimMontage* CurrentMontage = AnimInstance->GetCurrentActiveMontage();
 	if (CurrentMontage && BlendOutTime > 0.0f)
 	{
+		// Mark that we're in combo blend transition - prevents premature phase reset
+		bInComboBlend = true;
+
 		AnimInstance->Montage_Stop(BlendOutTime, CurrentMontage);
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 BLEND] Combo blend started - bInComboBlend=true (prevents None phase during blend-out)"));
+		}
 	}
+
+	// NOTE: bCurrentAttackIsDirectionalFollowUp flag is managed in GetAttackForInput()
+	// It's set during resolution based on whether the attack was found in DirectionalFollowUps map
 
 	// BLEND-IN: Play new montage with blend settings
 	// Note: OnMontageEnded delegate already bound in BeginPlay() for event-driven phase management
@@ -684,6 +736,17 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 	{
 		// Play with default blend (instant)
 		AnimInstance->Montage_Play(AttackData->AttackMontage, PlayRate, EMontagePlayReturnType::MontageLength, StartPosition);
+	}
+
+	// Clear blend flag - new montage has started playing, blend transition is complete
+	if (bInComboBlend)
+	{
+		bInComboBlend = false;
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 BLEND] New montage started - bInComboBlend=false (blend transition complete)"));
+		}
 	}
 
 	// Handle montage sections if specified
@@ -973,20 +1036,6 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 		// Activate hold state (marks hold as active)
 		HoldState.Activate(InputType, GetWorld()->GetTimeSeconds(), 1.0f);
 
-		// DISABLE CHARACTER MOVEMENT/ROTATION during hold (prevents character from moving while animation frozen)
-		if (ASamuraiCharacter* Character = GetOwnerCharacter())
-		{
-			if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
-			{
-				MovementComp->DisableMovement();
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Character movement DISABLED during hold"));
-				}
-			}
-		}
-
 		// Initialize EASE-IN transition state (1.0 → HoldTargetPlayRate)
 		HoldState.bIsEasing = true;
 		HoldState.bIsEasingOut = false; // EASE-IN direction
@@ -1037,7 +1086,7 @@ void UCombatComponentV2::ActivateHold(EInputType InputType, float PlayRate)
 
 void UCombatComponentV2::DeactivateHold()
 {
-	if (!HoldState.bIsHolding || !CurrentAttackData)
+	if (!HoldState.IsHolding() || !CurrentAttackData)
 	{
 		return;
 	}
@@ -1211,80 +1260,84 @@ void UCombatComponentV2::OnEaseTimerTick()
 		// Clear timer - ease complete
 		GetWorld()->GetTimerManager().ClearTimer(EaseTimerHandle);
 
-		// If EASE-OUT just completed, execute follow-up attack and cleanup
-		if (!bIsEasingIn)
+		// If EASE-IN just completed, mark hold as completed (freeze state reached)
+		if (bIsEasingIn)
 		{
-			// EXECUTE FOLLOW-UP ATTACK (directional or normal combo)
-			// This happens AFTER ease-out completes for smooth transition
-			UAttackData* FollowUpAttack = nullptr;
+			HoldState.MarkHoldCompleted();
 
-			// Check for directional follow-up based on held direction
-			if (CurrentAttackData && HoldState.HoldDirection != EAttackDirection::None)
+			if (GetDebugDraw())
 			{
-				// Try to find directional follow-up (TMap returns TObjectPtr<UAttackData>*)
-				TObjectPtr<UAttackData>* DirectionalAttack = CurrentAttackData->DirectionalFollowUps.Find(HoldState.HoldDirection);
-				if (DirectionalAttack && DirectionalAttack->Get())
+				float TotalHoldDuration = CurrentTime - HoldState.CurrentHold.StartTime;
+				UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Light attack freeze reached - hold marked completed (duration: %.2fs)"), TotalHoldDuration);
+			}
+		}
+		// If EASE-OUT just completed, execute follow-up attack ONLY if hold was completed
+		else
+		{
+			// Calculate total hold duration (from activation to release)
+			float TotalHoldDuration = CurrentTime - HoldState.CurrentHold.StartTime;
+
+			// CRITICAL: Only auto-queue follow-up if hold was COMPLETED
+			// Light: Playrate reached 0 (freeze state)
+			// Heavy: Charge loop became active (marked in ActivateHold)
+			if (HoldState.IsHoldCompleted())
+			{
+				// EXECUTE FOLLOW-UP ATTACK (directional only - NO NextComboAttack fallback)
+				UAttackData* FollowUpAttack = nullptr;
+
+				// Check for directional follow-up based on held direction
+				if (CurrentAttackData && HoldState.CurrentHold.Direction != EAttackDirection::None)
 				{
-					FollowUpAttack = DirectionalAttack->Get();
+					// Try to find directional follow-up (TMap returns TObjectPtr<UAttackData>*)
+					TObjectPtr<UAttackData>* DirectionalAttack = CurrentAttackData->DirectionalFollowUps.Find(HoldState.CurrentHold.Direction);
+					if (DirectionalAttack && DirectionalAttack->Get())
+					{
+						FollowUpAttack = DirectionalAttack->Get();
+
+						if (GetDebugDraw())
+						{
+							UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Directional follow-up found: Direction=%s, Attack=%s (hold duration: %.2fs)"),
+								*UEnum::GetValueAsString(HoldState.CurrentHold.Direction),
+								*FollowUpAttack->GetName(),
+								TotalHoldDuration);
+						}
+					}
+				}
+
+				// Queue the follow-up attack if found (NO fallback to NextComboAttack)
+				if (FollowUpAttack)
+				{
+					FQueuedInputAction FollowUpInput(
+						HoldState.GetHeldInputType(),          // Same input type as hold
+						EInputEventType::Press,                // Treat as press event
+						GetWorld()->GetTimeSeconds(),          // Current time
+						false                                   // Not in combo window
+					);
+
+					QueueAction(FollowUpInput, FollowUpAttack);
 
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Directional follow-up found: Direction=%s, Attack=%s"),
-							*UEnum::GetValueAsString(HoldState.HoldDirection),
-							*FollowUpAttack->GetName());
+						UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Directional follow-up queued: %s"), *FollowUpAttack->GetName());
 					}
 				}
-			}
-
-			// FALLBACK: Use normal combo if no directional follow-up
-			if (!FollowUpAttack && CurrentAttackData)
-			{
-				FollowUpAttack = CurrentAttackData->NextComboAttack;
-
-				if (FollowUpAttack && GetDebugDraw())
+				else if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Using normal combo follow-up: %s"), *FollowUpAttack->GetName());
-				}
-			}
-
-			// Queue the follow-up attack if found
-			if (FollowUpAttack)
-			{
-				FQueuedInputAction FollowUpInput(
-					HoldState.HeldInputType,              // Same input type as hold
-					EInputEventType::Press,                // Treat as press event
-					GetWorld()->GetTimeSeconds(),          // Current time
-					false                                   // Not in combo window
-				);
-
-				QueueAction(FollowUpInput, FollowUpAttack);
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Follow-up attack queued: %s"), *FollowUpAttack->GetName());
+					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] No directional follow-up configured for direction=%s"),
+						*UEnum::GetValueAsString(HoldState.CurrentHold.Direction));
 				}
 			}
 			else if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] No follow-up attack configured (no directional or combo follow-up)"));
+				UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Hold not completed - skipping follow-up attack (duration: %.2fs)"),
+					TotalHoldDuration);
 			}
 
-			// Deactivate hold state (clears HoldDirection, bIsHolding, etc.)
+			// Deactivate hold state
 			HoldState.Deactivate();
 
-			// RE-ENABLE CHARACTER MOVEMENT after ease-out completes
-			if (ASamuraiCharacter* SamuraiChar = GetOwnerCharacter())
-			{
-				if (UCharacterMovementComponent* MovementComp = SamuraiChar->GetCharacterMovement())
-				{
-					MovementComp->SetMovementMode(MOVE_Walking);
-
-					if (GetDebugDraw())
-					{
-						UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Character movement RE-ENABLED after ease-out"));
-					}
-				}
-			}
+			// PHASE 1 FIX: Procedurally update movement state (replaces manual SetMovementMode)
+			UpdateMovementFromMontageState();
 		}
 
 		if (GetDebugDraw())
@@ -1313,6 +1366,10 @@ void UCombatComponentV2::OnEaseTimerTick()
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
 	UMontageUtilityLibrary::SetMontagePlayRate(Character, NewPlayRate);
 
+	// PHASE 1 FIX: Update movement state after changing playrate
+	// This ensures movement locks/unlocks based on current playrate
+	UpdateMovementFromMontageState();
+
 	if (GetDebugDraw())
 	{
 		UE_LOG(LogCombat, Verbose, TEXT("[V2 HOLD TIMER] %s playrate: %.2f → %.2f (%.1f%% complete)"),
@@ -1336,6 +1393,10 @@ void UCombatComponentV2::OnPhaseTransition(EAttackPhase NewPhase)
 	// Execute queued actions that target this phase transition
 	// This replaces tick-based ProcessQueue() polling!
 	ProcessQueuedActions(NewPhase);
+
+	// EVENT-DRIVEN MOVEMENT SYNC: Update movement state on phase changes
+	// Ensures movement is correct when phases change (no tick needed)
+	UpdateMovementFromMontageState();
 
 	if (GetDebugDraw())
 	{
@@ -1379,17 +1440,14 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 			// Attack finished - reset combo state for next attack
 			CurrentAttackData = nullptr;
 			CurrentAttackInputType = EInputType::None;
-			CurrentAttackInputType = EInputType::None;
 
-			// Clear hold state for next attack
-			if (HoldState.bIsHolding)
-			{
-				HoldState.bActivatedThisAttack = false;
-			}
+			// CRITICAL: Clear hold state completely (ease timer, flags, movement)
+			// This prevents hold state leaking into next attack
+			ClearHoldState();
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Attack finished - Combo state reset"));
+				UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Attack finished - Combo state and hold state cleared"));
 			}
 			break;
 
@@ -1507,8 +1565,10 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 		}
 	}
 
-	// Transition to None phase when montage completes (if no new attack started)
-	if (CurrentPhase != EAttackPhase::Windup && CurrentPhase != EAttackPhase::Active)
+	// STRUCTURAL FIX: Only transition to None if NOT in combo blend
+	// When bInComboBlend=true, we're mid-transition and new montage will start soon
+	// This prevents phase desync: Windup → None → Active (old montage ending during blend-out)
+	if (!bInComboBlend && CurrentPhase != EAttackPhase::Windup && CurrentPhase != EAttackPhase::Active)
 	{
 		SetPhase(EAttackPhase::None);
 	}
@@ -1518,6 +1578,133 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 }
 
 //NOTE:: OnMontageEnded is where queued actions get a last chance to execute if their checkpoint was reached.
+
+// ============================================================================
+// PROCEDURAL MOVEMENT CONTROL (Phase 1 Fix)
+// ============================================================================
+
+void UCombatComponentV2::UpdateMovementFromMontageState()
+{
+	// PROCEDURAL MOVEMENT SYNC: Automatically enable/disable movement based on current animation state
+	// This replaces manual DisableMovement/SetMovementMode calls scattered throughout the code
+	// Called from: TickComponent (every frame), PlayAttackMontage (new attack), OnEaseTimerTick (during transitions)
+
+	ASamuraiCharacter* Character = GetOwnerCharacter();
+	if (!Character)
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement();
+	if (!MovementComp)
+	{
+		return;
+	}
+
+	// Determine if movement should be locked based on current state
+	bool bShouldLockMovement = false;
+
+	// RULE 1: Lock during hold freeze (playrate < threshold)
+	if (HoldState.IsHolding())
+	{
+		// Query ACTUAL montage playrate (don't trust HoldState.CurrentPlayRate)
+		float CurrentPlayRate = UMontageUtilityLibrary::GetMontagePlayRate(Character);
+		if (CurrentPlayRate < 0.5f)
+		{
+			bShouldLockMovement = true;
+
+			if (GetDebugDraw() && !bMovementCurrentlyDisabled)
+			{
+				UE_LOG(LogCombat, Log, TEXT("[V2 MOVEMENT] Locking movement - hold freeze (playrate=%.2f)"), CurrentPlayRate);
+			}
+		}
+	}
+
+	// RULE 2: Lock during ease-in (transitioning to freeze)
+	if (HoldState.bIsEasing && !HoldState.bIsEasingOut)
+	{
+		bShouldLockMovement = true;
+
+		if (GetDebugDraw() && !bMovementCurrentlyDisabled)
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 MOVEMENT] Locking movement - ease-in to freeze"));
+		}
+	}
+
+	// Apply movement state change if needed
+	if (bShouldLockMovement && !bMovementCurrentlyDisabled)
+	{
+		// Need to disable movement
+		MovementComp->DisableMovement();
+		bMovementCurrentlyDisabled = true;
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 MOVEMENT] Movement DISABLED"));
+		}
+	}
+	else if (!bShouldLockMovement && bMovementCurrentlyDisabled)
+	{
+		// Need to enable movement
+		MovementComp->SetMovementMode(MOVE_Walking);
+		bMovementCurrentlyDisabled = false;
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 MOVEMENT] Movement ENABLED"));
+		}
+	}
+}
+
+void UCombatComponentV2::ClearHoldState()
+{
+	// CRITICAL: Complete hold state cleanup when starting new attack or on montage end
+	// Prevents state leaks between attacks
+
+	// Cancel any active ease timer
+	if (GetWorld() && EaseTimerHandle.IsValid())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(EaseTimerHandle);
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Ease timer cleared"));
+		}
+	}
+
+	// Deactivate hold state
+	if (HoldState.IsHolding() || HoldState.bIsEasing)
+	{
+		HoldState.Deactivate();
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Hold state cleared"));
+		}
+	}
+
+	// CRITICAL: Forcibly restore montage playrate to 1.0
+	// This prevents blending artifacts when combo interrupts hold ease mid-transition
+	// Without this, new montage starts with wrong playrate (e.g., 0.75) causing "partial blend" visual issues
+	ASamuraiCharacter* Character = GetOwnerCharacter();
+	if (Character)
+	{
+		float CurrentPlayRate = UMontageUtilityLibrary::GetMontagePlayRate(Character);
+		if (!FMath::IsNearlyEqual(CurrentPlayRate, 1.0f, 0.01f))
+		{
+			UMontageUtilityLibrary::SetMontagePlayRate(Character, 1.0f);
+
+			if (GetDebugDraw())
+			{
+				UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Playrate restored: %.2f → 1.0"), CurrentPlayRate);
+			}
+		}
+	}
+
+	// Ensure movement is synced to new state
+	UpdateMovementFromMontageState();
+}
+
 // ============================================================================
 // STATE QUERIES
 // ============================================================================
@@ -1613,14 +1800,25 @@ void UCombatComponentV2::DrawDebugInfo() const
 	// ============================================================================
 	// HOLD STATE
 	// ============================================================================
-	if (HoldState.bIsHolding)
+	if (HoldState.IsHolding())
 	{
-		FString HoldInfo = FString::Printf(TEXT("HOLDING: %s (%.2fs)"),
-			*UEnum::GetValueAsString(HoldState.HeldInputType),
-			GetHoldDuration());
+		FString HoldInfo = FString::Printf(TEXT("HOLDING: %s (%.2fs) [%s]"),
+			*UEnum::GetValueAsString(HoldState.GetHeldInputType()),
+			GetHoldDuration(),
+			HoldState.IsHoldCompleted() ? TEXT("COMPLETED") : TEXT("Incomplete"));
 
 		DrawDebugString(GetWorld(), OwnerLocation + Offset * 2.5f, HoldInfo, nullptr, FColor::Yellow, 0.0f, true);
 	}
+
+	// ============================================================================
+	// MOVEMENT STATE (Phase 1 Debug)
+	// ============================================================================
+	FString MovementState = bMovementCurrentlyDisabled ? TEXT("DISABLED") : TEXT("ENABLED");
+	FColor MovementColor = bMovementCurrentlyDisabled ? FColor::Red : FColor::Green;
+
+	DrawDebugString(GetWorld(), OwnerLocation + Offset * 3.0f,
+		FString::Printf(TEXT("Movement: %s"), *MovementState),
+		nullptr, MovementColor, 0.0f, true);
 
 	// ============================================================================
 	// STATS
@@ -1757,26 +1955,85 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType) const
 			bShouldCombo ? TEXT("TRUE") : TEXT("FALSE"));
 	}
 
-	// Use utility to resolve combo or default attack
-	UAttackData* ResolvedAttack = UMontageUtilityLibrary::ResolveNextAttack(
-		CurrentAttackData,
-		InputType,
-		bShouldCombo,
-		HoldState.bIsHolding,
-		DefaultLightAttack,
-		DefaultHeavyAttack,
-		EAttackDirection::None // TODO: Add directional input detection
-	);
-
-	// Debug: Log resolved attack
-	if (GetDebugDraw() && ResolvedAttack)
+	// Convert 8-way input direction to 4-way attack direction for follow-ups
+	EAttackDirection AttackDirection = EAttackDirection::None;
+	if (LastDirectionalInput != EInputDirection::None)
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 COMBO RESOLVE] Resolved to: '%s' (bShouldCombo=%s)"),
-			*ResolvedAttack->GetName(),
-			bShouldCombo ? TEXT("TRUE") : TEXT("FALSE"));
+		AttackDirection = CombatHelpers::InputToAttackDirection(LastDirectionalInput);
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 DIRECTIONAL] LastDirectionalInput=%s → AttackDirection=%s"),
+				*UEnum::GetValueAsString(LastDirectionalInput),
+				*UEnum::GetValueAsString(AttackDirection));
+		}
 	}
 
-	return ResolvedAttack;
+	// ========================================================================
+	// V2 CONTEXT-AWARE RESOLUTION (Phase 1)
+	// ========================================================================
+
+	// Clear visited set at start of resolution (cycle detection)
+	const_cast<UCombatComponentV2*>(this)->VisitedAttacks.Empty();
+
+	// Call V2 resolution with context awareness
+	FAttackResolutionResult Result = UMontageUtilityLibrary::ResolveNextAttack_V2(
+		CurrentAttackData,
+		InputType,
+		AttackDirection,
+		HoldState.IsHolding(),
+		bShouldCombo,
+		DefaultLightAttack,
+		DefaultHeavyAttack,
+		ActiveContextTags,  // NEW: Pass runtime context tags
+		const_cast<UCombatComponentV2*>(this)->VisitedAttacks  // NEW: Pass visited set for cycle detection
+	);
+
+	// Check for cycle detection error
+	if (Result.bCycleDetected)
+	{
+		UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] Cycle detected! Aborting resolution for safety."));
+		return nullptr;
+	}
+
+	// KEY FIX: Clear LastDirectionalInput if result signals to do so
+	// This prevents directional follow-up loop bug
+	if (Result.bShouldClearDirectionalInput)
+	{
+		const_cast<UCombatComponentV2*>(this)->LastDirectionalInput = EInputDirection::None;
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Clearing LastDirectionalInput (directional follow-up completed)"));
+		}
+	}
+
+	// Debug: Log resolution result with path metadata
+	if (GetDebugDraw() && Result.Attack)
+	{
+		const TCHAR* PathName = TEXT("Unknown");
+		switch (Result.Path)
+		{
+			case EResolutionPath::Default: PathName = TEXT("Default"); break;
+			case EResolutionPath::NormalCombo: PathName = TEXT("NormalCombo"); break;
+			case EResolutionPath::DirectionalFollowUp: PathName = TEXT("DirectionalFollowUp"); break;
+			case EResolutionPath::ParryCounter: PathName = TEXT("ParryCounter"); break;
+			case EResolutionPath::LowHealthFinisher: PathName = TEXT("LowHealthFinisher"); break;
+			case EResolutionPath::ContextSensitive: PathName = TEXT("ContextSensitive"); break;
+		}
+
+		UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] ✓ Resolved to: '%s' (Path=%s, ClearInput=%s)"),
+			*Result.Attack->GetName(),
+			PathName,
+			Result.bShouldClearDirectionalInput ? TEXT("YES") : TEXT("NO"));
+	}
+
+	// DEPRECATED: bCurrentAttackIsDirectionalFollowUp flag no longer needed with proper clear signal
+	// Keeping for now for backward compatibility, but will be removed in Phase 2
+	const_cast<UCombatComponentV2*>(this)->bCurrentAttackIsDirectionalFollowUp =
+		(Result.Path == EResolutionPath::DirectionalFollowUp);
+
+	return Result.Attack;
 }
 
 int32 UCombatComponentV2::CalculatePriority(const FActionQueueEntry& Action) const

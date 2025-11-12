@@ -2063,3 +2063,7 @@ void AMyCharacter::HandleWeaponHit(AActor* HitActor, const FHitResult& HitResult
     }
 }
 ```
+
+---
+
+## V2 Combat System

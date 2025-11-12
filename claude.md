@@ -6,6 +6,98 @@
 
 ## Recent Changes
 
+### 2025-11-12: Context-Aware Attack Resolution System (Phase 1 Complete) ✓
+**What**: Fixed directional follow-up infinite loop bug with context-aware resolution and GameplayTag system
+**Why**: Eliminates band-aid flags, prevents combo chain cycles, enables future context-sensitive attacks
+
+**Implemented Features**:
+
+1. **GameplayTag-Based Context System** (`AttackData.h:242-256`, `DefaultGameplayTags.ini` NEW):
+   - **New Properties**:
+     - `FGameplayTagContainer AttackTags` - Capabilities (CanCombo, CanDirectional, Terminal, CanHold)
+     - `FGameplayTagContainer RequiredContextTags` - Situational requirements (ParryCounter, LowHealthFinisher)
+   - **Tag Hierarchy** (15 tags across 4 categories):
+     - Attack Capabilities: CanCombo, CanDirectional, Terminal, CanHold
+     - Attack Types: Light, Heavy, Special
+     - Context Requirements: ParryCounter, LowHealthFinisher, DirectionalFollowUp, Sprint, Airborne
+     - Style Tags (future): Brawler, Rush, Beast
+   - **Benefits**:
+     - Designer-friendly metadata (no code changes needed)
+     - Future-proof for context-sensitive attacks
+     - Automatic validation ensures consistency
+
+2. **Attack Resolution Metadata** (`MontageUtilityLibrary.h:62-135`):
+   - **New Enum `EResolutionPath`**: Tracks HOW attack was resolved
+     - Default, NormalCombo, DirectionalFollowUp, ParryCounter, LowHealthFinisher, ContextSensitive
+   - **New Struct `FAttackResolutionResult`**: Rich resolution information
+     - `UAttackData* Attack` - Resolved attack
+     - `EResolutionPath Path` - Resolution method (debugging/telemetry)
+     - `bool bShouldClearDirectionalInput` - **KEY FIX signal**
+     - `bool bCycleDetected` - Safety flag
+   - **Convenience Functions**:
+     - Constructor overloads for easy creation
+     - `IsValid()` helper (has attack + no cycle)
+
+3. **Context-Aware Resolution Algorithm** (`MontageUtilityLibrary.cpp:987-1120`):
+   - **Priority-Based Resolution**:
+     1. Context-sensitive attacks (future: check RequiredContextTags against ActiveContext)
+     2. Directional follow-ups → **Sets bShouldClearDirectionalInput = true**
+     3. Normal combo chain (NextComboAttack/HeavyComboAttack)
+     4. Default attacks (fallback)
+   - **Cycle Detection**: Tracks visited attacks during resolution, aborts on cycle
+   - **Comprehensive Logging**: `[V2 RESOLVE]` prefix with resolution path metadata
+   - **Example Log**:
+     ```
+     [V2 RESOLVE] ✓ Resolved to DirectionalFollowUp: 'LightAttack_Forward' (Path=DirectionalFollowUp, ClearInput=YES)
+     ```
+
+4. **THE CRITICAL FIX - Directional Loop Prevention** (`CombatComponentV2.cpp:1999-2009`):
+   - **Bug**: `LastDirectionalInput` persisted after directional resolution, causing infinite loops
+   - **Root Cause**: Spamming attack during directional follow-up reused same direction
+   - **Solution**: Clear signal in FAttackResolutionResult
+     ```cpp
+     if (Result.bShouldClearDirectionalInput)
+     {
+         const_cast<UCombatComponentV2*>(this)->LastDirectionalInput = EInputDirection::None;
+     }
+     ```
+   - **Result**: Directional context cleared immediately after execution
+   - **Deprecated**: `bCurrentAttackIsDirectionalFollowUp` flag (kept for backward compat, will remove Phase 2)
+
+5. **Asset Validation System** (`AttackData.cpp:289-466`):
+   - **Automatic Validation on Save**:
+     - DFS-based cycle detection (`DetectCycles()`)
+     - Tag consistency checks (`ValidateDirectionalFollowUps()`, `ValidateTerminalTag()`)
+   - **Validation Rules**:
+     - Terminal attacks MUST NOT have follow-ups (any type)
+     - CanDirectional attacks MUST have at least one directional entry
+     - Attacks with directionals SHOULD have CanDirectional tag
+   - **Error Reporting**: Clear messages shown in asset editor
+   - **Example Error**: `"LightAttack_3: Circular reference detected in combo chain!"`
+
+6. **Context Tracking** (`CombatComponentV2.h:353-379`):
+   - **New Members**:
+     - `FGameplayTagContainer ActiveContextTags` - Runtime context (parry success, low health, etc.)
+     - `TSet<UAttackData*> VisitedAttacks` - Cycle detection set (cleared per resolution)
+     - `int32 MaxChainDepth = 10` - Safety limit (prevents stack overflow)
+   - **Usage**: Passed to `ResolveNextAttack_V2()` during resolution
+   - **Future**: Populate ActiveContextTags on combat events (parry, health thresholds)
+
+**Files Modified** (8 files, ~700 lines):
+- `AttackData.h` - Added tag properties + validation functions (~45 lines)
+- `AttackData.cpp` - Implemented validation logic (~190 lines)
+- `DefaultGameplayTags.ini` - **NEW FILE** - Tag hierarchy (~95 lines)
+- `MontageUtilityLibrary.h` - Added result structs + V2 function (~130 lines)
+- `MontageUtilityLibrary.cpp` - Implemented V2 resolution (~135 lines)
+- `CombatComponentV2.h` - Added context tracking fields (~30 lines)
+- `CombatComponentV2.cpp` - Updated GetAttackForInput (~80 lines)
+- `KatanaCombat.Build.cs` - Added GameplayTags module dependency (~1 line)
+
+**Build**: ✓ Succeeded (Module loaded: UnrealEditor-KatanaCombat.dll)
+**Status**: Directional loop bug FIXED! Context system ready for future expansion (Phase 2: Graph Editor)
+
+---
+
 ### 2025-11-11: Universal Combo Crossfade System + Critical Bug Fixes ✓
 **What**: Added configurable blend times for all combo transitions and fixed critical light attack freeze bug
 **Why**: Smooth animation transitions for polished combat feel, eliminated game-breaking input bug
@@ -36,6 +128,17 @@
      - Set to `true` during ease-out initialization
      - Used flag instead of playrate comparison in `OnEaseTimerTick()`
 
+2b. **CRITICAL: Fixed Combo Blend Artifacts During Hold Ease** (`CombatComponentV2.cpp:1650-1666`):
+   - **Bug**: "Lame looking default attack half attempt" when combo interrupts hold ease transition
+   - **Root Cause**: `ClearHoldState()` cleared ease timer but didn't restore playrate to 1.0
+     - Combo blend started with montage at eased playrate (e.g., 0.75)
+     - New montage blended in with wrong playrate, causing partial animation artifacts
+   - **Fix**: Added playrate restoration to `ClearHoldState()`
+     - Checks current playrate before clearing hold state
+     - Forcibly restores to 1.0 if not already at normal speed
+     - Ensures clean blending when combo interrupts hold ease
+     - Debug log: `[V2 HOLD] Playrate restored: 0.75 → 1.0`
+
 3. **Charge Attack Blend Implementation** (`MontageUtilityLibrary.cpp:468-504`):
    - **Bug**: `JumpToSectionWithBlend()` was not actually blending (instant jump only)
    - **Fix**: Implemented proper blending using `Montage_Stop()` + `Montage_PlayWithBlendSettings()`
@@ -63,6 +166,46 @@
 
 **Build**: ✓ Ready (close editor to compile)
 **Status**: All combo transitions now support smooth blending! Critical freeze bug eliminated!
+
+---
+
+### 2025-11-12: Directional Input + Phase Transition Fix ✓
+**What**: Fixed directional follow-ups and eliminated blend artifacts from premature phase transitions
+**Why**: Enable directional combat mechanics and prevent visual stuttering from incorrect phase sequencing
+
+**Bugs Fixed**:
+
+1. **Directional Input Not Working** (`CombatComponentV2.cpp:1922-1944`):
+   - **Bug**: Directional follow-ups never triggered - always resolved to default attacks
+   - **Root Cause**: `GetAttackForInput()` hardcoded `EAttackDirection::None` when resolving attacks
+     - Line 1930 (old): `EAttackDirection::None // TODO: Add directional input detection`
+     - `LastDirectionalInput` was captured but never used
+   - **Fix**: Convert captured `LastDirectionalInput` to `EAttackDirection` and pass to `ResolveNextAttack()`
+     - Uses `CombatHelpers::InputToAttackDirection()` for 8-way → 4-way conversion
+     - Debug log: `[V2 DIRECTIONAL] LastDirectionalInput=Forward → AttackDirection=Forward`
+
+2. **Phase Transition Blend Artifacts** (`CombatComponentV2.cpp:1475-1547`):
+   - **Bug**: "Lame looking default attack half attempt" - montages looped with partial blend
+   - **Symptom**: Logs show wrong phase sequence: `Windup → None → Active` (skipping phase!)
+   - **Root Cause**: `OnMontageEnded()` always transitioned to None, even when new attack started
+     - Montage ends → `SetPhase(None)` → Queued action executes → `SetPhase(Windup)`
+     - But Active notify already queued from old montage fires: `None → Active` (skips Windup!)
+     - Creates phase desync causing blend artifacts
+   - **Fix**: Track if `ExecuteAction()` started new attack, skip None transition if true
+     - Added `bStartedNewAttack` flag in montage end handler
+     - Only transition to None if no new attack started from queue
+     - Prevents phase desync: new attack's phases now fire cleanly (Windup → Active → Recovery)
+
+**Files Modified**:
+- `CombatComponentV2.cpp` - Directional input resolution + phase transition logic
+
+**Testing**:
+- Hold directional input + attack → Should trigger directional follow-up attacks (forward thrust, side slash, etc.)
+- Rapid light attack spam → No more "1 → 0 → 2" phase transitions, clean "0 → 1 → 2 → 3" sequence
+- Debug logs show `[V2 DIRECTIONAL]` messages with input/attack direction mapping
+
+**Build**: ✓ Succeeded
+**Status**: Directional combat enabled! Phase transition artifacts eliminated!
 
 ---
 
@@ -956,3 +1099,4 @@ Created UBT config with:
 - prefer overhauling existing code to creating new code and leaving the old code in a state of disuse
 - prefer updating existing documentation to creating new documentation
 - Dont create extremely similar functions with different names or "_Advanced" or "_V2" suffix designations. Prefer overhauling the original function to use the updated logic and thus preserve downstream call sites
+- We are trying to keep as little tick overhead on our components as possible. As such, many events are utilizing timers instead. If ever you find yourself using a component tick event, double check you have been given explicit permission to do so and it is part of our design

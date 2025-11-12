@@ -178,6 +178,21 @@ protected:
     void OnToggleDebug(const FInputActionValue& Value);
 
     // ============================================================================
+    // DIRECTIONAL INPUT HELPERS
+    // ============================================================================
+
+    /**
+     * Convert movement vector to 8-way directional input
+     * Used for directional attacks and follow-ups in V2 system
+     * @param MovementVector - Normalized movement input (forward/right)
+     * @return 8-way directional input enum
+     */
+    EInputDirection GetDirectionalInputFromMovement(const FVector2D& MovementVector) const;
+
+    /** Last captured movement vector (for directional input) */
+    FVector2D LastMovementInput;
+
+    // ============================================================================
     // WEAPON HIT PROCESSING
     // ============================================================================
 

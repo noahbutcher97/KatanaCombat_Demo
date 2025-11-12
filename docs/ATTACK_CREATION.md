@@ -803,6 +803,80 @@ Visual timeline editor showing:
 
 ---
 
+## V2 System Considerations
+
+### AnimNotify Differences
+
+**V1 System** (State-Based):
+- Uses `AnimNotifyState_AttackPhase` for phase tracking
+- Requires `AnimNotify_ToggleHitDetection` pairs for hit detection
+- Manual phase management via state windows
+
+**V2 System** (Event-Driven):
+- Uses `AnimNotify_AttackPhaseTransition` for phase callbacks
+- Automatic hit detection during Active phase (no toggle notifies)
+- Event-driven phase management
+
+### V2 Montage Setup
+
+**Required Notifies (4 Transitions)**:
+1. `AnimNotify_AttackPhaseTransition`: FromPhase=None, ToPhase=Windup (at 0.0s)
+2. `AnimNotify_AttackPhaseTransition`: FromPhase=Windup, ToPhase=Active (e.g., 0.3s)
+3. `AnimNotify_AttackPhaseTransition`: FromPhase=Active, ToPhase=Recovery (e.g., 0.6s)
+4. `AnimNotify_AttackPhaseTransition`: FromPhase=Recovery, ToPhase=None (at end)
+
+**Optional Windows** (Same as V1):
+- `AnimNotifyState_ComboWindow` - Combo input window
+- `AnimNotifyState_ParryWindow` - Parryable frames
+- `AnimNotifyState_HoldWindow` - Hold detection
+
+### V2 Blending Features
+
+**Per-Attack Blend Configuration**:
+```
+AttackData Properties:
+├─ ComboBlendOutTime: 0.1s   // Blend OUT when leaving this attack
+├─ ComboBlendInTime: 0.1s    // Blend IN when entering this attack
+├─ ChargeLoopBlendTime: 0.3s // Heavy attack charge loop transition
+└─ ChargeReleaseBlendTime: 0.2s // Heavy attack release transition
+```
+
+**Tuning for Feel**:
+- **Fast/Snappy** (Ghost of Tsushima): 0.05-0.1s
+- **Weighty/Deliberate** (Sekiro): 0.15-0.25s
+- **Mixed**: Light attacks fast, Heavy attacks slow
+
+### V2 Hold System
+
+**Light Attacks**:
+- Procedural easing to slowdown (no authored curves needed)
+- Configure: `HoldSlowdownRate`, `FreezePlayRate`, `EasingType`
+- Bidirectional transitions (ease-in to hold, ease-out to resume)
+
+**Heavy Attacks**:
+- Charge loop with section navigation
+- Configure: `ChargeLoopSection`, `ChargeReleaseSection`
+- Time-based damage scaling: `ChargeTime`, `MaxChargeDamageMultiplier`
+
+### Switching Between V1 and V2
+
+Toggle in CombatSettings: `bUseV2System = true/false`
+
+**Both systems share**:
+- AttackData assets
+- Window notifies (ComboWindow, ParryWindow, HoldWindow)
+- Motion warping setup
+- Combo chain configuration
+
+**Migration Path**:
+1. Test existing attacks with V1
+2. Add V2 transition notifies to montages
+3. Enable V2 in CombatSettings
+4. Compare behavior and tune blend times
+5. Remove V1 notifies once satisfied (optional)
+
+---
+
 ## Summary: Attack Creation Checklist
 
 **1. Animation**:

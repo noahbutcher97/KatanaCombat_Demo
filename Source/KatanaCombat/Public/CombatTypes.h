@@ -64,7 +64,7 @@ enum class EAttackPhase : uint8
 };
 
 /**
- * Directional input for attacks and targeting
+ * Directional input for attacks and targeting (4-way for data configuration)
  */
 UENUM(BlueprintType)
 enum class EAttackDirection : uint8
@@ -74,6 +74,24 @@ enum class EAttackDirection : uint8
     Backward        UMETA(DisplayName = "Backward"),
     Left            UMETA(DisplayName = "Left"),
     Right           UMETA(DisplayName = "Right")
+};
+
+/**
+ * Input direction captured from movement stick/keys (8-way for gameplay)
+ * Used for directional attacks, evades, targeting, hold follow-ups
+ */
+UENUM(BlueprintType)
+enum class EInputDirection : uint8
+{
+    None            UMETA(DisplayName = "None"),
+    Forward         UMETA(DisplayName = "Forward"),
+    ForwardRight    UMETA(DisplayName = "Forward-Right"),
+    Right           UMETA(DisplayName = "Right"),
+    BackwardRight   UMETA(DisplayName = "Backward-Right"),
+    Backward        UMETA(DisplayName = "Backward"),
+    BackwardLeft    UMETA(DisplayName = "Backward-Left"),
+    Left            UMETA(DisplayName = "Left"),
+    ForwardLeft     UMETA(DisplayName = "Forward-Left")
 };
 
 /**
@@ -408,3 +426,82 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnGuardBroken);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectParry, AActor*, ParriedActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectEvade, AActor*, EvadedActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFinisherAvailable, AActor*, Target);
+
+// ============================================================================
+// HELPER FUNCTIONS (Input Direction Conversion)
+// ============================================================================
+
+namespace CombatHelpers
+{
+	/**
+	 * Convert 8-way input direction to 4-way attack direction (for data lookups)
+	 * Diagonal inputs map to their primary direction based on design rules
+	 */
+	inline EAttackDirection InputToAttackDirection(EInputDirection InputDir)
+	{
+		switch (InputDir)
+		{
+			case EInputDirection::Forward:
+			case EInputDirection::ForwardRight:
+			case EInputDirection::ForwardLeft:
+				return EAttackDirection::Forward;
+
+			case EInputDirection::Backward:
+			case EInputDirection::BackwardRight:
+			case EInputDirection::BackwardLeft:
+				return EAttackDirection::Backward;
+
+			case EInputDirection::Right:
+				return EAttackDirection::Right;
+
+			case EInputDirection::Left:
+				return EAttackDirection::Left;
+
+			case EInputDirection::None:
+			default:
+				return EAttackDirection::None;
+		}
+	}
+
+	/**
+	 * Calculate 8-way input direction from 2D input vector
+	 * @param InputVector - Normalized 2D input (X=right, Y=forward)
+	 * @param DeadZone - Minimum magnitude to register input (default 0.2)
+	 * @return 8-way direction enum
+	 */
+	inline EInputDirection VectorToInputDirection(const FVector2D& InputVector, float DeadZone = 0.2f)
+	{
+		if (InputVector.Size() < DeadZone)
+		{
+			return EInputDirection::None;
+		}
+
+		// Calculate angle in degrees (0 = right, 90 = forward, 180 = left, 270 = backward)
+		float Angle = FMath::Atan2(InputVector.Y, InputVector.X) * (180.0f / PI);
+
+		// Normalize to 0-360 range
+		if (Angle < 0.0f)
+		{
+			Angle += 360.0f;
+		}
+
+		// Map angle to 8-way direction (45-degree sectors)
+		// Right: 337.5-22.5, ForwardRight: 22.5-67.5, Forward: 67.5-112.5, etc.
+		if (Angle >= 337.5f || Angle < 22.5f)
+			return EInputDirection::Right;
+		else if (Angle >= 22.5f && Angle < 67.5f)
+			return EInputDirection::ForwardRight;
+		else if (Angle >= 67.5f && Angle < 112.5f)
+			return EInputDirection::Forward;
+		else if (Angle >= 112.5f && Angle < 157.5f)
+			return EInputDirection::ForwardLeft;
+		else if (Angle >= 157.5f && Angle < 202.5f)
+			return EInputDirection::Left;
+		else if (Angle >= 202.5f && Angle < 247.5f)
+			return EInputDirection::BackwardLeft;
+		else if (Angle >= 247.5f && Angle < 292.5f)
+			return EInputDirection::Backward;
+		else // 292.5f - 337.5f
+			return EInputDirection::BackwardRight;
+	}
+}

@@ -18,6 +18,7 @@ public class KatanaCombat : ModuleRules
 			"AIModule",
 			"StateTreeModule",
 			"GameplayStateTreeModule",
+			"GameplayTags",
 			"UMG",
 			"Slate",
 			"SlateCore",

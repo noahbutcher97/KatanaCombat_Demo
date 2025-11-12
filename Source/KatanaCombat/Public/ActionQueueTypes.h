@@ -223,6 +223,59 @@ struct FActionQueueEntry
 };
 
 /**
+ * Hold event instance - tracks a single hold activation
+ * Each hold gets a unique ID to prevent state confusion across multiple holds
+ */
+USTRUCT(BlueprintType)
+struct FHoldEvent
+{
+	GENERATED_BODY()
+
+	/** Unique ID for this hold instance (incremented each activation) */
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	int32 HoldID = 0;
+
+	/** Which input triggered this hold? */
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	EInputType InputType = EInputType::None;
+
+	/** When did this hold start? */
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	float StartTime = 0.0f;
+
+	/** Has this hold reached completion? (Light: freeze reached, Heavy: charge loop active) */
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	bool bCompleted = false;
+
+	/** Directional input during this hold (for follow-ups) */
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	EAttackDirection Direction = EAttackDirection::None;
+
+	FHoldEvent() = default;
+
+	FHoldEvent(int32 InHoldID, EInputType InInputType, float InStartTime)
+		: HoldID(InHoldID)
+		, InputType(InInputType)
+		, StartTime(InStartTime)
+		, bCompleted(false)
+		, Direction(EAttackDirection::None)
+	{
+	}
+
+	/** Mark this hold as completed (reached freeze/charge state) */
+	void MarkCompleted()
+	{
+		bCompleted = true;
+	}
+
+	/** Check if this hold is valid and matches the expected ID */
+	bool IsValid(int32 ExpectedID) const
+	{
+		return HoldID == ExpectedID && HoldID > 0;
+	}
+};
+
+/**
  * Hold state tracking (persists across attacks)
  */
 USTRUCT(BlueprintType)
@@ -230,29 +283,20 @@ struct FHoldState
 {
 	GENERATED_BODY()
 
-	/** Is player currently holding input? */
+	/** Current hold event (HoldID = 0 if no active hold) */
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
-	bool bIsHolding = false;
+	FHoldEvent CurrentHold;
 
-	/** Which input is being held? */
-	UPROPERTY(BlueprintReadOnly, Category = "Hold")
-	EInputType HeldInputType = EInputType::None;
+	/** Next hold ID to assign (increments with each new hold) */
+	int32 NextHoldID = 1;
 
-	/** When did the hold start? */
-	UPROPERTY(BlueprintReadOnly, Category = "Hold")
-	float HoldStartTime = 0.0f;
-
-	/** Current playrate during hold */
+	/** Current playrate during hold (for ease system) */
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
 	float CurrentPlayRate = 1.0f;
 
-	/** Was hold activated during this attack? */
+	/** Was hold activated during this attack? (prevents re-activation) */
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
 	bool bActivatedThisAttack = false;
-
-	/** Directional input during hold (for follow-ups) */
-	UPROPERTY(BlueprintReadOnly, Category = "Hold")
-	EAttackDirection HoldDirection = EAttackDirection::None;
 
 	/** Ease transition state for light attack holds */
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
@@ -272,27 +316,56 @@ struct FHoldState
 
 	FHoldState() = default;
 
-	/** Activate hold state */
+	/** Activate hold state - creates new hold event with unique ID */
 	void Activate(EInputType InputType, float CurrentTime, float PlayRate)
 	{
-		bIsHolding = true;
-		HeldInputType = InputType;
-		HoldStartTime = CurrentTime;
+		// Create new hold event with unique ID
+		CurrentHold = FHoldEvent(NextHoldID++, InputType, CurrentTime);
+
+		// Ease system state
 		CurrentPlayRate = PlayRate;
 		bActivatedThisAttack = true;
+	}
+
+	/** Mark current hold as completed (reached freeze/charge state) */
+	void MarkHoldCompleted()
+	{
+		if (CurrentHold.HoldID > 0)
+		{
+			CurrentHold.MarkCompleted();
+		}
+	}
+
+	/** Check if current hold is completed */
+	bool IsHoldCompleted() const
+	{
+		return CurrentHold.HoldID > 0 && CurrentHold.bCompleted;
+	}
+
+	/** Check if hold is active */
+	bool IsHolding() const
+	{
+		return CurrentHold.HoldID > 0;
+	}
+
+	/** Get held input type */
+	EInputType GetHeldInputType() const
+	{
+		return CurrentHold.InputType;
 	}
 
 	/** Deactivate hold state */
 	void Deactivate()
 	{
-		bIsHolding = false;
-		HeldInputType = EInputType::None;
-		HoldStartTime = 0.0f;
+		// Clear hold event
+		CurrentHold = FHoldEvent();
+
+		// Reset ease state
 		CurrentPlayRate = 1.0f;
-		HoldDirection = EAttackDirection::None;
 		bIsEasing = false;
 		EaseStartTime = 0.0f;
 		EaseStartPlayRate = 1.0f;
+		bIsEasingOut = false;
 		// Keep bActivatedThisAttack until reset
 	}
 
@@ -306,7 +379,7 @@ struct FHoldState
 	/** Get hold duration */
 	float GetHoldDuration(float CurrentTime) const
 	{
-		return bIsHolding ? (CurrentTime - HoldStartTime) : 0.0f;
+		return CurrentHold.HoldID > 0 ? (CurrentTime - CurrentHold.StartTime) : 0.0f;
 	}
 };
 

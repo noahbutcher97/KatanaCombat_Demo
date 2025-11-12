@@ -5,6 +5,10 @@
 #include "Animation/AnimNotifyState_AttackPhase.h"
 #include "Animation/AnimNotify_AttackPhaseTransition.h"
 
+#if WITH_EDITOR
+#include "Misc/DataValidation.h"
+#endif
+
 DEFINE_LOG_CATEGORY_STATIC(LogAttackData, Log, All);
 
 UAttackData::UAttackData()
@@ -272,10 +276,193 @@ void UAttackData::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedE
     {
         if (bUseAnimNotifyTiming && AttackMontage && !HasValidNotifyTimingInSection())
         {
-            UE_LOG(LogAttackData, Warning, TEXT("%s: Enabled AnimNotify timing but section lacks required notifies. Use 'Generate Notifies' or set fallback mode."), 
+            UE_LOG(LogAttackData, Warning, TEXT("%s: Enabled AnimNotify timing but section lacks required notifies. Use 'Generate Notifies' or set fallback mode."),
                    *GetName());
         }
     }
+}
+
+// ============================================================================
+// CONTEXT SYSTEM VALIDATION (Phase 1)
+// ============================================================================
+
+EDataValidationResult UAttackData::IsDataValid(FDataValidationContext& Context) const
+{
+    EDataValidationResult Result = EDataValidationResult::Valid;
+    TArray<FText> ValidationErrors;
+
+    // Run all validation checks
+    TSet<const UAttackData*> Visited;
+    const bool bHasCycles = DetectCycles(Visited, ValidationErrors);
+    const bool bDirectionalValid = ValidateDirectionalFollowUps(ValidationErrors);
+    const bool bTerminalValid = ValidateTerminalTag(ValidationErrors);
+
+    // Report all accumulated errors
+    for (const FText& Error : ValidationErrors)
+    {
+        Context.AddError(Error);
+    }
+
+    // Determine result
+    if (ValidationErrors.Num() > 0)
+    {
+        Result = EDataValidationResult::Invalid;
+    }
+
+    return CombineDataValidationResults(Result, Super::IsDataValid(Context));
+}
+
+bool UAttackData::DetectCycles(TSet<const UAttackData*>& Visited, TArray<FText>& Errors) const
+{
+    // Check if we've already visited this attack (cycle detected!)
+    if (Visited.Contains(this))
+    {
+        Errors.Add(FText::FromString(FString::Printf(
+            TEXT("%s: Circular reference detected in combo chain! Attack references itself through combo links."),
+            *GetName()
+        )));
+        return true;
+    }
+
+    // Add this attack to visited set
+    Visited.Add(this);
+
+    bool bFoundCycle = false;
+
+    // Check NextComboAttack
+    if (NextComboAttack)
+    {
+        if (NextComboAttack->DetectCycles(Visited, Errors))
+        {
+            bFoundCycle = true;
+        }
+    }
+
+    // Check HeavyComboAttack
+    if (HeavyComboAttack)
+    {
+        if (HeavyComboAttack->DetectCycles(Visited, Errors))
+        {
+            bFoundCycle = true;
+        }
+    }
+
+    // Check DirectionalFollowUps
+    for (const auto& Pair : DirectionalFollowUps)
+    {
+        if (Pair.Value)
+        {
+            if (Pair.Value->DetectCycles(Visited, Errors))
+            {
+                bFoundCycle = true;
+            }
+        }
+    }
+
+    // Check HeavyDirectionalFollowUps
+    for (const auto& Pair : HeavyDirectionalFollowUps)
+    {
+        if (Pair.Value)
+        {
+            if (Pair.Value->DetectCycles(Visited, Errors))
+            {
+                bFoundCycle = true;
+            }
+        }
+    }
+
+    // Remove from visited set (allow branching paths)
+    Visited.Remove(this);
+
+    return bFoundCycle;
+}
+
+bool UAttackData::ValidateDirectionalFollowUps(TArray<FText>& Errors) const
+{
+    bool bIsValid = true;
+
+    // Check if has CanDirectional tag
+    const bool bHasCanDirectional = AttackTags.HasTag(FGameplayTag::RequestGameplayTag(FName("Attack.Capability.CanDirectional")));
+
+    // If has CanDirectional tag, must have at least one directional follow-up
+    if (bHasCanDirectional)
+    {
+        const int32 TotalDirectionals = DirectionalFollowUps.Num() + HeavyDirectionalFollowUps.Num();
+        if (TotalDirectionals == 0)
+        {
+            Errors.Add(FText::FromString(FString::Printf(
+                TEXT("%s: Has 'Attack.Capability.CanDirectional' tag but no DirectionalFollowUps configured. Either remove tag or add directional attacks."),
+                *GetName()
+            )));
+            bIsValid = false;
+        }
+    }
+
+    // If has directional follow-ups but NO CanDirectional tag, warn
+    if (!bHasCanDirectional)
+    {
+        const int32 TotalDirectionals = DirectionalFollowUps.Num() + HeavyDirectionalFollowUps.Num();
+        if (TotalDirectionals > 0)
+        {
+            Errors.Add(FText::FromString(FString::Printf(
+                TEXT("%s: Has DirectionalFollowUps configured but missing 'Attack.Capability.CanDirectional' tag. Add tag for proper resolution."),
+                *GetName()
+            )));
+            bIsValid = false;
+        }
+    }
+
+    return bIsValid;
+}
+
+bool UAttackData::ValidateTerminalTag(TArray<FText>& Errors) const
+{
+    bool bIsValid = true;
+
+    // Check if has Terminal tag
+    const bool bHasTerminal = AttackTags.HasTag(FGameplayTag::RequestGameplayTag(FName("Attack.Capability.Terminal")));
+
+    if (bHasTerminal)
+    {
+        // Terminal attacks must NOT have any follow-ups
+        if (NextComboAttack)
+        {
+            Errors.Add(FText::FromString(FString::Printf(
+                TEXT("%s: Has 'Attack.Capability.Terminal' tag but NextComboAttack is set. Terminal attacks cannot have follow-ups."),
+                *GetName()
+            )));
+            bIsValid = false;
+        }
+
+        if (HeavyComboAttack)
+        {
+            Errors.Add(FText::FromString(FString::Printf(
+                TEXT("%s: Has 'Attack.Capability.Terminal' tag but HeavyComboAttack is set. Terminal attacks cannot have follow-ups."),
+                *GetName()
+            )));
+            bIsValid = false;
+        }
+
+        if (DirectionalFollowUps.Num() > 0)
+        {
+            Errors.Add(FText::FromString(FString::Printf(
+                TEXT("%s: Has 'Attack.Capability.Terminal' tag but DirectionalFollowUps are set. Terminal attacks cannot have follow-ups."),
+                *GetName()
+            )));
+            bIsValid = false;
+        }
+
+        if (HeavyDirectionalFollowUps.Num() > 0)
+        {
+            Errors.Add(FText::FromString(FString::Printf(
+                TEXT("%s: Has 'Attack.Capability.Terminal' tag but HeavyDirectionalFollowUps are set. Terminal attacks cannot have follow-ups."),
+                *GetName()
+            )));
+            bIsValid = false;
+        }
+    }
+
+    return bIsValid;
 }
 
 #endif // WITH_EDITOR

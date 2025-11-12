@@ -5,6 +5,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "GameplayTagContainer.h"
 #include "CombatTypes.h"
 #include "Utilities/MontageUtilityLibrary.h"
 #include "AttackData.generated.h"
@@ -226,6 +227,35 @@ public:
     FMotionWarpingConfig MotionWarpingConfig;
 
     // ============================================================================
+    // CONTEXT & TAGS (V2 Combat System)
+    // ============================================================================
+
+    /**
+     * Capabilities and properties of this attack (metadata for resolution system)
+     * Examples:
+     * - Attack.Capability.CanCombo: Can chain into another attack
+     * - Attack.Capability.CanDirectional: Can have directional follow-ups
+     * - Attack.Capability.Terminal: Ends combo chain (forces reset)
+     * - Attack.Capability.CanHold: Supports hold mechanics
+     * - Attack.Type.Light / Attack.Type.Heavy: Attack classification
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Context|Tags",
+        meta = (Categories = "Attack"))
+    FGameplayTagContainer AttackTags;
+
+    /**
+     * Required context for this attack to be usable (situational attacks)
+     * Examples:
+     * - Context.ParryCounter: Only available after successful parry
+     * - Context.LowHealthFinisher: Only available when enemy health < 20%
+     * - Context.DirectionalFollowUp: Only available after hold-and-release
+     * Empty = always available (most attacks)
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Context|Tags",
+        meta = (Categories = "Context"))
+    FGameplayTagContainer RequiredContextTags;
+
+    // ============================================================================
     // RUNTIME QUERIES (used by CombatComponent)
     // ============================================================================
 
@@ -267,5 +297,40 @@ public:
 
     // Post-edit hooks for editor validation
     virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+
+    // ============================================================================
+    // CONTEXT SYSTEM VALIDATION (Phase 1)
+    // ============================================================================
+
+    /**
+     * Validate entire attack data asset for context system compliance
+     * Checks for cycles, orphaned attacks, invalid directional follow-ups
+     * Called automatically by asset validation framework
+     */
+    virtual EDataValidationResult IsDataValid(class FDataValidationContext& Context) const override;
+
+    /**
+     * Detect circular references in combo chains using depth-first search
+     * @param Visited - Set of already-visited attacks (prevents infinite loops)
+     * @param Errors - Accumulated error messages
+     * @return True if cycle detected
+     */
+    bool DetectCycles(TSet<const UAttackData*>& Visited, TArray<FText>& Errors) const;
+
+    /**
+     * Validate directional follow-up configuration
+     * Ensures DirectionalFollowUps are marked with proper tags
+     * @param Errors - Accumulated error messages
+     * @return True if validation passed
+     */
+    bool ValidateDirectionalFollowUps(TArray<FText>& Errors) const;
+
+    /**
+     * Validate Terminal tag consistency
+     * Terminal attacks must NOT have NextComboAttack/HeavyComboAttack/DirectionalFollowUps
+     * @param Errors - Accumulated error messages
+     * @return True if validation passed
+     */
+    bool ValidateTerminalTag(TArray<FText>& Errors) const;
 #endif
 };

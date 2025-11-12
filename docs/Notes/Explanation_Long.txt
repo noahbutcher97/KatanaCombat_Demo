@@ -1,0 +1,2260 @@
+Either youre missing something, or you have been getting the implementation wrong again and again. Here is some debug log for logtemp category: [Pasted
+  text #1 +204 lines] and LogCombat: [Pasted text #2 +1134 lines]. Several things: First I would like to unify all combat related debug logging under an
+  extern log category (ideally the already existing logcombat) but perhaps it makes sense to add another log category for stuff happening outside the combat
+  componenet that is still related to the combat functionality. Secondly, you have to remember that we are using a dataasset to reference each attack and the
+  attack chains are created dynamically via references to the next attack inside each attackdata asset. As such, there is no single place that predefines
+  what an attack chain of 3 attacks should look like, you have to be able to see the user's attackconfiguration to see the chosen data assets for each
+  attack, and how many attacks make up the light attack chain in the attack configuration if you want to be able to ever predict what the next attack will
+  be. The directional followup attacks currently use the same attackdata dataasset and lay using the same phase based logic which means nively, they support
+  chained combo attacks the same way regular attacks do. This becomes a design issue. Do we double down on modularity of attack data and architect a system
+  that can gather all info from all data in all contexts to provide holistic and granular information to ensure the right action is always queued, or we can
+  respondd to each problem as it crops up using state based switching of logic. I always prefer to use the systemic strutural approach that allows the
+  project to scale more easily. Please audit our systems and come up with some strategies to handle this problem and anticipate other issues that may arise
+  as we continue development and provide insight into what  we might do now to future proof our design. 
+
+
+
+ Combat System Architecture Fix - Implementation Plan
+
+ Problem Summary
+
+ Directional follow-up attacks create infinite loops because the system lacks attack chain topology awareness. The current flag-based solution (bCurrentAttackIsDirectionalFollowUp)
+ fails with circular references and multi-hop chains.
+
+ Root Cause
+
+ 1. Resolution Context Loss: ResolveNextAttack() returns raw UAttackData* with no metadata about HOW it was resolved
+ 2. No Cycle Detection: System blindly follows pointer references without checking for loops
+ 3. Post-Resolution Inference: Must re-check maps after resolution to infer context
+ 4. Logging Fragmentation: Combat logs spread across LogTemp and LogCombat categories
+
+ Proposed Solution: 3-Phase Approach
+
+ Phase 1: Immediate Fix (Recommended Start)
+
+ Goal: Stop infinite loops with minimal changes
+
+ Changes:
+ - Add TSet<UAttackData*> RecentAttacks to CombatComponentV2 (sliding window of last 5 attacks)
+ - Add loop detection in GetAttackForInput() before resolution
+ - Add runtime warning when loop detected
+ - Clear recent attacks when combo resets to idle
+
+ Files Modified: 2 files
+ - CombatComponentV2.h - Add RecentAttacks set and MaxRecentAttacks config
+ - CombatComponentV2.cpp - Add loop detection logic in GetAttackForInput + cleanup in PlayAttackMontage
+
+ Estimated Time: 2 hours
+ Risk: Low (non-breaking addition)
+
+ ---
+ Phase 2: Logging Unification
+
+ Goal: Consolidate combat logging for easier debugging
+
+ Changes:
+ - Migrate all UE_LOG(LogTemp, to UE_LOG(LogCombat, in combat-related files
+ - Add optional subcategories in CombatTypes.h:
+   - LogCombatResolution - Attack resolution decisions
+   - LogCombatMontage - Montage utility operations
+   - LogCombatQueue - V2 action queue processing
+ - Update documentation with logging conventions
+
+ Files Modified: ~12 files
+ - CombatTypes.h - Declare log categories
+ - MontageUtilityLibrary.cpp - Replace LogTemp → LogCombat
+ - CombatComponent.cpp - Replace LogTemp → LogCombat
+ - AnimNotifyState_*.cpp - Replace LogTemp → LogCombat
+ - TROUBLESHOOTING.md - Add log filtering guide
+
+ Estimated Time: 3 hours
+ Risk: Low (no logic changes)
+
+ ---
+ Phase 3: Attack Chain Metadata (Recommended Long-term)
+
+ Goal: Prevent loops at design time with validation
+
+ Changes:
+ - Add topology metadata to AttackData:
+   - bIsStarter - Can begin chain from idle
+   - bIsTerminal - No combo continuation
+   - bAllowSelfReference - Intentional loop (tech/style)
+   - MaxChainDepth - Depth limit before forced reset
+ - Add editor validation button in AttackDataCustomization
+ - Implement ValidateAttackChain() for cycle detection (BFS traversal)
+ - Add runtime chain depth tracking in CombatComponentV2
+ - Update ATTACK_CREATION.md with validation workflow
+
+ Files Modified: 5 files
+ - AttackData.h - Add metadata properties
+ - AttackData.cpp - Implement ValidateAttackChain()
+ - AttackDataCustomization.cpp - Add validation UI button
+ - CombatComponentV2.h - Add chain depth tracking
+ - CombatComponentV2.cpp - Runtime depth enforcement
+
+ Estimated Time: 8 hours
+ Risk: Medium (requires editor UI changes)
+
+ ---
+ Implementation Order
+
+ Week 1: Phase 1 (immediate fix) + Phase 2 (logging)
+ - Stops current bleeding
+ - Makes future debugging easier
+ - Total time: ~5 hours
+
+ Week 2: Phase 3 (metadata system)
+ - Fixes root cause permanently
+ - Designer-friendly validation
+ - Total time: ~8 hours
+
+ Future (Optional): Advanced attack graph system
+ - Only if needed for AI pathfinding, combo UI, or style systems
+ - Defer until requirements materialize
+
+ Files Impacted
+
+ Phase 1 (2 files):
+
+ - Source/KatanaCombat/Public/Core/CombatComponentV2.h
+ - Source/KatanaCombat/Private/Core/CombatComponentV2.cpp
+
+ Phase 2 (~12 files):
+
+ - Source/KatanaCombat/Public/CombatTypes.h
+ - All files in Source/KatanaCombat/Private/Utilities/
+ - All files in Source/KatanaCombat/Private/Core/
+ - All files in Source/KatanaCombat/Private/Animation/
+ - docs/TROUBLESHOOTING.md
+
+ Phase 3 (5 files):
+
+ - Source/KatanaCombat/Public/Data/AttackData.h
+ - Source/KatanaCombat/Private/Data/AttackData.cpp
+ - Source/KatanaCombatEditor/Private/AttackDataCustomization.cpp
+ - Same CombatComponentV2.h/.cpp from Phase 1
+
+ Next Steps
+
+ 1. Confirm phased approach vs. all-at-once
+ 2. Specify which phases to implement now
+ 3. Decide on logging subcategories (single LogCombat vs. multiple subcategories)
+ 4. Begin implementation
+
+
+This is a good start but i would like you to propose different strategies that involve different levels of system restructuring and ask me questions and followup questions 
+before proposing a final plan. For example, should we add new DataAsset Types? Add additional AttackEventStruct data for granular attack state detection? Create an even more 
+generalized ActionStateStruct from which attackstate can either inherit from or use nested inside of it. Im just spitballing here i need you to do a deep dive on the systems and 
+implementations and come up with multiple solutions that can enhance production overall and answer the issues faced in this pain point. Think outside the box for some strategies 
+
+
+
+
+|
+v
+
+# DEEP ARCHITECTURAL ANALYSIS: Combat System Restructuring Strategies
+
+     ## Mission
+     Explore 5-7 fundamentally different architectural approaches to solve the directional follow-up loop issue, ranging from minimal tactical fixes to complete system redesigns. 
+     Think beyond the obvious - consider new data structures, inheritance hierarchies, event-driven patterns, and production-scale solutions.
+
+     ## Context from Audit
+     **Current Pain Point**: Data-driven attack chains (AttackData assets with pointer references) lose topology context, causing infinite loops when directional follow-ups form 
+     cycles.
+
+     **Key Insight**: The system made a pragmatic trade-off - designer-friendly data assets vs. programmer-friendly topology awareness. We need to explore different ways to balance 
+     this trade-off.
+
+     ## Investigation Goals
+
+     ### 1. **Data Asset Architecture Analysis**
+     Examine current AttackData and explore alternatives:
+
+     **Questions to Answer**:
+     - Could we create **specialized data asset types**?
+       - `UAttackData_Starter` (begins chains)
+       - `UAttackData_Combo` (mid-chain)
+       - `UAttackData_Directional` (directional-only)
+       - `UAttackData_Finisher` (terminal nodes)
+     - What about **composition patterns**?
+       - Separate "combo progression" from "attack properties"
+       - `UAttackData` references `UComboNode` assets
+       - ComboNode contains chain logic, AttackData is pure montage/damage
+     - Should we use **data tables** instead of individual assets?
+       - Centralized CSV/DataTable defining all attack chains
+       - Easier to see topology, harder to edit
+     - What about **hybrid approaches**?
+       - Keep AttackData for attack properties
+       - Add separate `UAttackChainDefinition` asset for topology
+
+     **Files to Examine**:
+     - `AttackData.h` - Current structure
+     - `AttackConfiguration.h` - How attacks are grouped
+     - Search for other PrimaryDataAsset examples in engine/project
+
+     ---
+
+     ### 2. **State/Event Structure Analysis**
+     Investigate event-driven alternatives to pointer-chasing:
+
+     **Questions to Answer**:
+     - Should we introduce **FAttackState** or **FActionState** structs?
+       - What context should they carry?
+       - Resolution path, chain depth, visited set, execution mode?
+     - Could we use **event-driven resolution** instead of function calls?
+       - Broadcast "AttackResolutionRequest" event with context
+       - Listeners (combo system, directional system) bid with priorities
+       - Highest priority wins, returns FAttackResolution
+     - What about **command pattern**?
+       - `IAttackCommand` interface
+       - `ComboCommand`, `DirectionalCommand`, `DefaultCommand`
+       - Queue commands instead of attack data pointers
+     - Should we separate **attack intent** from **attack execution**?
+       - Player inputs create `FAttackIntent` (light + forward + held)
+       - Resolver converts intent → execution plan
+       - Executor plays montages
+
+     **Files to Examine**:
+     - `ActionQueueTypes.h` - Current queue structures
+     - `CombatTypes.h` - All combat structs/enums
+     - Search for delegate patterns in combat system
+     - Check how V1 vs V2 differ in state management
+
+     ---
+
+     ### 3. **Graph/Topology System Analysis**
+     Deep dive into graph-based alternatives:
+
+     **Questions to Answer**:
+     - **Node-Based Combo Editor**?
+       - Visual editor like Blueprint/Animation graphs
+       - Nodes = attacks, edges = transitions
+       - Auto-detects cycles, shows chain depth visually
+       - Compiles to runtime data structure
+     - **State Machine Pattern**?
+       - Each attack is a state
+       - Transitions have conditions (directional, held, combo window)
+       - Existing UE StateMachine support?
+     - **Behavior Tree Pattern**?
+       - Attack chains as BT sequences
+       - Selectors choose directional vs normal combo
+       - Decorators check hold state, chain depth
+     - **Navigation Mesh Analogy**?
+       - Treat attack chains like pathfinding
+       - A* to find valid paths from current attack to desired attack
+       - Cost function = animation time, chain depth
+
+     **Files to Examine**:
+     - Search for UE graph editor examples (AnimGraph, Blueprint)
+     - Check if StateTree plugin is used elsewhere
+     - Look at MotionWarping implementation (it's enabled)
+     - Search for any existing FSM patterns in combat
+
+     ---
+
+     ### 4. **Inheritance vs Composition Deep Dive**
+     Explore OOP patterns:
+
+     **Questions to Answer**:
+     - **Inheritance hierarchy for AttackData**?
+       ```
+       UAttackData (abstract base)
+       ├─ UAttackData_Chained (has NextComboAttack)
+       ├─ UAttackData_Directional (has DirectionalMap)
+       ├─ UAttackData_Terminal (no children)
+       └─ UAttackData_Hybrid (both chained + directional)
+       ```
+     - **Component-based AttackData**?
+       - AttackData holds array of `UAttackBehavior` components
+       - `UComboBehavior`, `UDirectionalBehavior`, `UHoldBehavior`
+       - Behaviors compose, no inheritance
+     - **Interface-based polymorphism**?
+       - `IComboProvider`, `IDirectionalProvider`
+       - AttackData implements interfaces
+       - Resolvers query interfaces, not hardcoded fields
+     - **Trait/Capability system**?
+       - Like Gameplay Ability System (GAS) tags
+       - Attacks have tags: "CanCombo", "CanDirectional", "Terminal"
+       - Resolution queries tags instead of pointers
+
+     **Files to Examine**:
+     - AttackData current inheritance (UPrimaryDataAsset)
+     - Search for interface usage (ICombatInterface, IDamageableInterface)
+     - Check if GAS or similar tag systems are used
+     - Look for component patterns in existing code
+
+     ---
+
+     ### 5. **Runtime vs Compile-Time Topology**
+     When should we build the attack graph?
+
+     **Questions to Answer**:
+     - **Edit-time compilation**?
+       - Designer edits assets → triggers "compile attack chains"
+       - Pre-computed graph stored in cooked data
+       - Zero runtime overhead
+     - **Load-time initialization**?
+       - BeginPlay builds graph from AttackData references
+       - Validates once, caches for session
+       - Balance between edit-time and runtime
+     - **Just-in-time resolution**?
+       - Current approach (resolve on each input)
+       - No upfront cost, but repeated work
+     - **Hybrid caching**?
+       - First resolution builds subgraph
+       - Cache "visited from Attack_1" separately from "visited from Attack_7"
+       - Per-starter-attack caching
+
+     **Files to Examine**:
+     - CombatComponent BeginPlay (initialization patterns)
+     - AttackConfiguration loading
+     - Search for asset validation examples
+     - Check for cook-time processing hooks
+
+     ---
+
+     ### 6. **Production-Scale Considerations**
+     What do AAA games do?
+
+     **Questions to Answer**:
+     - **How does DMC/Bayonetta handle this**?
+       - Likely node-based editor or state machines
+       - Separate animation from combo logic
+       - May use custom editor tools
+     - **How does For Honor handle stance-based attacks**?
+       - Similar problem (directional attacks)
+       - Possibly state-machine with guard positions
+     - **How does Souls-like handle movesets**?
+       - Fixed attack chains (less dynamic)
+       - May use AnimMontage sections differently
+     - **What patterns exist in UE's own systems**?
+       - GameplayAbilities (GAS) for action queueing?
+       - Enhanced Input for combo windows?
+       - Existing combo plugins on marketplace?
+
+     **Research**:
+     - Search project for GAS usage (gameplay abilities)
+     - Check if Enhanced Input is used (we see InputAction refs)
+     - Look for UE best practices docs in comments
+     - Search for existing graph editor code
+
+     ---
+
+     ### 7. **Scalability & Maintenance Analysis**
+     What happens when we add more features?
+
+     **Future Features to Consider**:
+     - **Weapon switching** (katana vs. dual blades)
+       - Each weapon has different attack chains
+       - Shared attacks between weapons?
+       - How to handle topology per weapon?
+     - **Stance system** (high/low/mid guards)
+       - Attacks available depend on current stance
+       - Directional attacks may change stance
+       - 3D topology: stance × attack × direction
+     - **Character-specific movesets** (player vs. bosses)
+       - Boss has unique attacks
+       - Shared animation system
+       - How to avoid code duplication?
+     - **DLC attacks** (new moves added post-launch)
+       - Can't modify base AttackData
+       - Need extension mechanism
+       - Patching attack chains
+     - **Combo modifiers** (buffs that add follow-ups)
+       - Temporary attack chains
+       - Runtime chain modification
+       - Doesn't affect base data
+
+     **Questions**:
+     - Which proposed architectures handle these gracefully?
+     - Which require major refactoring?
+     - Which are extensible without code changes?
+
+     ---
+
+     ## Deliverables
+
+     Provide 5-7 distinct architectural strategies:
+
+     ### Strategy Format:
+     ```markdown
+     ## Strategy X: [Name]
+
+     **Core Concept**: [1-2 sentence summary]
+
+     **Architectural Changes**:
+     - New data structures
+     - New classes/interfaces
+     - Runtime vs. compile-time
+     - Editor UI changes
+
+     **How It Solves Loop Problem**:
+     - Specific mechanism
+
+     **Pros**:
+     - Advantages
+
+     **Cons**:
+     - Disadvantages
+
+     **Implementation Effort**:
+     - Hours estimated
+     - Files affected count
+
+     **Scalability for Future Features**:
+     - Weapon switching: ⭐⭐⭐⭐⭐
+     - Stance system: ⭐⭐⭐⭐⭐
+     - DLC attacks: ⭐⭐⭐⭐⭐
+     - Runtime modifiers: ⭐⭐⭐⭐⭐
+
+     **Example Code Sketch**:
+     ```cpp
+     // Show key data structures
+     ```
+
+     **Visual Diagram**:
+     [ASCII diagram of architecture]
+     ```
+
+     ### Required Strategies:
+
+     1. **Minimal Tactical** (visited set, current architecture)
+     2. **Specialized DataAssets** (inheritance hierarchy)
+     3. **Centralized Topology** (separate chain definition)
+     4. **Event-Driven Resolution** (decoupled resolution)
+     5. **State Machine Pattern** (FSM-based)
+     6. **Node Graph Editor** (visual editing)
+     7. **Wild Card** (your most creative idea)
+
+     ### Comparison Matrix:
+     Side-by-side comparison on:
+     - Loop prevention mechanism
+     - Edit-time validation
+     - Runtime performance
+     - Designer workflow
+     - Programmer maintenance
+     - Extensibility
+
+     ### Open Questions for User:
+     List 5-10 clarifying questions about:
+     - Design priorities (speed vs. quality)
+     - Team size (solo dev vs. team)
+     - Timeline constraints
+     - Future feature roadmap
+     - Editor UI preferences
+     - Performance requirements
+
+     ---
+
+     ## Files to Prioritize
+
+     **Data Structures**:
+     - `AttackData.h` - Attack properties
+     - `ActionQueueTypes.h` - Queue structures
+     - `CombatTypes.h` - All combat types
+     - `AttackConfiguration.h` - Attack grouping
+
+     **Resolution Logic**:
+     - `MontageUtilityLibrary.h/.cpp` - ResolveNextAttack
+     - `CombatComponentV2.cpp` - GetAttackForInput (lines 1950-2050)
+
+     **Patterns to Study**:
+     - Interfaces: `ICombatInterface.h`, `IDamageableInterface.h`
+     - Components: `CombatComponent.h`, `TargetingComponent.h`
+     - Delegates: Search for DECLARE_DYNAMIC_MULTICAST
+     - GAS usage: Search for "GameplayAbility"
+
+     **Editor Integration**:
+     - `AttackDataCustomization.cpp` - Custom details panel
+
+
+
+
+
+  ---
+       DEEP ARCHITECTURAL ANALYSIS: Combat System Restructuring Strategies
+
+       Executive Summary
+
+       Current Architecture: Data-driven attack chains via UAttackData pointer references (NextComboAttack, DirectionalFollowUps, HeavyComboAttack). Designer-friendly but loses
+       topology awareness, causing potential infinite loops when directional follow-ups create cycles (e.g., Attack_2_Forward → Attack_3 → Attack_2).
+
+       Core Trade-Off: Designer convenience (drag-drop references in editor) vs. programmer safety (graph validation, cycle detection).
+
+       Key Finding: The system already has strong infrastructure for alternatives:
+       - Custom details panel (AttackDataCustomization)
+       - Utility library pattern (MontageUtilityLibrary)
+       - Event-driven architecture (AnimNotify_AttackPhaseTransition)
+       - Checkpoint discovery system (DiscoverCheckpoints)
+       - StateTree plugin available (AI variant systems use it)
+
+       ---
+       Strategy 1: Minimal Tactical Fix (Visited Set)
+
+       Core Concept: Add runtime cycle detection using visited set during attack resolution
+
+       Architectural Changes
+
+       New Data Structures (MontageUtilityLibrary.h):
+       struct FAttackResolutionContext
+       {
+           GENERATED_BODY()
+
+           TSet<UAttackData*> VisitedAttacks;
+           int32 MaxChainDepth = 10;  // Configurable safety limit
+           int32 CurrentDepth = 0;
+
+           bool HasVisited(UAttackData* Attack) const { return VisitedAttacks.Contains(Attack); }
+           void MarkVisited(UAttackData* Attack) { VisitedAttacks.Add(Attack); CurrentDepth++; }
+           bool IsChainTooDeep() const { return CurrentDepth >= MaxChainDepth; }
+       };
+
+       Modified Functions:
+       - ResolveNextAttack() - Add FAttackResolutionContext& Context parameter
+       - GetComboAttack() - Check context before returning attack
+       - Add ResetResolutionContext() on combo chain start
+
+       How It Solves Loop Problem:
+       UAttackData* GetComboAttack(UAttackData* CurrentAttack, EInputType InputType, 
+                                   EAttackDirection Direction, FAttackResolutionContext& Context)
+       {
+           if (!CurrentAttack || Context.HasVisited(CurrentAttack))
+           {
+               UE_LOG(LogTemp, Warning, TEXT("[COMBO] Cycle detected at '%s', terminating chain"),
+                      *CurrentAttack->GetName());
+               return nullptr;  // Break loop, return to default
+           }
+
+           Context.MarkVisited(CurrentAttack);
+
+           // ... existing resolution logic ...
+       }
+
+       Pros
+
+       - Minimal code changes (~50 lines total)
+       - No asset migration (existing AttackData works as-is)
+       - Designer workflow unchanged
+       - Immediate deployment (hotfix-level change)
+       - Graceful degradation (logs warning, returns to default attack)
+
+       Cons
+
+       - Runtime-only detection (no edit-time feedback)
+       - Performance overhead (TSet allocation per resolution)
+       - Doesn't prevent creation (designers can still create cycles)
+       - Band-aid solution (doesn't address root cause)
+       - Context threading (all callers need to pass context)
+
+       Implementation Effort
+
+       - Time: 1-2 hours
+       - Files: 2 modified (MontageUtilityLibrary.h/.cpp)
+       - Lines: ~50
+       - Risk: Very low (additive change, preserves existing behavior)
+
+       Scalability for Future Features
+
+       - Weapon switching: ⭐⭐⭐ (each weapon uses own context)
+       - Stance system: ⭐⭐ (context grows with 3D topology)
+       - DLC attacks: ⭐⭐⭐⭐ (no migration needed)
+       - Runtime modifiers: ⭐⭐ (context reset logic becomes complex)
+
+       Example Code Sketch
+
+       // CombatComponentV2.cpp
+       void UCombatComponentV2::ExecuteAction(const FActionQueueEntry& Action)
+       {
+           if (!ResolutionContext.IsValid())
+           {
+               ResolutionContext = MakeShared<FAttackResolutionContext>();
+           }
+
+           UAttackData* ResolvedAttack = UMontageUtilityLibrary::ResolveNextAttack(
+               CurrentAttack, Action.InputAction.InputType, bComboWindowActive,
+               HoldState.IsHolding(), DefaultLight, DefaultHeavy, Direction,
+               *ResolutionContext  // Pass context
+           );
+
+           // On combo reset, clear context
+           if (!ResolvedAttack || ResolvedAttack == DefaultLight || ResolvedAttack == DefaultHeavy)
+           {
+               ResolutionContext->VisitedAttacks.Empty();
+               ResolutionContext->CurrentDepth = 0;
+           }
+       }
+
+       Visual Diagram
+
+       Input → ResolveNextAttack(Context)
+                  ↓
+              Check Context.HasVisited(CurrentAttack)
+              ├─ TRUE → Return nullptr (break loop)
+              └─ FALSE → MarkVisited() → GetComboAttack()
+                                             ↓
+                                         Found Attack_X
+                                             ↓
+                                         Check Context.HasVisited(Attack_X)
+                                         ├─ TRUE → Return nullptr
+                                         └─ FALSE → Return Attack_X
+
+ ---
+
+
+
+_________________________________________________________________________________________________________________
+
+ ---
+       Strategy 2: Specialized DataAsset Hierarchy
+
+       Core Concept: Use inheritance to enforce topology constraints at type level
+
+       Architectural Changes
+
+       New Class Hierarchy:
+       // AttackData.h - Base class (abstract)
+       UCLASS(Abstract)  // Can't instantiate directly
+       class UAttackData : public UPrimaryDataAsset
+       {
+           // Common properties (montage, damage, timing)
+           // NO combo pointers here
+       };
+
+       // Starter attacks (begin chains)
+       UCLASS(BlueprintType)
+       class UAttackData_Starter : public UAttackData
+       {
+           GENERATED_BODY()
+
+           UPROPERTY(EditAnywhere)
+           TObjectPtr<UAttackData_Chained> NextComboAttack;  // Can only point to chained type
+       };
+
+       // Mid-chain attacks (can combo further)
+       UCLASS(BlueprintType)
+       class UAttackData_Chained : public UAttackData
+       {
+           GENERATED_BODY()
+
+           UPROPERTY(EditAnywhere)
+           TObjectPtr<UAttackData_Chained> NextComboAttack;  // Self-referential
+
+           UPROPERTY(EditAnywhere)
+           TMap<EAttackDirection, TObjectPtr<UAttackData_Terminal>> DirectionalFollowUps;  // Must terminate
+       };
+
+       // Terminal attacks (end chains, no combos)
+       UCLASS(BlueprintType)
+       class UAttackData_Terminal : public UAttackData
+       {
+           GENERATED_BODY()
+           // No combo pointers allowed
+       };
+
+       // Hybrid (allows combos OR directional, not cycles)
+       UCLASS(BlueprintType)
+       class UAttackData_Loop : public UAttackData
+       {
+           GENERATED_BODY()
+
+           UPROPERTY(EditAnywhere)
+           TObjectPtr<UAttackData_Chained> NextComboAttack;
+
+           UPROPERTY(EditAnywhere, meta = (EditCondition = "NextComboAttack == nullptr"))
+           TMap<EAttackDirection, TObjectPtr<UAttackData_Terminal>> DirectionalFollowUps;
+
+           // EditCondition prevents both being set
+       };
+
+       How It Solves Loop Problem:
+       - Type enforcement: Directional follow-ups MUST point to Terminal type
+       - Compile-time safety: Can't create UAttackData_Terminal with combo pointers (property doesn't exist)
+       - Clear intent: Asset type communicates role in chain
+
+       Pros
+
+       - Type safety (C++ compiler enforces rules)
+       - Self-documenting (asset type = chain position)
+       - Edit-time validation (can't set invalid pointers in editor)
+       - Clear designer guidelines ("Use Terminal for directional targets")
+       - Extensible (add new types for new patterns)
+
+       Cons
+
+       - Asset migration required (retype all existing attacks)
+       - Verbose asset creation (more asset types to choose from)
+       - Less flexible (can't easily break rules for special cases)
+       - Property duplication (base properties repeated via inheritance)
+       - Breaking change (all existing AttackData references need recast)
+
+       Implementation Effort
+
+       - Time: 8-12 hours
+       - Files: 10+ affected (AttackData.h, all attack users, editor tools)
+       - Lines: ~300 (new classes + migration + casting logic)
+       - Risk: High (breaks existing assets, requires full regression test)
+
+       Scalability for Future Features
+
+       - Weapon switching: ⭐⭐⭐⭐ (each weapon uses appropriate types)
+       - Stance system: ⭐⭐⭐ (add UAttackData_StanceTransition type)
+       - DLC attacks: ⭐⭐ (new DLC needs to use type hierarchy)
+       - Runtime modifiers: ⭐⭐ (hard to modify type at runtime)
+
+       Example Code Sketch
+
+       // AttackConfiguration.h
+       UCLASS()
+       class UAttackConfiguration : public UPrimaryDataAsset
+       {
+           UPROPERTY(EditAnywhere)
+           TObjectPtr<UAttackData_Starter> DefaultLightAttack;  // Type-enforced starter
+
+           UPROPERTY(EditAnywhere)
+           TObjectPtr<UAttackData_Starter> DefaultHeavyAttack;
+       };
+
+       // MontageUtilityLibrary.cpp
+       UAttackData* GetComboAttack(UAttackData* Current, EInputType Input, EAttackDirection Dir)
+       {
+           // Type-based dispatch
+           if (UAttackData_Chained* Chained = Cast<UAttackData_Chained>(Current))
+           {
+               if (Dir != None && Chained->DirectionalFollowUps.Num() > 0)
+               {
+                   // GUARANTEED to return Terminal type (no loop possible)
+                   return *Chained->DirectionalFollowUps.Find(Dir);
+               }
+               return Chained->NextComboAttack;  // Can return Chained or Terminal
+           }
+
+           if (UAttackData_Terminal* Terminal = Cast<UAttackData_Terminal>(Current))
+           {
+               return nullptr;  // Terminal has no combos
+           }
+
+           // ... other type checks ...
+       }
+
+       Visual Diagram
+
+       Inheritance Hierarchy:
+
+       UAttackData (Abstract)
+       ├─ UAttackData_Starter
+       │  └─ NextComboAttack → UAttackData_Chained
+       ├─ UAttackData_Chained
+       │  ├─ NextComboAttack → UAttackData_Chained (can cycle)
+       │  └─ DirectionalFollowUps → UAttackData_Terminal (BREAKS cycles)
+       ├─ UAttackData_Terminal (NO combo properties)
+       └─ UAttackData_Loop
+          ├─ NextComboAttack → UAttackData_Chained (XOR)
+          └─ DirectionalFollowUps → UAttackData_Terminal (XOR)
+
+       Topology Example:
+       Attack_1 (Starter) → Attack_2 (Chained) → Attack_3 (Chained)
+                                                 ↓ (Directional)
+                                              Attack_4 (Terminal) → END
+
+ ---
+_________________________________________________________________________________________________________________
+
+ ---
+       Strategy 3: Centralized Topology Asset
+
+       Core Concept: Separate attack properties from combo topology, define chains in dedicated graph asset
+
+       Architectural Changes
+
+       New Data Structures:
+       // AttackChainDefinition.h (NEW FILE)
+       USTRUCT(BlueprintType)
+       struct FComboNode
+       {
+           GENERATED_BODY()
+
+           /** Attack to play at this node */
+           UPROPERTY(EditAnywhere)
+           TObjectPtr<UAttackData> Attack;
+
+           /** Outgoing edges from this node */
+           UPROPERTY(EditAnywhere)
+           TMap<EInputType, FName> Transitions;  // InputType → NodeID
+
+           /** Directional edges (for hold-release) */
+           UPROPERTY(EditAnywhere)
+           TMap<EAttackDirection, FName> DirectionalTransitions;  // Direction → NodeID
+
+           /** Unique ID for this node */
+           UPROPERTY(EditAnywhere)
+           FName NodeID = NAME_None;
+
+           /** Is this a terminal node? (no outgoing edges) */
+           bool IsTerminal() const { return Transitions.Num() == 0 && DirectionalTransitions.Num() == 0; }
+       };
+
+       UCLASS(BlueprintType)
+       class UAttackChainDefinition : public UPrimaryDataAsset
+       {
+           GENERATED_BODY()
+
+           /** All nodes in the chain graph */
+           UPROPERTY(EditAnywhere)
+           TArray<FComboNode> Nodes;
+
+           /** Entry point node ID */
+           UPROPERTY(EditAnywhere)
+           FName EntryNode = NAME_None;
+
+           // Edit-time validation
+       #if WITH_EDITOR
+           virtual EDataValidationResult IsDataValid(TArray<FText>& ValidationErrors) override;
+           bool DetectCycles(TArray<FText>& ValidationErrors) const;
+           bool ValidateAllReferencesExist(TArray<FText>& ValidationErrors) const;
+       #endif
+
+           /** Runtime queries */
+           FComboNode* FindNode(FName NodeID);
+           FComboNode* GetNextNode(FName CurrentNode, EInputType Input, EAttackDirection Dir = EAttackDirection::None);
+       };
+
+       // AttackData.h - SIMPLIFIED (no combo pointers)
+       UCLASS(BlueprintType)
+       class UAttackData : public UPrimaryDataAsset
+       {
+           // ONLY attack properties: montage, damage, timing, blending
+           // NO NextComboAttack, NO DirectionalFollowUps
+       };
+
+       // AttackConfiguration.h - MODIFIED
+       UCLASS()
+       class UAttackConfiguration : public UPrimaryDataAsset
+       {
+           UPROPERTY(EditAnywhere)
+           TObjectPtr<UAttackChainDefinition> ComboChain;  // NEW: centralized topology
+
+           UPROPERTY(EditAnywhere)
+           TObjectPtr<UAttackData> DefaultLightAttack;  // Still needed as entry point
+       };
+
+       How It Solves Loop Problem:
+       // AttackChainDefinition.cpp
+       #if WITH_EDITOR
+       EDataValidationResult UAttackChainDefinition::IsDataValid(TArray<FText>& ValidationErrors)
+       {
+           if (DetectCycles(ValidationErrors))
+           {
+               return EDataValidationResult::Invalid;  // Editor prevents saving
+           }
+           return EDataValidationResult::Valid;
+       }
+
+       bool UAttackChainDefinition::DetectCycles(TArray<FText>& ValidationErrors) const
+       {
+           // DFS-based cycle detection
+           TSet<FName> Visited;
+           TSet<FName> RecursionStack;
+
+           for (const FComboNode& Node : Nodes)
+           {
+               if (!Visited.Contains(Node.NodeID))
+               {
+                   if (DFSCheckCycle(Node.NodeID, Visited, RecursionStack, ValidationErrors))
+                   {
+                       return true;  // Cycle found
+                   }
+               }
+           }
+           return false;  // No cycles
+       }
+       #endif
+
+       Pros
+
+       - Edit-time validation (can't save asset with cycles)
+       - Centralized view (entire combo structure in one place)
+       - Attack reuse (same UAttackData in multiple chains)
+       - Clean separation (properties vs. topology)
+       - Graph visualization potential (can draw in editor)
+       - Weapon switching (each weapon has own chain asset)
+
+       Cons
+
+       - Two-asset workflow (edit attack properties + chain topology separately)
+       - Indirection overhead (NodeID lookups instead of direct pointers)
+       - Designer learning curve (more abstract than pointer references)
+       - Migration effort (rebuild all combos in new format)
+       - Runtime lookups (O(n) node search vs. O(1) pointer dereference)
+
+       Implementation Effort
+
+       - Time: 16-24 hours
+       - Files: 15+ (new asset type + editor + migration tool + all users)
+       - Lines: ~800 (new classes, validation, resolution, editor UI)
+       - Risk: High (complete topology refactor)
+
+       Scalability for Future Features
+
+       - Weapon switching: ⭐⭐⭐⭐⭐ (each weapon = separate chain asset)
+       - Stance system: ⭐⭐⭐⭐ (add stance as transition parameter)
+       - DLC attacks: ⭐⭐⭐⭐⭐ (DLC provides new chain assets, no base modification)
+       - Runtime modifiers: ⭐⭐⭐ (can swap chain assets at runtime)
+
+       Example Code Sketch
+
+       // MontageUtilityLibrary.cpp - SIMPLIFIED resolution
+       UAttackData* ResolveNextAttack(
+           FName CurrentNodeID,
+           UAttackChainDefinition* Chain,
+           EInputType Input,
+           EAttackDirection Direction)
+       {
+           if (!Chain)
+           {
+               return nullptr;
+           }
+
+           FComboNode* NextNode = Chain->GetNextNode(CurrentNodeID, Input, Direction);
+           return NextNode ? NextNode->Attack : nullptr;  // Simple lookup, no cycle risk
+       }
+
+       // AttackChainDefinition.cpp - Cycle detection
+       bool UAttackChainDefinition::DFSCheckCycle(
+           FName NodeID, 
+           TSet<FName>& Visited, 
+           TSet<FName>& RecStack,
+           TArray<FText>& Errors) const
+       {
+           Visited.Add(NodeID);
+           RecStack.Add(NodeID);
+
+           FComboNode* Node = FindNode(NodeID);
+           if (!Node) return false;
+
+           // Check all outgoing edges
+           for (const auto& [InputType, TargetID] : Node->Transitions)
+           {
+               if (!Visited.Contains(TargetID))
+               {
+                   if (DFSCheckCycle(TargetID, Visited, RecStack, Errors))
+                       return true;
+               }
+               else if (RecStack.Contains(TargetID))
+               {
+                   // CYCLE DETECTED
+                   Errors.Add(FText::FromString(FString::Printf(
+                       TEXT("Cycle detected: Node '%s' → '%s'"),
+                       *NodeID.ToString(), *TargetID.ToString())));
+                   return true;
+               }
+           }
+
+           RecStack.Remove(NodeID);
+           return false;
+       }
+
+       Visual Diagram
+
+       BEFORE (Current System):
+       AttackData_1
+       ├─ NextComboAttack → AttackData_2
+       └─ DirectionalFollowUps[Forward] → AttackData_3
+                                           └─ NextComboAttack → AttackData_2 (LOOP!)
+
+       AFTER (Centralized Topology):
+       UAttackChainDefinition_Katana:
+         Nodes:
+           - NodeID: "Light1"
+             Attack: AttackData_1
+             Transitions: {LightAttack: "Light2"}
+
+           - NodeID: "Light2"
+             Attack: AttackData_2
+             Transitions: {LightAttack: "Light3"}
+             DirectionalTransitions: {Forward: "LightForward"}
+
+           - NodeID: "Light3"
+             Attack: AttackData_3
+             Transitions: {LightAttack: "TERMINAL"}  // Can't point back to Light2
+
+           - NodeID: "LightForward"
+             Attack: AttackData_Forward
+             Transitions: {}  // Terminal
+
+         Validation: ✓ No cycles detected (edit-time check prevents saving cyclic graphs)
+
+---
+
+_________________________________________________________________________________________________________________
+
+
+---
+       Strategy 4: Event-Driven Resolution (Publisher-Subscriber)
+
+       Core Concept: Decouple attack resolution from direct pointer chasing via event system
+
+       Architectural Changes
+
+       New Delegate System (CombatTypes.h):
+       // Attack resolution request event
+       USTRUCT(BlueprintType)
+       struct FAttackResolutionRequest
+       {
+           GENERATED_BODY()
+
+           UPROPERTY()
+           UAttackData* CurrentAttack = nullptr;
+
+           UPROPERTY()
+           EInputType InputType = EInputType::None;
+
+           UPROPERTY()
+           EAttackDirection Direction = EAttackDirection::None;
+
+           UPROPERTY()
+           bool bComboWindowActive = false;
+
+           UPROPERTY()
+           bool bIsHolding = false;
+
+           UPROPERTY()
+           int32 ChainDepth = 0;  // For cycle prevention
+
+           UPROPERTY()
+           TSet<UAttackData*> VisitedAttacks;  // Cycle tracking
+       };
+
+       // Resolution response (bidding system)
+       USTRUCT(BlueprintType)
+       struct FAttackResolutionResponse
+       {
+           GENERATED_BODY()
+
+           UPROPERTY()
+           UAttackData* ResolvedAttack = nullptr;
+
+           UPROPERTY()
+           int32 Priority = 0;  // Higher = wins
+
+           UPROPERTY()
+           FName ResolverID = NAME_None;  // Which resolver provided this
+
+           bool IsValid() const { return ResolvedAttack != nullptr; }
+       };
+
+       // Delegate for resolution event
+       DECLARE_DELEGATE_RetVal_OneParam(FAttackResolutionResponse, FOnAttackResolutionRequested, const FAttackResolutionRequest&);
+
+       Resolver System:
+       // IAttackResolver.h (NEW FILE)
+       UINTERFACE(MinimalAPI, Blueprintable)
+       class UAttackResolver : public UInterface
+       {
+           GENERATED_BODY()
+       };
+
+       class IAttackResolver
+       {
+           GENERATED_BODY()
+
+       public:
+           /** Try to resolve attack, return response with priority */
+           UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat|Resolution")
+           FAttackResolutionResponse ResolveAttack(const FAttackResolutionRequest& Request);
+       };
+
+       // ComboResolver.h (NEW FILE)
+       UCLASS(BlueprintType)
+       class UComboResolver : public UObject, public IAttackResolver
+       {
+           GENERATED_BODY()
+
+       public:
+           virtual FAttackResolutionResponse ResolveAttack_Implementation(const FAttackResolutionRequest& Request) override
+           {
+               FAttackResolutionResponse Response;
+               Response.ResolverID = "ComboResolver";
+               Response.Priority = 100;  // High priority
+
+               if (Request.bComboWindowActive && Request.CurrentAttack)
+               {
+                   // Check for cycles
+                   if (Request.VisitedAttacks.Contains(Request.CurrentAttack))
+                   {
+                       UE_LOG(LogTemp, Warning, TEXT("[ComboResolver] Cycle detected, aborting"));
+                       Response.Priority = 0;  // Invalidate response
+                       return Response;
+                   }
+
+                   // Traverse combo chain
+                   if (Request.InputType == EInputType::LightAttack)
+                   {
+                       Response.ResolvedAttack = Request.CurrentAttack->NextComboAttack;
+                   }
+                   else if (Request.InputType == EInputType::HeavyAttack)
+                   {
+                       Response.ResolvedAttack = Request.CurrentAttack->HeavyComboAttack;
+                   }
+               }
+
+               return Response;
+           }
+       };
+
+       // DirectionalResolver.h (NEW FILE)
+       UCLASS(BlueprintType)
+       class UDirectionalResolver : public UObject, public IAttackResolver
+       {
+           GENERATED_BODY()
+
+       public:
+           virtual FAttackResolutionResponse ResolveAttack_Implementation(const FAttackResolutionRequest& Request) override
+           {
+               FAttackResolutionResponse Response;
+               Response.ResolverID = "DirectionalResolver";
+               Response.Priority = 150;  // HIGHER than combo (directional wins)
+
+               if (Request.bIsHolding && Request.Direction != EAttackDirection::None && Request.CurrentAttack)
+               {
+                   // Directional follow-ups are ALWAYS terminal (no recursion, no cycles)
+                   if (TObjectPtr<UAttackData>* Found = Request.CurrentAttack->DirectionalFollowUps.Find(Request.Direction))
+                   {
+                       Response.ResolvedAttack = *Found;
+                   }
+               }
+
+               return Response;
+           }
+       };
+
+       // DefaultAttackResolver.h (NEW FILE)
+       UCLASS(BlueprintType)
+       class UDefaultAttackResolver : public UObject, public IAttackResolver
+       {
+           GENERATED_BODY()
+
+       public:
+           UPROPERTY()
+           UAttackData* DefaultLightAttack = nullptr;
+
+           UPROPERTY()
+           UAttackData* DefaultHeavyAttack = nullptr;
+
+           virtual FAttackResolutionResponse ResolveAttack_Implementation(const FAttackResolutionRequest& Request) override
+           {
+               FAttackResolutionResponse Response;
+               Response.ResolverID = "DefaultResolver";
+               Response.Priority = 10;  // LOWEST priority (fallback)
+
+               if (Request.InputType == EInputType::LightAttack)
+               {
+                   Response.ResolvedAttack = DefaultLightAttack;
+               }
+               else if (Request.InputType == EInputType::HeavyAttack)
+               {
+                   Response.ResolvedAttack = DefaultHeavyAttack;
+               }
+
+               return Response;
+           }
+       };
+
+       How It Solves Loop Problem:
+       1. Multiple resolvers can provide responses
+       2. DirectionalResolver has HIGHEST priority → always wins
+       3. Directional attacks are terminal by design (no further resolution)
+       4. Even if ComboResolver creates cycle, DirectionalResolver breaks it
+       5. Each resolver independently tracks cycles in its domain
+
+       Pros
+
+       - Extensible (add new resolvers without modifying core)
+       - Separation of concerns (combo logic ≠ directional logic ≠ default logic)
+       - Priority-based (clear conflict resolution)
+       - Blueprint-friendly (designers can create custom resolvers)
+       - Testable (mock resolvers for unit tests)
+       - Cycle isolation (each resolver handles own cycles)
+
+       Cons
+
+       - Over-engineered for current scope (3 resolvers for simple problem)
+       - Performance overhead (iterate resolvers, compare priorities)
+       - Debugging complexity (which resolver won?)
+       - Learning curve (designers need to understand resolver system)
+       - Indirection (harder to trace execution flow)
+
+       Implementation Effort
+
+       - Time: 12-16 hours
+       - Files: 10+ (interfaces, resolvers, modified combat component)
+       - Lines: ~600
+       - Risk: Medium (significant refactor, but preserves AttackData)
+
+       Scalability for Future Features
+
+       - Weapon switching: ⭐⭐⭐⭐⭐ (add WeaponResolver with weapon-specific rules)
+       - Stance system: ⭐⭐⭐⭐⭐ (add StanceResolver)
+       - DLC attacks: ⭐⭐⭐⭐⭐ (DLC provides new resolvers)
+       - Runtime modifiers: ⭐⭐⭐⭐⭐ (add BuffResolver for temporary chains)
+
+       Example Code Sketch
+
+       // CombatComponentV2.cpp
+       class UCombatComponentV2
+       {
+           TArray<TScriptInterface<IAttackResolver>> Resolvers;
+
+           void BeginPlay() override
+           {
+               // Register resolvers (order = priority if tied)
+               Resolvers.Add(NewObject<UDefaultAttackResolver>());      // Priority 10
+               Resolvers.Add(NewObject<UComboResolver>());              // Priority 100
+               Resolvers.Add(NewObject<UDirectionalResolver>());        // Priority 150
+           }
+
+           UAttackData* ResolveAttack(const FAttackResolutionRequest& Request)
+           {
+               FAttackResolutionResponse BestResponse;
+               BestResponse.Priority = -1;
+
+               // Query all resolvers
+               for (const TScriptInterface<IAttackResolver>& Resolver : Resolvers)
+               {
+                   FAttackResolutionResponse Response = Resolver->Execute_ResolveAttack(Resolver.GetObject(), Request);
+
+                   if (Response.IsValid() && Response.Priority > BestResponse.Priority)
+                   {
+                       BestResponse = Response;
+                   }
+               }
+
+               UE_LOG(LogTemp, Log, TEXT("[Resolution] Winner: %s (Priority: %d)"),
+                      *BestResponse.ResolverID.ToString(), BestResponse.Priority);
+
+               return BestResponse.ResolvedAttack;
+           }
+       };
+
+       Visual Diagram
+
+       Input → Create FAttackResolutionRequest
+                 ↓
+              Broadcast to all Resolvers
+                 ↓
+           ┌─────┴─────┬─────────────┬──────────────┐
+           ↓           ↓             ↓              ↓
+       DefaultResolver ComboResolver DirectionalR  CustomR (DLC)
+       Priority: 10    Priority: 100 Priority: 150  Priority: 200
+           ↓           ↓             ↓              ↓
+         Attack_1    Attack_2      Attack_3       Attack_DLC
+           ↓           ↓             ↓              ↓
+              Compare Priorities
+                 ↓
+              Highest Wins (Attack_DLC, 200)
+                 ↓
+              Execute Attack_DLC
+
+  ---
+
+_________________________________________________________________________________________________________________
+
+
+    ---
+
+       Strategy 5: State Machine Pattern (Explicit Graph)
+
+       Core Concept: Model combo system as explicit state machine with transitions, leverage UE's StateTree plugin
+
+       Architectural Changes
+
+       StateTree Integration:
+       // AttackStateDefinition.h (NEW FILE)
+       USTRUCT(BlueprintType)
+       struct FAttackStateData
+       {
+           GENERATED_BODY()
+
+           /** Attack to play in this state */
+           UPROPERTY(EditAnywhere)
+           TObjectPtr<UAttackData> Attack;
+
+           /** State name (for debugging) */
+           UPROPERTY(EditAnywhere)
+           FName StateName = NAME_None;
+
+           /** Can exit to other states? */
+           UPROPERTY(EditAnywhere)
+           bool bAllowTransitions = true;
+       };
+
+       USTRUCT(BlueprintType)
+       struct FAttackTransition
+       {
+           GENERATED_BODY()
+
+           /** Source state */
+           UPROPERTY(EditAnywhere)
+           FName FromState = NAME_None;
+
+           /** Target state */
+           UPROPERTY(EditAnywhere)
+           FName ToState = NAME_None;
+
+           /** Input that triggers transition */
+           UPROPERTY(EditAnywhere)
+           EInputType InputType = EInputType::None;
+
+           /** Direction required (None = any direction) */
+           UPROPERTY(EditAnywhere)
+           EAttackDirection RequiredDirection = EAttackDirection::None;
+
+           /** Requires combo window? */
+           UPROPERTY(EditAnywhere)
+           bool bRequiresComboWindow = false;
+
+           /** Requires hold? */
+           UPROPERTY(EditAnywhere)
+           bool bRequiresHold = false;
+
+           /** Transition priority (higher = preferred) */
+           UPROPERTY(EditAnywhere)
+           int32 Priority = 100;
+       };
+
+       UCLASS(BlueprintType)
+       class UAttackStateMachine : public UPrimaryDataAsset
+       {
+           GENERATED_BODY()
+
+       public:
+           /** All states in the machine */
+           UPROPERTY(EditAnywhere)
+           TMap<FName, FAttackStateData> States;
+
+           /** All valid transitions */
+           UPROPERTY(EditAnywhere)
+           TArray<FAttackTransition> Transitions;
+
+           /** Initial state */
+           UPROPERTY(EditAnywhere)
+           FName InitialState = "Idle";
+
+           /** Get attack for state */
+           UAttackData* GetAttackForState(FName StateName) const;
+
+           /** Find valid transition from current state */
+           FName FindTransition(FName CurrentState, EInputType Input, EAttackDirection Dir, bool bCombo, bool bHold) const;
+
+       #if WITH_EDITOR
+           /** Validate state machine (no unreachable states, no invalid transitions) */
+           virtual EDataValidationResult IsDataValid(TArray<FText>& ValidationErrors) override;
+
+           /** Detect dead-end states (no transitions out and not marked terminal) */
+           bool DetectDeadEnds(TArray<FText>& ValidationErrors) const;
+
+           /** Visualize state machine in editor */
+           void GenerateGraphVisualization() const;
+       #endif
+       };
+
+       How It Solves Loop Problem:
+       - Explicit states: No hidden cycles (all paths visible in Transitions array)
+       - Edit-time visualization: Can SEE the entire state graph
+       - Validation: Asset validation checks for:
+         - Unreachable states
+         - Missing state definitions
+         - Invalid transitions (ToState doesn't exist)
+         - Cycles (DFS traversal of transition graph)
+
+       Pros
+
+       - Visual editor potential (draw state graph like Blueprint)
+       - Complete control (explicitly define every transition)
+       - Easy debugging (log state transitions)
+       - Clear intent (states = phases of combat)
+       - Validation-friendly (graph algorithms work on explicit data)
+       - No pointer chasing (lookup by FName)
+
+       Cons
+
+       - Verbose setup (must define every state + transition explicitly)
+       - Designer overhead (more data to author)
+       - Indirection performance (FName lookups vs. pointer dereference)
+       - Migration effort (rebuild combos as state machines)
+       - Overkill for simple chains (3-attack combo = 3 states + 2 transitions)
+
+       Implementation Effort
+
+       - Time: 20-30 hours (includes editor visualization)
+       - Files: 20+ (state machine, editor graph, validation, integration)
+       - Lines: ~1200
+       - Risk: High (complete paradigm shift)
+
+       Scalability for Future Features
+
+       - Weapon switching: ⭐⭐⭐⭐⭐ (each weapon = separate state machine)
+       - Stance system: ⭐⭐⭐⭐⭐ (stance = state machine parameter)
+       - DLC attacks: ⭐⭐⭐⭐ (can extend base state machine or create new one)
+       - Runtime modifiers: ⭐⭐⭐⭐ (dynamically enable/disable transitions)
+
+       Example Code Sketch
+
+       // AttackStateMachine.cpp
+       FName UAttackStateMachine::FindTransition(
+           FName CurrentState, 
+           EInputType Input, 
+           EAttackDirection Dir,
+           bool bCombo, 
+           bool bHold) const
+       {
+           // Find all matching transitions, return highest priority
+           const FAttackTransition* BestTransition = nullptr;
+           int32 BestPriority = -1;
+
+           for (const FAttackTransition& Transition : Transitions)
+           {
+               if (Transition.FromState != CurrentState)
+                   continue;  // Not from current state
+
+               if (Transition.InputType != Input)
+                   continue;  // Wrong input type
+
+               if (Transition.RequiredDirection != EAttackDirection::None && Transition.RequiredDirection != Dir)
+                   continue;  // Direction mismatch
+
+               if (Transition.bRequiresComboWindow && !bCombo)
+                   continue;  // Combo window required but not active
+
+               if (Transition.bRequiresHold && !bHold)
+                   continue;  // Hold required but not active
+
+               // Valid transition, check priority
+               if (Transition.Priority > BestPriority)
+               {
+                   BestTransition = &Transition;
+                   BestPriority = Transition.Priority;
+               }
+           }
+
+           return BestTransition ? BestTransition->ToState : NAME_None;
+       }
+
+       #if WITH_EDITOR
+       bool UAttackStateMachine::DetectDeadEnds(TArray<FText>& ValidationErrors) const
+       {
+           bool bHasErrors = false;
+
+           for (const auto& [StateName, StateData] : States)
+           {
+               // Check if state has outgoing transitions
+               bool bHasOutgoing = false;
+               for (const FAttackTransition& Transition : Transitions)
+               {
+                   if (Transition.FromState == StateName)
+                   {
+                       bHasOutgoing = true;
+                       break;
+                   }
+               }
+
+               // If no outgoing transitions and allows transitions, it's a dead end
+               if (!bHasOutgoing && StateData.bAllowTransitions)
+               {
+                   ValidationErrors.Add(FText::FromString(FString::Printf(
+                       TEXT("State '%s' has no outgoing transitions but bAllowTransitions=true. Mark as terminal or add transitions."),
+                       *StateName.ToString())));
+                   bHasErrors = true;
+               }
+           }
+
+           return bHasErrors;
+       }
+       #endif
+
+       Visual Diagram
+
+       State Machine Example (Katana Combo):
+
+       States:
+         - Idle: nullptr (no attack)
+         - Light1: AttackData_1
+         - Light2: AttackData_2
+         - Light3: AttackData_3
+         - LightForward: AttackData_Forward (terminal)
+
+       Transitions:
+         1. Idle → Light1 (Input: Light, Priority: 100)
+         2. Light1 → Light2 (Input: Light, ComboWindow: true, Priority: 100)
+         3. Light2 → Light3 (Input: Light, ComboWindow: true, Priority: 100)
+         4. Light2 → LightForward (Input: Light, Hold: true, Direction: Forward, Priority: 150)
+         5. Light3 → Idle (Input: Light, ComboWindow: true, Priority: 100)  // Chain reset
+
+       Visual Graph:
+            Idle
+             ↓ (Light)
+           Light1
+             ↓ (Light + Combo)
+           Light2 ─────→ LightForward (Light + Hold + Forward)
+             ↓ (Light + Combo)      [TERMINAL]
+           Light3
+             ↓ (Light + Combo)
+            Idle (reset)
+
+       Validation: ✓ All states reachable, all transitions valid, no dead ends
+
+  ---
+
+_________________________________________________________________________________________________________________
+
+
+  ---
+
+       Strategy 6: Node Graph Editor (Visual Topology)
+
+       Core Concept: Create visual node-based editor (like Blueprint/AnimGraph) for combo authoring with real-time cycle detection
+
+       Architectural Changes
+
+       Graph System (leverages UE's UEdGraph framework):
+       // ComboGraphSchema.h (NEW FILE)
+       UCLASS()
+       class UComboGraphSchema : public UEdGraphSchema
+       {
+           GENERATED_BODY()
+
+       public:
+           virtual void GetGraphContextActions(FGraphContextMenuBuilder& ContextMenuBuilder) const override;
+           virtual const FPinConnectionResponse CanCreateConnection(const UEdGraphPin* A, const UEdGraphPin* B) const override;
+           virtual bool TryCreateConnection(UEdGraphPin* A, UEdGraphPin* B) const override;
+
+           // Prevent cycles in real-time
+           bool WouldCreateCycle(const UEdGraphPin* From, const UEdGraphPin* To) const;
+       };
+
+       // ComboGraphNode.h (NEW FILE)
+       UCLASS()
+       class UComboGraphNode : public UEdGraphNode
+       {
+           GENERATED_BODY()
+
+       public:
+           /** Attack to execute at this node */
+           UPROPERTY(EditAnywhere)
+           TObjectPtr<UAttackData> AttackData;
+
+           /** Node type (for visual styling) */
+           UPROPERTY()
+           EComboNodeType NodeType = EComboNodeType::Normal;
+
+           /** Is this node a terminal? */
+           UPROPERTY(EditAnywhere)
+           bool bTerminal = false;
+
+           virtual void AllocateDefaultPins() override;
+           virtual FText GetNodeTitle(ENodeTitleType::Type TitleType) const override;
+           virtual FLinearColor GetNodeTitleColor() const override;
+       };
+
+       UENUM()
+       enum class EComboNodeType : uint8
+       {
+           Entry,       // Entry point (green)
+           Normal,      // Mid-chain (blue)
+           Directional, // Directional follow-up (purple)
+           Terminal     // Chain end (red)
+       };
+
+       // ComboGraph.h (NEW FILE)
+       UCLASS()
+       class UComboGraph : public UEdGraph
+       {
+           GENERATED_BODY()
+
+       public:
+           /** Compile graph to runtime data structure */
+           UAttackChainDefinition* CompileToRuntime();
+
+           /** Validate graph (real-time, as user edits) */
+           bool ValidateGraph(TArray<FText>& Errors) const;
+
+           /** Detect cycles using graph traversal */
+           bool HasCycles(TArray<FText>& CyclePaths) const;
+
+           /** Find entry node */
+           UComboGraphNode* GetEntryNode() const;
+       };
+
+       // ComboGraphEditor.h (NEW FILE)
+       class FComboGraphEditor : public FAssetEditorToolkit
+       {
+           // Visual editor implementation (like Blueprint editor)
+           // - Drag-drop attack nodes
+           // - Connect nodes with pins
+           // - Real-time cycle highlighting (red connections)
+           // - Auto-layout options
+           // - Compile button → generates UAttackChainDefinition
+       };
+
+       How It Solves Loop Problem:
+       1. Real-time validation: As user draws connection, check for cycles BEFORE allowing it
+       2. Visual feedback: Cycle-creating connections turn RED, can't be created
+       3. Clear topology: Entire combo structure visible at a glance
+       4. Auto-layout: Automatically arrange nodes to show flow
+       5. Edit-time prevention: Impossible to create invalid graph
+
+       Pros
+
+       - Designer-friendly (visual, no code/data tables)
+       - Immediate feedback (see cycles before committing)
+       - Industry-standard (similar to Blueprint, familiar UX)
+       - Topology clarity (entire chain visible)
+       - Compile-time optimization (graph → optimized runtime data)
+       - Extensibility (can add custom node types)
+       - Auto-layout (organize complex graphs automatically)
+
+       Cons
+
+       - Massive implementation (~40+ hours of editor work)
+       - UE editor framework knowledge required (UEdGraph, Slate UI)
+       - Maintenance burden (custom editor needs updates)
+       - Version control (graph assets harder to diff than text)
+       - Learning curve (designers need to learn graph editor)
+       - Overkill for simple games (3-4 attack combos don't need graph editor)
+
+       Implementation Effort
+
+       - Time: 40-60 hours
+       - Files: 30+ (graph classes, editor UI, compilers, validators)
+       - Lines: ~2000+
+       - Risk: Very high (complex editor development, Slate expertise needed)
+
+       Scalability for Future Features
+
+       - Weapon switching: ⭐⭐⭐⭐⭐ (each weapon = separate graph asset)
+       - Stance system: ⭐⭐⭐⭐⭐ (add stance pins to nodes)
+       - DLC attacks: ⭐⭐⭐⭐⭐ (DLC provides new graphs)
+       - Runtime modifiers: ⭐⭐⭐ (runtime graph modification is complex)
+
+       Example Code Sketch
+
+       // ComboGraphSchema.cpp
+       const FPinConnectionResponse UComboGraphSchema::CanCreateConnection(
+           const UEdGraphPin* A, 
+           const UEdGraphPin* B) const
+       {
+           // Check if connection would create cycle
+           if (WouldCreateCycle(A, B))
+           {
+               return FPinConnectionResponse(CONNECT_RESPONSE_DISALLOW,
+                   TEXT("This connection would create a cycle in the combo chain"));
+           }
+
+           return FPinConnectionResponse(CONNECT_RESPONSE_MAKE, TEXT(""));
+       }
+
+       bool UComboGraphSchema::WouldCreateCycle(const UEdGraphPin* From, const UEdGraphPin* To) const
+       {
+           if (!From || !To) return false;
+
+           // DFS from 'To' node back to 'From' node
+           TSet<UEdGraphNode*> Visited;
+           TArray<UEdGraphNode*> Stack;
+
+           Stack.Push(To->GetOwningNode());
+
+           while (Stack.Num() > 0)
+           {
+               UEdGraphNode* Current = Stack.Pop();
+
+               if (Current == From->GetOwningNode())
+               {
+                   return true;  // Found path back to origin = cycle
+               }
+
+               if (Visited.Contains(Current))
+                   continue;
+
+               Visited.Add(Current);
+
+               // Traverse outgoing connections
+               for (UEdGraphPin* Pin : Current->Pins)
+               {
+                   if (Pin->Direction == EGPD_Output)
+                   {
+                       for (UEdGraphPin* LinkedPin : Pin->LinkedTo)
+                       {
+                           Stack.Push(LinkedPin->GetOwningNode());
+                       }
+                   }
+               }
+           }
+
+           return false;  // No cycle
+       }
+
+       // ComboGraph.cpp
+       UAttackChainDefinition* UComboGraph::CompileToRuntime()
+       {
+           UAttackChainDefinition* CompiledChain = NewObject<UAttackChainDefinition>();
+
+           // Convert graph nodes to FComboNode array
+           for (UEdGraphNode* GraphNode : Nodes)
+           {
+               UComboGraphNode* ComboNode = Cast<UComboGraphNode>(GraphNode);
+               if (!ComboNode) continue;
+
+               FComboNode RuntimeNode;
+               RuntimeNode.NodeID = FName(*ComboNode->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+               RuntimeNode.Attack = ComboNode->AttackData;
+
+               // Convert connections to transitions
+               for (UEdGraphPin* OutputPin : ComboNode->Pins)
+               {
+                   if (OutputPin->Direction == EGPD_Output)
+                   {
+                       for (UEdGraphPin* LinkedPin : OutputPin->LinkedTo)
+                       {
+                           FName TargetNodeID = FName(*LinkedPin->GetOwningNode()->GetNodeTitle(ENodeTitleType::FullTitle).ToString());
+
+                           // Determine input type from pin name
+                           if (OutputPin->PinName == "Light")
+                           {
+                               RuntimeNode.Transitions.Add(EInputType::LightAttack, TargetNodeID);
+                           }
+                           // ... other pin types ...
+                       }
+                   }
+               }
+
+               CompiledChain->Nodes.Add(RuntimeNode);
+           }
+
+           return CompiledChain;
+       }
+
+       Visual Diagram
+
+       Graph Editor UI (Mock):
+
+       ┌────────────────────────────────────────────────────────────┐
+       │ File  Edit  View  Compile                                  │
+       ├────────────────────────────────────────────────────────────┤
+       │                                                             │
+       │   ┌─────────────┐                                          │
+       │   │   ENTRY     │ (Green node)                             │
+       │   │ (No attack) │                                          │
+       │   └──────┬──────┘                                          │
+       │          │ Light                                           │
+       │          ↓                                                  │
+       │   ┌─────────────┐                                          │
+       │   │  Attack_1   │ (Blue node)                              │
+       │   │  "Light 1"  │                                          │
+       │   └──────┬──────┘                                          │
+       │          │ Light                                           │
+       │          ↓                                                  │
+       │   ┌─────────────┐       Hold+Forward                       │
+       │   │  Attack_2   │──────────────────┐                       │
+       │   │  "Light 2"  │                  ↓                       │
+       │   └──────┬──────┘         ┌─────────────┐                 │
+       │          │ Light          │Attack_Fwd   │ (Purple node)   │
+       │          ↓                │"Directional"│                  │
+       │   ┌─────────────┐         └─────────────┘ (TERMINAL)      │
+       │   │  Attack_3   │                                          │
+       │   │  "Light 3"  │ (Red node - TERMINAL)                   │
+       │   └─────────────┘                                          │
+       │                                                             │
+       │  [If user tries to connect Attack_3 → Attack_2:]           │
+       │   Connection turns RED, tooltip: "Would create cycle!"     │
+       └────────────────────────────────────────────────────────────┘
+
+       Compiled Output: UAttackChainDefinition (same as Strategy 3)
+
+ ---
+
+_________________________________________________________________________________________________________________
+
+
+ ---
+
+
+       Strategy 7: Wild Card - Trait/Capability Tags (GAS-Inspired)
+
+       Core Concept: Tag-based resolution system inspired by Gameplay Ability System, attacks declare capabilities, resolver queries tags
+
+       Architectural Changes
+
+       Tag System (CombatTags.h - NEW FILE):
+       // Use UE's native FGameplayTag system
+       namespace CombatTags
+       {
+           // Attack capabilities
+           inline const FGameplayTag Attack_CanCombo        = FGameplayTag::RequestGameplayTag("Attack.Capability.CanCombo");
+           inline const FGameplayTag Attack_CanDirectional  = FGameplayTag::RequestGameplayTag("Attack.Capability.CanDirectional");
+           inline const FGameplayTag Attack_Terminal        = FGameplayTag::RequestGameplayTag("Attack.Capability.Terminal");
+           inline const FGameplayTag Attack_CanHold         = FGameplayTag::RequestGameplayTag("Attack.Capability.CanHold");
+
+           // Attack types
+           inline const FGameplayTag Attack_Type_Light      = FGameplayTag::RequestGameplayTag("Attack.Type.Light");
+           inline const FGameplayTag Attack_Type_Heavy      = FGameplayTag::RequestGameplayTag("Attack.Type.Heavy");
+
+           // Chain position
+           inline const FGameplayTag Attack_Chain_Starter   = FGameplayTag::RequestGameplayTag("Attack.Chain.Starter");
+           inline const FGameplayTag Attack_Chain_Mid       = FGameplayTag::RequestGameplayTag("Attack.Chain.Mid");
+           inline const FGameplayTag Attack_Chain_Finisher  = FGameplayTag::RequestGameplayTag("Attack.Chain.Finisher");
+
+           // Directional capabilities
+           inline const FGameplayTag Attack_Direction_Forward  = FGameplayTag::RequestGameplayTag("Attack.Direction.Forward");
+           inline const FGameplayTag Attack_Direction_Back     = FGameplayTag::RequestGameplayTag("Attack.Direction.Backward");
+           // ... etc
+       }
+
+       // AttackData.h - MODIFIED
+       UCLASS()
+       class UAttackData : public UPrimaryDataAsset
+       {
+           GENERATED_BODY()
+
+           // ... existing properties ...
+
+           /** Capabilities of this attack (what can it do?) */
+           UPROPERTY(EditAnywhere, Category = "Tags")
+           FGameplayTagContainer Capabilities;
+
+           /** Requirements to use this attack (what conditions needed?) */
+           UPROPERTY(EditAnywhere, Category = "Tags")
+           FGameplayTagContainer Requirements;
+
+           /** STILL keep pointers for direct references, but tags control eligibility */
+           UPROPERTY(EditAnywhere)
+           TArray<TObjectPtr<UAttackData>> ComboFollowUps;  // Tag-filtered at runtime
+
+           UPROPERTY(EditAnywhere)
+           TMap<EAttackDirection, TObjectPtr<UAttackData>> DirectionalFollowUps;  // Tag-filtered
+       };
+
+       Tag-Based Resolution:
+       // MontageUtilityLibrary.cpp - MODIFIED
+       UAttackData* ResolveNextAttack_TagBased(
+           UAttackData* CurrentAttack,
+           EInputType InputType,
+           bool bComboWindowActive,
+           bool bIsHolding,
+           EAttackDirection Direction,
+           const FGameplayTagContainer& CurrentContext)  // NEW: context tags
+       {
+           if (!CurrentAttack)
+               return nullptr;
+
+           // Build query tags (what we're looking for)
+           FGameplayTagContainer QueryTags;
+
+           if (InputType == EInputType::LightAttack)
+               QueryTags.AddTag(CombatTags::Attack_Type_Light);
+           else if (InputType == EInputType::HeavyAttack)
+               QueryTags.AddTag(CombatTags::Attack_Type_Heavy);
+
+           if (bComboWindowActive)
+               QueryTags.AddTag(CombatTags::Attack_CanCombo);
+
+           if (bIsHolding && Direction != EAttackDirection::None)
+           {
+               QueryTags.AddTag(CombatTags::Attack_CanDirectional);
+               QueryTags.AddTag(DirectionToTag(Direction));  // Forward → Attack.Direction.Forward
+           }
+
+           // Merge with current context
+           QueryTags.AppendTags(CurrentContext);
+
+           // Query follow-ups
+           TArray<UAttackData*> EligibleAttacks;
+
+           // Check combo follow-ups
+           for (UAttackData* FollowUp : CurrentAttack->ComboFollowUps)
+           {
+               if (IsAttackEligible(FollowUp, QueryTags))
+               {
+                   EligibleAttacks.Add(FollowUp);
+               }
+           }
+
+           // Check directional follow-ups (HIGHER PRIORITY)
+           if (Direction != EAttackDirection::None)
+           {
+               if (UAttackData** DirectionalAttack = CurrentAttack->DirectionalFollowUps.Find(Direction))
+               {
+                   if (IsAttackEligible(*DirectionalAttack, QueryTags))
+                   {
+                       // Directional attacks MUST be terminal (enforced by tags)
+                       if ((*DirectionalAttack)->Capabilities.HasTag(CombatTags::Attack_Terminal))
+                       {
+                           return *DirectionalAttack;  // Immediate return, no cycles possible
+                       }
+                       else
+                       {
+                           UE_LOG(LogTemp, Warning, TEXT("[TAG RESOLVE] Directional attack '%s' missing Terminal tag, skipping"),
+                                  *(*DirectionalAttack)->GetName());
+                       }
+                   }
+               }
+           }
+
+           // Return first eligible, or nullptr if none match
+           return EligibleAttacks.Num() > 0 ? EligibleAttacks[0] : nullptr;
+       }
+
+       bool IsAttackEligible(UAttackData* Attack, const FGameplayTagContainer& QueryTags)
+       {
+           if (!Attack) return false;
+
+           // Check if attack's requirements are met
+           if (!Attack->Requirements.IsEmpty())
+           {
+               if (!QueryTags.HasAll(Attack->Requirements))
+               {
+                   return false;  // Missing required tags
+               }
+           }
+
+           // Check if attack's capabilities match query
+           // (At least one capability must match)
+           return Attack->Capabilities.HasAny(QueryTags);
+       }
+
+       How It Solves Loop Problem:
+       1. Terminal tag enforcement: Directional attacks MUST have Attack_Terminal tag
+       2. Capability queries: Resolution only considers attacks with matching capabilities
+       3. Edit-time validation: Asset validation checks:
+         - Directional follow-ups have Terminal tag
+         - Terminal attacks have NO CanCombo tag
+         - Starter attacks have Chain.Starter tag
+       4. Dynamic rules: Can add new tags without code changes
+
+       Pros
+
+       - Extremely flexible (add new rules via tags)
+       - Data-driven (no hardcoded logic)
+       - GAS integration (if using Gameplay Abilities already)
+       - Query-based (expressive capability matching)
+       - Blueprint-friendly (designers can add tags in editor)
+       - Runtime modifiers (add/remove tags dynamically for buffs)
+       - Self-documenting (tags describe what attack can do)
+
+       Cons
+
+       - Tag management overhead (need to maintain tag hierarchy)
+       - Learning curve (designers need to understand tag system)
+       - Indirection (harder to trace "why was this attack chosen?")
+       - Performance (tag container queries vs. direct pointers)
+       - Redundancy (tags duplicate pointer relationships)
+       - Over-abstraction (may be too flexible for simple system)
+
+       Implementation Effort
+
+       - Time: 10-14 hours
+       - Files: 5+ (tag definitions, modified AttackData, tag-based resolution)
+       - Lines: ~400
+       - Risk: Medium (new paradigm, but preserves existing AttackData)
+
+       Scalability for Future Features
+
+       - Weapon switching: ⭐⭐⭐⭐⭐ (add weapon tags, query by weapon)
+       - Stance system: ⭐⭐⭐⭐⭐ (add stance tags to context)
+       - DLC attacks: ⭐⭐⭐⭐⭐ (DLC attacks use new tags)
+       - Runtime modifiers: ⭐⭐⭐⭐⭐ (add/remove capability tags for buffs)
+
+       Example Code Sketch
+
+       // AttackData asset setup (in editor):
+       AttackData_1:
+         Capabilities: [Attack.Type.Light, Attack.Capability.CanCombo, Attack.Chain.Starter]
+         Requirements: []
+         ComboFollowUps: [AttackData_2]
+
+       AttackData_2:
+         Capabilities: [Attack.Type.Light, Attack.Capability.CanCombo, Attack.Capability.CanDirectional, Attack.Chain.Mid]
+         Requirements: []
+         ComboFollowUps: [AttackData_3]
+         DirectionalFollowUps: { Forward: AttackData_Forward }
+
+       AttackData_3:
+         Capabilities: [Attack.Type.Light, Attack.Capability.CanCombo, Attack.Chain.Finisher]
+         Requirements: []
+         ComboFollowUps: [AttackData_1]  // Cycle in pointers, but...
+
+       AttackData_Forward:
+         Capabilities: [Attack.Type.Light, Attack.Capability.Terminal]  // TERMINAL = no combos
+         Requirements: [Attack.Capability.CanDirectional]  // Only via directional input
+         ComboFollowUps: []  // Physically empty
+
+       // Validation (asset editor):
+       #if WITH_EDITOR
+       EDataValidationResult UAttackData::IsDataValid(TArray<FText>& Errors)
+       {
+           // Rule: Directional follow-ups MUST be terminal
+           for (const auto& [Direction, DirectionalAttack] : DirectionalFollowUps)
+           {
+               if (!DirectionalAttack->Capabilities.HasTag(CombatTags::Attack_Terminal))
+               {
+                   Errors.Add(FText::FromString(FString::Printf(
+                       TEXT("Directional follow-up '%s' must have 'Attack.Capability.Terminal' tag"),
+                       *DirectionalAttack->GetName())));
+                   return EDataValidationResult::Invalid;
+               }
+           }
+
+           // Rule: Terminal attacks can't have combo follow-ups
+           if (Capabilities.HasTag(CombatTags::Attack_Terminal) && ComboFollowUps.Num() > 0)
+           {
+               Errors.Add(TEXT("Terminal attacks cannot have combo follow-ups"));
+               return EDataValidationResult::Invalid;
+           }
+
+           return EDataValidationResult::Valid;
+       }
+       #endif
+
+       Visual Diagram
+
+       Tag-Based Resolution Flow:
+
+       Input: Light + Holding + Forward
+         ↓
+       Build Query Tags:
+         - Attack.Type.Light
+         - Attack.Capability.CanDirectional
+         - Attack.Direction.Forward
+         ↓
+       Query CurrentAttack.DirectionalFollowUps[Forward]
+         ↓
+       Found: AttackData_Forward
+         ↓
+       Check Capabilities: Has(Attack.Capability.Terminal)? → YES
+         ↓
+       Check Requirements: CurrentContext.HasAll(Requirements)? → YES
+         ↓
+       ELIGIBLE → Return AttackData_Forward
+         ↓
+       Execute Attack (NO CYCLE POSSIBLE - Terminal tag prevents combos)
+
+       Tag Hierarchy (GameplayTags.ini):
+       [/Script/GameplayTags.GameplayTagsList]
+       +GameplayTagList=(Tag="Attack.Capability.CanCombo")
+       +GameplayTagList=(Tag="Attack.Capability.CanDirectional")
+       +GameplayTagList=(Tag="Attack.Capability.Terminal")
+       +GameplayTagList=(Tag="Attack.Type.Light")
+       +GameplayTagList=(Tag="Attack.Type.Heavy")
+       +GameplayTagList=(Tag="Attack.Chain.Starter")
+       +GameplayTagList=(Tag="Attack.Chain.Mid")
+       +GameplayTagList=(Tag="Attack.Chain.Finisher")
+
+---
+
+_________________________________________________________________________________________________________________
+
+
+---
+
+ Comparison Matrix
+
+       | Strategy                | Loop Prevention    | Edit Validation         | Runtime Perf        | Designer Workflow  | Programmer Maint        | Extensibility         |
+       Impl Hours |
+       |-------------------------|--------------------|-------------------------|---------------------|--------------------|-------------------------|-----------------------|----
+       --------|
+       | 1. Visited Set          | Runtime only       | ❌ None                  | ⭐⭐⭐ (TSet overhead) | ⭐⭐⭐⭐⭐ (unchanged)  | ⭐⭐⭐⭐ (simple)           | ⭐⭐⭐
+       (limited)         | 1-2        |
+       | 2. DataAsset Hierarchy  | Type enforcement   | ⭐⭐⭐ (compiler)          | ⭐⭐⭐⭐⭐ (pointers)    | ⭐⭐ (verbose)       | ⭐⭐⭐ (inheritance)       | ⭐⭐⭐⭐ (add
+       types)      | 8-12       |
+       | 3. Centralized Topology | Edit-time DFS      | ⭐⭐⭐⭐⭐ (graph check)     | ⭐⭐⭐⭐ (FName lookup) | ⭐⭐⭐ (two assets)   | ⭐⭐⭐⭐ (clear separation) | ⭐⭐⭐⭐⭐
+       (modular)       | 16-24      |
+       | 4. Event-Driven         | Resolver isolation | ⭐⭐ (per-resolver)       | ⭐⭐⭐ (iteration)     | ⭐⭐⭐⭐ (BP-friendly) | ⭐⭐⭐⭐⭐ (extensible)      | ⭐⭐⭐⭐⭐
+       (add resolvers) | 12-16      |
+       | 5. State Machine        | Explicit graph     | ⭐⭐⭐⭐⭐ (graph check)     | ⭐⭐⭐⭐ (FName lookup) | ⭐⭐ (verbose)       | ⭐⭐⭐⭐ (structured)       | ⭐⭐⭐⭐⭐
+       (state-based)   | 20-30      |
+       | 6. Graph Editor         | Real-time visual   | ⭐⭐⭐⭐⭐ (immediate)       | ⭐⭐⭐⭐⭐ (compiled)    | ⭐⭐⭐⭐⭐ (visual)     | ⭐⭐ (complex)            | ⭐⭐⭐⭐⭐
+        (nodes)         | 40-60      |
+       | 7. Tag System           | Tag rules          | ⭐⭐⭐⭐ (asset validation) | ⭐⭐⭐ (tag queries)   | ⭐⭐⭐⭐ (tag UI)      | ⭐⭐⭐⭐⭐ (data-driven)     | ⭐⭐⭐⭐⭐
+       (max flex)      | 10-14      |
+
+       ---
+       Open Questions for User
+
+       Design Priorities
+
+       1. Speed vs. Quality: Do you need a quick hotfix (Strategy 1) or are you willing to invest in long-term architecture (Strategies 3-6)?
+       2. Designer vs. Programmer: Is this primarily a designer tool (visual editor) or programmer infrastructure (type safety)?
+       3. Scope Creep: Are you planning to add weapon switching/stances soon? (Affects scalability requirements)
+
+       Team Constraints
+
+       4. Team Size: Solo dev (simpler solutions preferred) or team with dedicated tools programmer (graph editor feasible)?
+       5. UE Editor Expertise: Comfortable with UEdGraph/Slate UI development for Strategy 6?
+       6. Timeline: Need fix by next milestone (1-2 hours) or can afford 2-3 week refactor?
+
+       Technical Decisions
+
+       7. GAS Usage: Are you using (or planning to use) Gameplay Ability System? (Affects Strategy 7 viability)
+       8. Performance Budget: Is runtime resolution a bottleneck? (Affects pointer vs. lookup strategies)
+       9. Blueprint Exposure: Do you need designers to create custom logic in Blueprints? (Affects interface choices)
+
+       Future Features
+
+       10. Weapon Switching: How soon? Multiple movesets per character? Shared attacks across weapons?
+       11. Stance System: Planned? How complex (3 stances vs. 10+)?
+       12. DLC/Modding: Need to support external content without base game modification?
+
+       ---
+       Recommendations by Use Case
+
+       Solo Developer, Small Scope, Need Fix Now
+
+       Recommendation: Strategy 1 (Visited Set)
+       - Why: Minimal time investment, preserves existing work, immediate deployment
+       - Upgrade Path: Can migrate to Strategy 3 or 7 later if scope grows
+
+       Team Project, Medium Scope, Weapon Switching Planned
+
+       Recommendation: Strategy 3 (Centralized Topology)
+       - Why: Scalable, clean separation, weapon-per-asset works well
+       - Trade-Off: 2-3 day refactor, but pays off with weapon variants
+
+       Large Scope, Designer-Heavy Team, Production Quality
+
+       Recommendation: Strategy 6 (Graph Editor)
+       - Why: Industry-standard UX, prevents errors visually, scales to AAA complexity
+       - Trade-Off: Significant dev time (2-3 weeks), requires editor expertise
+
+       Experimental, Max Flexibility, Future-Proofing
+
+       Recommendation: Strategy 7 (Tag System)
+       - Why: Most extensible, works with GAS, supports runtime modifications
+       - Trade-Off: Learning curve, requires careful tag architecture design
+
+       Conservative, Type-Safety Focus, Clear Rules
+
+       Recommendation: Strategy 2 (DataAsset Hierarchy)
+       - Why: Compiler-enforced, clear intent, immediate type errors
+       - Trade-Off: Less flexible, asset migration needed
+
+---
+
+_________________________________________________________________________________________________________________
+
+ Workflow Options Clarification
+
+  Option 1: "Keep drag-drop attack references in editor"
+  - Current system: In AttackData asset, you drag-and-drop another AttackData into NextComboAttack field
+  - Visual: Property panel shows direct object reference picker
+  - Pros: Intuitive, immediate, designer-friendly
+  - Cons: No visual topology view, hard to see "big picture" of chain
+
+  Option 2: "Willing to adopt visual graph editor"
+  - Like: Blueprint editor, Animation Blueprint, Behavior Trees
+  - Visual: Nodes connected by wires, see entire combo chain at once
+  - Interaction: Drag nodes, connect pins, auto-layout, real-time cycle detection
+  - Pros: See full topology, prevent errors visually, AAA-quality tool
+  - Cons: Takes time to build editor, different workflow from current
+
+  Option 3: "Willing to use centralized chain definition assets"
+  - Concept: Attack properties (damage, montage) separate from combo topology
+  - Structure: AttackData = pure attack, AttackChainDefinition = how attacks connect
+  - Workflow: Edit two assets instead of one
+  - Pros: Clean separation, weapon variants reuse attacks, centralized validation
+  - Cons: More indirection, need to switch between assets
+
+  Option 4: "Prefer code/data-driven validation over visual"
+  - Means: Trust asset validation hooks (red errors in editor) vs. visual graph feedback
+  - Example: Asset saves, validation runs, shows error message if cycle detected
+  - Pros: Doesn't require custom editor UI, works with existing property panel
+  - Cons: Less immediate feedback, error messages vs. visual cues
+
+  ---
+  Recommended Strategy Based on Your Answers
+
+  Given your profile:
+  - Timeline: No rush, optimize for best architecture
+  - Scope: Style system (Yakuza-like stance switching = whole moveset swap), paired counters/finishers
+  - Expertise: Expert editor developer
+  - Future: Context-sensitive attacks (parry counters, finishers based on health)
+
+  Primary Recommendation: Hybrid Strategy (3 + 6 + 7)
+
+  Strategy 3 (Centralized Topology) + Strategy 6 (Graph Editor) + Strategy 7 (Tag System)
+
+  Why This Combination?
+
+  1. Centralized Topology (Strategy 3) provides:
+    - Clean separation: AttackData = properties, AttackChainDefinition = topology
+    - Style system support: Each style = separate chain asset (Katana_Brawler, Katana_Rush, Katana_Beast)
+    - Weapon variants: Katana vs. Unarmed = different chain assets, can share some AttackData
+  2. Graph Editor (Strategy 6) leverages your expertise:
+    - Visual combo authoring (you can build this well)
+    - Real-time cycle detection
+    - Compiles to AttackChainDefinition (runtime format)
+    - Can visualize context branches (parry counter paths, finisher paths)
+  3. Tag System (Strategy 7) adds contextual flexibility:
+    - Context-sensitive attacks: Attack.Context.ParryCounter, Attack.Context.LowHealthFinisher
+    - Style-specific tags: Attack.Style.Brawler, Attack.Style.Rush
+    - Runtime queries: "Find finisher attacks for current context"
+    - Paired attack matching: Tag-based partner queries
+
+  Visual Concept
+
+  Graph Editor Node Example:
+
+  ┌─────────────────────────────────────┐
+  │ Light Attack 1                      │
+  │                                     │
+  │ AttackData: LightAttack_1           │
+  │ Tags: [Attack.Style.Brawler]       │
+  │                                     │
+  │ Out Pins:                           │
+  │  • Light (normal combo)             │
+  │  • ParryCounter (context-sensitive) │
+  │  • Hold+Direction (directional)     │
+  └─────────────────────────────────────┘
+           ↓ Light
+  ┌─────────────────────────────────────┐
+  │ Light Attack 2                      │
+  │ Tags: [Attack.Style.Brawler]       │
+  └─────────────────────────────────────┘
+           ↓ ParryCounter (purple wire)
+  ┌─────────────────────────────────────┐
+  │ Counter Slash                       │
+  │ Tags: [Attack.Context.ParryCounter, │
+  │       Attack.Capability.Terminal]   │
+  │ (Red node = Terminal, no more combo)│
+  └─────────────────────────────────────┘
+
+  Implementation Plan
+
+  Phase 1: Foundation (Week 1-2)
+  - Implement Strategy 3 (Centralized Topology)
+  - Create UAttackChainDefinition with node/transition arrays
+  - Add asset validation for cycles (DFS traversal)
+  - Integrate with existing resolution system
+
+  Phase 2: Graph Editor (Week 3-5)
+  - Build UEdGraph-based combo editor
+  - Node types: Entry, Attack, Branch (context-sensitive), Terminal
+  - Pin types: Light, Heavy, ParryCounter, Finisher, Directional
+  - Real-time cycle detection on connection
+  - Compile button → generates AttackChainDefinition
+
+  Phase 3: Tag Integration (Week 6)
+  - Add GameplayTag support to AttackData
+  - Define tag hierarchy for styles, contexts, capabilities
+  - Update resolution to query tags
+  - Add tag-based filtering in graph editor
+
+  Phase 4: Style System (Week 7-8)
+  - Create separate graph assets per style (Brawler, Rush, Beast)
+  - Style switching logic in CombatComponent
+  - Smooth transitions between style graphs
+  - UI for style visualization
+
+  ---
+
+
+

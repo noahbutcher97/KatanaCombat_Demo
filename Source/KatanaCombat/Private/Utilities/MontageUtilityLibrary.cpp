@@ -12,6 +12,9 @@
 #include "Engine/World.h"
 #include "Data/AttackData.h"
 
+// Forward declare LogCombat (defined in CombatComponentV2.h)
+DECLARE_LOG_CATEGORY_EXTERN(LogCombat, Log, All);
+
 // ============================================================================
 // MONTAGE TIME QUERIES
 // ============================================================================
@@ -823,7 +826,7 @@ UAttackData* UMontageUtilityLibrary::GetComboAttack(
 	if (InputType == EInputType::LightAttack)
 	{
 		// Check for directional follow-up first (if direction specified)
-		if (Direction != EAttackDirection::None)
+		if (Direction != EAttackDirection::None && CurrentAttack->DirectionalFollowUps.Num() > 0)
 		{
 			if (TObjectPtr<UAttackData>* DirectionalAttack = CurrentAttack->DirectionalFollowUps.Find(Direction))
 			{
@@ -831,9 +834,14 @@ UAttackData* UMontageUtilityLibrary::GetComboAttack(
 					*CurrentAttack->GetName(), *(*DirectionalAttack)->GetName());
 				return *DirectionalAttack;
 			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[COMBO RESOLVE] Direction '%s' specified but no directional follow-up found for '%s'"),
+					*UEnum::GetValueAsString(Direction), *CurrentAttack->GetName());
+			}
 		}
 
-		// Normal light combo chain
+		// Normal light combo chain (fallback from directional or no direction specified)
 		UAttackData* NextAttack = CurrentAttack->NextComboAttack;
 		if (NextAttack)
 		{
@@ -842,7 +850,16 @@ UAttackData* UMontageUtilityLibrary::GetComboAttack(
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[COMBO RESOLVE] Light combo chain ends at '%s' (NextComboAttack is nullptr)"),
+			// Terminal node - check if this is a dead-end (no NextComboAttack AND no DirectionalFollowUps)
+			// If so, return nullptr to signal combo reset instead of allowing infinite loops
+			if (CurrentAttack->DirectionalFollowUps.Num() == 0)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[COMBO RESOLVE] Terminal node '%s' (no NextComboAttack, no DirectionalFollowUps) → combo chain ends, resetting to default"),
+					*CurrentAttack->GetName());
+				return nullptr; // Combo reset - ResolveNextAttack will use default attack
+			}
+
+			UE_LOG(LogTemp, Warning, TEXT("[COMBO RESOLVE] Light combo chain ends at '%s' (NextComboAttack is nullptr, but has DirectionalFollowUps)"),
 				*CurrentAttack->GetName());
 		}
 		return NextAttack;
@@ -852,13 +869,18 @@ UAttackData* UMontageUtilityLibrary::GetComboAttack(
 	if (InputType == EInputType::HeavyAttack)
 	{
 		// Check for heavy directional follow-up first (if direction specified)
-		if (Direction != EAttackDirection::None)
+		if (Direction != EAttackDirection::None && CurrentAttack->HeavyDirectionalFollowUps.Num() > 0)
 		{
 			if (TObjectPtr<UAttackData>* DirectionalAttack = CurrentAttack->HeavyDirectionalFollowUps.Find(Direction))
 			{
 				UE_LOG(LogTemp, Log, TEXT("[COMBO RESOLVE] Found directional heavy follow-up from '%s': '%s'"),
 					*CurrentAttack->GetName(), *(*DirectionalAttack)->GetName());
 				return *DirectionalAttack;
+			}
+			else
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[COMBO RESOLVE] Direction '%s' specified but no heavy directional follow-up found for '%s'"),
+					*UEnum::GetValueAsString(Direction), *CurrentAttack->GetName());
 			}
 		}
 
@@ -871,7 +893,16 @@ UAttackData* UMontageUtilityLibrary::GetComboAttack(
 		}
 		else
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[COMBO RESOLVE] Heavy combo branch ends at '%s' (HeavyComboAttack is nullptr)"),
+			// Terminal node - check if this is a dead-end (no HeavyComboAttack AND no HeavyDirectionalFollowUps)
+			// If so, return nullptr to signal combo reset instead of allowing infinite loops
+			if (CurrentAttack->HeavyDirectionalFollowUps.Num() == 0)
+			{
+				UE_LOG(LogTemp, Warning, TEXT("[COMBO RESOLVE] Terminal node '%s' (no HeavyComboAttack, no HeavyDirectionalFollowUps) → combo chain ends, resetting to default"),
+					*CurrentAttack->GetName());
+				return nullptr; // Combo reset - ResolveNextAttack will use default attack
+			}
+
+			UE_LOG(LogTemp, Warning, TEXT("[COMBO RESOLVE] Heavy combo branch ends at '%s' (HeavyComboAttack is nullptr, but has HeavyDirectionalFollowUps)"),
 				*CurrentAttack->GetName());
 		}
 		return HeavyBranch;
@@ -954,6 +985,141 @@ UAttackData* UMontageUtilityLibrary::ResolveNextAttack(
 	}
 
 	return ResolvedAttack;
+}
+
+// ============================================================================
+// V2 CONTEXT-AWARE ATTACK RESOLUTION (Phase 1)
+// ============================================================================
+
+FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
+	UAttackData* CurrentAttack,
+	EInputType InputType,
+	EAttackDirection Direction,
+	bool bIsHolding,
+	bool bComboWindowActive,
+	UAttackData* DefaultLightAttack,
+	UAttackData* DefaultHeavyAttack,
+	const FGameplayTagContainer& ActiveContext,
+	TSet<UAttackData*>& VisitedAttacks)
+{
+	FAttackResolutionResult Result;
+
+	// Safety: Check for cycle (visited this attack already)
+	if (CurrentAttack && VisitedAttacks.Contains(CurrentAttack))
+	{
+		UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] ✗ Cycle detected! Attack '%s' already visited in this resolution chain"),
+			*CurrentAttack->GetName());
+		Result.bCycleDetected = true;
+		return Result;
+	}
+
+	// Add current attack to visited set
+	if (CurrentAttack)
+	{
+		VisitedAttacks.Add(CurrentAttack);
+	}
+
+	const TCHAR* InputTypeName = InputType == EInputType::LightAttack ? TEXT("Light") :
+	                             InputType == EInputType::HeavyAttack ? TEXT("Heavy") : TEXT("Other");
+
+	UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Input=%s, Direction=%d, Holding=%s, ComboWindow=%s, CurrentAttack=%s"),
+		InputTypeName,
+		static_cast<int32>(Direction),
+		bIsHolding ? TEXT("Yes") : TEXT("No"),
+		bComboWindowActive ? TEXT("ACTIVE") : TEXT("Inactive"),
+		CurrentAttack ? *CurrentAttack->GetName() : TEXT("nullptr"));
+
+	// ========================================================================
+	// PRIORITY 1: Context-Sensitive Attacks (Future: Parry Counters, Finishers)
+	// ========================================================================
+	// TODO Phase 2: Check RequiredContextTags against ActiveContext
+	// For now, skip this priority (no context-sensitive attacks yet)
+
+	// ========================================================================
+	// PRIORITY 2: Directional Follow-Ups (if holding + direction + current attack has directionals)
+	// ========================================================================
+	if (bIsHolding && Direction != EAttackDirection::None && CurrentAttack)
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Checking directional follow-ups (Hold detected)..."));
+
+		// Check input-type-specific directional maps
+		UAttackData* DirectionalAttack = nullptr;
+		if (InputType == EInputType::HeavyAttack && CurrentAttack->HeavyDirectionalFollowUps.Contains(Direction))
+		{
+			DirectionalAttack = CurrentAttack->HeavyDirectionalFollowUps[Direction];
+			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Found HeavyDirectionalFollowUp for direction %d"), static_cast<int32>(Direction));
+		}
+		else if (InputType == EInputType::LightAttack && CurrentAttack->DirectionalFollowUps.Contains(Direction))
+		{
+			DirectionalAttack = CurrentAttack->DirectionalFollowUps[Direction];
+			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Found DirectionalFollowUp for direction %d"), static_cast<int32>(Direction));
+		}
+
+		if (DirectionalAttack)
+		{
+			Result.Attack = DirectionalAttack;
+			Result.Path = EResolutionPath::DirectionalFollowUp;
+			Result.bShouldClearDirectionalInput = true; // KEY FIX: Signal to clear LastDirectionalInput
+			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] ✓ Resolved to DirectionalFollowUp: '%s' (CLEAR SIGNAL)"), *DirectionalAttack->GetName());
+			return Result;
+		}
+		else
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] No directional follow-up found for direction %d"), static_cast<int32>(Direction));
+		}
+	}
+
+	// ========================================================================
+	// PRIORITY 3: Normal Combo Chain (if combo window active)
+	// ========================================================================
+	if (bComboWindowActive && CurrentAttack)
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Checking combo chain (ComboWindow active)..."));
+
+		UAttackData* ComboAttack = GetComboAttack(CurrentAttack, InputType, Direction);
+		if (ComboAttack)
+		{
+			Result.Attack = ComboAttack;
+			Result.Path = EResolutionPath::NormalCombo;
+			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] ✓ Resolved to NormalCombo: '%s'"), *ComboAttack->GetName());
+			return Result;
+		}
+		else
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Combo chain ended (nullptr), falling back to default"));
+		}
+	}
+
+	// ========================================================================
+	// PRIORITY 4: Default Attacks (fallback)
+	// ========================================================================
+	UAttackData* DefaultAttack = nullptr;
+	switch (InputType)
+	{
+		case EInputType::LightAttack:
+			DefaultAttack = DefaultLightAttack;
+			break;
+
+		case EInputType::HeavyAttack:
+			DefaultAttack = DefaultHeavyAttack;
+			break;
+
+		default:
+			break; // Other input types don't have attacks
+	}
+
+	if (DefaultAttack)
+	{
+		Result.Attack = DefaultAttack;
+		Result.Path = EResolutionPath::Default;
+		UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] ✓ Resolved to Default: '%s'"), *DefaultAttack->GetName());
+	}
+	else
+	{
+		UE_LOG(LogCombat, Warning, TEXT("[V2 RESOLVE] ✗ Failed to resolve attack (nullptr result)"));
+	}
+
+	return Result;
 }
 
 // ============================================================================
