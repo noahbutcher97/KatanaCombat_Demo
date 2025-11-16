@@ -1,0 +1,789 @@
+Folder PATH listing for volume Data
+Volume serial number is 4C72-49C7
+D:.
+├───.claude
+│   ├───agents
+│   ├───commands
+│   ├───context-modes
+│   ├───diagnostics
+│   ├───git-hooks-templates
+│   ├───hooks
+│   └───scripts
+├───.github
+│   └───workflows
+├───.idea
+│   ├───.idea.KatanaCombat
+│   │   └───.idea
+│   └───.idea.KatanaCombat.dir
+│       └───.idea
+├───.vs
+│   └───KatanaCombat
+│       └───v17
+├───Binaries
+│   └───Win64
+├───Config
+│   └───Layouts
+├───Content
+│   ├───Assets
+│   │   ├───Animations
+│   │   │   ├───ARPG_Samurai
+│   │   │   │   ├───Additional_Animations
+│   │   │   │   ├───Animations
+│   │   │   │   ├───Animations_UE5
+│   │   │   │   └───Demo
+│   │   │   │       ├───Geometry
+│   │   │   │       │   └───Meshes
+│   │   │   │       ├───Mannequin
+│   │   │   │       │   └───Character_UE5
+│   │   │   │       │       └───Rigs
+│   │   │   │       │           └───Poses
+│   │   │   │       │               └───Manny
+│   │   │   │       ├───Maps
+│   │   │   │       └───Weapon
+│   │   │   │           ├───Materials
+│   │   │   │           └───Mesh
+│   │   │   ├───CombatMasterAnimBundle
+│   │   │   │   ├───Animations
+│   │   │   │   │   ├───DSAS_V1
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   ├───InPlace
+│   │   │   │   │   │   │   │   ├───Attack
+│   │   │   │   │   │   │   │   │   ├───Combo
+│   │   │   │   │   │   │   │   │   └───CommonAttack
+│   │   │   │   │   │   │   │   ├───idle
+│   │   │   │   │   │   │   │   └───Locomotion
+│   │   │   │   │   │   │   │       └───Walk
+│   │   │   │   │   │   │   └───RootMotion
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       │   ├───ComboAttack
+│   │   │   │   │   │   │       │   └───CommonAttack
+│   │   │   │   │   │   │       ├───Block
+│   │   │   │   │   │   │       ├───Idle
+│   │   │   │   │   │   │       ├───Locomotion
+│   │   │   │   │   │   │       │   └───Walk
+│   │   │   │   │   │   │       └───Unequip
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       ├───InPlace
+│   │   │   │   │   │       │   ├───Attack
+│   │   │   │   │   │       │   │   ├───Combo
+│   │   │   │   │   │       │   │   └───CommonAttack
+│   │   │   │   │   │       │   ├───Idle
+│   │   │   │   │   │       │   └───Locomotion
+│   │   │   │   │   │       │       └───Walk
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Attack
+│   │   │   │   │   │           │   ├───Combo
+│   │   │   │   │   │           │   └───CommonAttack
+│   │   │   │   │   │           ├───Block
+│   │   │   │   │   │           ├───Locomotion
+│   │   │   │   │   │           └───Unequip
+│   │   │   │   │   ├───DSAS_V2
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   ├───InPlace
+│   │   │   │   │   │   │   │   ├───Attack
+│   │   │   │   │   │   │   │   ├───Block
+│   │   │   │   │   │   │   │   ├───Hit
+│   │   │   │   │   │   │   │   ├───Idle
+│   │   │   │   │   │   │   │   └───Locomotions
+│   │   │   │   │   │   │   └───Root
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       ├───Block
+│   │   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │   │       ├───Locomotions
+│   │   │   │   │   │   │       └───Turn
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       ├───InPlace
+│   │   │   │   │   │       │   ├───Attack
+│   │   │   │   │   │       │   │   └───Combo
+│   │   │   │   │   │       │   ├───Block
+│   │   │   │   │   │       │   ├───Hit
+│   │   │   │   │   │       │   ├───Idle
+│   │   │   │   │   │       │   └───Locomotion
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Attack
+│   │   │   │   │   │           ├───Block
+│   │   │   │   │   │           ├───Hit
+│   │   │   │   │   │           └───Locomotion
+│   │   │   │   │   ├───DSAS_V3
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   └───Root
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       │   ├───ComboAttack
+│   │   │   │   │   │   │       │   └───SingleAttack
+│   │   │   │   │   │   │       ├───Buff
+│   │   │   │   │   │   │       ├───Die
+│   │   │   │   │   │   │       ├───Dodge
+│   │   │   │   │   │   │       ├───Evade
+│   │   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │   │       ├───Idle
+│   │   │   │   │   │   │       └───Locomotion
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Attack
+│   │   │   │   │   │           ├───Buff
+│   │   │   │   │   │           ├───Die
+│   │   │   │   │   │           ├───Dodge
+│   │   │   │   │   │           ├───Evade
+│   │   │   │   │   │           ├───Hit
+│   │   │   │   │   │           ├───Idle
+│   │   │   │   │   │           └───Locomotion
+│   │   │   │   │   ├───DynamciKatanaV1
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   ├───InPlace
+│   │   │   │   │   │   │   │   ├───ComboAttack
+│   │   │   │   │   │   │   │   ├───Hit
+│   │   │   │   │   │   │   │   └───Walk
+│   │   │   │   │   │   │   └───RootMotion
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │   │       ├───Idle
+│   │   │   │   │   │   │       └───Walk
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       ├───InPlace
+│   │   │   │   │   │       │   ├───Attack
+│   │   │   │   │   │       │   │   └───Combo
+│   │   │   │   │   │       │   ├───Hit
+│   │   │   │   │   │       │   └───Locomotion
+│   │   │   │   │   │       │       └───Walk
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Attack
+│   │   │   │   │   │           │   └───Combo
+│   │   │   │   │   │           ├───Hit
+│   │   │   │   │   │           ├───Idle
+│   │   │   │   │   │           └───Walk
+│   │   │   │   │   ├───DynamicAxeAnims
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   └───RootMotion
+│   │   │   │   │   │   │       ├───Buff
+│   │   │   │   │   │   │       ├───ComboAttack
+│   │   │   │   │   │   │       ├───CommonAttack
+│   │   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │   │       └───Idle
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Buff
+│   │   │   │   │   │           ├───CommboAttack
+│   │   │   │   │   │           ├───CommonAttack
+│   │   │   │   │   │           ├───Hit
+│   │   │   │   │   │           └───Idle
+│   │   │   │   │   ├───DynamicHandtoHand
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   └───RootMotion
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       │   ├───ComboAttack
+│   │   │   │   │   │   │       │   └───CommonAttack
+│   │   │   │   │   │   │       └───Idle
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Attack
+│   │   │   │   │   │           │   ├───ComboAttack
+│   │   │   │   │   │           │   └───CommonAttack
+│   │   │   │   │   │           └───Idle
+│   │   │   │   │   ├───DynamicHandtoHandV2
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   └───RM
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       │   └───ComboAttack
+│   │   │   │   │   │   │       ├───Block
+│   │   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │   │       └───Idle
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │       ├───Block
+│   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │       └───Idle
+│   │   │   │   │   ├───DynamicKatanaV2
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   ├───IP
+│   │   │   │   │   │   │   │   ├───Attack
+│   │   │   │   │   │   │   │   ├───Die
+│   │   │   │   │   │   │   │   └───Locomotions
+│   │   │   │   │   │   │   └───RM
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       ├───Die
+│   │   │   │   │   │   │       └───Locomotions
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       ├───InPlace
+│   │   │   │   │   │       │   ├───Attack
+│   │   │   │   │   │       │   │   └───Combo
+│   │   │   │   │   │       │   ├───Die
+│   │   │   │   │   │       │   └───Locomotion
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Attack
+│   │   │   │   │   │           │   └───Combo
+│   │   │   │   │   │           ├───Die
+│   │   │   │   │   │           ├───Idle
+│   │   │   │   │   │           └───Locomotion
+│   │   │   │   │   ├───DynamicKatanaV3
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   └───RootMotion
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │   │       ├───Idle
+│   │   │   │   │   │   │       ├───Intro
+│   │   │   │   │   │   │       └───Locomotion
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   ├───DynamicTwinAxeCombatAnims
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   └───RootMotion
+│   │   │   │   │   │   │       ├───Block
+│   │   │   │   │   │   │       ├───ComboAttack
+│   │   │   │   │   │   │       ├───Equip
+│   │   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │   │       ├───Idle
+│   │   │   │   │   │   │       └───Jump
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Block
+│   │   │   │   │   │           ├───ComboAttack
+│   │   │   │   │   │           ├───Equip
+│   │   │   │   │   │           ├───Hit
+│   │   │   │   │   │           ├───Idle
+│   │   │   │   │   │           └───Jump
+│   │   │   │   │   ├───HandsomeKatanaAnims
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   └───RootMotion
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       ├───Block
+│   │   │   │   │   │   │       ├───Evade
+│   │   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │   │       └───Idle
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Attack
+│   │   │   │   │   │           ├───Block
+│   │   │   │   │   │           ├───Evade
+│   │   │   │   │   │           ├───Hit
+│   │   │   │   │   │           └───Idle
+│   │   │   │   │   ├───HandsomeSwordAndShield
+│   │   │   │   │   │   ├───SwordAndShieldAnimations
+│   │   │   │   │   │   │   ├───Attack
+│   │   │   │   │   │   │   ├───Dead
+│   │   │   │   │   │   │   └───Hit
+│   │   │   │   │   │   └───SwordAnimations
+│   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │       ├───Buff
+│   │   │   │   │   │       ├───Evade
+│   │   │   │   │   │       └───Idle
+│   │   │   │   │   ├───HandsomeSwordV1
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   ├───Attack
+│   │   │   │   │   │   │   ├───Hit
+│   │   │   │   │   │   │   └───Locomotion
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Attack
+│   │   │   │   │   │           ├───Equip
+│   │   │   │   │   │           ├───Hit
+│   │   │   │   │   │           ├───Idle
+│   │   │   │   │   │           └───Locomotion
+│   │   │   │   │   ├───HandsomeSwordV2
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   └───RootMotion
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       │   ├───ComboAttack
+│   │   │   │   │   │   │       │   ├───CommonAttack
+│   │   │   │   │   │   │       │   └───Execute
+│   │   │   │   │   │   │       ├───Evade
+│   │   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │   │       ├───Idle
+│   │   │   │   │   │   │       └───Locomotion
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Attack
+│   │   │   │   │   │           │   ├───ComboAttack
+│   │   │   │   │   │           │   ├───CommonAttack
+│   │   │   │   │   │           │   └───Execute
+│   │   │   │   │   │           ├───Evade
+│   │   │   │   │   │           ├───Hit
+│   │   │   │   │   │           ├───Idle
+│   │   │   │   │   │           └───Locomotion
+│   │   │   │   │   ├───HandsomeTwinSword
+│   │   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   │   │   └───RootMotion
+│   │   │   │   │   │   │       ├───Attack
+│   │   │   │   │   │   │       ├───Block
+│   │   │   │   │   │   │       ├───Evade
+│   │   │   │   │   │   │       ├───Hit
+│   │   │   │   │   │   │       ├───Idle
+│   │   │   │   │   │   │       └───Locomotion
+│   │   │   │   │   │   └───Manny_UE5
+│   │   │   │   │   │       └───RootMotion
+│   │   │   │   │   │           ├───Attack
+│   │   │   │   │   │           ├───Block
+│   │   │   │   │   │           ├───Evade
+│   │   │   │   │   │           ├───Hit
+│   │   │   │   │   │           ├───Idle
+│   │   │   │   │   │           └───Locomotion
+│   │   │   │   │   └───PowerfulSwordAnims
+│   │   │   │   │       ├───Mannequin_UE4
+│   │   │   │   │       │   └───RootMotion
+│   │   │   │   │       │       ├───Attack
+│   │   │   │   │       │       │   ├───ComboAttack
+│   │   │   │   │       │       │   └───NormalAttack
+│   │   │   │   │       │       ├───Hit
+│   │   │   │   │       │       ├───Idle
+│   │   │   │   │       │       └───Locomotion
+│   │   │   │   │       │           ├───Run
+│   │   │   │   │       │           └───Walk
+│   │   │   │   │       └───Mannequin_UE5
+│   │   │   │   │           └───RootMotion
+│   │   │   │   │               ├───Attack
+│   │   │   │   │               │   ├───ComboAttack
+│   │   │   │   │               │   └───CommonAttack
+│   │   │   │   │               ├───Hit
+│   │   │   │   │               ├───Idle
+│   │   │   │   │               └───Locomotion
+│   │   │   │   │                   ├───Run
+│   │   │   │   │                   └───Walk
+│   │   │   │   ├───Blueprints
+│   │   │   │   │   ├───AddWeapons
+│   │   │   │   │   └───AnimNotifies
+│   │   │   │   ├───Demo
+│   │   │   │   │   └───Characters
+│   │   │   │   │       └───Mannequin_UE4
+│   │   │   │   │           ├───Materials
+│   │   │   │   │           │   └───Layers
+│   │   │   │   │           ├───Meshes
+│   │   │   │   │           └───Textures
+│   │   │   │   ├───Map
+│   │   │   │   │   ├───Mannequin_UE4
+│   │   │   │   │   └───Manny_UE5
+│   │   │   │   └───Weapon
+│   │   │   ├───DynamicKatana
+│   │   │   └───KatanaAnimset
+│   │   │       ├───InPlace
+│   │   │       └───RootMotion
+│   │   ├───Characters
+│   │   │   └───Mannequins
+│   │   │       ├───Anims
+│   │   │       │   ├───Death
+│   │   │       │   ├───Pistol
+│   │   │       │   │   ├───Aim
+│   │   │       │   │   ├───Jog
+│   │   │       │   │   ├───Jump
+│   │   │       │   │   └───Walk
+│   │   │       │   ├───Rifle
+│   │   │       │   │   ├───AIM
+│   │   │       │   │   ├───HitReact
+│   │   │       │   │   ├───Jog
+│   │   │       │   │   ├───Jump
+│   │   │       │   │   └───Walk
+│   │   │       │   └───Unarmed
+│   │   │       │       ├───Attack
+│   │   │       │       ├───Jog
+│   │   │       │       ├───Jump
+│   │   │       │       └───Walk
+│   │   │       ├───Materials
+│   │   │       │   ├───Manny
+│   │   │       │   └───Quinn
+│   │   │       ├───Meshes
+│   │   │       ├───Rigs
+│   │   │       └───Textures
+│   │   │           ├───Manny
+│   │   │           ├───Quinn
+│   │   │           └───Shared
+│   │   ├───LevelPrototyping
+│   │   │   ├───Interactable
+│   │   │   │   ├───Door
+│   │   │   │   │   └───Assets
+│   │   │   │   │       └───Meshes
+│   │   │   │   ├───JumpPad
+│   │   │   │   │   └───Assets
+│   │   │   │   │       ├───Materials
+│   │   │   │   │       └───Meshes
+│   │   │   │   └───Target
+│   │   │   │       └───Assets
+│   │   │   ├───Materials
+│   │   │   ├───Meshes
+│   │   │   └───Textures
+│   │   └───Splash
+│   ├───Collections
+│   ├───Developers
+│   │   └───posne
+│   │       └───Collections
+│   ├───ProjectFiles
+│   │   ├───Animation
+│   │   │   ├───Blendspace
+│   │   │   └───Montages
+│   │   │       └───Katana
+│   │   │           ├───Heavy
+│   │   │           └───Light
+│   │   ├───Core
+│   │   │   ├───Actors
+│   │   │   │   └───Character
+│   │   │   ├───Components
+│   │   │   └───GameModes
+│   │   ├───Data
+│   │   │   └───PDA
+│   │   │       ├───AttackConfigurations
+│   │   │       ├───AttackData
+│   │   │       │   ├───Heavy
+│   │   │       │   └───Light
+│   │   │       └───CombatSettings
+│   │   └───Input
+│   │       ├───Actions
+│   │       └───Touch
+│   ├───Templates
+│   │   ├───ThirdPerson
+│   │   │   └───Blueprints
+│   │   ├───Variant_Combat
+│   │   │   ├───Blueprints
+│   │   │   │   ├───AI
+│   │   │   │   └───Interactables
+│   │   │   ├───Input
+│   │   │   │   └───Actions
+│   │   │   ├───Materials
+│   │   │   ├───UI
+│   │   │   └───VFX
+│   │   ├───Variant_Platforming
+│   │   │   ├───Anims
+│   │   │   ├───Blueprints
+│   │   │   ├───Input
+│   │   │   │   └───Actions
+│   │   │   └───VFX
+│   │   └───Variant_SideScrolling
+│   │       ├───Anims
+│   │       ├───Blueprints
+│   │       │   ├───AI
+│   │       │   └───Items
+│   │       ├───Input
+│   │       │   └───Actions
+│   │       └───UI
+
+
+
+
+PS D:\UnrealProjects\5.6\KatanaCombat\source> ls -r -depth 2
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+dar---        11/12/2025   4:36 PM                KatanaCombat                                                                                                                                                                                                                                                                                           
+dar---        10/20/2025   9:38 AM                KatanaCombatEditor                                                                                                                                                                                                                                                                                     
+d-----         11/3/2025  10:31 AM                KatanaCombatTest                                                                                                                                                                                                                                                                                       
+-a----        10/22/2025   2:24 PM            649 KatanaCombat.Target.cs                                                                                                                                                                                                                                                                                 
+-a----        10/22/2025   2:24 PM            663 KatanaCombatEditor.Target.cs                                                                                                                                                                                                                                                                           
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombat
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+dar---         11/7/2025  12:45 AM                Private                                                                                                                                                                                                                                                                                                
+dar---        11/11/2025   7:56 PM                Public                                                                                                                                                                                                                                                                                                 
+dar---        10/20/2025   9:38 AM                Variant_Combat                                                                                                                                                                                                                                                                                         
+dar---        10/20/2025   9:38 AM                Variant_Platforming                                                                                                                                                                                                                                                                                    
+dar---        10/20/2025   9:38 AM                Variant_SideScrolling                                                                                                                                                                                                                                                                                  
+-a----        11/12/2025   4:36 PM           1795 KatanaCombat.Build.cs                                                                                                                                                                                                                                                                                  
+-a----         10/6/2025   8:56 AM            245 KatanaCombat.cpp                                                                                                                                                                                                                                                                                       
+-a----         10/6/2025   8:56 AM            203 KatanaCombat.h                                                                                                                                                                                                                                                                                         
+-a----         10/6/2025   8:56 AM           4829 KatanaCombatCharacter.cpp                                                                                                                                                                                                                                                                              
+-a----         10/6/2025   8:56 AM           2717 KatanaCombatCharacter.h                                                                                                                                                                                                                                                                                
+-a----         10/6/2025   8:56 AM            155 KatanaCombatGameMode.cpp                                                                                                                                                                                                                                                                               
+-a----         10/6/2025   8:56 AM            403 KatanaCombatGameMode.h                                                                                                                                                                                                                                                                                 
+-a----         10/6/2025   8:56 AM           1701 KatanaCombatPlayerController.cpp                                                                                                                                                                                                                                                                       
+-a----         10/6/2025   8:56 AM           1185 KatanaCombatPlayerController.h                                                                                                                                                                                                                                                                         
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombat\Private
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+dar---        11/11/2025   3:17 AM                Animation                                                                                                                                                                                                                                                                                              
+dar---        11/13/2025   9:05 AM                Characters                                                                                                                                                                                                                                                                                             
+dar---        11/13/2025   8:52 AM                Core                                                                                                                                                                                                                                                                                                   
+dar---        11/12/2025   4:28 PM                Data                                                                                                                                                                                                                                                                                                   
+d-----         11/6/2025  10:45 PM                Debug                                                                                                                                                                                                                                                                                                  
+dar---        10/19/2025   7:06 PM                Tests                                                                                                                                                                                                                                                                                                  
+d-----        11/12/2025   4:34 PM                Utilities                                                                                                                                                                                                                                                                                              
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombat\Public
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+dar---        11/14/2025  11:34 PM                Animation                                                                                                                                                                                                                                                                                              
+dar---        11/13/2025   8:56 AM                Characters                                                                                                                                                                                                                                                                                             
+dar---        11/13/2025   9:55 AM                Core                                                                                                                                                                                                                                                                                                   
+dar---        11/12/2025   4:12 PM                Data                                                                                                                                                                                                                                                                                                   
+d-----         11/6/2025  10:43 PM                Debug                                                                                                                                                                                                                                                                                                  
+dar---        11/11/2025   3:11 AM                Interfaces                                                                                                                                                                                                                                                                                             
+d-----        11/12/2025   4:30 PM                Utilities                                                                                                                                                                                                                                                                                              
+-a----        11/11/2025   7:44 PM          10847 ActionQueueTypes.h                                                                                                                                                                                                                                                                                     
+-a----        11/11/2025   7:56 PM          16844 CombatTypes.h                                                                                                                                                                                                                                                                                          
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombat\Variant_Combat
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+dar---        10/20/2025   9:38 AM                AI                                                                                                                                                                                                                                                                                                     
+dar---        10/20/2025   9:38 AM                Animation                                                                                                                                                                                                                                                                                              
+dar---        10/20/2025   9:38 AM                Gameplay                                                                                                                                                                                                                                                                                               
+dar---        10/20/2025   9:38 AM                Interfaces                                                                                                                                                                                                                                                                                             
+dar---        10/20/2025   9:38 AM                UI                                                                                                                                                                                                                                                                                                     
+-a----         10/6/2025   8:56 AM          13684 CombatCharacter.cpp                                                                                                                                                                                                                                                                                    
+-a----         10/6/2025   8:56 AM          10614 CombatCharacter.h                                                                                                                                                                                                                                                                                      
+-a----         10/6/2025   8:56 AM            144 CombatGameMode.cpp                                                                                                                                                                                                                                                                                     
+-a----         10/6/2025   8:56 AM            365 CombatGameMode.h                                                                                                                                                                                                                                                                                       
+-a----         10/6/2025   8:56 AM           2504 CombatPlayerController.cpp                                                                                                                                                                                                                                                                             
+-a----         10/6/2025   8:56 AM           1893 CombatPlayerController.h                                                                                                                                                                                                                                                                               
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombat\Variant_Platforming
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+dar---        10/20/2025   9:38 AM                Animation                                                                                                                                                                                                                                                                                              
+-a----         10/6/2025   8:56 AM          10595 PlatformingCharacter.cpp                                                                                                                                                                                                                                                                               
+-a----         10/6/2025   8:56 AM           6127 PlatformingCharacter.h                                                                                                                                                                                                                                                                                 
+-a----         10/6/2025   8:56 AM            172 PlatformingGameMode.cpp                                                                                                                                                                                                                                                                                
+-a----         10/6/2025   8:56 AM            398 PlatformingGameMode.h                                                                                                                                                                                                                                                                                  
+-a----         10/6/2025   8:56 AM           2651 PlatformingPlayerController.cpp                                                                                                                                                                                                                                                                        
+-a----         10/6/2025   8:56 AM           1670 PlatformingPlayerController.h                                                                                                                                                                                                                                                                          
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombat\Variant_SideScrolling
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+dar---        10/20/2025   9:38 AM                AI                                                                                                                                                                                                                                                                                                     
+dar---        10/20/2025   9:38 AM                Gameplay                                                                                                                                                                                                                                                                                               
+dar---        10/20/2025   9:38 AM                Interfaces                                                                                                                                                                                                                                                                                             
+dar---        10/20/2025   9:38 AM                UI                                                                                                                                                                                                                                                                                                     
+-a----         10/6/2025   8:56 AM           3129 SideScrollingCameraManager.cpp                                                                                                                                                                                                                                                                         
+-a----         10/6/2025   8:56 AM           1569 SideScrollingCameraManager.h                                                                                                                                                                                                                                                                           
+-a----         10/6/2025   8:56 AM          10425 SideScrollingCharacter.cpp                                                                                                                                                                                                                                                                             
+-a----         10/6/2025   8:56 AM           5885 SideScrollingCharacter.h                                                                                                                                                                                                                                                                               
+-a----         10/6/2025   8:56 AM            864 SideScrollingGameMode.cpp                                                                                                                                                                                                                                                                              
+-a----         10/6/2025   8:56 AM           1056 SideScrollingGameMode.h                                                                                                                                                                                                                                                                                
+-a----         10/6/2025   8:56 AM           2651 SideScrollingPlayerController.cpp                                                                                                                                                                                                                                                                      
+-a----         10/6/2025   8:56 AM           1702 SideScrollingPlayerController.h                                                                                                                                                                                                                                                                        
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombatEditor
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+dar---        10/20/2025   9:38 AM                Private                                                                                                                                                                                                                                                                                                
+dar---        10/20/2025   9:38 AM                Public                                                                                                                                                                                                                                                                                                 
+-a----         10/6/2025   3:06 PM            987 KatanaCombatEditor.Build.cs                                                                                                                                                                                                                                                                            
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombatEditor\Private
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+dar---        11/11/2025   4:39 AM                Customizations                                                                                                                                                                                                                                                                                         
+-a----        10/19/2025  11:53 PM          26070 AttackDataTools.cpp                                                                                                                                                                                                                                                                                    
+-a----         10/6/2025   3:07 PM           1273 KatanaCombatEditor.cpp                                                                                                                                                                                                                                                                                 
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombatEditor\Public
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+dar---        11/11/2025   4:37 AM                Customizations                                                                                                                                                                                                                                                                                         
+-a----         10/6/2025   3:10 PM          13381 AttackDataTools.h                                                                                                                                                                                                                                                                                      
+-a----         10/6/2025   3:07 PM            996 KatanaCombatEditor.h                                                                                                                                                                                                                                                                                   
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombatTest
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+d-----         11/7/2025  12:50 AM                Private                                                                                                                                                                                                                                                                                                
+d-----         11/7/2025  12:38 AM                Public                                                                                                                                                                                                                                                                                                 
+-a----         11/3/2025  10:31 AM            732 KatanaCombatTest.build.cs                                                                                                                                                                                                                                                                              
+-a----        10/22/2025   2:33 PM           4935 README.md                                                                                                                                                                                                                                                                                              
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombatTest\Private
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+-a----         11/7/2025  12:50 AM           4108 AttackExecutionTests.cpp                                                                                                                                                                                                                                                                               
+-a----         11/7/2025  12:40 AM           4454 HoldWindowTests.cpp                                                                                                                                                                                                                                                                                    
+-a----         11/7/2025  12:40 AM           3864 InputBufferingTests.cpp                                                                                                                                                                                                                                                                                
+-a----        10/22/2025   2:24 PM            460 KatanaCombatTest.cpp                                                                                                                                                                                                                                                                                   
+-a----        10/22/2025   4:57 PM           3948 MemorySafetyTests.cpp                                                                                                                                                                                                                                                                                  
+-a----        10/22/2025   4:56 PM           3418 ParryDetectionTests.cpp                                                                                                                                                                                                                                                                                
+-a----        10/22/2025   4:57 PM           4911 PhasesVsWindowsTests.cpp                                                                                                                                                                                                                                                                               
+-a----        10/25/2025   8:34 PM           3464 StateTransitionTests.cpp                                                                                                                                                                                                                                                                               
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\source\KatanaCombatTest\Public
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+-a----         11/7/2025  12:38 AM           4646 CombatTestHelpers.h                                                                                                                                                                                                                                                                                    
+-a----        10/22/2025   2:24 PM            336 KatanaCombatTest.h        
+
+
+
+
+
+
+PS D:\UnrealProjects\5.6\KatanaCombat\.claude> ls -r -depth 2
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\.claude
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+d-----        11/13/2025   9:40 AM                agents                                                                                                                                                                                                                                                                                                 
+dar---        11/15/2025   1:50 AM                commands                                                                                                                                                                                                                                                                                               
+d-----        11/15/2025   1:41 AM                context-modes                                                                                                                                                                                                                                                                                          
+d-----        11/13/2025   9:02 AM                diagnostics                                                                                                                                                                                                                                                                                            
+d-----        11/15/2025  12:16 AM                git-hooks-templates                                                                                                                                                                                                                                                                                    
+d-----        11/15/2025   2:48 AM                hooks                                                                                                                                                                                                                                                                                                  
+d-----        11/15/2025  10:08 AM                scripts                                                                                                                                                                                                                                                                                                
+-a----        11/15/2025   1:38 AM           3661 .context-history.json                                                                                                                                                                                                                                                                                  
+-a----        11/15/2025  10:09 AM           2544 .context-learning.json                                                                                                                                                                                                                                                                                 
+-a----        11/15/2025   1:44 AM          17627 CHANGELOG.md                                                                                                                                                                                                                                                                                           
+-a----        11/13/2025   8:41 AM            421 config.json                                                                                                                                                                                                                                                                                            
+-a----        11/15/2025   1:25 AM           1244 context-history-export-2025-11-15-012540.json                                                                                                                                                                                                                                                          
+-a----        11/15/2025   9:35 AM          16152 CONTEXT_LEARNING_SYSTEM.md                                                                                                                                                                                                                                                                             
+-a----        11/13/2025   8:49 AM           4730 diagnostics-config.json                                                                                                                                                                                                                                                                                
+-a----        11/15/2025  12:18 AM           3405 hooks-config.json                                                                                                                                                                                                                                                                                      
+-a----        11/15/2025  12:17 AM          11985 INDEX.md                                                                                                                                                                                                                                                                                               
+-a----        11/15/2025   2:46 AM           8293 ML_INTEGRATION_TEST_REPORT.md                                                                                                                                                                                                                                                                          
+-a----        11/15/2025   2:23 AM          14431 ML_LEARNING_SYSTEM.md                                                                                                                                                                                                                                                                                  
+-a----        11/15/2025  10:08 AM           5234 settings.local.json                                                                                                                                                                                                                                                                                    
+-a----        11/15/2025  12:13 AM          23745 SYSTEMIC_TOOLS.md                                                                                                                                                                                                                                                                                      
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\.claude\agents
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+-a----        11/13/2025   8:23 AM           8854 code-auditor.md                                                                                                                                                                                                                                                                                        
+-a----        10/22/2025   5:07 PM           8855 design-compliance-auditor.md                                                                                                                                                                                                                                                                           
+-a----        11/13/2025   9:36 AM          13793 pipeline-bugfix.md                                                                                                                                                                                                                                                                                     
+-a----        11/13/2025   9:34 AM          11914 pipeline-feature.md                                                                                                                                                                                                                                                                                    
+-a----        11/13/2025   9:40 AM          13595 README.md                                                                                                                                                                                                                                                                                              
+-a----        11/13/2025   9:32 AM          12745 router.md                                                                                                                                                                                                                                                                                              
+-a----        10/22/2025   5:12 PM          10170 ue-code-generator.md                                                                                                                                                                                                                                                                                   
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\.claude\commands
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+-a----        11/13/2025   8:50 AM           5610 check-warnings.md                                                                                                                                                                                                                                                                                      
+-a----        10/19/2025   6:29 PM          13527 clarify.md                                                                                                                                                                                                                                                                                             
+-a----        10/19/2025   6:32 PM           3812 COMMAND_SUMMARY.md                                                                                                                                                                                                                                                                                     
+-a----        11/13/2025   8:58 AM           7174 diagnostics-dashboard.md                                                                                                                                                                                                                                                                               
+-a----        10/19/2025   6:26 PM          11792 fix-crash.md                                                                                                                                                                                                                                                                                           
+-a----        10/19/2025   6:22 PM           7205 full-audit.md                                                                                                                                                                                                                                                                                          
+-a----        10/19/2025   6:20 PM          10960 generate-tests.md                                                                                                                                                                                                                                                                                      
+-a----        11/15/2025   1:50 AM          11248 mode.md                                                                                                                                                                                                                                                                                                
+-a----        10/19/2025   6:24 PM           5623 post-fix.md                                                                                                                                                                                                                                                                                            
+-a----        10/19/2025   6:23 PM           4244 pre-commit.md                                                                                                                                                                                                                                                                                          
+-a----        11/15/2025  12:13 AM          11454 README.md                                                                                                                                                                                                                                                                                              
+-a----        10/19/2025   6:18 PM           6108 sync-docs.md                                                                                                                                                                                                                                                                                           
+-a----        10/19/2025   6:19 PM           7825 validate-combat.md                                                                                                                                                                                                                                                                                     
+-a----        10/19/2025   6:33 PM          13985 VISUAL_GUIDE.md                                                                                                                                                                                                                                                                                        
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\.claude\context-modes
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+-a----        11/13/2025   8:36 AM            902 animation.json                                                                                                                                                                                                                                                                                         
+-a----        11/13/2025   8:37 AM           1218 combat-logic.json                                                                                                                                                                                                                                                                                      
+-a----        11/13/2025   8:38 AM           1089 data-assets.json                                                                                                                                                                                                                                                                                       
+-a----        11/13/2025   8:39 AM           1634 documentation.json                                                                                                                                                                                                                                                                                     
+-a----        11/13/2025   8:38 AM           1416 editor-ui.json                                                                                                                                                                                                                                                                                         
+-a----        11/13/2025   8:39 AM           1018 full.json                                                                                                                                                                                                                                                                                              
+-a----        11/15/2025  12:11 AM          12830 INTELLIGENT_SWITCHING.md                                                                                                                                                                                                                                                                               
+-a----        11/13/2025   8:42 AM           7120 README.md                                                                                                                                                                                                                                                                                              
+-a----        11/13/2025   8:38 AM           1939 testing.json                                                                                                                                                                                                                                                                                           
+-a----        11/15/2025   1:41 AM           8656 USAGE_GUIDE.md                                                                                                                                                                                                                                                                                         
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\.claude\diagnostics
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+-a----        11/13/2025   9:02 AM          10054 README.md                                                                                                                                                                                                                                                                                              
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\.claude\git-hooks-templates
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+-a----        11/15/2025  12:16 AM           6799 INSTALL.md                                                                                                                                                                                                                                                                                             
+-a----        11/15/2025  12:15 AM            575 post-commit                                                                                                                                                                                                                                                                                            
+-a----        11/15/2025  12:15 AM            918 pre-commit                                                                                                                                                                                                                                                                                             
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\.claude\hooks
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+-a----        11/13/2025   9:20 AM           4563 after-edit.ps1                                                                                                                                                                                                                                                                                         
+-a----        11/15/2025  12:16 AM           2020 agent-reminder.ps1                                                                                                                                                                                                                                                                                     
+-a----        11/15/2025   2:48 AM           9746 auto-context.ps1                                                                                                                                                                                                                                                                                       
+-a----        11/13/2025   9:21 AM           6215 before-commit.ps1                                                                                                                                                                                                                                                                                      
+-a----        11/13/2025   9:24 AM           5701 on-file-save.ps1                                                                                                                                                                                                                                                                                       
+-a----        11/13/2025   8:51 AM           4609 pre-commit-diagnostics.ps1                                                                                                                                                                                                                                                                             
+-a----        11/15/2025  12:17 AM          12341 README.md                                                                                                                                                                                                                                                                                              
+
+
+    Directory: D:\UnrealProjects\5.6\KatanaCombat\.claude\scripts
+
+
+Mode                 LastWriteTime         Length Name                                                                                                                                                                                                                                                                                                   
+----                 -------------         ------ ----                                                                                                                                                                                                                                                                                                   
+-a----        11/13/2025   9:37 AM           9036 agent-coordinator.ps1                                                                                                                                                                                                                                                                                  
+-a----        11/15/2025   1:43 AM           4268 analyze-conversation.ps1                                                                                                                                                                                                                                                                               
+-a----        11/15/2025   1:23 AM           8929 context-tracker.ps1                                                                                                                                                                                                                                                                                    
+-a----        11/15/2025   1:17 AM           8956 context-tracker.ps1.backup                                                                                                                                                                                                                                                                             
+-a----        11/15/2025   1:48 AM           8333 conversation-analyzer.ps1                                                                                                                                                                                                                                                                              
+-a----        11/15/2025   1:39 AM           7412 detect-mode.ps1                                                                                                                                                                                                                                                                                        
+-a----        11/13/2025   8:52 AM           2503 get-context-files.ps1                                                                                                                                                                                                                                                                                  
+-a----        11/15/2025   2:21 AM          14031 holistic-mode-detector.ps1                                                                                                                                                                                                                                                                             
+-a----        11/15/2025  10:06 AM          42617 learning-tracker.ps1                                                                                                                                                                                                                                                                                   
+-a----        11/15/2025   2:43 AM           1819 test-accuracy-debug.ps1                                                                                                                                                                                                                                                                                
+-a----        11/15/2025   2:48 AM           9143 test-auto-context-ml.ps1                                                                                                                                                                                                                                                                               
+-a----        11/15/2025   1:36 AM           1634 test-auto-context.ps1                                                                                                                                                                                                                                                                                  
+-a----        11/15/2025   2:11 AM           1922 test-bayesian-latency.ps1                                                                                                                                                                                                                                                                              
+-a----        11/15/2025   2:10 AM           3102 test-bayesian.ps1                                                                                                                                                                                                                                                                                      
+-a----        11/15/2025   2:37 AM            799 test-correlate-debug.ps1                                                                                                                                                                                                                                                                               
+-a----        11/15/2025   2:20 AM           1847 test-correlation-boost.ps1                                                                                                                                                                                                                                                                             
+-a----        11/15/2025   2:18 AM           4742 test-correlations.ps1                                                                                                                                                                                                                                                                                  
+-a----        11/15/2025  10:06 AM           1582 test-debug-deserialization.ps1                                                                                                                                                                                                                                                                         
+-a----        11/15/2025   9:29 AM            918 test-e2e-debug.ps1                                                                                                                                                                                                                                                                                     
+-a----        11/15/2025  10:08 AM          14002 test-e2e-real-world.ps1                                                                                                                                                                                                                                                                                
+-a----        11/15/2025   2:52 AM            823 test-feedback-simple.ps1                                                                                                                                                                                                                                                                               
+-a----        11/15/2025   2:45 AM          24790 test-full-integration.ps1                                                                                                                                                                                                                                                                              
+-a----        11/15/2025   2:24 AM           5450 test-gradient-descent.ps1                                                                                                                                                                                                                                                                              
+-a----        11/15/2025   2:11 AM           2533 test-latency.ps1                                                                                                                                                                                                                                                                                       
+-a----        11/15/2025   2:42 AM           1304 test-reset-debug.ps1                                                                                                                                                                                                                                                                                   
+-a----        11/15/2025   1:55 AM           1935 test-robustness.ps1                                                                                                                                                                                                                                                                                    
+-a----        11/15/2025  10:03 AM           1026 test-single-scenario.ps1                                                                                                                                                                                                                                                                               

@@ -1,0 +1,113 @@
+{
+  "name": "KatanaCombat Hook Configuration",
+  "version": "1.0.0",
+  "description": "Configure hook behavior and enable/disable individual hooks",
+
+  "hooks": {
+    "agent-reminder": {
+      "enabled": true,
+      "trigger": "beforeToolCall",
+      "description": "Reminds to use agents for complex tasks",
+      "priority": 1,
+      "settings": {
+        "complexityThreshold": 3,
+        "checkPatterns": ["Write.*\\.cpp$", "Edit.*Component"]
+      },
+      "envOverride": "CLAUDE_SKIP_AGENT_REMINDERS",
+      "envOverrideBackwardCompat": "CLAUDE_NO_AGENT_REMINDERS"
+    },
+
+    "auto-context": {
+      "enabled": true,
+      "trigger": "afterFileOpen",
+      "description": "Auto-detects context mode based on file",
+      "priority": 2,
+      "settings": {
+        "showPrinciples": true,
+        "showDocs": true,
+        "suggestModeSwitch": true
+      },
+      "envOverride": "CLAUDE_DISABLE_AUTO_CONTEXT"
+    },
+
+    "after-edit": {
+      "enabled": true,
+      "trigger": "afterEdit",
+      "description": "Reminds to update documentation after editing key files",
+      "priority": 3,
+      "settings": {
+        "criticalFiles": [
+          "CombatComponent",
+          "AttackData",
+          "CombatTypes",
+          "AnimNotify"
+        ],
+        "suggestSyncDocs": true
+      },
+      "envOverride": "CLAUDE_SKIP_AFTER_EDIT"
+    },
+
+    "on-file-save": {
+      "enabled": false,
+      "trigger": "onFileSave",
+      "description": "Quick style checks on file save (lightweight)",
+      "priority": 4,
+      "settings": {
+        "checkIncludes": true,
+        "checkUProperty": true,
+        "checkNullAccess": true,
+        "checkTODOs": true,
+        "warnOnTick": true
+      },
+      "envOverride": "CLAUDE_SKIP_ON_SAVE",
+      "note": "Disabled by default - can be noisy. Not auto-active in config.json."
+    },
+
+    "pre-commit-diagnostics": {
+      "enabled": true,
+      "trigger": "beforeCommit",
+      "description": "Advisory diagnostics check before commits",
+      "priority": 5,
+      "settings": {
+        "checkStagedOnly": true,
+        "showChecklist": true,
+        "suggestCommands": true
+      },
+      "envOverride": "CLAUDE_SKIP_DIAGNOSTICS"
+    },
+
+    "before-commit": {
+      "enabled": true,
+      "trigger": "beforeCommit",
+      "description": "Comprehensive validation before commits",
+      "priority": 6,
+      "settings": {
+        "blockOnErrors": true,
+        "warnOnMixedConcerns": true,
+        "checkCriticalFiles": true,
+        "maxFilesWarning": 20
+      },
+      "envOverride": "CLAUDE_SKIP_VALIDATION"
+    }
+  },
+
+  "globalSettings": {
+    "respectGitHooksDisabled": true,
+    "quietMode": false,
+    "colorOutput": true,
+    "verboseLogging": false
+  },
+
+  "usage": {
+    "activateHook": "Add to .claude/config.json hooks section",
+    "disableSpecificHook": "Set CLAUDE_SKIP_[HOOK_NAME]=1",
+    "example": "Set CLAUDE_SKIP_AGENT_REMINDERS=1 to disable agent reminders"
+  },
+
+  "notes": {
+    "autoActive": "Only hooks in .claude/config.json run automatically",
+    "currentlyActive": ["agent-reminder (beforeToolCall)", "auto-context (afterFileOpen)"],
+    "manualHooks": ["after-edit", "on-file-save", "pre-commit-diagnostics", "before-commit"],
+    "gitIntegration": "Use .claude/git-hooks-templates/ for git hook setup"
+  }
+}

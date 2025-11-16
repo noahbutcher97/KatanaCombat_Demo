@@ -1,0 +1,58 @@
+{
+  "name": "testing",
+  "description": "Test infrastructure - unit tests, integration tests, automation",
+  "includePatterns": [
+    "**/Tests/**/*.{h,cpp}",
+    "**/*Test.{h,cpp}",
+    "**/*Spec.{h,cpp}",
+    "Source/KatanaCombatTest/**",
+    "Source/KatanaCombatTest.Target.cs",
+    "**/Core/**/*.h",
+    "**/Data/**/*.h",
+    "docs/ARCHITECTURE.md",
+    "CLAUDE.md",
+    "Source/KatanaCombatTest/README.md"
+  ],
+  "excludePatterns": [
+    "**/Editor/**",
+    "**/Animation/AnimInstance*",
+    "Content/**",
+    "**/Private/**/*.cpp"
+  ],
+  "relevantDocs": [
+    "Source/KatanaCombatTest/README.md - Test infrastructure",
+    "docs/ARCHITECTURE.md - System behavior to test",
+    "UE5 Automation Testing Framework docs"
+  ],
+  "commonTasks": [
+    "Write unit tests for new features",
+    "Create integration tests for combat flow",
+    "Add test fixtures and mocks",
+    "Debug failing tests",
+    "Measure test coverage",
+    "Run automation tests"
+  ],
+  "testingFrameworks": [
+    "UE Automation Framework - IMPLEMENT_SIMPLE_AUTOMATION_TEST",
+    "Spec-style tests - DEFINE_SPEC/DESCRIBE/IT",
+    "FAutomationTestBase - Base test class",
+    "Mock objects for components"
+  ],
+  "testCategories": {
+    "unit": "Isolated component/function tests (CombatComponentTest, AttackDataTest)",
+    "integration": "Multi-component interaction tests (ComboSystemTest, ParryDetectionTest)",
+    "functional": "End-to-end gameplay tests (FullCombatFlowTest)"
+  },
+  "existingTests": [
+    "CombatComponentTest - 7 test files",
+    "ActionQueueTest - Queue processing",
+    "PhaseTransitionTest - State machine",
+    "HoldMechanicsTest - Hold detection",
+    "ComboSystemTest - Combo chains"
+  ],
+  "testCommands": [
+    "RunTests KatanaCombat - Run all combat tests",
+    "RunTests KatanaCombat.Unit - Unit tests only",
+    "RunTests KatanaCombat.Integration - Integration tests"
+  ]
+}

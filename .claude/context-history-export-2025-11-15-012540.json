@@ -1,0 +1,32 @@
+{
+    "autoSwitchEnabled":  false,
+    "history":  [
+                    {
+                        "from":  "full",
+                        "timestamp":  "2025-11-15 01:25:07",
+                        "to":  "combat-logic",
+                        "reason":  "Testing switch functionality"
+                    },
+                    {
+                        "from":  "combat-logic",
+                        "timestamp":  "2025-11-15 01:25:23",
+                        "to":  "animation",
+                        "reason":  "Another test switch"
+                    },
+                    {
+                        "from":  "animation",
+                        "timestamp":  "2025-11-15 01:25:24",
+                        "to":  "data-assets",
+                        "reason":  "Third test"
+                    }
+                ],
+    "currentMode":  "data-assets",
+    "statistics":  {
+                       "totalSwitches":  3,
+                       "modeUsage":  {
+                                         "combat-logic":  1,
+                                         "animation":  1,
+                                         "data-assets":  1
+                                     }
+                   }
+}

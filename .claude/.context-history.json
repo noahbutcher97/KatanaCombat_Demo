@@ -1,0 +1,77 @@
+{
+    "autoSwitchEnabled":  false,
+    "history":  [
+                    {
+                        "from":  "full",
+                        "timestamp":  "2025-11-15 01:25:07",
+                        "to":  "combat-logic",
+                        "reason":  "Testing switch functionality"
+                    },
+                    {
+                        "from":  "combat-logic",
+                        "timestamp":  "2025-11-15 01:25:23",
+                        "to":  "animation",
+                        "reason":  "Another test switch"
+                    },
+                    {
+                        "from":  "animation",
+                        "timestamp":  "2025-11-15 01:25:24",
+                        "to":  "data-assets",
+                        "reason":  "Third test"
+                    },
+                    {
+                        "from":  "data-assets",
+                        "timestamp":  "2025-11-15 01:27:53",
+                        "to":  "combat-logic",
+                        "reason":  "Manual switch via /mode command"
+                    },
+                    {
+                        "from":  "combat-logic",
+                        "timestamp":  "2025-11-15 01:37:57",
+                        "to":  "animation",
+                        "reason":  "Auto-switch (medium confidence: 80%): Source/KatanaCombat/Public/Animation/AnimNotify_AttackPhaseTransition.h"
+                    },
+                    {
+                        "from":  "animation",
+                        "timestamp":  "2025-11-15 01:37:57",
+                        "to":  "combat-logic",
+                        "reason":  "Auto-switch (medium confidence: 75%): Source/KatanaCombat/Private/Core/CombatComponent.cpp"
+                    },
+                    {
+                        "from":  "combat-logic",
+                        "timestamp":  "2025-11-15 01:37:58",
+                        "to":  "data-assets",
+                        "reason":  "Auto-switch (high confidence: 85%): Source/KatanaCombat/Public/Data/AttackData.h"
+                    },
+                    {
+                        "from":  "data-assets",
+                        "timestamp":  "2025-11-15 01:38:00",
+                        "to":  "testing",
+                        "reason":  "Auto-switch (high confidence: 90%): Source/KatanaCombatTest/CombatComponentTest.cpp"
+                    },
+                    {
+                        "from":  "testing",
+                        "timestamp":  "2025-11-15 01:38:01",
+                        "to":  "documentation",
+                        "reason":  "Auto-switch (high confidence: 95%): docs/SYSTEM_PROMPT.md"
+                    },
+                    {
+                        "from":  "documentation",
+                        "timestamp":  "2025-11-15 01:38:03",
+                        "to":  "editor-ui",
+                        "reason":  "Auto-switch (high confidence: 95%): Source/KatanaCombatEditor/AttackDataAssetEditor.cpp"
+                    }
+                ],
+    "currentMode":  "editor-ui",
+    "statistics":  {
+                       "totalSwitches":  10,
+                       "modeUsage":  {
+                                         "combat-logic":  3,
+                                         "animation":  2,
+                                         "data-assets":  2,
+                                         "testing":  1,
+                                         "documentation":  1,
+                                         "editor-ui":  1
+                                     }
+                   }
+}

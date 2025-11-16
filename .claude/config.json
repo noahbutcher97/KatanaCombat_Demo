@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "beforeToolCall": {
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        ".claude/hooks/agent-reminder.ps1"
+      ]
+    },
+    "afterFileOpen": {
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        ".claude/hooks/auto-context.ps1"
+      ]
+    }
+  }
+}

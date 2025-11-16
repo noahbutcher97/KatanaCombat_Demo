@@ -1,0 +1,116 @@
+{
+    "version":  "2.1",
+    "patterns":  {
+                     "AnimNotify_Phase":  {
+                                              "mode":  "animation",
+                                              "bayesian":  {
+                                                               "successCount":  3,
+                                                               "failureCount":  0,
+                                                               "lastUpdated":  "2025-11-15 10:26:11"
+                                                           },
+                                              "temporal":  {
+                                                               "lastUsed":  "2025-11-08 10:26:11",
+                                                               "decayFactor":  1
+                                                           },
+                                              "features":  {
+                                                               "avgFileConfidence":  0.61749999999999994,
+                                                               "avgConversationConfidence":  0,
+                                                               "weights":  {
+                                                                               "file":  0.615,
+                                                                               "conversation":  0.385
+                                                                           }
+                                                           }
+                                          },
+                     "CombatComponent":  {
+                                             "mode":  "combat-logic",
+                                             "bayesian":  {
+                                                              "successCount":  1,
+                                                              "failureCount":  0,
+                                                              "lastUpdated":  "2025-11-15 10:26:11"
+                                                          },
+                                             "temporal":  {
+                                                              "lastUsed":  "2025-11-15 10:26:11",
+                                                              "decayFactor":  1
+                                                          },
+                                             "features":  {
+                                                              "avgFileConfidence":  0.375,
+                                                              "avgConversationConfidence":  0,
+                                                              "weights":  {
+                                                                              "file":  0.6,
+                                                                              "conversation":  0.4
+                                                                          }
+                                                          }
+                                         },
+                     "AttackData":  {
+                                        "mode":  "data-assets",
+                                        "bayesian":  {
+                                                         "successCount":  1,
+                                                         "failureCount":  1,
+                                                         "lastUpdated":  "2025-11-15 10:26:11"
+                                                     },
+                                        "temporal":  {
+                                                         "lastUsed":  "2025-11-15 10:26:11",
+                                                         "decayFactor":  1
+                                                     },
+                                        "features":  {
+                                                         "avgFileConfidence":  0.7,
+                                                         "avgConversationConfidence":  0,
+                                                         "weights":  {
+                                                                         "file":  0.588,
+                                                                         "conversation":  0.412
+                                                                     }
+                                                     }
+                                    },
+                     "TestWeightAdapt":  {
+                                             "mode":  "animation",
+                                             "bayesian":  {
+                                                              "successCount":  6,
+                                                              "failureCount":  0,
+                                                              "lastUpdated":  "2025-11-15 10:26:11"
+                                                          },
+                                             "temporal":  {
+                                                              "lastUsed":  "2025-11-15 10:26:11",
+                                                              "decayFactor":  1
+                                                          },
+                                             "features":  {
+                                                              "avgFileConfidence":  0.95,
+                                                              "avgConversationConfidence":  0.2,
+                                                              "weights":  {
+                                                                              "file":  0.639,
+                                                                              "conversation":  0.361
+                                                                          }
+                                                          }
+                                         }
+                 },
+    "correlations":  {
+                         "AnimNotify_Phase":  {
+                                                  "topics":  {
+                                                                 "montage":  0.5,
+                                                                 "blending":  0.5
+                                                             },
+                                                  "modes":  {
+                                                                "animation":  0.5
+                                                            }
+                                              },
+                         "CombatComponent":  {
+                                                 "topics":  {
+                                                                "combo":  0.5,
+                                                                "attack":  0.5,
+                                                                "input":  0.5
+                                                            },
+                                                 "modes":  {
+                                                               "combat-logic":  0.5
+                                                           }
+                                             }
+                     },
+    "globalStats":  {
+                        "totalSwitches":  5,
+                        "autoSwitchAccuracy":  0.8,
+                        "totalSuccess":  4,
+                        "totalFailure":  1,
+                        "implicitSuccess":  4,
+                        "explicitSuccess":  6,
+                        "explicitFailure":  1,
+                        "lastUpdated":  "2025-11-15 10:26:11"
+                    }
+}

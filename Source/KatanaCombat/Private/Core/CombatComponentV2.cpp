@@ -940,7 +940,7 @@ float UCombatComponentV2::GetExecutionCheckpoint(const FActionQueueEntry& Action
 		UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINT] Active-end checkpoint not found yet, will execute when created"));
 	}
 
-	//TODO: Consider warning if no Active-end checkpoint found after montage ends
+	/*TODO: Consider warning if no Active-end checkpoint found after montage ends*/
 	return -1.0f; // Sentinel: Execute at Active-end (checkpoint will be created later)
 }
 
@@ -1201,6 +1201,8 @@ void UCombatComponentV2::DeactivateHold()
 	// Deactivate() will be called when ease-out complete
 	// Start timer for EASE-OUT (60 Hz for smooth transitions)
 	float TimerInterval = 1.0f / 60.0f; // 60 Hz update rate
+	/*TODO: Update to support variable and dynamic framerate*/
+
 	GetWorld()->GetTimerManager().SetTimer(
 		EaseTimerHandle,
 		this,
@@ -1280,6 +1282,7 @@ void UCombatComponentV2::OnEaseTimerTick()
 			// CRITICAL: Only auto-queue follow-up if hold was COMPLETED
 			// Light: Playrate reached 0 (freeze state)
 			// Heavy: Charge loop became active (marked in ActivateHold)
+			/*TODO: Perhaps add logic for threshold allowance to allow the system to be less rigid (within a threshold from playrate == 0.0f)*/
 			if (HoldState.IsHoldCompleted())
 			{
 				// EXECUTE FOLLOW-UP ATTACK (directional only - NO NextComboAttack fallback)
@@ -1433,6 +1436,7 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 			if (GetDebugDraw())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Recovery entered - Commit window cleared"));
+				/*TODO: We have gotten rid of the commit window system so please confirm that the above line is referencing that deprecated system and if so update it so it is inline with our current architecture*/
 			}
 			break;
 
@@ -1455,7 +1459,7 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 			break;
 	}
 }
-// TODO:: Consider adding OnPhaseEnter/Exit events for more granular control --> Also we know that active phase is when queued input actions can be executed so perhaps having phase specific logic for simple things like this would be prudent
+/*TODO: Consider adding OnPhaseEnter/Exit events for more granular control --> Also we know that active phase is when queued input actions can be executed so perhaps having phase specific logic for simple things like this would be prudent*/
 
 void UCombatComponentV2::OnMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
 {
@@ -1471,7 +1475,7 @@ void UCombatComponentV2::OnMontageBlendingOut(UAnimMontage* Montage, bool bInter
 
 	// Prepare for next attack during blend out (smoother transitions)
 	// Phase transition to None happens in OnMontageEnded
-	//TODO:: Consider allowing new attack to start here during blend out? Place some helpful checks and transition smoothing here of some sort.
+	/*TODO: Consider allowing new attack to start here during blend out? Place some helpful checks and transition smoothing here of some sort*/
 }
 
 void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
@@ -1487,6 +1491,8 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 	OnMontageEvent.Broadcast(Montage, bInterrupted, FName("Ended"));
 
 	// CRITICAL: Execute any pending queued actions BEFORE clearing state
+	/*TODO: In recent debug logs, checkpoint discovery has been failing, please ensure that the checkpoint system still works as designed*/
+	
 	// BUT only if their checkpoint was actually reached (ScheduledTime >= 0)
 	// Actions with ScheduledTime=-1.0 mean checkpoint was never registered → discard them
 	if (ActionQueue.Num() > 0)

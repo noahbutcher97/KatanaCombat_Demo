@@ -1,0 +1,39 @@
+#!/bin/sh
+#
+# KatanaCombat Pre-Commit Hook
+# Runs validation checks before allowing commits
+#
+# Installation: Copy this file to .git/hooks/pre-commit (no extension)
+# Make executable: chmod +x .git/hooks/pre-commit (Linux/Mac)
+#
+
+echo ""
+echo "🔍 Running pre-commit validation..."
+echo ""
+
+# Run the before-commit PowerShell hook
+powershell -ExecutionPolicy Bypass -File .claude/hooks/before-commit.ps1
+
+# Capture exit code
+EXIT_CODE=$?
+
+if [ $EXIT_CODE -ne 0 ]; then
+    echo ""
+    echo "❌ Pre-commit validation FAILED"
+    echo ""
+    echo "To bypass (NOT RECOMMENDED):"
+    echo "  git commit --no-verify"
+    echo ""
+    echo "To fix issues:"
+    echo "  - Review validation errors above"
+    echo "  - Fix critical issues"
+    echo "  - Run /validate-combat or /check-warnings"
+    echo ""
+    exit 1
+fi
+
+echo ""
+echo "✅ Pre-commit validation PASSED"
+echo ""
+
+exit 0

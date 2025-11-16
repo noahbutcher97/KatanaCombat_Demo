@@ -31,8 +31,10 @@ ASamuraiCharacter::ASamuraiCharacter()
     MotionWarpingComponent = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarpingComponent"));
 
     // Configure character movement (default for third-person combat)
+    GetCharacterMovement()->bUseControllerDesiredRotation = false;
     GetCharacterMovement()->bOrientRotationToMovement = true;
-    GetCharacterMovement()->RotationRate = FRotator(0.0f, 540.0f, 0.0f);
+    
+    GetCharacterMovement()->RotationRate = FRotator(0.0f, 180, 0.0f);
     GetCharacterMovement()->MaxWalkSpeed = 600.0f;
 
     // Don't rotate camera with controller
@@ -90,28 +92,28 @@ void ASamuraiCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
         // Light Attack (Started = pressed, Completed = released)
         if (LightAttackAction)
         {
-            EnhancedInputComponent->BindAction(LightAttackAction, ETriggerEvent::Started, this, &ASamuraiCharacter::OnLightAttackStarted);
-            EnhancedInputComponent->BindAction(LightAttackAction, ETriggerEvent::Completed, this, &ASamuraiCharacter::OnLightAttackCompleted);
+            EnhancedInputComponent->BindAction(LightAttackAction, ETriggerEvent::Started, this, &ASamuraiCharacter::OnLightAttackPressed);
+            EnhancedInputComponent->BindAction(LightAttackAction, ETriggerEvent::Completed, this, &ASamuraiCharacter::OnLightAttackReleased);
         }
 
         // Heavy Attack (Started = pressed, Completed = released)
         if (HeavyAttackAction)
         {
-            EnhancedInputComponent->BindAction(HeavyAttackAction, ETriggerEvent::Started, this, &ASamuraiCharacter::OnHeavyAttackStarted);
-            EnhancedInputComponent->BindAction(HeavyAttackAction, ETriggerEvent::Completed, this, &ASamuraiCharacter::OnHeavyAttackCompleted);
+            EnhancedInputComponent->BindAction(HeavyAttackAction, ETriggerEvent::Started, this, &ASamuraiCharacter::OnHeavyAttackPressed);
+            EnhancedInputComponent->BindAction(HeavyAttackAction, ETriggerEvent::Completed, this, &ASamuraiCharacter::OnHeavyAttackReleased);
         }
 
         // Block (Started = pressed, Completed = released)
         if (BlockAction)
         {
-            EnhancedInputComponent->BindAction(BlockAction, ETriggerEvent::Started, this, &ASamuraiCharacter::OnBlockStarted);
-            EnhancedInputComponent->BindAction(BlockAction, ETriggerEvent::Completed, this, &ASamuraiCharacter::OnBlockCompleted);
+            EnhancedInputComponent->BindAction(BlockAction, ETriggerEvent::Started, this, &ASamuraiCharacter::OnBlockPressed);
+            EnhancedInputComponent->BindAction(BlockAction, ETriggerEvent::Completed, this, &ASamuraiCharacter::OnBlockReleased);
         }
 
         // Evade
         if (EvadeAction)
         {
-            EnhancedInputComponent->BindAction(EvadeAction, ETriggerEvent::Started, this, &ASamuraiCharacter::OnEvadeStarted);
+            EnhancedInputComponent->BindAction(EvadeAction, ETriggerEvent::Started, this, &ASamuraiCharacter::OnEvadePressed);
         }
 
         // Toggle Debug Overlay
@@ -168,7 +170,7 @@ void ASamuraiCharacter::Look(const FInputActionValue& Value)
     }
 }
 
-void ASamuraiCharacter::OnLightAttackStarted(const FInputActionValue& Value)
+void ASamuraiCharacter::OnLightAttackPressed(const FInputActionValue& Value)
 {
     // Check CombatSettings for V2 system enabled
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
@@ -183,7 +185,7 @@ void ASamuraiCharacter::OnLightAttackStarted(const FInputActionValue& Value)
     }
 }
 
-void ASamuraiCharacter::OnLightAttackCompleted(const FInputActionValue& Value)
+void ASamuraiCharacter::OnLightAttackReleased(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
@@ -197,7 +199,7 @@ void ASamuraiCharacter::OnLightAttackCompleted(const FInputActionValue& Value)
     }
 }
 
-void ASamuraiCharacter::OnHeavyAttackStarted(const FInputActionValue& Value)
+void ASamuraiCharacter::OnHeavyAttackPressed(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
@@ -211,7 +213,7 @@ void ASamuraiCharacter::OnHeavyAttackStarted(const FInputActionValue& Value)
     }
 }
 
-void ASamuraiCharacter::OnHeavyAttackCompleted(const FInputActionValue& Value)
+void ASamuraiCharacter::OnHeavyAttackReleased(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
@@ -225,7 +227,7 @@ void ASamuraiCharacter::OnHeavyAttackCompleted(const FInputActionValue& Value)
     }
 }
 
-void ASamuraiCharacter::OnBlockStarted(const FInputActionValue& Value)
+void ASamuraiCharacter::OnBlockPressed(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
@@ -237,7 +239,7 @@ void ASamuraiCharacter::OnBlockStarted(const FInputActionValue& Value)
     }
 }
 
-void ASamuraiCharacter::OnBlockCompleted(const FInputActionValue& Value)
+void ASamuraiCharacter::OnBlockReleased(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
@@ -249,7 +251,7 @@ void ASamuraiCharacter::OnBlockCompleted(const FInputActionValue& Value)
     }
 }
 
-void ASamuraiCharacter::OnEvadeStarted(const FInputActionValue& Value)
+void ASamuraiCharacter::OnEvadePressed(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {

@@ -466,3 +466,4 @@ protected:
 	/** Check if can accept new input (prevents double-queueing same input) */
 	bool CanAcceptNewInput(EInputType InputType) const;
 };
+

@@ -1,0 +1,20 @@
+#!/bin/sh
+#
+# KatanaCombat Post-Commit Hook (Optional)
+# Tracks commits for context switch analytics
+#
+# Installation: Copy this file to .git/hooks/post-commit (no extension)
+# Make executable: chmod +x .git/hooks/post-commit (Linux/Mac)
+#
+
+# Record commit in context tracker (if desired)
+# This is optional and can be used for analytics
+
+echo ""
+echo "✅ Commit recorded successfully"
+echo ""
+
+# Optional: Track commit in context history
+# powershell -ExecutionPolicy Bypass -File .claude/scripts/context-tracker.ps1 -Action record -Type commit
+
+exit 0

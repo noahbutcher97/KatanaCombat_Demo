@@ -154,25 +154,25 @@ protected:
     void Look(const FInputActionValue& Value);
 
     /** Light attack button pressed */
-    void OnLightAttackStarted(const FInputActionValue& Value);
+    void OnLightAttackPressed(const FInputActionValue& Value);
     
     /** Light attack button released */
-    void OnLightAttackCompleted(const FInputActionValue& Value);
+    void OnLightAttackReleased(const FInputActionValue& Value);
 
     /** Heavy attack button pressed */
-    void OnHeavyAttackStarted(const FInputActionValue& Value);
+    void OnHeavyAttackPressed(const FInputActionValue& Value);
     
     /** Heavy attack button released */
-    void OnHeavyAttackCompleted(const FInputActionValue& Value);
+    void OnHeavyAttackReleased(const FInputActionValue& Value);
 
     /** Block button pressed */
-    void OnBlockStarted(const FInputActionValue& Value);
+    void OnBlockPressed(const FInputActionValue& Value);
     
     /** Block button released */
-    void OnBlockCompleted(const FInputActionValue& Value);
+    void OnBlockReleased(const FInputActionValue& Value);
 
     /** Evade button pressed */
-    void OnEvadeStarted(const FInputActionValue& Value);
+    void OnEvadePressed(const FInputActionValue& Value);
 
     /** Debug toggle button pressed */
     void OnToggleDebug(const FInputActionValue& Value);

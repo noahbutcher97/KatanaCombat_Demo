@@ -7,6 +7,7 @@
 #include "CombatTypes.h"
 #include "AnimNotify_HoldWindowStart.generated.h"
 
+
 /**
  * AnimNotify for hold window start events
  *

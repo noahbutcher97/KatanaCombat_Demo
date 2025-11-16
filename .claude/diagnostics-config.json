@@ -1,0 +1,184 @@
+{
+  "name": "KatanaCombat Diagnostics Configuration",
+  "version": "1.0.0",
+  "description": "Filters and categorizes IDE diagnostics for the combat system",
+
+  "severityLevels": {
+    "error": {
+      "priority": 1,
+      "action": "block_commit",
+      "icon": "❌"
+    },
+    "warning": {
+      "priority": 2,
+      "action": "review",
+      "icon": "⚠️"
+    },
+    "information": {
+      "priority": 3,
+      "action": "optional",
+      "icon": "ℹ️"
+    },
+    "hint": {
+      "priority": 4,
+      "action": "ignore",
+      "icon": "💡"
+    }
+  },
+
+  "ignorePatterns": {
+    "blueprintExposed": {
+      "description": "Blueprint-exposed members appear unused in C++ analysis",
+      "patterns": [
+        ".*BlueprintAssignable.* is never used",
+        ".*BlueprintCallable.* is never used",
+        ".*UFUNCTION.*BlueprintCallable.* is never used"
+      ],
+      "reason": "Used from Blueprint, not C++",
+      "severity": ["Warning"]
+    },
+    "editorOnlyCode": {
+      "description": "Editor-only functions used in editor module",
+      "patterns": [
+        ".*WITH_EDITOR.* is never used",
+        ".*EditorUtility.* is never used"
+      ],
+      "reason": "Editor-only, runtime doesn't see usage",
+      "severity": ["Warning"]
+    },
+    "intentionalUnused": {
+      "description": "Variables marked with NOLINT or intentionally unused",
+      "patterns": [
+        ".*// NOLINT.*",
+        ".*// Intentionally unused.*",
+        ".*_UNUSED.*"
+      ],
+      "reason": "Explicitly marked as intentional",
+      "severity": ["Warning", "Information"]
+    },
+    "unrealMacroExpansions": {
+      "description": "False positives from Unreal macros",
+      "patterns": [
+        "GENERATED_BODY.* is never used",
+        "UPROPERTY.* is never used in Blueprint",
+        "UCLASS.*"
+      ],
+      "reason": "Macro-generated code, false positive",
+      "severity": ["Warning"]
+    }
+  },
+
+  "categorization": {
+    "critical": {
+      "description": "Must fix before commit",
+      "patterns": [
+        ".*null pointer dereference.*",
+        ".*uninitialized.*",
+        ".*memory leak.*",
+        ".*undefined behavior.*",
+        ".*compilation error.*"
+      ],
+      "action": "block_commit"
+    },
+    "security": {
+      "description": "Potential security vulnerabilities",
+      "patterns": [
+        ".*buffer overflow.*",
+        ".*SQL injection.*",
+        ".*command injection.*",
+        ".*XSS.*"
+      ],
+      "action": "block_commit"
+    },
+    "performance": {
+      "description": "Performance concerns",
+      "patterns": [
+        ".*inefficient.*",
+        ".*unnecessary copy.*",
+        ".*expensive operation in loop.*",
+        ".*tick.*performance.*"
+      ],
+      "action": "review"
+    },
+    "style": {
+      "description": "Code style/formatting issues",
+      "patterns": [
+        ".*naming convention.*",
+        ".*formatting.*",
+        ".*whitespace.*",
+        ".*comment.*"
+      ],
+      "action": "optional"
+    }
+  },
+
+  "contextFilters": {
+    "animation": {
+      "description": "Focus on animation-related warnings",
+      "prioritizePatterns": [
+        ".*AnimNotify.*",
+        ".*Montage.*",
+        ".*Animation.*"
+      ],
+      "deprioritizePatterns": [
+        ".*CombatComponent(?!.*Animation).*",
+        ".*Weapon.*",
+        ".*Targeting.*"
+      ]
+    },
+    "combat-logic": {
+      "description": "Focus on combat logic warnings",
+      "prioritizePatterns": [
+        ".*CombatComponent.*",
+        ".*ActionQueue.*",
+        ".*CombatTypes.*"
+      ],
+      "deprioritizePatterns": [
+        ".*Editor.*",
+        ".*Test.*"
+      ]
+    },
+    "testing": {
+      "description": "Focus on test-related warnings",
+      "prioritizePatterns": [
+        ".*Test\\.cpp.*",
+        ".*Spec\\.cpp.*"
+      ],
+      "deprioritizePatterns": [
+        ".*Private.*(?!Test)"
+      ]
+    }
+  },
+
+  "autoFix": {
+    "enabled": true,
+    "allowedCategories": ["style", "formatting"],
+    "rules": [
+      {
+        "pattern": "Missing include guard",
+        "fix": "Add #pragma once to top of header"
+      },
+      {
+        "pattern": "Unused variable '(.*)'",
+        "fix": "Add [[maybe_unused]] attribute or remove variable"
+      }
+    ]
+  },
+
+  "reporting": {
+    "groupBy": "severity",
+    "showContext": true,
+    "maxIssuesPerFile": 10,
+    "includeFixSuggestions": true,
+    "formats": {
+      "console": {
+        "colorize": true,
+        "showFileLinks": true
+      },
+      "markdown": {
+        "enabled": true,
+        "includeTable": true
+      }
+    }
+  }
+}

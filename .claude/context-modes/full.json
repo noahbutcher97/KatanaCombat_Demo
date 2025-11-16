@@ -1,0 +1,37 @@
+{
+  "name": "full",
+  "description": "Full context - no filtering (default mode)",
+  "includePatterns": [
+    "**/*.{h,cpp,md}",
+    "**/*.uproject",
+    "**/*.Build.cs",
+    "**/*.Target.cs",
+    "Config/**/*.ini"
+  ],
+  "excludePatterns": [
+    "Intermediate/**",
+    "Saved/**",
+    "Binaries/**",
+    ".vs/**",
+    ".vscode/**",
+    "*.DotSettings.user"
+  ],
+  "relevantDocs": [
+    "All documentation available"
+  ],
+  "commonTasks": [
+    "Cross-cutting changes affecting multiple systems",
+    "Refactoring that spans domains",
+    "Initial project exploration",
+    "Architecture-level decisions",
+    "Complex debugging across systems"
+  ],
+  "useCases": [
+    "Major refactoring (e.g., V1/V2 separation)",
+    "Investigating bugs with unknown root cause",
+    "Planning features that touch multiple domains",
+    "Comprehensive code audits",
+    "Initial project onboarding"
+  ],
+  "note": "Use this mode sparingly - switch to focused modes once you identify the domain"
+}

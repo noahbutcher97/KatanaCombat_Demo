@@ -1,0 +1,47 @@
+{
+  "name": "documentation",
+  "description": "Documentation work - writing, updating, validating docs",
+  "includePatterns": [
+    "docs/**/*.md",
+    "CLAUDE.md",
+    "README.md",
+    ".claude/**/*.md",
+    "Source/**/README.md",
+    "**/Public/**/*.h"
+  ],
+  "excludePatterns": [
+    "**/Private/**",
+    "Content/**",
+    "Intermediate/**",
+    "Saved/**"
+  ],
+  "relevantDocs": [
+    "docs/SYSTEM_PROMPT.md - Core design philosophy",
+    "docs/ARCHITECTURE.md - Complete reference",
+    "docs/ARCHITECTURE_QUICK.md - Quick lookups",
+    "docs/API_REFERENCE.md - Function signatures",
+    "docs/TROUBLESHOOTING.md - Common issues",
+    "CLAUDE.md - AI assistant guide"
+  ],
+  "commonTasks": [
+    "Update documentation after feature implementation",
+    "Add new API references",
+    "Document design decisions",
+    "Create tutorials/guides",
+    "Sync docs with code changes",
+    "Write troubleshooting entries"
+  ],
+  "documentationStandards": {
+    "codeReferences": "Use file:line format (e.g., CombatComponent.cpp:150)",
+    "diagrams": "ASCII diagrams for timing/state machines",
+    "examples": "Show both correct and incorrect patterns",
+    "versioning": "Date all significant changes (YYYY-MM-DD)",
+    "crossReferences": "Link related docs sections"
+  },
+  "docTypes": {
+    "guides": "How-to documentation (ATTACK_CREATION.md, GETTING_STARTED.md)",
+    "reference": "API documentation (API_REFERENCE.md, ARCHITECTURE_QUICK.md)",
+    "design": "Design philosophy (SYSTEM_PROMPT.md, ARCHITECTURE.md)",
+    "maintenance": "Project management (CLAUDE.md, README.md)"
+  }
+}

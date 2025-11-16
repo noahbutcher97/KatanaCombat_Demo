@@ -1,0 +1,49 @@
+{
+  "name": "editor-ui",
+  "description": "Editor tooling - custom panels, asset editors, UI extensions",
+  "includePatterns": [
+    "**/Editor/**/*.{h,cpp}",
+    "**/KatanaCombatEditor/**/*.{h,cpp}",
+    "**/*Editor.{h,cpp}",
+    "**/*AssetEditor.*",
+    "**/*Customization.*",
+    "**/*Factory.*",
+    "**/Slate/**",
+    "Source/KatanaCombatEditor.Target.cs",
+    "KatanaCombat.uproject",
+    "CLAUDE.md"
+  ],
+  "excludePatterns": [
+    "**/Core/**",
+    "**/Animation/**",
+    "**/Data/**",
+    "**/Tests/**",
+    "Content/**/*.uasset"
+  ],
+  "relevantDocs": [
+    "CLAUDE.md - Editor module setup",
+    "UE5.6 Slate documentation",
+    "UE5.6 AssetEditor API"
+  ],
+  "commonTasks": [
+    "Create custom asset editor",
+    "Add property customizations",
+    "Build editor utility widgets",
+    "Implement asset factories",
+    "Add toolbar extensions",
+    "Create validation tools"
+  ],
+  "ue5EditorAPIs": [
+    "IAssetTypeActions - Asset actions registration",
+    "FAssetEditorToolkit - Custom asset editors",
+    "IDetailCustomization - Property panel customization",
+    "FSlateStyleSet - Editor UI styling",
+    "UEditorUtilityWidget - Designer-facing tools"
+  ],
+  "exampleUseCases": [
+    "AttackData custom editor with montage preview",
+    "Combo chain visualizer panel",
+    "Bulk attack validation tool",
+    "Animation notify placement helpers"
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "name": "data-assets",
+  "description": "Data-driven configuration - AttackData, configs, settings",
+  "includePatterns": [
+    "**/Data/**/*.{h,cpp}",
+    "**/AttackData.*",
+    "**/AttackConfiguration.*",
+    "**/CombatSettings.*",
+    "Content/Data/**/*.uasset",
+    "docs/ATTACK_CREATION.md",
+    "docs/ARCHITECTURE.md",
+    "CLAUDE.md"
+  ],
+  "excludePatterns": [
+    "**/Animation/**",
+    "**/Core/CombatComponent.cpp",
+    "**/Editor/**",
+    "**/Tests/**"
+  ],
+  "relevantDocs": [
+    "docs/ATTACK_CREATION.md - Attack asset setup",
+    "docs/ARCHITECTURE.md:200-400 - Data architecture",
+    "CLAUDE.md - Default values and three-tier structure"
+  ],
+  "commonTasks": [
+    "Add new attack property",
+    "Create attack data asset",
+    "Configure combat settings",
+    "Validate asset references",
+    "Design combo chains"
+  ],
+  "dataStructure": {
+    "tier1": "ASamuraiCharacter - Character reference",
+    "tier2": "CombatSettings - Combat style (shared)",
+    "tier3": "AttackConfiguration - Attack moveset (weapon-specific)"
+  }
+}

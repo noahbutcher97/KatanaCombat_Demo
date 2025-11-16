@@ -394,6 +394,24 @@ Check for project-specific patterns:
 
 ---
 
+## Additional Documentation
+
+### 📖 VISUAL_GUIDE.md - Command Quick Reference
+**Purpose**: Visual cheat sheet for all slash commands with icons and quick descriptions
+
+**What it includes**:
+- Command categories with icons
+- One-line purpose descriptions
+- Usage patterns
+- When to use each command
+- Quick decision tree
+
+**Location**: `.claude/commands/VISUAL_GUIDE.md`
+
+**Best for**: Quick reference when deciding which command to use
+
+---
+
 ## Future Command Ideas
 
 Consider adding these commands later:
