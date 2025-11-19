@@ -470,11 +470,13 @@ Config/
 
 ---
 
-## Intelligent Mode Detection System
+## Intelligent Infrastructure (Context + Agents)
 
-**Purpose**: Auto-switches Claude Code context based on file type, conversation, and learned patterns
+**KatanaCombat uses TWO complementary AI systems for intelligent session management:**
 
-**Status**: ✅ **ACTIVE** (v3.0 - 5-factor ML detection)
+### 1. Context Mode System
+**Purpose**: Auto-switches documentation focus based on file type, conversation, and learned patterns
+**Status**: ✅ **ACTIVE** (v4.0 - Unified with Agent Routing)
 
 ### Slash Commands
 
@@ -568,6 +570,70 @@ Apply aggressive preset:
 /mode config
 > apply aggressive
 ```
+
+---
+
+### 2. Agent Coordination System
+**Purpose**: Routes complex tasks to specialist subagents for multi-file work and architecture-critical changes
+**Status**: ✅ **ACTIVE** (Integrated with Context Modes v4.0)
+
+### Available Specialist Agents
+
+| Agent | Model | Specialty |
+|-------|-------|-----------|
+| **router** | inherit | Meta-agent that intelligently routes tasks to specialists |
+| **ue-code-generator** | opus | Generates production-ready UE5.6 C++ code with compliance |
+| **design-compliance-auditor** | opus | Enforces design principles and detects violations |
+| **code-auditor** | inherit | Reviews code for standards adherence and optimization |
+| **pipeline-feature** | opus | Orchestrates full feature delivery pipeline |
+| **pipeline-bugfix** | opus | Coordinates systematic bug diagnosis and resolution |
+
+### Predefined Pipelines
+
+**Feature Pipeline** (`pipeline-feature`):
+```
+ue-code-generator → design-compliance-auditor → code-auditor
+(Implement → Validate → Audit)
+```
+
+**Bugfix Pipeline** (`pipeline-bugfix`):
+```
+design-compliance-auditor → ue-code-generator → code-auditor
+(Diagnose → Fix → Verify)
+```
+
+### When to Use Agents
+
+**Use agents for**:
+- Multi-file changes (3+ files)
+- New system implementation
+- Architecture-sensitive refactoring
+- Critical bug fixes requiring validation
+
+**Skip agents for**:
+- Simple edits (single file, isolated changes)
+- Documentation updates
+- Quick prototyping
+- Minor tweaks
+
+### Integration with Context Modes
+
+Each context mode recommends specific agents:
+
+- **Animation Mode** → ue-code-generator, design-compliance-auditor
+- **Combat Logic Mode** → design-compliance-auditor, pipeline-feature (CRITICAL)
+- **Data Assets Mode** → ue-code-generator, code-auditor
+- **Testing Mode** → ue-code-generator, code-auditor
+
+**These recommendations appear automatically when auto-context switches modes.**
+
+### Agent Commands
+
+| Command | Description |
+|---------|-------------|
+| `/agent` or `/agent status` | Show all available agents and pipelines |
+| `/agent info [pipeline]` | Show pipeline details (feature, bugfix, etc.) |
+| `/agent validate [chain]` | Validate agent chain before launching |
 
 ---
 

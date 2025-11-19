@@ -1,5 +1,18 @@
 # Claude Code Scripts Directory
 
+## Claude Code Infrastructure Overview
+
+The `.claude` directory contains two complementary systems:
+
+1. **Context Mode System** - Auto-switches documentation focus based on file type
+2. **Agent Coordination System** - Routes complex tasks to specialist subagents
+
+These systems work together to provide intelligent session management:
+- **Context modes** determine WHAT documentation/principles to prioritize
+- **Agent routing** determines WHO should handle complex tasks
+
+---
+
 ## Production Scripts (Active)
 
 ### Mode Detection System
@@ -42,6 +55,13 @@
   - Full mode: Comprehensive confidence report with bars
   - Compact mode: One-line summary
   - Can be called manually or integrated into hooks
+
+### Agent Coordination System
+- **`agent-coordinator.ps1`** ✅ **ACTIVE** - Pipeline orchestration and agent management
+  - 6 specialist agents: router, ue-code-generator, design-compliance-auditor, code-auditor, pipeline-feature, pipeline-bugfix
+  - 4 predefined pipelines: feature, bugfix, validation, refactoring
+  - Agent chain validation and pipeline info display
+  - Called by `/agent` command
 
 ### Integration
 - **`install-git-hooks.ps1`** ✅ **ACTIVE** - Automated git hook installation

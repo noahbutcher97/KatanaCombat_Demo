@@ -1,5 +1,6 @@
 # Auto-detect context mode based on file being edited/opened
-# Uses intelligent mode detection with confidence scoring
+# Unified Context + Agent Routing System v4.0
+# Integrates intelligent mode detection with agent coordination
 
 $filePath = $env:FILE_PATH
 if (-not $filePath) { exit 0 }
@@ -109,7 +110,7 @@ catch {
     exit 0
 }
 
-# Mode-specific documentation and principles
+# Mode-specific documentation, principles, and recommended agents
 $modeInfo = @{
     animation = @{
         docs = @(
@@ -121,6 +122,11 @@ $modeInfo = @{
             "Windows overlap phases (ComboWindow, HoldWindow, ParryWindow)"
             "Use AnimNotify_AttackPhaseTransition, not deprecated AnimNotifyState_AttackPhase"
         )
+        recommendedAgents = @(
+            "ue-code-generator: Implement new AnimNotify classes with validation"
+            "design-compliance-auditor: Validate notify placement against phase system"
+        )
+        workflowHint = "Animation system changes often require multi-file edits (notify .h/.cpp + montage setup)"
     }
 
     'combat-logic' = @{
@@ -133,6 +139,11 @@ $modeInfo = @{
             "Input ALWAYS buffered (combo window modifies WHEN, not WHETHER)"
             "Timer-based, not Tick-based"
         )
+        recommendedAgents = @(
+            "design-compliance-auditor: Critical for combat logic changes"
+            "pipeline-feature: Full implementation pipeline for new combat features"
+        )
+        workflowHint = "Combat logic is core architecture - violations here break the entire system"
     }
 
     'data-assets' = @{
@@ -145,6 +156,11 @@ $modeInfo = @{
             "Validation in AttackData::Validate()"
             "Default values in ARCHITECTURE_QUICK.md"
         )
+        recommendedAgents = @(
+            "ue-code-generator: Implement new data properties with validation"
+            "code-auditor: Review data structure design and optimization"
+        )
+        workflowHint = "Data asset changes propagate to editor UI and gameplay logic"
     }
 
     'editor-ui' = @{
@@ -157,6 +173,11 @@ $modeInfo = @{
             "FAssetEditorToolkit for custom editors"
             "Editor module separate from runtime"
         )
+        recommendedAgents = @(
+            "ue-code-generator: Implement Slate UI with UE5.6 best practices"
+            "code-auditor: Review UI code for performance and usability"
+        )
+        workflowHint = "Editor-only code - ensure proper module separation from runtime"
     }
 
     testing = @{
@@ -169,6 +190,11 @@ $modeInfo = @{
             "Spec-style: DEFINE_SPEC/DESCRIBE/IT for BDD"
             "7 existing test files with 45+ assertions"
         )
+        recommendedAgents = @(
+            "ue-code-generator: Generate comprehensive test coverage"
+            "code-auditor: Review test quality and coverage gaps"
+        )
+        workflowHint = "Tests validate design compliance - update when core systems change"
     }
 
     documentation = @{
@@ -181,6 +207,10 @@ $modeInfo = @{
             "ASCII diagrams for timing/states"
             "Date changes (YYYY-MM-DD)"
         )
+        recommendedAgents = @(
+            "code-auditor: Review documentation accuracy and completeness"
+        )
+        workflowHint = "Documentation must stay synchronized with code changes"
     }
 
     full = @{
@@ -188,8 +218,12 @@ $modeInfo = @{
             "CLAUDE.md - Project overview"
         )
         principles = @(
-            "No filtering active"
+            "No filtering active - full project context available"
         )
+        recommendedAgents = @(
+            "router: Let router decide based on task complexity"
+        )
+        workflowHint = "Full mode for general tasks and multi-domain work"
     }
 }
 
@@ -266,66 +300,128 @@ if ($autoSwitchEnabled) {
     }
 }
 
-# Build contextual reminder
+# Build contextual reminder with agent integration
 $info = $modeInfo[$detectedMode]
 $reminder = "<system-reminder>`n"
+$reminder += "============================================================`n"
 
 # Header with confidence indicator
 $confidencePct = [Math]::Round($confidence * 100)
 if ($autoSwitchEnabled -and $confidence -ge 0.50) {
-    $reminder += "AUTO-SWITCHED TO: $($detectedMode.ToUpper()) (Confidence: $confidencePct%)`n`n"
+    $reminder += "SWITCHING CONTEXT TO: $($detectedMode.ToUpper())`n"
+    $reminder += "Confidence: $confidencePct% ($confidenceLevel)`n"
+    $reminder += "Trigger: File opened - $([System.IO.Path]::GetFileName($filePath))`n"
 } else {
-    $reminder += "AUTO-DETECTED CONTEXT: $($detectedMode.ToUpper()) (Confidence: $confidencePct%)`n`n"
+    $reminder += "CONTEXT DETECTED: $($detectedMode.ToUpper())`n"
+    $reminder += "Confidence: $confidencePct% ($confidenceLevel)`n"
+    $reminder += "File: $([System.IO.Path]::GetFileName($filePath))`n"
 }
+$reminder += "============================================================`n`n"
+
+# === STRATEGIC IMPLICATIONS ===
+$reminder += "STRATEGIC SESSION FOCUS:`n`n"
 
 # Documentation
 if ($info -and $info.docs) {
-    $reminder += "Relevant Documentation:`n"
+    $reminder += "Primary Documentation:`n"
     foreach ($doc in $info.docs) {
         $reminder += "  - $doc`n"
     }
+    $reminder += "`n"
 }
 
 # Principles
 if ($info -and $info.principles) {
-    $reminder += "`nKey Principles:`n"
+    $reminder += "Core Principles (Enforce Strictly):`n"
     foreach ($principle in $info.principles) {
         $reminder += "  - $principle`n"
     }
+    $reminder += "`n"
 }
 
-# Confidence breakdown (if available from intelligent detector v3.0)
+# Workflow hint
+if ($info -and $info.workflowHint) {
+    $reminder += "Workflow Context:`n"
+    $reminder += "  $($info.workflowHint)`n`n"
+}
+
+# === AGENT ROUTING RECOMMENDATIONS ===
+if ($info -and $info.recommendedAgents -and $info.recommendedAgents.Count -gt 0) {
+    $reminder += "------------------------------------------------------------`n"
+    $reminder += "AGENT ROUTING RECOMMENDATIONS:`n`n"
+
+    $reminder += "For complex tasks in this context, consider delegating to:`n`n"
+    foreach ($agent in $info.recommendedAgents) {
+        $reminder += "  - $agent`n"
+    }
+
+    $reminder += "`nAgent Coordination:`n"
+    $reminder += "  - Use '/agent status' to see all available specialist agents`n"
+    $reminder += "  - Launch via Task tool with appropriate subagent_type`n"
+    $reminder += "  - Router agent available for automatic delegation decisions`n`n"
+
+    $reminder += "Pipelines for Major Work:`n"
+    $reminder += "  - pipeline-feature: Implement -> Validate -> Audit (full feature delivery)`n"
+    $reminder += "  - pipeline-bugfix: Diagnose -> Fix -> Verify (systematic bug resolution)`n`n"
+}
+
+# === CONFIDENCE BREAKDOWN ===
 if ($detection.PSObject.Properties.Name -contains 'factors') {
-    $reminder += "`nConfidence Breakdown:`n"
+    $reminder += "------------------------------------------------------------`n"
+    $reminder += "DETECTION CONFIDENCE BREAKDOWN:`n`n"
     foreach ($factorName in @('file', 'conversation', 'learning', 'history', 'time')) {
         if ($detection.factors.PSObject.Properties.Name -contains $factorName) {
             $factor = $detection.factors.$factorName
             $factorConf = [Math]::Round([double]$factor.confidence * 100, 1)
             $weight = [Math]::Round([double]$factor.weight * 100)
             $weighted = [Math]::Round([double]$factor.weightedScore, 3)
-            $reminder += "  $factorName ($weight%): $factorConf% conf -> $weighted weighted`n"
+
+            # Visual bar
+            $barLength = 20
+            $filledBars = [Math]::Floor($factorConf / 100 * $barLength)
+            $bar = ""
+            for ($i = 0; $i -lt $filledBars; $i++) { $bar += "#" }
+            for ($i = $filledBars; $i -lt $barLength; $i++) { $bar += "-" }
+
+            $reminder += "  $($factorName.PadRight(12)): [$bar] $factorConf% (weight: $weight%)`n"
         }
     }
+    $reminder += "`n"
 }
 
-# Action hint based on confidence
+# === AUTO-SWITCH STATUS ===
+$reminder += "------------------------------------------------------------`n"
 if ($autoSwitchEnabled) {
     if ($confidence -ge 0.80) {
-        $reminder += "`n[AUTO-SWITCH] Automatically switched to $detectedMode mode (high confidence)`n"
+        $reminder += "STATUS: AUTO-SWITCHED (High Confidence >= 80%)`n`n"
+        $reminder += "Session strategy adapted automatically. All responses will now:`n"
+        $reminder += "  - Prioritize $detectedMode documentation and principles`n"
+        $reminder += "  - Recommend appropriate specialist agents for complex tasks`n"
+        $reminder += "  - Apply mode-specific validation and best practices`n"
     }
     elseif ($confidence -ge 0.50) {
-        $reminder += "`n[AUTO-SWITCH] Automatically switched to $detectedMode mode (medium confidence)`n"
+        $reminder += "STATUS: AUTO-SWITCHED (Medium Confidence >= 50%)`n`n"
+        $reminder += "Session strategy adapted. Verify switch is appropriate.`n"
+        $reminder += "  - Use '/mode status' to see current mode`n"
+        $reminder += "  - Use '/mode [name]' to manually override if needed`n"
     }
     else {
-        $reminder += "`nHINT: Consider '/mode $detectedMode' (low confidence: $confidencePct%)`n"
+        $reminder += "STATUS: HINT ONLY (Low Confidence < 50%)`n`n"
+        $reminder += "Suggestion: Consider '/mode $detectedMode' if working extensively in this domain`n"
     }
 
-    # Negative feedback detection: If user manually overrides within 30 seconds, record failure
-    $reminder += "`nNote: Manual mode switch within 30s will record negative feedback for ML learning`n"
+    $reminder += "`nFeedback: Manual mode switch within 30s records negative feedback for ML learning`n"
 } else {
-    $reminder += "`nTip: Use '/mode $detectedMode' for full context switch, or use '/mode auto enable' for auto-switching`n"
+    $reminder += "STATUS: AUTO-SWITCH DISABLED`n`n"
+    $reminder += "Recommendations available but not applied. Manual control active.`n"
+    $reminder += "  - Use '/mode $detectedMode' to switch to recommended context`n"
+    $reminder += "  - Use '/mode auto enable' to enable automatic context switching`n"
 }
 
+$reminder += "------------------------------------------------------------`n"
+$reminder += "Use '/mode analyze' for detailed confidence visualization`n"
+$reminder += "Use '/agent status' for agent coordination system overview`n"
+$reminder += "============================================================`n"
 $reminder += "</system-reminder>"
 
 Write-Output $reminder

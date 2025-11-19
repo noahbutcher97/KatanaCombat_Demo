@@ -116,19 +116,26 @@ Write-Host ""
 
 # Quick tips
 Write-Host "===========================================================================" -ForegroundColor DarkGray
-Write-Host "Quick Commands:" -ForegroundColor Cyan
-Write-Host "  /mode [name]          - Switch context (animation, combat-logic, etc.)" -ForegroundColor Gray
-Write-Host "  /mode status          - Show context system status" -ForegroundColor Gray
-Write-Host "  /hooks status         - Check hook configuration" -ForegroundColor Gray
-Write-Host "  /check-warnings       - Run diagnostics" -ForegroundColor Gray
-Write-Host "  /validate-combat      - Validate combat system" -ForegroundColor Gray
+Write-Host "Intelligent Infrastructure:" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Auto-Switching: " -NoNewline -ForegroundColor Cyan
+Write-Host "  CONTEXT MODES:" -ForegroundColor Yellow
+Write-Host "    /mode [name]        - Switch context (animation, combat-logic, etc.)" -ForegroundColor Gray
+Write-Host "    /mode status        - Show context system status" -ForegroundColor Gray
+Write-Host "    /mode analyze       - Detailed confidence breakdown" -ForegroundColor Gray
+Write-Host "    Auto-Switching: " -NoNewline -ForegroundColor Gray
 if (Test-Path .claude/.auto-switch-enabled) {
     Write-Host "ENABLED" -ForegroundColor Green
 } else {
-    Write-Host "DISABLED" -ForegroundColor Yellow
-    Write-Host "  Use: /mode auto enable" -ForegroundColor DarkGray
+    Write-Host "DISABLED (use '/mode auto enable')" -ForegroundColor Yellow
 }
+Write-Host ""
+Write-Host "  AGENT COORDINATION:" -ForegroundColor Yellow
+Write-Host "    /agent status       - Show available specialist agents" -ForegroundColor Gray
+Write-Host "    Launch agents via Task tool for complex multi-file work" -ForegroundColor Gray
+Write-Host ""
+Write-Host "  OTHER COMMANDS:" -ForegroundColor Yellow
+Write-Host "    /hooks status       - Check hook configuration" -ForegroundColor Gray
+Write-Host "    /check-warnings     - Run diagnostics" -ForegroundColor Gray
+Write-Host "    /validate-combat    - Validate combat system" -ForegroundColor Gray
 Write-Host "===========================================================================" -ForegroundColor DarkGray
 Write-Host ""
