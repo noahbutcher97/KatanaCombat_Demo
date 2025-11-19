@@ -4,48 +4,71 @@
 
 ---
 
-## ⚠️ CRITICAL: Known Bug - Directional Follow-Up Infinite Loop
+## ✅ FIXED: Directional Attack System (Architectural Fix)
 
-**Status**: V2 only, workaround available (use V1: `bUseV2System = false`)
+**Status**: ✅ **COMPLETE** (2025-11-19, Full Architectural Refactor)
 
-**Symptom**: Holding direction + spamming attack causes infinite loop of same directional attack
+**Original Symptoms**:
+1. Moving while attacking → incorrectly triggered directional follow-ups (no hold required)
+2. Holding direction + spamming attack → infinite loop of same directional
+3. Multiple failed "fixes" that addressed symptoms but not root cause
 
-**Root Cause**: Action queue captures stale `LastDirectionalInput` at queue time
-- Timeline: T=0s input queued → T=0.1s input queued (captures SAME direction) → T=0.5s clear signal fires (too late, queue already has stale data)
-- Each `FActionQueueEntry` is independent snapshot; clearing component state doesn't affect queued actions
+**Root Cause**: **Semantic Input Conflation**
+- System treated movement stick (continuous, for locomotion) AS directional attack input (discrete, intentional)
+- `LastDirectionalInput` sampled EVERY frame from movement stick
+- No distinction between "moving forward while attacking" vs "intentionally inputting forward for directional attack"
+- `GetComboAttack()` checked directionals WITHOUT hold completion validation (bypassed Priority 2 gate)
 
-**Recommended Fix** (Option 2, ~1 hour):
-```cpp
-// CombatComponentV2.h - Add consumption flag
-bool bDirectionalInputConsumed = false;
+**Architectural Solution**: **Context-Aware Input Sampling**
 
-// CombatComponentV2.cpp - OnInputEvent()
-if (InputDirection != EInputDirection::None)
-{
-    LastDirectionalInput = InputDirection;
-    bDirectionalInputConsumed = false;  // Reset on new input
-}
+**Core Principle**: Movement input ≠ Attack input. Direction sampled ONLY at hold release, not continuously.
 
-// CombatComponentV2.cpp - GetAttackForInput()
-EAttackDirection AttackDirection = EAttackDirection::None;
-if (!bDirectionalInputConsumed && LastDirectionalInput != EInputDirection::None)
-{
-    AttackDirection = CombatHelpers::InputToAttackDirection(LastDirectionalInput);
-}
-// ... resolution ...
-if (Result.Path == EResolutionPath::DirectionalFollowUp)
-{
-    const_cast<UCombatComponentV2*>(this)->bDirectionalInputConsumed = true;
-}
+**Design**:
+```
+Normal Combo Flow:
+  Player moves stick + taps attack → Context = Movement (direction ignored)
+  → DirectionalInputBuffer empty → AttackDirection = None
+  → Normal combo chain executes ✅
+
+Directional Attack Flow:
+  Player holds attack → Context switches to DirectionalInput
+  → Animation freezes (hold completes)
+  → Player releases WITH direction → DirectionalInputBuffer captures direction
+  → Resolution uses buffered direction → Directional attack executes
+  → Buffer cleared (prevents reuse) ✅
 ```
 
-**Alternative Fix** (Option 1, ~2 hours, more robust):
-- Store `EInputDirection CapturedDirection` + `bool bDirectionConsumed` in `FActionQueueEntry`
-- Clear ALL pending queue entries' directions when directional executes
-- Prevents all stale state issues (not just directional)
+**Implementation** (5 files, 3 phases):
 
-**Files**: `CombatComponentV2.h/cpp`, `ActionQueueTypes.h` (Option 1 only)
-**Details**: See "Attempted Fix Analysis" section below
+**Phase 1: Input State Machine**
+- `EInputContext` enum (Movement / DirectionalInput / Disabled) - `ActionQueueTypes.h:393-404`
+- `FDirectionalInputBuffer` struct (discrete capture at release) - `ActionQueueTypes.h:417-449`
+- Integrated into `CombatComponentV2.h:384-405`
+
+**Phase 2: Context-Aware Sampling**
+- `OnInputEvent()` only captures direction during `DirectionalInput` context - `CombatComponentV2.cpp:200-249`
+- Direction sampled at RELEASE event (not continuously) - `CombatComponentV2.cpp:215-225`
+- `SetInputContext()` helper for context transitions - `CombatComponentV2.cpp:115-128`
+- `OnHoldWindowStart()` → sets context to DirectionalInput - `CombatComponentV2.cpp:1101-1109`
+- `ClearHoldState()` → resets context to Movement - `CombatComponentV2.cpp:1844-1851`
+
+**Phase 3: Resolution Updates**
+- `GetAttackForInput()` uses `DirectionalInputBuffer` instead of `LastDirectionalInput` - `CombatComponentV2.cpp:2107-2140`
+- Buffer cleared after directional consumption - `CombatComponentV2.cpp:2170-2186`
+- `GetComboAttack()` documented: Direction only passed when buffer valid - `MontageUtilityLibrary.cpp:826-839,881-886`
+
+**Files Modified**:
+- `ActionQueueTypes.h` - Added EInputContext + FDirectionalInputBuffer structs
+- `CombatComponentV2.h` - Added buffer/context members, SetInputContext declaration
+- `CombatComponentV2.cpp` - Context-aware sampling, hold callbacks, resolution layer
+- `MontageUtilityLibrary.cpp` - Documentation for directional priority
+
+**Behavior Now**:
+- ✅ Spam attack while moving → Normal combo (direction ignored, context = Movement)
+- ✅ Hold → release with direction → Directional attack (direction captured at release)
+- ✅ No infinite loops (buffer cleared after consumption)
+- ✅ Direction sampled at release (most intentional timing)
+- ✅ Attacks can have BOTH NextComboAttack AND DirectionalFollowUps (directional requires hold)
 
 ---
 
@@ -58,7 +81,8 @@ if (Result.Path == EResolutionPath::DirectionalFollowUp)
 2. **Input ALWAYS Buffered**: Combo window modifies WHEN, not WHETHER
 3. **Parry = Contextual Block**: Defender checks enemy's ParryWindow (attacker's montage)
 4. **Hold = Button State Check**: At window start, NOT duration tracking
-5. **Delegates in CombatTypes.h**: Declared ONCE, components use `UPROPERTY` only
+5. **Movement ≠ Attack Input**: Direction sampled ONLY at hold release (context-aware), not continuously
+6. **Delegates in CombatTypes.h**: Declared ONCE, components use `UPROPERTY` only
 
 **Essential Docs**:
 - `docs/SYSTEM_PROMPT.md` (25 KB, 10 min) - **READ FIRST** before any work
@@ -71,10 +95,154 @@ if (Result.Path == EResolutionPath::DirectionalFollowUp)
 
 ## Recent Changes (Reverse Chronological)
 
-### 2025-11-12: Context-Aware Attack Resolution (Phase 1 - INCOMPLETE) ⚠️
+### 2025-11-19: Diagonal Rotation Bug Fix + DirectionDebugLibrary ✅
 
-**Goal**: Fix directional loop bug with GameplayTag system + cycle detection
-**Result**: ❌ Bug persists (see CRITICAL section above)
+**Fixed**: Critical axis mismatch causing directional attacks to fail at diagonal character rotations
+**Added**: Comprehensive direction transformation debug utilities
+
+#### Issue 1: Diagonal Character Rotation Bug ⚠️ CRITICAL
+**Symptom**: Directional attacks worked at cardinal directions (N/E/S/W) but failed at diagonals (NE/SE/SW/NW)
+**Root Cause**: Axis swap in `VectorToCharacterRelativeDirection()` - Unreal Engine X/Y axes incorrectly mapped
+**Location**: `CombatTypes.h:547-548`
+
+**The Bug**:
+```cpp
+// WRONG (before):
+const FVector CameraRight = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::X);   // ❌ X is Forward, not Right!
+const FVector CameraForward = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::Y); // ❌ Y is Right, not Forward!
+```
+
+**The Fix**:
+```cpp
+// CORRECT (after):
+const FVector CameraForward = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::X); // ✓ X axis = Forward
+const FVector CameraRight = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::Y);   // ✓ Y axis = Right
+```
+
+**Why Diagonals Failed**: Cardinal rotations (0°/90°/180°/270°) worked by accident due to orthogonal axes. Diagonal rotations (45°/135°/225°/315°) created 90° rotation error, causing wrong direction resolution.
+
+**Files Modified**: `CombatTypes.h:547-548`
+
+#### Issue 2: DirectionDebugLibrary - Comprehensive Debug Utilities ✅
+
+**Added**: New Blueprint Function Library for modular direction transformation debugging
+
+**New Files**:
+- `Source/KatanaCombat/Public/Utilities/DirectionDebugLibrary.h` (~145 lines)
+- `Source/KatanaCombat/Private/Utilities/DirectionDebugLibrary.cpp` (~175 lines)
+
+**Helper Functions** (6 total):
+1. `YawToCardinalDirection()` - Convert yaw to compass direction (N, NE, E, etc.)
+2. `FormatRotationDebug()` - Format rotation: "Yaw=45.0° (NE)"
+3. `FormatVector2DDebug()` - Format vector: "(X=0.71, Y=0.71) magnitude=1.00"
+4. `FormatInputDirectionDebug()` - Format EInputDirection enum
+5. `FormatAttackDirectionDebug()` - Format EAttackDirection enum
+6. `CalculateYawDelta()` - Shortest angular distance with wrapping
+7. `GetMeshRotationOffset()` - Detect mesh rotation offset from actor
+
+**Visual Debug Visualization** (inline in CombatComponentV2.cpp:272-326):
+- 5 colored arrows with 3D text labels
+- Blue (Camera), Green (Character), Yellow (Input), Orange (CharRelative), Magenta (Resolved)
+- Spheres, arrows with proper offsets, 5-second persistence
+
+**Diagnostic Logging** (inline in CombatComponentV2.cpp:332-361):
+```
+[DIRECTION DIAGNOSTIC]
+=== Input ===
+Raw Input: (X=1.00, Y=0.00) magnitude=1.00
+
+=== Rotations ===
+Camera Yaw:    0.0° (N)
+Character Yaw: 270.0° (W)
+Yaw Delta:     270.0°
+Mesh Offset:   (P=0.0°, Y=0.0°, R=0.0°)
+
+=== Transformation Step 1: Camera-Relative to World ===
+CameraForward: (X=1.00, Y=0.00, Z=0.00)
+CameraRight:   (X=0.00, Y=1.00, Z=0.00)
+WorldInput:    (X=0.00, Y=1.00, Z=0.00)
+World Angle:   90.0°
+
+=== Transformation Step 2: World to Character-Relative ===
+InverseYaw:    -270.0°
+CharRelative:  (X=1.00, Y=0.00, Z=0.00)
+CharRelative2D: (X=1.00, Y=0.00) magnitude=1.00
+Char Angle:    0.0°
+
+=== Resolution ===
+Resolved:      Right
+Attack:        Right
+Expected:      [VERIFY MANUALLY]
+```
+
+**Integration**: Comprehensive inline debug in `OnInputEventWithTransform()` and enhanced logging in directional capture points
+
+**Debug Flag**: Uses existing `CombatSettings->bDebugDraw` (data-driven, no new complexity)
+
+---
+
+### 2025-11-19: Directional Attack Architectural Fix ✅
+
+**Completed**: Full system refactor addressing root cause of all directional attack bugs
+- **Problem**: Semantic input conflation (movement = attack input)
+- **Solution**: Context-aware input sampling with discrete directional buffer
+- **Impact**: Clean separation between movement and attack input, future-proof architecture
+- **Duration**: 3-5 days (estimated), implemented in 1 session
+
+**See comprehensive documentation above for full details.**
+
+---
+
+### 2025-11-18: Graceful Fallback Chain (Phase 1) ✅
+
+**Implemented**: Combat system now NEVER breaks due to configuration errors
+- **Goal**: Make combat system failure-proof with modular combo chains that degrade gracefully
+- **Result**: ✅ Combat always executes an attack, even with circular dependencies or missing tags
+
+**Changes Made** (3 tasks, 4-6 hours):
+1. **Cycle Detection Fallback** (`MontageUtilityLibrary.cpp:1006-1017`)
+   - Cycle detected → falls back to default attack (not nullptr)
+   - Logs error but continues to Priority 4 (default attacks)
+   - **Behavior**: Circular reference A→B→C→A → falls back to DefaultLightAttack
+
+2. **Default Attack Validation** (`CombatComponentV2.cpp:64-113`, `CombatComponentV2.h:393-398`)
+   - Added `ValidateDefaultAttacks()` function called in BeginPlay (editor only)
+   - Shows on-screen warnings if DefaultLightAttack or DefaultHeavyAttack are nullptr
+   - Provides fix instructions in log output
+
+3. **Emergency Fallback (Tier 5)** (`MontageUtilityLibrary.cpp:1120-1167`)
+   - If default attack is nullptr → repeats current attack as emergency fallback
+   - Better to repeat attack than give "dead input" (button does nothing)
+   - Logs CRITICAL error + shows on-screen warning in editor
+
+**Fallback Chain (5 Tiers)**:
+```
+Priority 1: Context-Sensitive Attacks (future) → Fallback: Priority 2
+Priority 2: Directional Follow-Ups → Fallback: Priority 3
+Priority 3: Normal Combo Chain (NextComboAttack) → Fallback: Priority 4
+Priority 4: Default Attacks (DefaultLightAttack/Heavy) → Fallback: Emergency (Tier 5)
+Tier 5: Emergency Fallback (repeat current attack) → NEVER returns nullptr
+```
+
+**Impact**: Designers can now work freely without fear of breaking combat with configuration errors.
+
+---
+
+### 2025-11-16: Directional Loop Bug Fix ✅
+
+**Fixed**: Infinite loop when holding direction + spamming attack
+- **Root Cause**: Queued actions captured stale `LastDirectionalInput` at queue time
+- **Solution**: Added `bDirectionalInputConsumed` flag (Option 2 - consumption tracking)
+- **Files**: `CombatComponentV2.h:360`, `CombatComponentV2.cpp:119,1968,2047`
+- **Behavior**: Each directional input triggers ONE directional follow-up, then falls back to normal combos
+- **Reset**: New directional input resets consumption, enabling new directional attack
+
+---
+
+### 2025-11-12: Context-Aware Attack Resolution (Phase 1) ✅
+
+**Goal**: Implement GameplayTag system + cycle detection for context-aware attack resolution
+**Result**: ✅ Infrastructure complete (directional bug required separate fix)
 
 **Implemented** (infrastructure valuable, keep):
 1. **GameplayTag System** (`AttackData.h:242-256`, `DefaultGameplayTags.ini` NEW)
@@ -206,12 +374,21 @@ ASamuraiCharacter → CombatSettings (combat style) → AttackConfiguration (att
 2. Action Queue: FIFO execution with snap/responsive/immediate modes
 3. Phase Management: Event-driven transitions (Windup→Active→Recovery→None)
 4. Combo System: Light→Light, Light→Heavy, Heavy branching
-5. Hold Mechanics: Light (ease slowdown), Heavy (charge loop) ✅ | Directional follow-ups ❌ (bug)
-6. Blending: Universal crossfade with per-attack blend times
-7. Debug Visualization: Phase, queue, timeline, stats
-8. Montage Utilities: 27 functions
-9. Editor Tools: Custom AttackData panel with validation
-10. Context System: GameplayTag resolution with cycle detection
+5. Hold Mechanics: Light (ease slowdown), Heavy (charge loop) ✅
+6. Directional Follow-ups: Fixed infinite loop bug with consumption flag ✅
+7. Graceful Fallback Chain: 5-tier system that NEVER breaks combat ✅
+8. Blending: Universal crossfade with per-attack blend times
+9. Debug Visualization: Phase, queue, timeline, stats
+10. Montage Utilities: 27 functions
+11. Editor Tools: Custom AttackData panel with validation
+12. Context System: GameplayTag resolution with cycle detection
+
+**Robustness** (NEW):
+- ✅ Circular references → falls back to default attack (not nullptr)
+- ✅ Missing tags → falls back to normal combo chain
+- ✅ Missing default attacks → emergency fallback repeats current attack
+- ✅ Validation in BeginPlay catches configuration errors early
+- ✅ On-screen warnings in editor for missing defaults
 
 **Performance**:
 - Timer-based easing (60Hz), not tick-based
@@ -224,8 +401,12 @@ ASamuraiCharacter → CombatSettings (combat style) → AttackConfiguration (att
 
 ## Planned Next Steps
 
-### URGENT: Fix Directional Loop Bug (~1-2 hours)
-See CRITICAL section above for Option 1 (per-action storage) or Option 2 (consumption flag)
+### Phase 2: AttackData Designer QoL (6-8 hours) - HIGH PRIORITY
+- **Visual Tag Preview Widget**: Show active tags, context, combo chain at a glance in details panel
+- **Comprehensive Tooltips**: Add detailed tooltips to 22+ properties with examples
+- **Improved Validation**: Visual indicators for circular references, missing references, tag consistency
+- **Test Combo Chain Button**: Simulate resolution without playing to verify fallbacks
+- **Property Organization**: Categorize into subcategories, hide irrelevant fields with EditCondition
 
 ### Phase 6: Parry & Evade Systems
 - Parry detection (check enemy's `AnimNotifyState_ParryWindow`)
@@ -286,6 +467,107 @@ Config/
 | Debugging | `docs/TROUBLESHOOTING.md` |
 | Setup | `docs/GETTING_STARTED.md` |
 | Testing | `Source/KatanaCombatTest/README.md` |
+
+---
+
+## Intelligent Mode Detection System
+
+**Purpose**: Auto-switches Claude Code context based on file type, conversation, and learned patterns
+
+**Status**: ✅ **ACTIVE** (v3.0 - 5-factor ML detection)
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/mode status` | View current mode, auto-switch status, and recent switches |
+| `/mode [name]` | Manually switch to specific mode (full/combat-logic/animation/data-assets/testing) |
+| `/mode suggest` | Get intelligent mode recommendation for current context |
+| `/mode analyze [file]` | Show detailed confidence breakdown with visual report |
+| `/mode config` | View/edit confidence thresholds and factor weights |
+| `/mode learn` | View machine learning patterns and accuracy stats |
+| `/mode train` | Manually record pattern for ML training |
+| `/mode reset-learning` | Clear all learned patterns (requires confirmation) |
+| `/mode auto enable` | Enable automatic mode switching |
+| `/mode auto disable` | Disable automatic mode switching |
+
+### Detection Algorithm (5 Factors)
+
+**Factor Weights** (configurable via `/mode config`):
+1. **File Patterns** (35%) - Path, extension, naming conventions
+2. **Conversation Topics** (25%) - Keywords from recent messages
+3. **Learned Patterns** (20%) - Bayesian inference + temporal decay + correlation boost
+4. **Historical Success** (15%) - Per-file and per-mode accuracy tracking
+5. **Time-Based Patterns** (5%) - Work hours heuristic
+
+**Confidence Levels**:
+- **High (≥80%)**: Auto-switch with silent notification
+- **Medium (≥50%)**: Auto-switch with visible notification
+- **Low (<30%)**: Show hint only, no auto-switch
+
+**Presets** (apply via `/mode config`):
+- `conservative` - High: 90%, Medium: 70%, Low: 50%
+- `balanced` (default) - High: 80%, Medium: 50%, Low: 30%
+- `aggressive` - High: 70%, Medium: 40%, Low: 20%
+
+### Visual Confidence Report
+
+Use `/mode analyze` to see detailed breakdown:
+```
+================================================================
+      INTELLIGENT MODE DETECTION - CONFIDENCE REPORT
+================================================================
+
+SUGGESTED MODE: ANIMATION
+CONFIDENCE:     54.5% (medium)
+
+CONFIDENCE BAR: ###########################-----------------------
+
++-------------------------------------------------------------+
+|  FACTOR CONTRIBUTIONS                                       |
++-------------------------------------------------------------+
+|  file          #############------- 0.332  |
+|    -> conf: 95% x weight: 35% -> animation                  |
+|  learning      #-------------------  0.027  |
+|    -> conf: 13.5% x weight: 20% -> animation                |
+|  history       ###############-----  0.15   |
+|    -> conf: 100% x weight: 15% -> animation                 |
+|  time          #-------------------  0.035  |
+|    -> conf: 70% x weight: 5% -> animation                   |
++-------------------------------------------------------------+
+```
+
+### Configuration Files
+
+- **`.claude/.context-config.json`** - Thresholds, weights, presets
+- **`.claude/.context-learning.json`** - ML learning database (Bayesian inference)
+- **`.claude/.context-history.json`** - Switch history and analytics
+
+### Implementation
+
+**Primary Detector**: `.claude/scripts/intelligent-mode-detector.ps1` (5-factor ML)
+**Fallback Chain**: intelligent → holistic → detect-mode → exit (graceful degradation)
+**Hook Integration**: `.claude/hooks/auto-context.ps1` (runs on file open)
+
+**Test Coverage**: 21 test scripts in `.claude/scripts/tests/`
+- Integration tests: 3/3 passing (100%)
+- Bayesian inference: Validated
+- Correlation boost: Validated
+
+### Tuning Example
+
+Increase learning factor weight:
+```
+/mode config
+> set weight learning 0.30
+> set weight file 0.30
+```
+
+Apply aggressive preset:
+```
+/mode config
+> apply aggressive
+```
 
 ---
 

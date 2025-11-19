@@ -14,6 +14,12 @@ param(
 
 $trackerFile = ".claude/.context-history.json"
 
+# Define helper functions first
+function Update-State {
+    param([Parameter(Mandatory=$true)]$StateObject)
+    $StateObject | ConvertTo-Json -Depth 10 | Set-Content $trackerFile
+}
+
 # Initialize tracker file if doesn't exist
 if (-not (Test-Path $trackerFile)) {
     # Check if auto-switch is enabled by file existence
@@ -40,11 +46,7 @@ $actualAutoSwitch = Test-Path $autoSwitchFile
 
 if ($state.autoSwitchEnabled -ne $actualAutoSwitch) {
     $state.autoSwitchEnabled = $actualAutoSwitch
-    Update-State
-}
-
-function Update-State {
-    $state | ConvertTo-Json -Depth 10 | Set-Content $trackerFile
+    Update-State -StateObject $state
 }
 
 function Add-SwitchHistory {
@@ -77,7 +79,7 @@ function Add-SwitchHistory {
         $state.history = $state.history | Select-Object -Last 50
     }
 
-    Update-State
+    Update-State -StateObject $state
 }
 
 function Show-Status {
@@ -233,7 +235,7 @@ function Clear-History {
         $state.history = @()
         $state.statistics.totalSwitches = 0
         $state.statistics.modeUsage = @{}
-        Update-State
+        Update-State -StateObject $state
 
         Write-Host ""
         Write-Host "[OK] History cleared" -ForegroundColor Green
