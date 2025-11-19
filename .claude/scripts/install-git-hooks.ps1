@@ -79,7 +79,7 @@ exit 0
 '@
 
 # Write pre-commit hook
-Set-Content -Path $preCommitPath -Value $preCommitContent -Encoding UTF8 -NoNewline
+$preCommitContent | Out-File -FilePath $preCommitPath -Encoding ASCII -NoNewline
 Write-Host "   [SUCCESS] Created: $preCommitPath" -ForegroundColor Green
 
 # Install post-commit hook
@@ -130,15 +130,19 @@ exit 0
 '@
 
 # Write post-commit hook
-Set-Content -Path $postCommitPath -Value $postCommitContent -Encoding UTF8 -NoNewline
+$postCommitContent | Out-File -FilePath $postCommitPath -Encoding ASCII -NoNewline
 Write-Host "   [SUCCESS] Created: $postCommitPath" -ForegroundColor Green
 
-# Make hooks executable on Unix-based systems
-if ($IsLinux -or $IsMacOS) {
-    Write-Host "Making hooks executable..." -ForegroundColor Cyan
-    chmod +x $preCommitPath
-    chmod +x $postCommitPath
+# Make hooks executable (Linux, macOS, and Git Bash on Windows)
+Write-Host "Making hooks executable..." -ForegroundColor Cyan
+try {
+    # Try using chmod (works on Linux, macOS, and Git Bash)
+    $null = chmod +x $preCommitPath 2>&1
+    $null = chmod +x $postCommitPath 2>&1
     Write-Host "   [SUCCESS] Hooks are now executable" -ForegroundColor Green
+} catch {
+    # If chmod fails, assume Windows without Git Bash
+    Write-Host "   [INFO] chmod not available, hooks may need manual chmod on Git Bash" -ForegroundColor Gray
 }
 
 Write-Host ""
