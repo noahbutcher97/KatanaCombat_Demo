@@ -80,7 +80,7 @@ function Show-Status {
     Write-Host ""
 
     Write-Host "Auto-Switch: " -NoNewline
-    $autoEnabled = $env:CLAUDE_AUTO_SWITCH_CONTEXT -eq "1"
+    $autoEnabled = Test-Path ".claude/.auto-switch-enabled"
     if ($autoEnabled) {
         Write-Host "ENABLED" -ForegroundColor Green
     } else {

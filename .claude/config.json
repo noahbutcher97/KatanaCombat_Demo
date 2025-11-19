@@ -1,5 +1,21 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell",
+            "args": [
+              "-ExecutionPolicy",
+              "Bypass",
+              "-File",
+              ".claude/hooks/session-start.ps1"
+            ]
+          }
+        ]
+      }
+    ],
     "beforeToolCall": {
       "command": "powershell",
       "args": [
@@ -16,6 +32,15 @@
         "Bypass",
         "-File",
         ".claude/hooks/auto-context.ps1"
+      ]
+    },
+    "afterEdit": {
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        ".claude/hooks/after-edit.ps1"
       ]
     }
   }

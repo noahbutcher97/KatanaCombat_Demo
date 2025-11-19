@@ -7,7 +7,7 @@ param(
 )
 
 # Check if disabled
-if ($env:CLAUDE_SKIP_AFTER_EDIT -eq "1") { exit 0 }
+if (Test-Path ".claude/.skip-after-edit-enabled") { exit 0 }
 
 if (-not $FilePath) { exit 0 }
 
@@ -134,7 +134,7 @@ if ($docUpdates.Count -gt 0 -or $reminders.Count -gt 0) {
 
     $output += "🔧 **Quick Actions**:`n"
     $output += "  - Run: /sync-docs (check doc alignment)`n"
-    $output += "  - Skip: Set CLAUDE_SKIP_AFTER_EDIT=1`n`n"
+    $output += "  - Skip: Use '/hooks skip after-edit'`n`n"
 
     $output += "</system-reminder>"
 

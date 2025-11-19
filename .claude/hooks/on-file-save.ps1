@@ -6,7 +6,7 @@ param(
 )
 
 # Check if disabled
-if ($env:CLAUDE_SKIP_ON_SAVE -eq "1") { exit 0 }
+if (Test-Path ".claude/.skip-on-save-enabled") { exit 0 }
 
 if (-not $FilePath -or -not (Test-Path $FilePath)) { exit 0 }
 
@@ -152,7 +152,7 @@ if ($styleIssues.Count -gt 0 -or $suggestions.Count -gt 0 -or $goodPractices.Cou
 
     $output += "🔧 **Actions**:`n"
     $output += "  - Detailed check: /check-warnings`n"
-    $output += "  - Disable: Set CLAUDE_SKIP_ON_SAVE=1`n`n"
+    $output += "  - Disable: Use '/hooks skip on-save'`n`n"
 
     $output += "</system-reminder>"
 

@@ -7,8 +7,8 @@ param(
 )
 
 # Check if disabled
-if ($env:CLAUDE_SKIP_VALIDATION -eq "1") {
-    Write-Output "Validation skipped (CLAUDE_SKIP_VALIDATION=1)"
+if (Test-Path ".claude/.skip-validation-enabled") {
+    Write-Output "Validation skipped (.skip-validation-enabled flag present)"
     exit 0
 }
 
@@ -201,7 +201,7 @@ if ($Quick) {
 
 Write-Output "🔧 **Bypass Options**"
 Write-Output "  - Force commit: git commit --no-verify"
-Write-Output "  - Skip validation: Set CLAUDE_SKIP_VALIDATION=1"
+Write-Output "  - Skip validation: Use '/hooks skip validation'"
 Write-Output "  - Quick mode: Use --quick flag"
 Write-Output ""
 

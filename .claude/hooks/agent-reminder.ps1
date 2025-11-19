@@ -8,9 +8,7 @@ $toolArgs = $env:TOOL_ARGS
 if (-not $toolName) { exit 0 }
 
 # Check for user override
-# New standard: CLAUDE_SKIP_AGENT_REMINDERS
-# Old (backward compat): CLAUDE_NO_AGENT_REMINDERS
-if ($env:CLAUDE_SKIP_AGENT_REMINDERS -eq "1" -or $env:CLAUDE_NO_AGENT_REMINDERS -eq "1") { exit 0 }
+if (Test-Path ".claude/.skip-agent-reminders-enabled") { exit 0 }
 
 # Track complexity indicators
 $complexityScore = 0

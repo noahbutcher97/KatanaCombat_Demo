@@ -164,7 +164,10 @@ Use: `/mode [mode-name]` to manually switch context
 ```
 
 **Implementation**:
-- Check environment variable `$env:CLAUDE_AUTO_SWITCH_CONTEXT` to determine auto-switch status
+- Check for `.claude/.auto-switch-enabled` flag file to determine auto-switch status:
+  ```bash
+  powershell.exe -Command "if (Test-Path '.claude/.auto-switch-enabled') { Write-Host 'ENABLED' } else { Write-Host 'DISABLED' }"
+  ```
 - Analyze last 10 messages for topic detection using keyword matching
 - Use `.claude/scripts/context-tracker.ps1 -Action status` and `-Action analytics` for switch history and statistics
 
@@ -241,33 +244,29 @@ documentation: docs, documentation, README, guide, tutorial
 
 ### `/mode auto enable` - Enable Auto-Switching
 
-**Action**: Show how to enable intelligent auto-switching.
+**Action**: Actually enable intelligent auto-switching by creating a flag file.
+
+**Implementation Steps**:
+1. Create the auto-switch flag file:
+   ```bash
+   powershell.exe -Command "New-Item -Path '.claude/.auto-switch-enabled' -ItemType File -Force | Out-Null; Write-Host 'Auto-switching ENABLED'"
+   ```
+2. Verify the setting:
+   ```bash
+   powershell.exe -Command "if (Test-Path '.claude/.auto-switch-enabled') { Write-Host 'ENABLED' } else { Write-Host 'DISABLED' }"
+   ```
+
+**Note**: This uses a flag file approach instead of environment variables because environment variables don't persist across tool invocations in Claude Code.
 
 **Output**:
 ```markdown
 # 🔧 Enable Auto-Context Switching
 
-To enable intelligent auto-switching, run:
+✅ **Auto-switching has been ENABLED** (for this session)
 
-**PowerShell**:
-```powershell
-$env:CLAUDE_AUTO_SWITCH_CONTEXT = "1"
-```
+## What This Does
 
-**Bash/Zsh**:
-```bash
-export CLAUDE_AUTO_SWITCH_CONTEXT=1
-```
-
-**Permanent (PowerShell Profile)**:
-```powershell
-# Add to $PROFILE:
-$env:CLAUDE_AUTO_SWITCH_CONTEXT = "1"
-```
-
-## What Happens When Enabled
-
-Context will automatically switch based on:
+Context will now automatically switch based on:
 
 ### 1. **File Opens** (High Confidence - 90%)
 - Open `AnimNotify_*.cpp` → Switch to `animation`
@@ -294,7 +293,17 @@ Context will automatically switch based on:
 - **Medium (50-79%)**: Show suggestion, ask confirmation
 - **Low (<50%)**: Show hint, no auto-switch
 
-✅ **Enabled successfully** (for this session)
+## Session vs Permanent
+
+**Current Status**: ✅ Enabled for this session only
+
+**For Permanent Enablement** (survives terminal restarts):
+Add this to your PowerShell profile (`$PROFILE`):
+```powershell
+$env:CLAUDE_AUTO_SWITCH_CONTEXT = "1"
+```
+
+**To Disable**: Use `/mode auto disable`
 
 📖 **Full Documentation**: See `.claude/context-modes/INTELLIGENT_SWITCHING.md`
 ```
@@ -303,28 +312,25 @@ Context will automatically switch based on:
 
 ### `/mode auto disable` - Disable Auto-Switching
 
-**Action**: Show how to disable auto-switching.
+**Action**: Actually disable intelligent auto-switching by removing the flag file.
+
+**Implementation Steps**:
+1. Remove the auto-switch flag file:
+   ```bash
+   powershell.exe -Command "if (Test-Path '.claude/.auto-switch-enabled') { Remove-Item '.claude/.auto-switch-enabled' -Force }; Write-Host 'Auto-switching DISABLED'"
+   ```
+2. Verify the setting:
+   ```bash
+   powershell.exe -Command "if (Test-Path '.claude/.auto-switch-enabled') { Write-Host 'ENABLED' } else { Write-Host 'DISABLED' }"
+   ```
+
+**Note**: This uses a flag file approach instead of environment variables because environment variables don't persist across tool invocations in Claude Code.
 
 **Output**:
 ```markdown
 # 🔧 Disable Auto-Context Switching
 
-To disable auto-switching, run:
-
-**PowerShell**:
-```powershell
-$env:CLAUDE_AUTO_SWITCH_CONTEXT = "0"
-```
-
-**Bash/Zsh**:
-```bash
-export CLAUDE_AUTO_SWITCH_CONTEXT=0
-```
-
-**Or unset**:
-```powershell
-Remove-Item Env:CLAUDE_AUTO_SWITCH_CONTEXT
-```
+✅ **Auto-switching has been DISABLED** (for this session)
 
 ## Manual Mode Active
 
@@ -334,7 +340,17 @@ Context will now stay fixed until you manually switch with:
 
 Auto-detection reminders will still show, but won't auto-switch.
 
-✅ **Disabled** - Manual mode active
+## Session vs Permanent
+
+**Current Status**: ✅ Disabled for this session only
+
+**For Permanent Disablement** (survives terminal restarts):
+Edit your PowerShell profile (`$PROFILE`) and remove or comment out:
+```powershell
+# $env:CLAUDE_AUTO_SWITCH_CONTEXT = "1"
+```
+
+**To Re-Enable**: Use `/mode auto enable`
 ```
 
 ---

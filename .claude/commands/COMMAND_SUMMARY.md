@@ -5,6 +5,23 @@ n# Quick Command Reference
 ### 💬 Planning & Clarification
 - `/clarify` - Interactive requirements gathering with multiple-choice questions
 
+### 🎯 Context Modes
+- `/mode [name]` - Switch to specific context mode (animation, combat-logic, data-assets, testing, etc.)
+- `/mode-status` - Show context system status and auto-switching state
+- `/mode-list` - Show all available modes
+- `/mode-suggest` - Get AI-recommended mode based on current work
+- `/mode-auto-enable` - Enable auto-switching of context modes
+- `/mode-auto-disable` - Disable auto-switching
+- `/mode-animation` - Switch to animation-focused context
+- `/mode-combat-logic` - Switch to combat-logic-focused context
+- `/mode-data-assets` - Switch to data-assets-focused context
+- `/mode-testing` - Switch to testing-focused context
+
+### 🔧 Development Hooks
+- `/hooks status` - Show enable/disable status of all hooks
+- `/hooks skip [name]` - Disable a specific hook (on-save, diagnostics, validation, after-edit, agent-reminders, all)
+- `/hooks enable [name]` - Enable a specific hook
+
 ### 📋 Documentation & Validation (Individual)
 - `/sync-docs` - Check code matches documentation
 - `/validate-combat` - Validate combat system implementation
@@ -34,6 +51,12 @@ n# Quick Command Reference
 | **Docs out of date?** | `/sync-docs` | Find what needs updating |
 | **Need tests** | `/generate-tests [feature]` | Get code templates |
 | **Debugging issue** | `/validate-combat` | Find bugs and logic errors |
+| **Working on animations** | `/mode-animation` | Focus on animation files and docs |
+| **Working on combat logic** | `/mode-combat-logic` | Focus on combat components |
+| **Configuring attacks** | `/mode-data-assets` | Focus on data asset configuration |
+| **Writing tests** | `/mode-testing` | Focus on test infrastructure |
+| **Too many reminders** | `/hooks skip agent-reminders` | Disable agent suggestions |
+| **Skip pre-commit checks** | `/hooks skip validation` | Temporarily disable validation |
 
 ---
 
@@ -104,6 +127,17 @@ n# Quick Command Reference
 ├── README.md              # Full documentation
 ├── COMMAND_SUMMARY.md     # This quick reference
 ├── clarify.md             # ⭐ Interactive requirements gathering
+├── mode.md                # Context mode switcher (main)
+├── mode-status.md         # Context system status shortcut
+├── mode-list.md           # List all modes shortcut
+├── mode-suggest.md        # Get mode suggestion shortcut
+├── mode-auto-enable.md    # Enable auto-switching shortcut
+├── mode-auto-disable.md   # Disable auto-switching shortcut
+├── mode-animation.md      # Animation mode shortcut
+├── mode-combat-logic.md   # Combat logic mode shortcut
+├── mode-data-assets.md    # Data assets mode shortcut
+├── mode-testing.md        # Testing mode shortcut
+├── hooks.md               # Development hooks manager
 ├── sync-docs.md           # Doc sync checker
 ├── validate-combat.md     # Combat validator
 ├── generate-tests.md      # Test generator

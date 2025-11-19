@@ -7,8 +7,8 @@ param(
 )
 
 # Check if diagnostics check is disabled
-if ($env:CLAUDE_SKIP_DIAGNOSTICS -eq "1") {
-    Write-Output "Diagnostics check skipped (CLAUDE_SKIP_DIAGNOSTICS=1)"
+if (Test-Path ".claude/.skip-diagnostics-enabled") {
+    Write-Output "Diagnostics check skipped (.skip-diagnostics-enabled flag present)"
     exit 0
 }
 
@@ -131,7 +131,7 @@ if ($Force) {
 
 # In a full implementation, this would actually block on critical issues
 # For now, it's advisory
-Write-Output "💡 Tip: Set CLAUDE_SKIP_DIAGNOSTICS=1 to skip this check"
+Write-Output "💡 Tip: Use '/hooks skip diagnostics' to disable this check"
 Write-Output "</system-reminder>"
 
 exit 0

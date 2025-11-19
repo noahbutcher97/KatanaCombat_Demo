@@ -173,7 +173,7 @@ $modeInfo = @{
 }
 
 # Auto-switch logic based on confidence
-$autoSwitchEnabled = $env:CLAUDE_AUTO_SWITCH_CONTEXT -eq "1"
+$autoSwitchEnabled = Test-Path ".claude/.auto-switch-enabled"
 
 if ($autoSwitchEnabled) {
     # Confidence thresholds
@@ -267,7 +267,7 @@ if ($autoSwitchEnabled) {
         $reminder += "`nHINT: Consider '/mode $detectedMode' (low confidence: $confidencePct%)`n"
     }
 } else {
-    $reminder += "`nTip: Use '/mode $detectedMode' for full context switch, or set CLAUDE_AUTO_SWITCH_CONTEXT=1 for auto-switching`n"
+    $reminder += "`nTip: Use '/mode $detectedMode' for full context switch, or use '/mode auto enable' for auto-switching`n"
 }
 
 $reminder += "</system-reminder>"
