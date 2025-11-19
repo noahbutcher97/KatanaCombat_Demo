@@ -197,9 +197,27 @@ $modeInfo = @{
 $autoSwitchEnabled = Test-Path ".claude/.auto-switch-enabled"
 
 if ($autoSwitchEnabled) {
-    # Confidence thresholds
+    # Load confidence thresholds from config (with fallback to defaults)
     $highThreshold = 0.80
     $mediumThreshold = 0.50
+
+    $configFile = ".claude/.context-config.json"
+    if (Test-Path $configFile) {
+        try {
+            $config = Get-Content $configFile | ConvertFrom-Json
+            if ($config.intelligentSwitching.PSObject.Properties.Name -contains 'confidenceThresholds') {
+                $thresholds = $config.intelligentSwitching.confidenceThresholds
+                if ($thresholds.PSObject.Properties.Name -contains 'high') {
+                    $highThreshold = [double]$thresholds.high
+                }
+                if ($thresholds.PSObject.Properties.Name -contains 'medium') {
+                    $mediumThreshold = [double]$thresholds.medium
+                }
+            }
+        } catch {
+            # Config load failed, use defaults
+        }
+    }
 
     $shouldSwitch = $false
     $switchReason = "Auto-detected from file: $filePath"

@@ -27,13 +27,31 @@ param(
 $ErrorActionPreference = "SilentlyContinue"
 $scriptDir = $PSScriptRoot
 
-# 5-factor weights (tuned for optimal accuracy)
+# 5-factor weights (tuned for optimal accuracy, configurable)
 $weights = @{
     file = 0.35           # File path/extension/content patterns
     conversation = 0.25   # Topic extraction from conversation
     learning = 0.20       # ML-learned patterns with Bayesian inference
     history = 0.15        # Historical success rate for this file/mode
     time = 0.05           # Time-of-day heuristics
+}
+
+# Load weights from config if available
+$configFile = Join-Path $scriptDir ".." | Join-Path -ChildPath ".context-config.json"
+if (Test-Path $configFile) {
+    try {
+        $config = Get-Content $configFile | ConvertFrom-Json
+        if ($config.intelligentSwitching.PSObject.Properties.Name -contains 'factorWeights') {
+            $configWeights = $config.intelligentSwitching.factorWeights
+            foreach ($key in @('file', 'conversation', 'learning', 'history', 'time')) {
+                if ($configWeights.PSObject.Properties.Name -contains $key) {
+                    $weights[$key] = [double]$configWeights.$key
+                }
+            }
+        }
+    } catch {
+        # Config load failed, use defaults
+    }
 }
 
 # Keyword categories for topic detection (shared with confidence-calculator)

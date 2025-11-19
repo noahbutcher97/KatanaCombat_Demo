@@ -1,0 +1,56 @@
+{
+  "version": "1.0",
+  "intelligentSwitching": {
+    "enabled": true,
+    "confidenceThresholds": {
+      "high": 0.80,
+      "medium": 0.50,
+      "low": 0.30
+    },
+    "behaviorByConfidence": {
+      "high": "auto-switch",
+      "medium": "auto-switch",
+      "low": "hint-only"
+    },
+    "factorWeights": {
+      "file": 0.35,
+      "conversation": 0.25,
+      "learning": 0.20,
+      "history": 0.15,
+      "time": 0.05
+    },
+    "feedbackWindow": 30,
+    "showConfidenceBreakdown": true,
+    "verboseLogging": false
+  },
+  "display": {
+    "showFactorBreakdown": true,
+    "showCorrelations": false,
+    "minFactorConfidenceToShow": 0.1,
+    "colorCodeConfidence": true
+  },
+  "learning": {
+    "enablePassiveLearning": true,
+    "enableNegativeFeedback": true,
+    "temporalDecayRate": 0.95,
+    "minSamplesForHighConfidence": 5,
+    "correlationBoostMax": 0.20
+  },
+  "presets": {
+    "conservative": {
+      "high": 0.90,
+      "medium": 0.70,
+      "low": 0.50
+    },
+    "balanced": {
+      "high": 0.80,
+      "medium": 0.50,
+      "low": 0.30
+    },
+    "aggressive": {
+      "high": 0.70,
+      "medium": 0.40,
+      "low": 0.20
+    }
+  }
+}
