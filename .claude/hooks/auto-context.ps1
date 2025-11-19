@@ -9,23 +9,44 @@ if ([string]::IsNullOrWhiteSpace($filePath)) {
     exit 0
 }
 
-# Use holistic detector for ML-powered detection (file + conversation + learning)
-$holisticDetectorPath = Join-Path $PSScriptRoot "..\scripts\holistic-mode-detector.ps1"
+# Use intelligent detector v3.0 for unified 5-factor ML detection
+$intelligentDetectorPath = Join-Path $PSScriptRoot "..\scripts\intelligent-mode-detector.ps1"
 
-if (-not (Test-Path $holisticDetectorPath)) {
-    # Fallback to basic file detection if holistic detector missing
-    $scriptPath = Join-Path $PSScriptRoot "..\scripts\detect-mode.ps1"
-    if (-not (Test-Path $scriptPath)) {
-        exit 0
+if (-not (Test-Path $intelligentDetectorPath)) {
+    # Fallback to holistic detector if intelligent detector missing
+    $intelligentDetectorPath = Join-Path $PSScriptRoot "..\scripts\holistic-mode-detector.ps1"
+
+    if (-not (Test-Path $intelligentDetectorPath)) {
+        # Final fallback to basic file detection
+        $intelligentDetectorPath = Join-Path $PSScriptRoot "..\scripts\detect-mode.ps1"
+        if (-not (Test-Path $intelligentDetectorPath)) {
+            exit 0
+        }
     }
-    $holisticDetectorPath = $scriptPath
 }
 
 try {
-    # Call holistic detector with file path
+    # Get current mode for context
+    $trackerScript = Join-Path $PSScriptRoot "..\scripts\context-tracker.ps1"
+    $currentMode = "full"
+    if (Test-Path $trackerScript) {
+        try {
+            $trackerPath = Join-Path $PSScriptRoot ".." | Join-Path -ChildPath ".context-history.json"
+            if (Test-Path $trackerPath) {
+                $trackerData = Get-Content $trackerPath | ConvertFrom-Json
+                if ($trackerData.PSObject.Properties.Name -contains 'currentMode') {
+                    $currentMode = $trackerData.currentMode
+                }
+            }
+        } catch {
+            # Tracker read failed, use default
+        }
+    }
+
+    # Call intelligent detector v3.0 with file path and current mode
     # Note: Conversation context not available at file-open time, but learning system
     # will use historical correlations to boost confidence based on past patterns
-    $detectionResultRaw = & powershell.exe -ExecutionPolicy Bypass -File $holisticDetectorPath -FilePath $filePath 2>&1
+    $detectionResultRaw = & powershell.exe -ExecutionPolicy Bypass -File $intelligentDetectorPath -FilePath $filePath -CurrentMode $currentMode 2>&1
 
     if (-not $detectionResultRaw) {
         exit 0
@@ -255,6 +276,20 @@ if ($info -and $info.principles) {
     }
 }
 
+# Confidence breakdown (if available from intelligent detector v3.0)
+if ($detection.PSObject.Properties.Name -contains 'factors') {
+    $reminder += "`nConfidence Breakdown:`n"
+    foreach ($factorName in @('file', 'conversation', 'learning', 'history', 'time')) {
+        if ($detection.factors.PSObject.Properties.Name -contains $factorName) {
+            $factor = $detection.factors.$factorName
+            $factorConf = [Math]::Round([double]$factor.confidence * 100, 1)
+            $weight = [Math]::Round([double]$factor.weight * 100)
+            $weighted = [Math]::Round([double]$factor.weightedScore, 3)
+            $reminder += "  $factorName ($weight%): $factorConf% conf -> $weighted weighted`n"
+        }
+    }
+}
+
 # Action hint based on confidence
 if ($autoSwitchEnabled) {
     if ($confidence -ge 0.80) {
@@ -266,6 +301,9 @@ if ($autoSwitchEnabled) {
     else {
         $reminder += "`nHINT: Consider '/mode $detectedMode' (low confidence: $confidencePct%)`n"
     }
+
+    # Negative feedback detection: If user manually overrides within 30 seconds, record failure
+    $reminder += "`nNote: Manual mode switch within 30s will record negative feedback for ML learning`n"
 } else {
     $reminder += "`nTip: Use '/mode $detectedMode' for full context switch, or use '/mode auto enable' for auto-switching`n"
 }

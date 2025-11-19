@@ -16,9 +16,12 @@ $trackerFile = ".claude/.context-history.json"
 
 # Initialize tracker file if doesn't exist
 if (-not (Test-Path $trackerFile)) {
+    # Check if auto-switch is enabled by file existence
+    $autoEnabled = Test-Path ".claude/.auto-switch-enabled"
+
     $initialData = @{
         currentMode = "full"
-        autoSwitchEnabled = $false
+        autoSwitchEnabled = $autoEnabled
         history = @()
         statistics = @{
             totalSwitches = 0
@@ -30,6 +33,15 @@ if (-not (Test-Path $trackerFile)) {
 
 # Load current state
 $state = Get-Content $trackerFile | ConvertFrom-Json
+
+# Sync auto-switch status with .auto-switch-enabled file
+$autoSwitchFile = ".claude/.auto-switch-enabled"
+$actualAutoSwitch = Test-Path $autoSwitchFile
+
+if ($state.autoSwitchEnabled -ne $actualAutoSwitch) {
+    $state.autoSwitchEnabled = $actualAutoSwitch
+    Update-State
+}
 
 function Update-State {
     $state | ConvertTo-Json -Depth 10 | Set-Content $trackerFile
