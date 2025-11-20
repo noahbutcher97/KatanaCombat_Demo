@@ -2,7 +2,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Characters/SamuraiCharacter.h"
-#include "Core/CombatComponent.h"
+// V1 REMOVED: #include "Core/CombatComponent.h" - V1 CombatComponent fully deprecated
 #include "Core/CombatComponentV2.h"
 #include "Core/TargetingComponent.h"
 #include "Core/WeaponComponent.h"
@@ -16,13 +16,14 @@
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Utilities/DirectionDebugLibrary.h"
 
 ASamuraiCharacter::ASamuraiCharacter()
 {
     PrimaryActorTick.bCanEverTick = true;
 
     // Create combat components
-    CombatComponent = CreateDefaultSubobject<UCombatComponent>(TEXT("CombatComponent"));
+    // V1 REMOVED: CombatComponent = CreateDefaultSubobject<UCombatComponent>(TEXT("CombatComponent"));
     CombatComponentV2 = CreateDefaultSubobject<UCombatComponentV2>(TEXT("CombatComponentV2"));
     CombatDebugWidget = CreateDefaultSubobject<UCombatDebugWidget>(TEXT("CombatDebugWidget"));
     TargetingComponent = CreateDefaultSubobject<UTargetingComponent>(TEXT("TargetingComponent"));
@@ -69,7 +70,72 @@ void ASamuraiCharacter::BeginPlay()
 void ASamuraiCharacter::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
+     // Debug Visualization: Run on Tick to update arrows in real-time
+    if (CombatComponentV2 && CombatComponentV2->GetDebugDraw())
+    {
+        // 1. Gather Transformations
+        const FRotator CameraRotation = GetControlRotation();
+        const FRotator CharacterRotation = GetActorRotation();
+        const FVector2D CameraRelativeInput = LastMovementInput;
+
+        // Camera-relative to world space conversion
+        // CRITICAL: Flatten camera rotation to yaw-only to prevent pitch/roll from corrupting WorldInput
+        const FRotator FlatCameraRotation = FRotator(0.0f, CameraRotation.Yaw, 0.0f);
+        const FVector CameraForward = FRotationMatrix(FlatCameraRotation).GetScaledAxis(EAxis::X);
+        const FVector CameraRight = FRotationMatrix(FlatCameraRotation).GetScaledAxis(EAxis::Y);
+        FVector WorldInput = (CameraRight * CameraRelativeInput.X) + (CameraForward * CameraRelativeInput.Y);
+        WorldInput.Z = 0.0f;
+        WorldInput.Normalize();
+
+        // World to character-relative conversion
+        const FRotator InverseCharacterYaw(0.0f, -CharacterRotation.Yaw, 0.0f);
+        const FVector CharacterRelativeVec = InverseCharacterYaw.RotateVector(WorldInput);
+        const FVector2D CharacterRelative2D(CharacterRelativeVec.X, CharacterRelativeVec.Y);
+
+        // 2. Resolve Direction Enum
+        const EInputDirection CharacterRelativeDirection = GetDirectionalInputFromMovement(CharacterRelative2D);
+
+        // 3. Draw Debug if we have valid input
+        if (CharacterRelativeDirection != EInputDirection::None)
+        {
+            // Simple mapping for AttackDir (Forward/Back/Left/Right)
+            EAttackDirection AttackDir = EAttackDirection::Forward;
+            if (CharacterRelativeDirection == EInputDirection::Backward || 
+                CharacterRelativeDirection == EInputDirection::BackwardLeft || 
+                CharacterRelativeDirection == EInputDirection::BackwardRight)
+            {
+                AttackDir = EAttackDirection::Backward;
+            }
+            else if (CharacterRelativeDirection == EInputDirection::Left)
+            {
+                AttackDir = EAttackDirection::Left;
+            }
+            else if (CharacterRelativeDirection == EInputDirection::Right)
+            {
+                AttackDir = EAttackDirection::Right;
+            }
+
+            const FVector CharacterLocation = GetActorLocation();
+            if (!CharacterLocation.IsNearlyZero(1.0f))  // Validate not at world origin
+            {
+                UDirectionDebugLibrary::DrawDirectionTransformDebug(
+                    GetWorld(),
+                    this,  // Pass character reference for text anchoring
+                    CharacterLocation,
+                    CameraRotation,
+                    CharacterRotation,
+                    CameraRelativeInput,
+                    WorldInput,
+                    CharacterRelativeVec,
+                    CharacterRelativeDirection,
+                    AttackDir,
+                    CombatComponentV2->IsHolding()
+                );
+            }
+        }
+    }
 }
+
 
 void ASamuraiCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
@@ -135,11 +201,11 @@ void ASamuraiCharacter::Move(const FInputActionValue& Value)
     // Cache for directional input (used by attack handlers)
     LastMovementInput = MovementVector;
 
-    // Forward movement input to combat component for directional attacks
-    if (CombatComponent)
-    {
-        CombatComponent->SetMovementInput(MovementVector);
-    }
+    // V1 REMOVED: Forward movement input to V1 combat component
+    // if (CombatComponent)
+    // {
+    //     CombatComponent->SetMovementInput(MovementVector);
+    // }
 
     if (Controller && !MovementVector.IsZero())
     {
@@ -175,56 +241,57 @@ void ASamuraiCharacter::OnLightAttackPressed(const FInputActionValue& Value)
     // Check CombatSettings for V2 system enabled
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
-        // Convert current movement input to directional input
-        EInputDirection Direction = GetDirectionalInputFromMovement(LastMovementInput);
-        CombatComponentV2->OnInputEvent(EInputType::LightAttack, EInputEventType::Press, Direction);
+        // Use auto-transform helper with character-relative transformation (default)
+        // This automatically handles camera/character rotation for directional attacks
+        CombatComponentV2->OnInputEventAuto(EInputType::LightAttack, EInputEventType::Press, LastMovementInput);
     }
-    else if (CombatComponent)
-    {
-        CombatComponent->OnLightAttackPressed();
-    }
+    // V1 REMOVED: V1 fallback removed
+    // else if (CombatComponent)
+    // {
+    //     CombatComponent->OnLightAttackPressed();
+    // }
 }
 
 void ASamuraiCharacter::OnLightAttackReleased(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
-        // Convert current movement input to directional input
-        EInputDirection Direction = GetDirectionalInputFromMovement(LastMovementInput);
-        CombatComponentV2->OnInputEvent(EInputType::LightAttack, EInputEventType::Release, Direction);
+        // Use auto-transform helper with character-relative transformation (default)
+        CombatComponentV2->OnInputEventAuto(EInputType::LightAttack, EInputEventType::Release, LastMovementInput);
     }
-    else if (CombatComponent)
-    {
-        CombatComponent->OnLightAttackReleased();
-    }
+    // V1 REMOVED: V1 fallback removed
+    // else if (CombatComponent)
+    // {
+    //     CombatComponent->OnLightAttackReleased();
+    // }
 }
 
 void ASamuraiCharacter::OnHeavyAttackPressed(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
-        // Convert current movement input to directional input
-        EInputDirection Direction = GetDirectionalInputFromMovement(LastMovementInput);
-        CombatComponentV2->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Press, Direction);
+        // Use auto-transform helper with character-relative transformation (default)
+        CombatComponentV2->OnInputEventAuto(EInputType::HeavyAttack, EInputEventType::Press, LastMovementInput);
     }
-    else if (CombatComponent)
-    {
-        CombatComponent->OnHeavyAttackPressed();
-    }
+    // V1 REMOVED: V1 fallback removed
+    // else if (CombatComponent)
+    // {
+    //     CombatComponent->OnHeavyAttackPressed();
+    // }
 }
 
 void ASamuraiCharacter::OnHeavyAttackReleased(const FInputActionValue& Value)
 {
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
-        // Convert current movement input to directional input
-        EInputDirection Direction = GetDirectionalInputFromMovement(LastMovementInput);
-        CombatComponentV2->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Release, Direction);
+        // Use auto-transform helper with character-relative transformation (default)
+        CombatComponentV2->OnInputEventAuto(EInputType::HeavyAttack, EInputEventType::Release, LastMovementInput);
     }
-    else if (CombatComponent)
-    {
-        CombatComponent->OnHeavyAttackReleased();
-    }
+    // V1 REMOVED: V1 fallback removed
+    // else if (CombatComponent)
+    // {
+    //     CombatComponent->OnHeavyAttackReleased();
+    // }
 }
 
 void ASamuraiCharacter::OnBlockPressed(const FInputActionValue& Value)
@@ -233,10 +300,11 @@ void ASamuraiCharacter::OnBlockPressed(const FInputActionValue& Value)
     {
         CombatComponentV2->OnInputEvent(EInputType::Block, EInputEventType::Press);
     }
-    else if (CombatComponent)
-    {
-        CombatComponent->OnBlockPressed();
-    }
+    // V1 REMOVED: V1 fallback removed (blocking not yet migrated to V2)
+    // else if (CombatComponent)
+    // {
+    //     CombatComponent->OnBlockPressed();
+    // }
 }
 
 void ASamuraiCharacter::OnBlockReleased(const FInputActionValue& Value)
@@ -245,10 +313,11 @@ void ASamuraiCharacter::OnBlockReleased(const FInputActionValue& Value)
     {
         CombatComponentV2->OnInputEvent(EInputType::Block, EInputEventType::Release);
     }
-    else if (CombatComponent)
-    {
-        CombatComponent->OnBlockReleased();
-    }
+    // V1 REMOVED: V1 fallback removed (blocking not yet migrated to V2)
+    // else if (CombatComponent)
+    // {
+    //     CombatComponent->OnBlockReleased();
+    // }
 }
 
 void ASamuraiCharacter::OnEvadePressed(const FInputActionValue& Value)
@@ -257,10 +326,11 @@ void ASamuraiCharacter::OnEvadePressed(const FInputActionValue& Value)
     {
         CombatComponentV2->OnInputEvent(EInputType::Evade, EInputEventType::Press);
     }
-    else if (CombatComponent)
-    {
-        CombatComponent->OnEvadePressed();
-    }
+    // V1 REMOVED: V1 fallback removed (evade not yet migrated to V2)
+    // else if (CombatComponent)
+    // {
+    //     CombatComponent->OnEvadePressed();
+    // }
 }
 
 void ASamuraiCharacter::OnToggleDebug(const FInputActionValue& Value)
@@ -277,27 +347,32 @@ void ASamuraiCharacter::OnToggleDebug(const FInputActionValue& Value)
 
 bool ASamuraiCharacter::CanPerformAttack_Implementation() const
 {
-    return CombatComponent ? CombatComponent->CanAttack() : false;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->CanAttack() : false;
+    return false; // TODO: Migrate to V2
 }
 
 ECombatState ASamuraiCharacter::GetCombatState_Implementation() const
 {
-    return CombatComponent ? CombatComponent->GetCombatState() : ECombatState::Idle;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->GetCombatState() : ECombatState::Idle;
+    return ECombatState::Idle; // TODO: Migrate to V2
 }
 
 bool ASamuraiCharacter::IsAttacking_Implementation() const
 {
-    return CombatComponent ? CombatComponent->IsAttacking() : false;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->IsAttacking() : false;
+    return false; // TODO: Migrate to V2
 }
 
 UAttackData* ASamuraiCharacter::GetCurrentAttack_Implementation() const
 {
-    return CombatComponent ? CombatComponent->GetCurrentAttack() : nullptr;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->GetCurrentAttack() : nullptr;
+    return nullptr; // TODO: Migrate to V2
 }
 
 EAttackPhase ASamuraiCharacter::GetCurrentPhase_Implementation() const
 {
-    return CombatComponent ? CombatComponent->GetCurrentPhase() : EAttackPhase::None;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->GetCurrentPhase() : EAttackPhase::None;
+    return EAttackPhase::None; // TODO: Migrate to V2
 }
 
 void ASamuraiCharacter::OnEnableHitDetection_Implementation()
@@ -318,29 +393,31 @@ void ASamuraiCharacter::OnDisableHitDetection_Implementation()
 
 void ASamuraiCharacter::OnAttackPhaseBegin_Implementation(EAttackPhase Phase)
 {
-    if (CombatComponent)
-    {
-        CombatComponent->OnAttackPhaseBegin(Phase);
-    }
+    // V1 REMOVED: Phase callbacks not yet migrated to V2
+    // if (CombatComponent)
+    // {
+    //     CombatComponent->OnAttackPhaseBegin(Phase);
+    // }
 }
 
 void ASamuraiCharacter::OnAttackPhaseEnd_Implementation(EAttackPhase Phase)
 {
-    if (CombatComponent)
-    {
-        CombatComponent->OnAttackPhaseEnd(Phase);
-    }
+    // V1 REMOVED: Phase callbacks not yet migrated to V2
+    // if (CombatComponent)
+    // {
+    //     CombatComponent->OnAttackPhaseEnd(Phase);
+    // }
 }
 
 void ASamuraiCharacter::OnAttackPhaseTransition_Implementation(EAttackPhase NewPhase)
 {
-    // Forward to V1 system (always runs for compatibility)
-    if (CombatComponent)
-    {
-        CombatComponent->OnAttackPhaseTransition(NewPhase);
-    }
+    // V1 REMOVED: Forward to V1 system removed
+    // if (CombatComponent)
+    // {
+    //     CombatComponent->OnAttackPhaseTransition(NewPhase);
+    // }
 
-    // Also forward to V2 if enabled
+    // Forward to V2 if enabled
     if (CombatSettings && CombatSettings->bUseV2System && CombatComponentV2)
     {
         CombatComponentV2->OnPhaseTransition(NewPhase);
@@ -349,7 +426,8 @@ void ASamuraiCharacter::OnAttackPhaseTransition_Implementation(EAttackPhase NewP
 
 bool ASamuraiCharacter::IsInParryWindow_Implementation() const
 {
-    return CombatComponent ? CombatComponent->IsInParryWindow() : false;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->IsInParryWindow() : false;
+    return false; // TODO: Migrate parry system to V2
 }
 
 void ASamuraiCharacter::OnHoldWindowStart_Implementation(EInputType InputType)
@@ -372,34 +450,30 @@ float ASamuraiCharacter::ApplyDamage_Implementation(const FHitReactionInfo& HitI
         return 0.0f;
     }
 
-    // Check if blocking
-    if (CombatComponent && CombatComponent->IsBlocking())
-    {
-        // Apply posture damage instead of health damage
-        const float PostureDamage = HitInfo.AttackData ? HitInfo.AttackData->PostureDamage : 10.0f;
-        
-        if (CombatComponent->ApplyPostureDamage(PostureDamage))
-        {
-            // Guard was broken - now take the damage
-            return HitReactionComponent->ApplyDamage(HitInfo);
-        }
-        
-        // Successfully blocked
-        return 0.0f;
-    }
+    // V1 REMOVED: Blocking logic not yet migrated to V2
+    // if (CombatComponent && CombatComponent->IsBlocking())
+    // {
+    //     const float PostureDamage = HitInfo.AttackData ? HitInfo.AttackData->PostureDamage : 10.0f;
+    //     if (CombatComponent->ApplyPostureDamage(PostureDamage))
+    //     {
+    //         return HitReactionComponent->ApplyDamage(HitInfo);
+    //     }
+    //     return 0.0f;
+    // }
 
-    // Not blocking - take full damage
+    // Not blocking - take full damage (blocking removed)
     return HitReactionComponent->ApplyDamage(HitInfo);
 }
 
 bool ASamuraiCharacter::ApplyPostureDamage_Implementation(float PostureDamage, AActor* Attacker)
 {
-    if (CombatComponent)
-    {
-        return CombatComponent->ApplyPostureDamage(PostureDamage);
-    }
-    
-    return false;
+    // V1 REMOVED: Posture system not yet migrated to V2
+    // if (CombatComponent)
+    // {
+    //     return CombatComponent->ApplyPostureDamage(PostureDamage);
+    // }
+
+    return false; // TODO: Migrate posture system to V2
 }
 
 bool ASamuraiCharacter::CanBeDamaged_Implementation() const
@@ -409,12 +483,14 @@ bool ASamuraiCharacter::CanBeDamaged_Implementation() const
 
 bool ASamuraiCharacter::IsBlocking_Implementation() const
 {
-    return CombatComponent ? CombatComponent->IsBlocking() : false;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->IsBlocking() : false;
+    return false; // TODO: Migrate blocking to V2
 }
 
 bool ASamuraiCharacter::IsGuardBroken_Implementation() const
 {
-    return CombatComponent ? CombatComponent->IsGuardBroken() : false;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->IsGuardBroken() : false;
+    return false; // TODO: Migrate guard break to V2
 }
 
 bool ASamuraiCharacter::ExecuteFinisher_Implementation(AActor* Attacker, UAttackData* FinisherData)
@@ -438,20 +514,20 @@ bool ASamuraiCharacter::ExecuteFinisher_Implementation(AActor* Attacker, UAttack
 
 void ASamuraiCharacter::OnAttackParried_Implementation(AActor* Parrier)
 {
-    // Stop current attack
-    if (CombatComponent)
-    {
-        CombatComponent->StopCurrentAttack();
-    }
+    // V1 REMOVED: Stop current attack not yet migrated to V2
+    // if (CombatComponent)
+    // {
+    //     CombatComponent->StopCurrentAttack();
+    // }
 
-    // Open counter window (vulnerable to counter attacks)
-    if (CombatComponent)
-    {
-        CombatComponent->OpenCounterWindow(1.5f); // Duration from CombatSettings
-    }
+    // V1 REMOVED: Counter window not yet migrated to V2
+    // if (CombatComponent)
+    // {
+    //     CombatComponent->OpenCounterWindow(1.5f); // Duration from CombatSettings
+    // }
 
     // Play parried reaction animation
-if (HitReactionComponent)
+    if (HitReactionComponent)
     {
         HitReactionComponent->PlayGuardBrokenReaction();
     }
@@ -459,25 +535,29 @@ if (HitReactionComponent)
 
 void ASamuraiCharacter::OpenCounterWindow_Implementation(float Duration)
 {
-    if (CombatComponent)
-    {
-        CombatComponent->OpenCounterWindow(Duration);
-    }
+    // V1 REMOVED: Counter window not yet migrated to V2
+    // if (CombatComponent)
+    // {
+    //     CombatComponent->OpenCounterWindow(Duration);
+    // }
 }
 
 float ASamuraiCharacter::GetCurrentPosture_Implementation() const
 {
-    return CombatComponent ? CombatComponent->GetCurrentPosture() : 0.0f;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->GetCurrentPosture() : 0.0f;
+    return 0.0f; // TODO: Migrate posture system to V2
 }
 
 float ASamuraiCharacter::GetMaxPosture_Implementation() const
 {
-    return CombatComponent ? CombatComponent->GetMaxPosture() : 100.0f;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->GetMaxPosture() : 100.0f;
+    return 100.0f; // TODO: Migrate posture system to V2
 }
 
 bool ASamuraiCharacter::IsInCounterWindow_Implementation() const
 {
-    return CombatComponent ? CombatComponent->IsInCounterWindow() : false;
+    // V1 REMOVED: return CombatComponent ? CombatComponent->IsInCounterWindow() : false;
+    return false; // TODO: Migrate counter window to V2
 }
 
 // ============================================================================
@@ -486,7 +566,7 @@ bool ASamuraiCharacter::IsInCounterWindow_Implementation() const
 
 
 void ASamuraiCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult& HitResult, UAttackData* AttackData)
-{ 
+{
     if (!HitActor || !AttackData)
     {
         return;
@@ -495,8 +575,6 @@ void ASamuraiCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult& Hi
     // Check if target implements IDamageableInterface
     if (HitActor->Implements<UDamageableInterface>())
     {
-
-        
         // Build hit reaction info
         FHitReactionInfo HitInfo;
         HitInfo.Attacker = this;
@@ -504,23 +582,23 @@ void ASamuraiCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult& Hi
         HitInfo.AttackData = AttackData;
         HitInfo.Damage = AttackData->BaseDamage;
         HitInfo.StunDuration = AttackData->HitStunDuration;
-        HitInfo.bWasCounter = CombatComponent ? CombatComponent->IsInCounterWindow() : false;
+        HitInfo.bWasCounter = false; // V1 REMOVED: Counter window not migrated to V2 yet
         HitInfo.ImpactPoint = HitResult.ImpactPoint;
 
-        // Apply counter damage multiplier if applicable
-        if (HitInfo.bWasCounter && IDamageableInterface::Execute_IsInCounterWindow(HitActor))
-        {
-            HitInfo.Damage *= AttackData->CounterDamageMultiplier;
-        }
+        // V1 REMOVED: Counter damage multiplier not yet migrated to V2
+        // if (HitInfo.bWasCounter && IDamageableInterface::Execute_IsInCounterWindow(HitActor))
+        // {
+        //     HitInfo.Damage *= AttackData->CounterDamageMultiplier;
+        // }
 
         // Apply damage via interface
         const float DamageDealt = IDamageableInterface::Execute_ApplyDamage(HitActor, HitInfo);
 
-        // Broadcast hit event
-        if (CombatComponent)
-        {
-            CombatComponent->OnAttackHit.Broadcast(HitActor, DamageDealt);
-        }
+        // V1 REMOVED: Hit event broadcast not yet migrated to V2
+        // if (CombatComponent)
+        // {
+        //     CombatComponent->OnAttackHit.Broadcast(HitActor, DamageDealt);
+        // }
     }
 }
 

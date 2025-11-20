@@ -1,7 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/AnimNotifyState_ActionWindow_Base.h"
-#include "Core/CombatComponent.h"
+// V1 REMOVED: #include "Core/CombatComponent.h"
 #include "Core/CombatComponentV2.h"
 #include "Characters/SamuraiCharacter.h"
 #include "Data/CombatSettings.h"
@@ -41,14 +41,14 @@ void UAnimNotifyState_ActionWindow_Base::NotifyBegin(USkeletalMeshComponent* Mes
 		}
 	}
 
-	// V1: Call legacy window open method
-	if (Character)
-	{
-		if (UCombatComponent* CombatComp = Character->FindComponentByClass<UCombatComponent>())
-		{
-			OnOpenWindow_V1(CombatComp, TotalDuration);
-		}
-	}
+	// V1 REMOVED: V1 fallback removed
+	// if (Character)
+	// {
+	//     if (UCombatComponent* CombatComp = Character->FindComponentByClass<UCombatComponent>())
+	//     {
+	//         OnOpenWindow_V1(CombatComp, TotalDuration);
+	//     }
+	// }
 }
 
 void UAnimNotifyState_ActionWindow_Base::NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
@@ -61,20 +61,17 @@ void UAnimNotifyState_ActionWindow_Base::NotifyEnd(USkeletalMeshComponent* MeshC
 	}
 
 	// V2: Checkpoints expire automatically via ClearExpiredCheckpoints()
-	// Only need to close for V1 system
-	
-	if (ASamuraiCharacter* Character = Cast<ASamuraiCharacter>(MeshComp->GetOwner()))
-	{
-		// Check if V2 is enabled via CombatSettings (owned by character)
-		bool bUseV2 = Character->CombatSettings && Character->CombatSettings->bUseV2System;
 
-		// V1: Call legacy window close method
-		if (!bUseV2)
-		{
-			if (UCombatComponent* CombatComp = Character->FindComponentByClass<UCombatComponent>())
-			{
-				OnCloseWindow_V1(CombatComp);
-			}
-		}
-	}
+	// V1 REMOVED: V1 fallback removed
+	// if (ASamuraiCharacter* Character = Cast<ASamuraiCharacter>(MeshComp->GetOwner()))
+	// {
+	//     bool bUseV2 = Character->CombatSettings && Character->CombatSettings->bUseV2System;
+	//     if (!bUseV2)
+	//     {
+	//         if (UCombatComponent* CombatComp = Character->FindComponentByClass<UCombatComponent>())
+	//         {
+	//             OnCloseWindow_V1(CombatComp);
+	//         }
+	//     }
+	// }
 }

@@ -384,6 +384,71 @@ struct FHoldState
 };
 
 /**
+ * Input context - Determines how movement stick input is interpreted
+ *
+ * CRITICAL: Separates movement input (continuous) from attack input (discrete)
+ * This prevents semantic conflation where movement while attacking
+ * incorrectly triggers directional attacks without hold completion.
+ */
+UENUM(BlueprintType)
+enum class EInputContext : uint8
+{
+	/** Movement stick = character movement ONLY (ignore for attack resolution) */
+	Movement UMETA(DisplayName = "Movement Only"),
+
+	/** Movement stick = directional attack input (sampled at hold release) */
+	DirectionalInput UMETA(DisplayName = "Directional Attack Input"),
+
+	/** No input processing (idle/disabled) */
+	Disabled UMETA(DisplayName = "Disabled")
+};
+
+/**
+ * Directional Input Buffer - Captures direction at KEY MOMENTS only
+ *
+ * Separates movement input (continuous, for character locomotion) from
+ * attack directional input (discrete, sampled at button release after hold).
+ *
+ * Design: Direction is NOT sampled continuously. Instead, it's captured ONLY
+ * when the player releases the attack button after completing a hold mechanic.
+ * This ensures directional attacks require INTENTIONAL input, not accidental
+ * movement stick deflection during normal combos.
+ */
+USTRUCT(BlueprintType)
+struct FDirectionalInputBuffer
+{
+	GENERATED_BODY()
+
+	/** Direction captured at button release (after hold completion) */
+	UPROPERTY(BlueprintReadOnly, Category = "Directional Input")
+	EInputDirection DirectionAtRelease = EInputDirection::None;
+
+	/** Game time when direction was captured */
+	UPROPERTY(BlueprintReadOnly, Category = "Directional Input")
+	float CaptureTime = 0.0f;
+
+	/** Check if there's valid directional input captured */
+	bool HasValidInput() const
+	{
+		return DirectionAtRelease != EInputDirection::None;
+	}
+
+	/** Clear captured direction (after consumption or on new attack) */
+	void Reset()
+	{
+		DirectionAtRelease = EInputDirection::None;
+		CaptureTime = 0.0f;
+	}
+
+	/** Capture direction at current moment (call ONLY at release event) */
+	void CaptureDirection(EInputDirection Direction, float CurrentTime)
+	{
+		DirectionAtRelease = Direction;
+		CaptureTime = CurrentTime;
+	}
+};
+
+/**
  * Queue statistics for debugging
  */
 USTRUCT(BlueprintType)

@@ -10,7 +10,7 @@
 #include "SamuraiCharacter.generated.h"
 
 // Forward declarations
-class UCombatComponent;
+// V1 REMOVED: class UCombatComponent;
 class UCombatComponentV2;
 class UCombatDebugWidget;
 class UTargetingComponent;
@@ -24,12 +24,15 @@ struct FInputActionValue;
 /**
  * Main character class implementing combat and damageable interfaces
  * Integrates all combat components and handles input routing
- * 
+ *
  * This class is primarily a coordinator - actual combat logic lives in components:
- * - CombatComponent: State machine, attacks, posture, combos, parry/counters
+ * - CombatComponentV2: State machine, attacks, queue system, input processing
  * - TargetingComponent: Enemy selection and motion warping setup
  * - WeaponComponent: Hit detection via socket tracing
  * - HitReactionComponent: Damage reception and hit reactions
+ *
+ * V1 CombatComponent removed - all combat logic now handled by V2
+ * Systems not yet migrated (blocking, posture, parry, counter) return placeholder values
  */
 UCLASS()
 class KATANACOMBAT_API ASamuraiCharacter : public ACharacter, public ICombatInterface, public IDamageableInterface
@@ -54,8 +57,7 @@ public:
     // COMPONENTS
     // ============================================================================
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
-    TObjectPtr<UCombatComponent> CombatComponent;
+    // V1 REMOVED: TObjectPtr<UCombatComponent> CombatComponent;
 
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat")
     TObjectPtr<UTargetingComponent> TargetingComponent;

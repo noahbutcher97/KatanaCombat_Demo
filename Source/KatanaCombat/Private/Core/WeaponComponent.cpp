@@ -1,7 +1,8 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/WeaponComponent.h"
-#include "Core/CombatComponent.h"
+// V1 REMOVED: #include "Core/CombatComponent.h"
+#include "Core/CombatComponentV2.h"
 #include "Data/AttackData.h"
 #include "GameFramework/Character.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -208,13 +209,19 @@ UAttackData* UWeaponComponent::GetCurrentAttackData() const
     {
         return nullptr;
     }
-    
-    // Get combat component from owner
-    if (UCombatComponent* CombatComp = OwnerCharacter->FindComponentByClass<UCombatComponent>())
+
+    // V1 REMOVED: Get current attack from V2 instead
+    // if (UCombatComponent* CombatComp = OwnerCharacter->FindComponentByClass<UCombatComponent>())
+    // {
+    //     return CombatComp->GetCurrentAttack();
+    // }
+
+    // V2: Get current attack from CombatComponentV2
+    if (UCombatComponentV2* CombatV2 = OwnerCharacter->FindComponentByClass<UCombatComponentV2>())
     {
-        return CombatComp->GetCurrentAttack();
+        return CombatV2->GetCurrentAttack();
     }
-    
+
     return nullptr;
 }
 

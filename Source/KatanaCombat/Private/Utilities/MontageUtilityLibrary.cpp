@@ -11,9 +11,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "Data/AttackData.h"
-
-// Forward declare LogCombat (defined in CombatComponentV2.h)
-DECLARE_LOG_CATEGORY_EXTERN(LogCombat, Log, All);
+#include "Core/CombatComponentV2.h"  // For LogCombat declaration
 
 // ============================================================================
 // MONTAGE TIME QUERIES
@@ -472,36 +470,15 @@ bool UMontageUtilityLibrary::JumpToSectionWithBlend(ACharacter* Character, FName
 	// UE's Montage_JumpToSection doesn't support blend time (instant jump)
 	// We implement blending by re-playing the montage at the target section with blend settings
 
-	if (BlendTime <= 0.0f)
-	{
-		// Instant jump (no blend requested)
-		AnimInstance->Montage_JumpToSection(SectionName, CurrentMontage);
-	}
-	else
-	{
-		// Get current section and target section indices
-		int32 TargetSectionIndex = CurrentMontage->GetSectionIndex(SectionName);
-		if (TargetSectionIndex == INDEX_NONE)
-		{
-			return false; // Section doesn't exist
-		}
+	// CRITICAL FIX: Always use instant jump to prevent montage interruption
+	// The original Stop+Re-play pattern causes race conditions where OnMontageEnded
+	// fires before the new play starts, clearing combat state prematurely.
+	// This is especially critical for looping sections (heavy charge loops).
+	AnimInstance->Montage_JumpToSection(SectionName, CurrentMontage);
 
-		// Get target section start time
-		float TargetSectionStartTime = CurrentMontage->GetAnimCompositeSection(TargetSectionIndex).GetTime();
-
-		// Get current playrate to maintain it through the blend
-		float CurrentPlayRate = AnimInstance->Montage_GetPlayRate(CurrentMontage);
-
-		// Stop current montage with blend-out, then play at target section with blend-in
-		// This creates a crossfade from current animation → target section
-		FAlphaBlendArgs BlendIn(BlendTime);
-
-		// Stop current montage with blend out
-		AnimInstance->Montage_Stop(BlendTime, CurrentMontage);
-
-		// Re-play montage at target section with blend in
-		AnimInstance->Montage_PlayWithBlendSettings(CurrentMontage, BlendIn, CurrentPlayRate, EMontagePlayReturnType::MontageLength, TargetSectionStartTime, false);
-	}
+	// NOTE: BlendTime parameter is currently ignored
+	// Future enhancement: Could implement visual blending via playrate ramping
+	// or by creating transition sections in the montage itself
 
 	return true;
 }
@@ -825,7 +802,19 @@ UAttackData* UMontageUtilityLibrary::GetComboAttack(
 	// Light input → traverse light combo chain (NextComboAttack)
 	if (InputType == EInputType::LightAttack)
 	{
-		// Check for directional follow-up first (if direction specified)
+		// ========================================================================
+		// PRIORITY 1: Directional Follow-Ups (if direction specified)
+		// ========================================================================
+		// ARCHITECTURAL NOTE: Direction parameter is ONLY != None when:
+		// 1. Player held attack button (hold window opened)
+		// 2. Hold completed (animation froze/charged)
+		// 3. Player released button WITH directional input
+		// 4. DirectionalInputBuffer captured direction at release
+		//
+		// This ensures directional attacks require INTENTIONAL input, not accidental
+		// movement stick deflection during normal combos.
+		//
+		// If Direction == None → Skip this check → Fall through to normal combo chain (Priority 2)
 		if (Direction != EAttackDirection::None && CurrentAttack->DirectionalFollowUps.Num() > 0)
 		{
 			if (TObjectPtr<UAttackData>* DirectionalAttack = CurrentAttack->DirectionalFollowUps.Find(Direction))
@@ -868,7 +857,12 @@ UAttackData* UMontageUtilityLibrary::GetComboAttack(
 	// Heavy input → traverse heavy combo branch (HeavyComboAttack)
 	if (InputType == EInputType::HeavyAttack)
 	{
-		// Check for heavy directional follow-up first (if direction specified)
+		// ========================================================================
+		// PRIORITY 1: Heavy Directional Follow-Ups (if direction specified)
+		// ========================================================================
+		// Same architectural principle as Light directionals (see above)
+		// Direction is only populated when DirectionalInputBuffer has valid input
+		// (hold completed + released with direction)
 		if (Direction != EAttackDirection::None && CurrentAttack->HeavyDirectionalFollowUps.Num() > 0)
 		{
 			if (TObjectPtr<UAttackData>* DirectionalAttack = CurrentAttack->HeavyDirectionalFollowUps.Find(Direction))
@@ -995,7 +989,7 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 	UAttackData* CurrentAttack,
 	EInputType InputType,
 	EAttackDirection Direction,
-	bool bIsHolding,
+	const FHoldState& HoldState,
 	bool bComboWindowActive,
 	UAttackData* DefaultLightAttack,
 	UAttackData* DefaultHeavyAttack,
@@ -1007,10 +1001,15 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 	// Safety: Check for cycle (visited this attack already)
 	if (CurrentAttack && VisitedAttacks.Contains(CurrentAttack))
 	{
-		UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] ✗ Cycle detected! Attack '%s' already visited in this resolution chain"),
+		UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] ✗ Cycle detected! Attack '%s' already visited in this resolution chain. Falling back to default attack for graceful recovery."),
 			*CurrentAttack->GetName());
 		Result.bCycleDetected = true;
-		return Result;
+
+		// GRACEFUL FALLBACK: Set CurrentAttack to nullptr to skip Priority 2/3 and jump directly to Priority 4 (default attacks)
+		// This ensures player gets a functional attack instead of "dead input"
+		CurrentAttack = nullptr;
+
+		// Continue to default attack resolution below (don't return early)
 	}
 
 	// Add current attack to visited set
@@ -1022,10 +1021,10 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 	const TCHAR* InputTypeName = InputType == EInputType::LightAttack ? TEXT("Light") :
 	                             InputType == EInputType::HeavyAttack ? TEXT("Heavy") : TEXT("Other");
 
-	UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Input=%s, Direction=%d, Holding=%s, ComboWindow=%s, CurrentAttack=%s"),
+	UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Input=%s, Direction=%d, HoldCompleted=%s, ComboWindow=%s, CurrentAttack=%s"),
 		InputTypeName,
 		static_cast<int32>(Direction),
-		bIsHolding ? TEXT("Yes") : TEXT("No"),
+		HoldState.IsHoldCompleted() ? TEXT("Yes") : TEXT("No"),
 		bComboWindowActive ? TEXT("ACTIVE") : TEXT("Inactive"),
 		CurrentAttack ? *CurrentAttack->GetName() : TEXT("nullptr"));
 
@@ -1036,11 +1035,14 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 	// For now, skip this priority (no context-sensitive attacks yet)
 
 	// ========================================================================
-	// PRIORITY 2: Directional Follow-Ups (if holding + direction + current attack has directionals)
+	// PRIORITY 2: Directional Follow-Ups (if hold COMPLETED + direction + current attack has directionals)
 	// ========================================================================
-	if (bIsHolding && Direction != EAttackDirection::None && CurrentAttack)
+	// CRITICAL FIX: Check IsHoldCompleted() instead of just IsHolding()
+	// This ensures hold was completed (button held through freeze/charge then released)
+	// Prevents directional attacks from triggering during normal combos when player presses movement direction
+	if (HoldState.IsHoldCompleted() && Direction != EAttackDirection::None && CurrentAttack)
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Checking directional follow-ups (Hold detected)..."));
+		UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Checking directional follow-ups (Hold COMPLETED detected)..."));
 
 		// Check input-type-specific directional maps
 		UAttackData* DirectionalAttack = nullptr;
@@ -1116,7 +1118,51 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 	}
 	else
 	{
-		UE_LOG(LogCombat, Warning, TEXT("[V2 RESOLVE] ✗ Failed to resolve attack (nullptr result)"));
+		// EMERGENCY FALLBACK (Tier 5): Default attack is nullptr - this should never happen if validation works
+		// But we provide graceful degradation instead of crashing or giving "dead input"
+		UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] ✗ CRITICAL: Default %s attack is nullptr! This indicates improper setup. "
+		                              "Using emergency fallback to prevent dead input."),
+			InputType == EInputType::LightAttack ? TEXT("Light") : TEXT("Heavy"));
+
+		// Try to use the original current attack as fallback (repeat same attack)
+		// We saved CurrentAttack before potentially setting it to nullptr for cycle detection
+		if (VisitedAttacks.Num() > 0)
+		{
+			// Get the first attack we visited (the one that started this resolution)
+			TArray<UAttackData*> VisitedArray = VisitedAttacks.Array();
+			UAttackData* OriginalAttack = VisitedArray[0];
+
+			if (OriginalAttack)
+			{
+				Result.Attack = OriginalAttack;
+				Result.Path = EResolutionPath::Default; // Mark as default even though it's emergency
+				UE_LOG(LogCombat, Warning, TEXT("[V2 RESOLVE] Emergency fallback: Repeating original attack '%s' "
+				                                "(better than dead input, but FIX YOUR DEFAULT ATTACKS!)"),
+					*OriginalAttack->GetName());
+
+				// Show on-screen error in editor
+				#if WITH_EDITOR
+				if (GEngine)
+				{
+					GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red,
+						FString::Printf(TEXT("⚠️ CRITICAL: Default %s attack is nullptr! Fix in CombatComponent!"),
+							InputType == EInputType::LightAttack ? TEXT("Light") : TEXT("Heavy")));
+				}
+				#endif
+			}
+			else
+			{
+				// LAST RESORT: Even emergency fallback failed
+				UE_LOG(LogCombat, Fatal, TEXT("[V2 RESOLVE] FATAL: Cannot resolve attack! "
+				                              "No default attack AND no current attack. Combat system is broken."));
+			}
+		}
+		else
+		{
+			// No visited attacks either (first attack in chain was nullptr)
+			UE_LOG(LogCombat, Fatal, TEXT("[V2 RESOLVE] FATAL: Cannot resolve attack! "
+			                              "No default attack AND no current attack. Combat system is broken."));
+		}
 	}
 
 	return Result;
@@ -1166,7 +1212,7 @@ bool UMontageUtilityLibrary::LoopMontageSection(ACharacter* Character, FName Loo
 	return true;
 }
 
-EAttackDirection UMontageUtilityLibrary::GetDirectionFromInput(FVector2D DirectionInput, float DeadzoneThreshold)
+EAttackDirection UMontageUtilityLibrary::GetDirectionFromInput(FVector2D DirectionInput, FRotator ActorRotation, float DeadzoneThreshold)
 {
 	// Check if input magnitude is below deadzone
 	float InputMagnitude = DirectionInput.Length();
@@ -1175,13 +1221,26 @@ EAttackDirection UMontageUtilityLibrary::GetDirectionFromInput(FVector2D Directi
 		return EAttackDirection::None;
 	}
 
-	// Normalize input
-	FVector2D NormalizedInput = DirectionInput.GetSafeNormal();
+	// ACTOR-RELATIVE TRANSFORMATION:
+	// The input is camera-relative, but we need it relative to the actor's facing direction.
+	// We do this by rotating the input vector by the inverse of the actor's yaw.
 
-	// Calculate angle in degrees (0° = forward, increases clockwise)
+	// Convert 2D input to 3D vector (XY plane, Z=0)
+	FVector InputVector3D(DirectionInput.X, DirectionInput.Y, 0.0f);
+
+	// Create inverse rotation (negative yaw) to transform to actor-local space
+	// This makes "forward" relative to where the actor is facing, not world-north
+	FRotator InverseActorYaw(0.0f, -ActorRotation.Yaw, 0.0f);
+	FVector ActorRelativeVector = InverseActorYaw.RotateVector(InputVector3D);
+
+	// Convert back to 2D
+	FVector2D ActorRelativeInput(ActorRelativeVector.X, ActorRelativeVector.Y);
+	ActorRelativeInput.Normalize();
+
+	// Calculate angle in degrees (0° = forward relative to actor, increases clockwise)
 	// Atan2 returns radians, convert to degrees
 	// Note: Y is forward in UE, X is right
-	float Angle = FMath::Atan2(NormalizedInput.X, NormalizedInput.Y) * (180.0f / PI);
+	float Angle = FMath::Atan2(ActorRelativeInput.X, ActorRelativeInput.Y) * (180.0f / PI);
 
 	// Normalize angle to [0, 360)
 	if (Angle < 0.0f)
@@ -1190,10 +1249,10 @@ EAttackDirection UMontageUtilityLibrary::GetDirectionFromInput(FVector2D Directi
 	}
 
 	// Map angle to 4 cardinal directions (90° quadrants)
-	// Forward: 315° to 45° (90° cone)
-	// Right: 45° to 135° (90° cone)
-	// Backward: 135° to 225° (90° cone)
-	// Left: 225° to 315° (90° cone)
+	// Forward: 315° to 45° (90° cone) - relative to actor facing
+	// Right: 45° to 135° (90° cone) - actor's right
+	// Backward: 135° to 225° (90° cone) - behind actor
+	// Left: 225° to 315° (90° cone) - actor's left
 
 	if (Angle >= 315.0f || Angle < 45.0f)
 	{

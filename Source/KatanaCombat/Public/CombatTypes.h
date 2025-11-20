@@ -408,6 +408,57 @@ struct FMotionWarpingConfig
     bool bRequireLineOfSight = true;
 };
 
+#if WITH_AUTOMATION_TESTS
+/**
+ * Debug arrow information for testing
+ * Contains all data needed to verify an arrow's position, style, and appearance
+ */
+struct FDebugArrowInfo
+{
+	FVector StartPosition;
+	FVector EndPosition;
+	FVector LabelPosition;
+	FString Label;
+	FColor Color;
+	float Thickness;
+	bool bIsDashed;
+	float Length;
+
+	FDebugArrowInfo()
+		: StartPosition(FVector::ZeroVector)
+		, EndPosition(FVector::ZeroVector)
+		, LabelPosition(FVector::ZeroVector)
+		, Label(TEXT(""))
+		, Color(FColor::White)
+		, Thickness(1.0f)
+		, bIsDashed(false)
+		, Length(0.0f)
+	{}
+};
+
+/**
+ * Complete debug visualization data for testing
+ * Allows unit tests to verify positioning, coloring, and visibility logic
+ * without requiring actual rendering
+ */
+struct FDebugVisualizationData
+{
+	TArray<FDebugArrowInfo> Arrows;
+	TArray<FVector> ArcPoints;
+	FString HoldStateLabel;
+	bool bShowHoldIndicator;
+	FVector ChestOffset;
+	float YawDelta;
+
+	FDebugVisualizationData()
+		: HoldStateLabel(TEXT(""))
+		, bShowHoldIndicator(false)
+		, ChestOffset(FVector::ZeroVector)
+		, YawDelta(0.0f)
+	{}
+};
+#endif // WITH_AUTOMATION_TESTS
+
 // ============================================================================
 // DELEGATES
 // ============================================================================
@@ -464,10 +515,13 @@ namespace CombatHelpers
 	}
 
 	/**
-	 * Calculate 8-way input direction from 2D input vector
-	 * @param InputVector - Normalized 2D input (X=right, Y=forward)
+	 * Calculate 8-way input direction from 2D input vector (CAMERA-RELATIVE)
+	 * WARNING: This function assumes input is in camera space (X=camera right, Y=camera forward)
+	 * For character-relative directions, use VectorToCharacterRelativeDirection() instead
+	 *
+	 * @param InputVector - Normalized 2D input in CAMERA SPACE (X=right, Y=forward relative to camera)
 	 * @param DeadZone - Minimum magnitude to register input (default 0.2)
-	 * @return 8-way direction enum
+	 * @return 8-way direction enum in camera space
 	 */
 	inline EInputDirection VectorToInputDirection(const FVector2D& InputVector, float DeadZone = 0.2f)
 	{
@@ -503,5 +557,65 @@ namespace CombatHelpers
 			return EInputDirection::Backward;
 		else // 292.5f - 337.5f
 			return EInputDirection::BackwardRight;
+	}
+
+	/**
+	 * Calculate 8-way input direction from camera-relative input vector, transformed to CHARACTER-RELATIVE space
+	 * This function properly handles cases where character facing != camera facing
+	 *
+	 * Coordinate Space Transformations:
+	 * 1. Camera-Relative Input (from gamepad) → World Space (rotate by camera yaw)
+	 * 2. World Space → Character-Relative Space (rotate by -character yaw)
+	 * 3. Character-Relative 3D → 2D (project to XY plane)
+	 * 4. 2D Vector → 8-way direction enum
+	 *
+	 * Example: Character faces North (0°), Camera faces East (90°), Player presses "Forward" on stick
+	 *   - Camera-relative input: (0, 1) = Forward relative to camera = East in world
+	 *   - World vector: Rotate (0,1) by 90° = (1, 0) = East
+	 *   - Character-relative: Rotate (1,0) by -0° = (1, 0) = Right relative to character
+	 *   - Result: EInputDirection::Right ✓ (correct - player wants to move camera-forward = character-right)
+	 *
+	 * @param CameraRelativeInput - Normalized 2D input from gamepad (X=right, Y=forward relative to camera view)
+	 * @param CameraRotation - Current camera rotation (only Yaw is used)
+	 * @param CharacterRotation - Current character rotation (only Yaw is used)
+	 * @param DeadZone - Minimum magnitude to register input (default 0.2)
+	 * @return 8-way direction enum relative to character's facing direction
+	 */
+	inline EInputDirection VectorToCharacterRelativeDirection(
+		const FVector2D& CameraRelativeInput,
+		const FRotator& CameraRotation,
+		const FRotator& CharacterRotation,
+		float DeadZone = 0.2f)
+	{
+		// Early exit for zero input
+		if (CameraRelativeInput.Size() < DeadZone)
+		{
+			return EInputDirection::None;
+		}
+
+		// STEP 1: Convert camera-relative 2D input to world space 3D vector
+		// CRITICAL: Flatten camera rotation to yaw-only to prevent pitch/roll from corrupting WorldInput
+		// When player looks up/down (pitch != 0), we still want horizontal directional input only
+		const FRotator FlatCameraRotation = FRotator(0.0f, CameraRotation.Yaw, 0.0f);
+
+		// Unreal Engine convention: X=Forward, Y=Right, Z=Up
+		const FVector CameraForward = FRotationMatrix(FlatCameraRotation).GetScaledAxis(EAxis::X); // Camera's forward (X axis)
+		const FVector CameraRight = FRotationMatrix(FlatCameraRotation).GetScaledAxis(EAxis::Y);   // Camera's right (Y axis)
+
+		// Combine input components: InputX * CameraRight + InputY * CameraForward
+		FVector WorldInput = (CameraRight * CameraRelativeInput.X) + (CameraForward * CameraRelativeInput.Y);
+		WorldInput.Z = 0.0f; // Project to horizontal plane (ignore vertical component)
+		WorldInput.Normalize();
+
+		// STEP 2: Convert world space vector to character-relative space
+		// Rotate by inverse of character's yaw to get direction relative to character's facing
+		const FRotator InverseCharacterYaw(0.0f, -CharacterRotation.Yaw, 0.0f);
+		const FVector CharacterRelative = InverseCharacterYaw.RotateVector(WorldInput);
+
+		// STEP 3: Project 3D character-relative vector to 2D (XY plane)
+		const FVector2D CharacterRelative2D(CharacterRelative.X, CharacterRelative.Y);
+
+		// STEP 4: Convert 2D vector to 8-way direction using existing helper
+		return VectorToInputDirection(CharacterRelative2D, DeadZone);
 	}
 }

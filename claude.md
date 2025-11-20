@@ -95,6 +95,50 @@ Directional Attack Flow:
 
 ## Recent Changes (Reverse Chronological)
 
+### 2025-11-19: Camera Pitch Bug Fix ✅ **CRITICAL**
+
+**Fixed**: Directional attacks executing incorrectly when camera had pitch (looking up/down)
+**Impact**: Debug visualization showed correct direction but wrong attack executed
+
+#### Root Cause: Camera Pitch Corruption
+**Symptom**: Player looks up/down → press directional attack → wrong direction executes
+**Location**: `CombatTypes.h:598-599` (VectorToCharacterRelativeDirection)
+
+**The Bug**:
+```cpp
+// WRONG (before):
+const FVector CameraForward = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::X); // ❌ Includes pitch!
+const FVector CameraRight = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::Y);   // ❌ Includes pitch!
+```
+
+When camera pitch != 0, the CameraForward/CameraRight vectors had Z components, corrupting the WorldInput calculation even after Z normalization.
+
+**The Fix** (`CombatTypes.h:599`):
+```cpp
+// CORRECT (after):
+const FRotator FlatCameraRotation = FRotator(0.0f, CameraRotation.Yaw, 0.0f); // ✅ Flatten to yaw-only
+const FVector CameraForward = FRotationMatrix(FlatCameraRotation).GetScaledAxis(EAxis::X);
+const FVector CameraRight = FRotationMatrix(FlatCameraRotation).GetScaledAxis(EAxis::Y);
+```
+
+**Why Visualization Worked**: SamuraiCharacter::Tick() already flattened camera rotation (line 83), but the actual capture code in VectorToCharacterRelativeDirection() didn't!
+
+**Discovery Process**:
+1. User noticed visualization arrows showed correct direction but wrong attack executed
+2. User moved visualization from OnInputEventWithTransform to Tick() to see frame-by-frame updates
+3. Investigation revealed visualization used GetDirectionalInputFromMovement() which worked correctly
+4. Traced back to find VectorToCharacterRelativeDirection() used full camera rotation without flattening
+5. Compared both code paths → found pitch corruption in actual capture
+
+**Files Modified**: `CombatTypes.h:596-603` (added camera rotation flattening)
+
+**Behavior Now**:
+- ✅ Looking up/down while executing directional attack → correct direction executes
+- ✅ Visualization and execution now use identical transformation logic
+- ✅ Horizontal directional input independent of camera pitch
+
+---
+
 ### 2025-11-19: Diagonal Rotation Bug Fix + DirectionDebugLibrary ✅
 
 **Fixed**: Critical axis mismatch causing directional attacks to fail at diagonal character rotations

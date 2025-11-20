@@ -57,6 +57,8 @@ protected:
     // ============================================================================
 
     virtual EActionWindowType GetWindowType() const override { return EActionWindowType::Hold; }
-    virtual void OnOpenWindow_V1(class UCombatComponent* CombatComp, float Duration) override;
-    virtual void OnCloseWindow_V1(class UCombatComponent* CombatComp) override;
+
+    // V1 REMOVED: V1 callback functions no longer needed
+    // virtual void OnOpenWindow_V1(class UCombatComponent* CombatComp, float Duration) override;
+    // virtual void OnCloseWindow_V1(class UCombatComponent* CombatComp) override;
 };

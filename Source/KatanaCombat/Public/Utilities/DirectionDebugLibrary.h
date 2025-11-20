@@ -133,6 +133,47 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Debug|Direction")
 	static FRotator GetMeshRotationOffset(ACharacter* Character);
 
+	// ============================================================================
+	// DEBUG VISUALIZATION
+	// ============================================================================
+
+	/**
+	 * Draw comprehensive directional input transformation debug visualization
+	 * Shows numbered pipeline: Camera → Input → Character-Relative → Attack
+	 *
+	 * Features:
+	 * - 5 numbered arrows showing transformation pipeline
+	 * - Solid vs dashed arrows for continuous vs hold-release input
+	 * - Angular arc showing camera-character offset
+	 * - Context-aware filtering and color-coding
+	 * - Real-time updates
+	 *
+	 * @param World - World context for drawing
+	 * @param Character - Character actor reference (for text anchoring)
+	 * @param CharacterLocation - Character's world position
+	 * @param CameraRotation - Camera rotation (for camera-relative input)
+	 * @param CharacterRotation - Character rotation (for character-relative conversion)
+	 * @param CameraRelativeInput - Raw input vector in camera space
+	 * @param WorldInput - Input converted to world space
+	 * @param CharacterRelativeVec - Input converted to character-relative space
+	 * @param CharacterRelativeDirection - Final resolved input direction enum
+	 * @param AttackDirection - Final attack direction enum
+	 * @param bIsHoldActive - Whether hold mechanic is currently active
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Debug|Direction")
+	static void DrawDirectionTransformDebug(
+		UWorld* World,
+		ACharacter* Character,
+		const FVector& CharacterLocation,
+		const FRotator& CameraRotation,
+		const FRotator& CharacterRotation,
+		const FVector2D& CameraRelativeInput,
+		const FVector& WorldInput,
+		const FVector& CharacterRelativeVec,
+		EInputDirection CharacterRelativeDirection,
+		EAttackDirection AttackDirection,
+		bool bIsHoldActive);
+
 private:
 	// ============================================================================
 	// INTERNAL HELPERS

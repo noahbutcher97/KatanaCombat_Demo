@@ -550,14 +550,15 @@ public:
 	static bool LoopMontageSection(ACharacter* Character, FName LoopSectionName);
 
 	/**
-	 * Convert directional input (movement stick) to attack direction enum
+	 * Convert directional input (movement stick) to attack direction enum (ACTOR-RELATIVE)
 	 *
-	 * @param DirectionInput - 2D input from movement stick (X=Forward/Back, Y=Left/Right)
+	 * @param DirectionInput - 2D input from movement stick (X=Forward/Back, Y=Left/Right), camera-relative
+	 * @param ActorRotation - Character's current rotation (for actor-relative transformation)
 	 * @param DeadzoneThreshold - Minimum magnitude to register direction (default: 0.3)
-	 * @return Attack direction based on dominant axis
+	 * @return Attack direction based on dominant axis, relative to actor facing
 	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Montage Utilities|Hold System", meta = (DisplayName = "Get Direction From Input"))
-	static EAttackDirection GetDirectionFromInput(FVector2D DirectionInput, float DeadzoneThreshold = 0.3f);
+	static EAttackDirection GetDirectionFromInput(FVector2D DirectionInput, FRotator ActorRotation, float DeadzoneThreshold = 0.3f);
 
 	// ============================================================================
 	// ATTACK RESOLUTION (Combo Progression)
@@ -603,14 +604,14 @@ public:
 	 *
 	 * Resolution Priority:
 	 * 1. Context-sensitive attacks (if RequiredContextTags match ActiveContext)
-	 * 2. Directional follow-ups (if bIsHolding + Direction != None)
+	 * 2. Directional follow-ups (if HoldState.IsHoldCompleted() + Direction != None)
 	 * 3. Normal combo chain (if bComboWindowActive)
 	 * 4. Default attacks (fallback)
 	 *
 	 * @param CurrentAttack - Currently executing attack (null if no combo active)
 	 * @param InputType - Input type being triggered (Light/Heavy)
 	 * @param Direction - Movement direction (for directional follow-ups)
-	 * @param bIsHolding - Is button currently held? (for directional follow-ups)
+	 * @param HoldState - Hold state (checks IsHoldCompleted(), NOT just IsHolding())
 	 * @param bComboWindowActive - Is combo window currently active?
 	 * @param DefaultLightAttack - Fallback light attack
 	 * @param DefaultHeavyAttack - Fallback heavy attack
@@ -623,7 +624,7 @@ public:
 		class UAttackData* CurrentAttack,
 		EInputType InputType,
 		EAttackDirection Direction,
-		bool bIsHolding,
+		const FHoldState& HoldState,
 		bool bComboWindowActive,
 		class UAttackData* DefaultLightAttack,
 		class UAttackData* DefaultHeavyAttack,

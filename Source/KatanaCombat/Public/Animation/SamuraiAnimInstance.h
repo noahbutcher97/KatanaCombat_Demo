@@ -7,7 +7,7 @@
 #include "CombatTypes.h"
 #include "SamuraiAnimInstance.generated.h"
 
-class UCombatComponent;
+// V1 REMOVED: class UCombatComponent;
 class UHitReactionComponent;
 class ACharacter;
 class UCharacterMovementComponent;
@@ -240,9 +240,9 @@ private:
     UPROPERTY()
     TObjectPtr<UCharacterMovementComponent> MovementComponent;
 
-    /** Combat component (for combat state) */
-    UPROPERTY()
-    TObjectPtr<UCombatComponent> CombatComponent;
+    // V1 REMOVED: Combat component removed
+    // UPROPERTY()
+    // TObjectPtr<UCombatComponent> CombatComponent;
 
     /** Hit reaction component (for stun state) */
     UPROPERTY()

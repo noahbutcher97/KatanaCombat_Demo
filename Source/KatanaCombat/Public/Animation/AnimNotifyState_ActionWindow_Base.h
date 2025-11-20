@@ -59,15 +59,7 @@ protected:
 	 */
 	virtual EActionWindowType GetWindowType() const PURE_VIRTUAL(UAnimNotifyState_ActionWindow_Base::GetWindowType, return EActionWindowType::Combo;);
 
-	/**
-	 * V1 system: Open window
-	 * Called when window begins in V1 combat system
-	 */
-	virtual void OnOpenWindow_V1(class UCombatComponent* CombatComp, float Duration) PURE_VIRTUAL(UAnimNotifyState_ActionWindow_Base::OnOpenWindow_V1,);
-
-	/**
-	 * V1 system: Close window
-	 * Called when window ends in V1 combat system
-	 */
-	virtual void OnCloseWindow_V1(class UCombatComponent* CombatComp) PURE_VIRTUAL(UAnimNotifyState_ActionWindow_Base::OnCloseWindow_V1,);
+	// V1 REMOVED: V1 callback functions no longer needed
+	// virtual void OnOpenWindow_V1(class UCombatComponent* CombatComp, float Duration) PURE_VIRTUAL(UAnimNotifyState_ActionWindow_Base::OnOpenWindow_V1,);
+	// virtual void OnCloseWindow_V1(class UCombatComponent* CombatComp) PURE_VIRTUAL(UAnimNotifyState_ActionWindow_Base::OnCloseWindow_V1,);
 };

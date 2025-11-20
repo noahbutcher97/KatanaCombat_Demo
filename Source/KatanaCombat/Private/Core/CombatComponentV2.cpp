@@ -1,8 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/CombatComponentV2.h"
-#include "Core/CombatComponent.h"
 #include "Data/AttackData.h"
+#include "Data/AttackConfiguration.h"
 #include "Data/CombatSettings.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -11,6 +11,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Characters/SamuraiCharacter.h"
 #include "Utilities/MontageUtilityLibrary.h"
+#include "Utilities/DirectionDebugLibrary.h"
 
 // ============================================================================
 // LOG CATEGORY DEFINITION
@@ -28,19 +29,16 @@ void UCombatComponentV2::BeginPlay()
 {
 	Super::BeginPlay();
 
+	// CRITICAL: Initialize input context to Movement (default state)
+	// Ensures clean state on component spawn/respawn
+	CurrentInputContext = EInputContext::Movement;
+
 	// Cache owner character (ASamuraiCharacter instead of AActor for performance)
 	OwnerCharacter = Cast<ASamuraiCharacter>(GetOwner());
 	if (OwnerCharacter)
 	{
 		// Cache combat settings from character
 		CombatSettings = OwnerCharacter->CombatSettings;
-
-		// Cache CombatComponent reference for shared state access
-		CombatComponent = OwnerCharacter->FindComponentByClass<UCombatComponent>();
-		if (!CombatComponent)
-		{
-			UE_LOG(LogCombat, Error, TEXT("[CombatComponentV2] No CombatComponent found on %s"), *OwnerCharacter->GetName());
-		}
 
 		// Bind to montage event delegates for event-driven phase transitions
 		if (UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance())
@@ -53,6 +51,127 @@ void UCombatComponentV2::BeginPlay()
 				UE_LOG(LogCombat, Log, TEXT("[V2 INIT] Montage event delegates bound (BlendingOut, Ended)"));
 			}
 		}
+
+		// Validate default attacks are assigned (critical for graceful fallback system)
+		#if WITH_EDITOR
+		ValidateDefaultAttacks();
+		#endif
+	}
+}
+
+void UCombatComponentV2::ValidateDefaultAttacks()
+{
+	if (!CombatSettings || !CombatSettings->AttackConfiguration)
+	{
+		UE_LOG(LogCombat, Error, TEXT("[V2 VALIDATION] CombatSettings or AttackConfiguration is nullptr on %s! "
+		                              "Combat system cannot function. Assign CombatSettings with AttackConfiguration in Character Blueprint."),
+			*GetOwner()->GetName());
+
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Red,
+				FString::Printf(TEXT("⚠️ %s: Missing CombatSettings or AttackConfiguration!"), *GetOwner()->GetName()));
+		}
+		return;
+	}
+
+	bool bHasErrors = false;
+
+	// Check if default light attack is assigned
+	UAttackData* DefaultLight = GetDefaultLightAttack();
+	if (!DefaultLight)
+	{
+		UE_LOG(LogCombat, Error, TEXT("[V2 VALIDATION] DefaultLightAttack is nullptr on %s! "
+		                              "Combat system will not work properly. Assign in AttackConfiguration asset."),
+			*GetOwner()->GetName());
+		bHasErrors = true;
+	}
+
+	// Check if default heavy attack is assigned
+	UAttackData* DefaultHeavy = GetDefaultHeavyAttack();
+	if (!DefaultHeavy)
+	{
+		UE_LOG(LogCombat, Error, TEXT("[V2 VALIDATION] DefaultHeavyAttack is nullptr on %s! "
+		                              "Combat system will not work properly. Assign in AttackConfiguration asset."),
+			*GetOwner()->GetName());
+		bHasErrors = true;
+	}
+
+	// Show on-screen warning in editor PIE sessions
+	if (bHasErrors && GEngine)
+	{
+		const FString ErrorMsg = FString::Printf(
+			TEXT("⚠️ CombatComponentV2 on %s: Default attacks not assigned! Fix in AttackConfiguration asset."),
+			*GetOwner()->GetName()
+		);
+
+		GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Red, ErrorMsg);
+
+		// Log comprehensive fix instructions
+		UE_LOG(LogCombat, Warning, TEXT("[V2 VALIDATION] To fix this:"));
+		UE_LOG(LogCombat, Warning, TEXT("  1. Open your CombatSettings asset"));
+		UE_LOG(LogCombat, Warning, TEXT("  2. Open the AttackConfiguration asset"));
+		UE_LOG(LogCombat, Warning, TEXT("  3. Assign DefaultLightAttack and DefaultHeavyAttack in the Details panel"));
+	}
+	else if (!bHasErrors && GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 VALIDATION] ✓ Default attacks validated successfully"));
+	}
+}
+
+void UCombatComponentV2::OnCharacterDeath()
+{
+	// CRITICAL: Full combat state reset on death
+	// Prevents state leaks across respawns (hold state, queued actions, input context)
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Warning, TEXT("[V2 DEATH] Character died - resetting all combat state"));
+	}
+
+	// Clear action queue and statistics
+	ClearQueue(true);
+
+	// Clear hold state (ease timer, flags, playrate)
+	ClearHoldState();
+
+	// Reset directional input buffer
+	DirectionalInputBuffer.Reset();
+
+	// Clear held inputs
+	HeldInputs.Empty();
+
+	// Reset to idle phase
+	SetPhase(EAttackPhase::None);
+
+	// Clear checkpoints
+	Checkpoints.Empty();
+
+	// Reset input context to Movement (default)
+	SetInputContext(EInputContext::Movement);
+
+	// Clear context tracking
+	ActiveContextTags.Reset();
+	VisitedAttacks.Empty();
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 DEATH] ✓ Combat state reset complete - ready for respawn"));
+	}
+}
+
+void UCombatComponentV2::SetInputContext(EInputContext NewContext)
+{
+	if (CurrentInputContext != NewContext)
+	{
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[V2 INPUT CONTEXT] %s → %s"),
+				*UEnum::GetValueAsString(CurrentInputContext),
+				*UEnum::GetValueAsString(NewContext));
+		}
+
+		CurrentInputContext = NewContext;
 	}
 }
 
@@ -89,14 +208,187 @@ bool UCombatComponentV2::GetDebugDraw() const
 	return CombatSettings && CombatSettings->bDebugDraw;
 }
 
+UAttackData* UCombatComponentV2::GetDefaultLightAttack() const
+{
+	// Access through CombatSettings → AttackConfiguration → DefaultLightAttack
+	if (!CombatSettings || !CombatSettings->AttackConfiguration)
+	{
+		return nullptr;
+	}
+	return CombatSettings->AttackConfiguration->DefaultLightAttack;
+}
+
+UAttackData* UCombatComponentV2::GetDefaultHeavyAttack() const
+{
+	// Access through CombatSettings → AttackConfiguration → DefaultHeavyAttack
+	if (!CombatSettings || !CombatSettings->AttackConfiguration)
+	{
+		return nullptr;
+	}
+	return CombatSettings->AttackConfiguration->DefaultHeavyAttack;
+}
+
 // ============================================================================
 // INPUT PROCESSING (V2)
 // ============================================================================
 
+void UCombatComponentV2::OnInputEventWithTransform(
+	EInputType InputType,
+	EInputEventType EventType,
+	FVector2D CameraRelativeInput,
+	FRotator CameraRotation,
+	FRotator CharacterRotation)
+{
+	// Transform camera-relative input to character-relative direction
+	EInputDirection CharacterRelativeDirection = CombatHelpers::VectorToCharacterRelativeDirection(
+		CameraRelativeInput,
+		CameraRotation,
+		CharacterRotation,
+		0.2f  // Dead zone
+	);
+
+	// Call the existing OnInputEvent with transformed direction
+	OnInputEvent(InputType, EventType, CharacterRelativeDirection);
+
+	// Comprehensive debug visualization and diagnostic logging
+	/*if (GetDebugDraw() && CharacterRelativeDirection != EInputDirection::None)
+	{
+		ACharacter* Character = Cast<ACharacter>(GetOwner());
+		if (!Character) return;
+
+		const FVector CharacterLocation = Character->GetActorLocation();
+
+		// ========================================================================
+		// STEP 1: CALCULATE TRANSFORMATION VECTORS
+		// ========================================================================
+
+		// Camera-relative to world space conversion
+		const FVector CameraForward = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::X);
+		const FVector CameraRight = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::Y);
+		FVector WorldInput = (CameraRight * CameraRelativeInput.X) + (CameraForward * CameraRelativeInput.Y);
+		WorldInput.Z = 0.0f;
+		WorldInput.Normalize();
+
+		// World to character-relative conversion
+		const FRotator InverseCharacterYaw(0.0f, -CharacterRotation.Yaw, 0.0f);
+		const FVector CharacterRelativeVec = InverseCharacterYaw.RotateVector(WorldInput);
+		const FVector2D CharacterRelative2D(CharacterRelativeVec.X, CharacterRelativeVec.Y);
+
+		// Calculate angles for diagnostics
+		const float WorldAngle = FMath::Atan2(WorldInput.Y, WorldInput.X) * (180.0f / PI);
+		const float CharAngle = FMath::Atan2(CharacterRelative2D.Y, CharacterRelative2D.X) * (180.0f / PI);
+
+		// Get final attack direction
+		const EAttackDirection AttackDir = CombatHelpers::InputToAttackDirection(CharacterRelativeDirection);
+
+		// ========================================================================
+		// VISUAL DEBUG DRAWING - Context-Aware, Numbered Pipeline
+		// ========================================================================
+		UDirectionDebugLibrary::DrawDirectionTransformDebug(
+			GetWorld(),
+			CharacterLocation,
+			CameraRotation,
+			CharacterRotation,
+			CameraRelativeInput,
+			WorldInput,
+			CharacterRelativeVec,
+			CharacterRelativeDirection,
+			AttackDir,
+			HoldState.IsHolding());
+
+		// ========================================================================
+		// DIAGNOSTIC LOGGING
+		// ========================================================================
+
+		FString DiagnosticLog;
+		DiagnosticLog += TEXT("\n[DIRECTION DIAGNOSTIC]\n");
+		DiagnosticLog += TEXT("=== Input ===\n");
+		DiagnosticLog += FString::Printf(TEXT("Raw Input: %s\n"), *UDirectionDebugLibrary::FormatVector2DDebug(CameraRelativeInput));
+		DiagnosticLog += TEXT("\n=== Rotations ===\n");
+		DiagnosticLog += FString::Printf(TEXT("Camera Yaw:    %s\n"), *UDirectionDebugLibrary::FormatRotationDebug(CameraRotation));
+		DiagnosticLog += FString::Printf(TEXT("Character Yaw: %s\n"), *UDirectionDebugLibrary::FormatRotationDebug(CharacterRotation));
+		DiagnosticLog += FString::Printf(TEXT("Yaw Delta:     %.1f°\n"), UDirectionDebugLibrary::CalculateYawDelta(CameraRotation.Yaw, CharacterRotation.Yaw));
+
+		FRotator MeshOffset = UDirectionDebugLibrary::GetMeshRotationOffset(Character);
+		DiagnosticLog += FString::Printf(TEXT("Mesh Offset:   (P=%.1f°, Y=%.1f°, R=%.1f°)\n"), MeshOffset.Pitch, MeshOffset.Yaw, MeshOffset.Roll);
+
+		DiagnosticLog += TEXT("\n=== Transformation Step 1: Camera-Relative to World ===\n");
+		DiagnosticLog += FString::Printf(TEXT("CameraForward: (X=%.2f, Y=%.2f, Z=%.2f)\n"), CameraForward.X, CameraForward.Y, CameraForward.Z);
+		DiagnosticLog += FString::Printf(TEXT("CameraRight:   (X=%.2f, Y=%.2f, Z=%.2f)\n"), CameraRight.X, CameraRight.Y, CameraRight.Z);
+		DiagnosticLog += FString::Printf(TEXT("WorldInput:    (X=%.2f, Y=%.2f, Z=%.2f)\n"), WorldInput.X, WorldInput.Y, WorldInput.Z);
+		DiagnosticLog += FString::Printf(TEXT("World Angle:   %.1f°\n"), WorldAngle);
+
+		DiagnosticLog += TEXT("\n=== Transformation Step 2: World to Character-Relative ===\n");
+		DiagnosticLog += FString::Printf(TEXT("InverseYaw:    %.1f°\n"), -CharacterRotation.Yaw);
+		DiagnosticLog += FString::Printf(TEXT("CharRelative:  (X=%.2f, Y=%.2f, Z=%.2f)\n"), CharacterRelativeVec.X, CharacterRelativeVec.Y, CharacterRelativeVec.Z);
+		DiagnosticLog += FString::Printf(TEXT("CharRelative2D: %s\n"), *UDirectionDebugLibrary::FormatVector2DDebug(CharacterRelative2D));
+		DiagnosticLog += FString::Printf(TEXT("Char Angle:    %.1f°\n"), CharAngle);
+
+		DiagnosticLog += TEXT("\n=== Resolution ===\n");
+		DiagnosticLog += FString::Printf(TEXT("Resolved:      %s\n"), *UDirectionDebugLibrary::FormatInputDirectionDebug(CharacterRelativeDirection));
+		DiagnosticLog += FString::Printf(TEXT("Attack:        %s\n"), *UDirectionDebugLibrary::FormatAttackDirectionDebug(AttackDir));
+		DiagnosticLog += TEXT("Expected:      [VERIFY MANUALLY]\n");
+
+		UE_LOG(LogCombat, Log, TEXT("%s"), *DiagnosticLog);
+	}*/
+}
+
+void UCombatComponentV2::OnInputEventAuto(
+	EInputType InputType,
+	EInputEventType EventType,
+	FVector2D MovementInput,
+	bool bCharacterRelative)
+{
+	// Get the owning character
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	if (!Character)
+	{
+		UE_LOG(LogCombat, Error, TEXT("[V2 INPUT AUTO] Owner is not a Character! Cannot auto-transform input."));
+		return;
+	}
+
+	// Get character rotation (easy - just get owner's rotation)
+	FRotator CharacterRotation = Character->GetActorRotation();
+
+	// Get camera rotation from the controller
+	APlayerController* PC = Cast<APlayerController>(Character->GetController());
+	if (!PC)
+	{
+		// Fallback: If no player controller, assume camera faces same direction as character
+		// This handles AI-controlled characters gracefully
+		UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT AUTO] No PlayerController found, assuming camera = character rotation"));
+		OnInputEventWithTransform(InputType, EventType, MovementInput, CharacterRotation, CharacterRotation);
+		return;
+	}
+
+	// Get camera rotation (control rotation for player-controlled characters)
+	FRotator CameraRotation = PC->GetControlRotation();
+
+	// TOGGLE: Character-relative vs Camera-relative
+	if (bCharacterRelative)
+	{
+		// Character-relative: Transform input based on character facing
+		OnInputEventWithTransform(InputType, EventType, MovementInput, CameraRotation, CharacterRotation);
+	}
+	else
+	{
+		// Camera-relative (legacy): Transform uses camera as reference frame
+		// Pass camera rotation as both camera AND character to skip character transformation
+		OnInputEventWithTransform(InputType, EventType, MovementInput, CameraRotation, CameraRotation);
+	}
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 INPUT AUTO] Mode=%s, Camera=%.1f°, Character=%.1f°"),
+			bCharacterRelative ? TEXT("Character-Relative") : TEXT("Camera-Relative"),
+			CameraRotation.Yaw, CharacterRotation.Yaw);
+	}
+}
+
 void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection)
 {
 	// Early exit if V2 system is not enabled or dependencies missing
-	if (!CombatSettings || !CombatSettings->bUseV2System || !CombatComponent)
+	if (!CombatSettings || !CombatSettings->bUseV2System)
 	{
 		return;
 	}
@@ -111,37 +403,69 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 		return;
 	}
 
-	// LAST INPUT PRIORITIZED: Capture directional input if provided (8-way support)
-	// This updates on EVERY input event, so the most recent direction is always stored
+	// ============================================================================
+	// CONTEXT-AWARE DIRECTIONAL INPUT SAMPLING (Architectural Fix)
+	// ============================================================================
+	// Direction is ONLY captured during DirectionalInput context (hold release window)
+	// This prevents movement stick deflection during normal combos from triggering directionals
+	//
+	// Design: Movement input (continuous) != Attack input (discrete)
+	// - Movement context: Stick for character movement ONLY, ignored for attacks
+	// - DirectionalInput context: Stick sampled at release for directional attacks
+
 	if (InputDirection != EInputDirection::None)
 	{
-		LastDirectionalInput = InputDirection;
-
-		// If we're holding, update the hold's direction (for directional follow-ups)
-		if (HoldState.IsHolding())
+		if (CurrentInputContext == EInputContext::DirectionalInput)
 		{
-			EAttackDirection AttackDir = CombatHelpers::InputToAttackDirection(InputDirection);
-			HoldState.CurrentHold.Direction = AttackDir;
-
-			if (GetDebugDraw())
+			// Sample direction ONLY at RELEASE event (after hold completion)
+			if (EventType == EInputEventType::Release)
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 INPUT DIRECTION] Updated hold direction: %s (8-way: %s)"),
-					*UEnum::GetValueAsString(AttackDir),
-					*UEnum::GetValueAsString(InputDirection));
+				// Capture direction in buffer (discrete sampling, not continuous)
+				DirectionalInputBuffer.CaptureDirection(InputDirection, GetWorld()->GetTimeSeconds());
+
+				// CRITICAL: Update HoldEvent direction for directional follow-up resolution
+				// Convert EInputDirection → EAttackDirection and store in current hold event
+				if (HoldState.IsHolding())
+				{
+					HoldState.CurrentHold.Direction = CombatHelpers::InputToAttackDirection(InputDirection);
+
+					if (GetDebugDraw())
+					{
+						UE_LOG(LogCombat, Log, TEXT("[V2 DIRECTIONAL] Direction captured at RELEASE: %s (time=%.2f) → HoldEvent.Direction=%s"),
+							*UDirectionDebugLibrary::FormatInputDirectionDebug(InputDirection),
+							DirectionalInputBuffer.CaptureTime,
+							*UDirectionDebugLibrary::FormatAttackDirectionDebug(HoldState.CurrentHold.Direction));
+					}
+				}
+				else if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[V2 DIRECTIONAL] Direction captured at RELEASE: %s (time=%.2f) [NO ACTIVE HOLD]"),
+						*UDirectionDebugLibrary::FormatInputDirectionDebug(InputDirection),
+						DirectionalInputBuffer.CaptureTime);
+				}
+			}
+			else if (GetDebugDraw())
+			{
+				// Direction provided during hold, but not capturing until release
+				UE_LOG(LogCombat, Verbose, TEXT("[V2 DIRECTIONAL] Direction during hold: %s (awaiting release to capture)"),
+					*UDirectionDebugLibrary::FormatInputDirectionDebug(InputDirection));
 			}
 		}
-
-		// ALWAYS log directional input capture for debugging
-		if (GetDebugDraw())
+		else if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT DIRECTION] Captured: %s (will be used for next attack resolution)"),
-				*UEnum::GetValueAsString(InputDirection));
+			// Direction provided but context is Movement (ignored for attack purposes)
+			UE_LOG(LogCombat, Verbose, TEXT("[V2 DIRECTIONAL] Direction IGNORED (context=%s, not DirectionalInput)"),
+				*UEnum::GetValueAsString(CurrentInputContext));
 		}
+
+		// DEPRECATED: Keep LastDirectionalInput for backward compatibility (will be removed in future)
+		LastDirectionalInput = InputDirection;
+		bDirectionalInputConsumed = false;
 	}
 	else if (GetDebugDraw())
 	{
-		// Log when NO directional input provided (this means Blueprint isn't passing it)
-		UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT DIRECTION] NO DIRECTION PROVIDED - Blueprint must pass movement stick direction to OnInputEvent()"));
+		// No direction provided (Blueprint might not be passing movement input)
+		UE_LOG(LogCombat, Verbose, TEXT("[V2 INPUT] No directional input provided"));
 	}
 
 	// Get current game time
@@ -203,29 +527,12 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 
 bool UCombatComponentV2::CanProcessInput(EInputType InputType) const
 {
-	if (!CombatComponent)
-	{
-		return false;
-	}
+	// V2 accepts input unless explicitly disabled
+	// Higher-level systems (death, hit reactions) should disable input at the source
+	// by unbinding input events or setting bUseV2System to false
 
-	// V2 accepts input in more states than V1
-	ECombatState CurrentState = CombatComponent->GetCombatState();
-
-	switch (CurrentState)
-	{
-		case ECombatState::Idle:
-		case ECombatState::Attacking:
-		case ECombatState::Blocking:
-			return true;
-
-		case ECombatState::Dead:
-		case ECombatState::HitStunned:
-		case ECombatState::GuardBroken:
-			return false;
-
-		default:
-			return true;
-	}
+	// Future: Add V2-specific state flags (bIsDead, bIsStunned) if needed
+	return true;
 }
 
 // ============================================================================
@@ -234,11 +541,6 @@ bool UCombatComponentV2::CanProcessInput(EInputType InputType) const
 
 void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAttackData* AttackData)
 {
-	if (!CombatComponent)
-	{
-		return;
-	}
-
 	// Only queue press events (releases handled separately)
 	if (InputAction.EventType != EInputEventType::Press)
 	{
@@ -676,6 +978,10 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 	// This prevents hold state leaks (easing, movement locks) from previous attack
 	ClearHoldState();
 
+	// CRITICAL: Clear directional input buffer for fresh attack
+	// Each attack starts with clean directional state (no stale directions from previous attacks)
+	DirectionalInputBuffer.Reset();
+
 	// COMBO BLENDING: Determine blend times for smooth transitions
 	// - Blend-out: Current attack's ComboBlendOutTime (0 = instant for first attack)
 	// - Blend-in: New attack's ComboBlendInTime (configurable per attack)
@@ -810,9 +1116,13 @@ void UCombatComponentV2::ClearQueue(bool bCancelCurrent)
 	CurrentAttackData = nullptr;
 	CurrentAttackInputType = EInputType::None;
 
+	// CRITICAL: Clear directional input buffer on queue clear
+	// Prevents stale directional input from persisting across combat resets
+	DirectionalInputBuffer.Reset();
+
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Cleared (CancelCurrent=%s) - Combo state reset"), bCancelCurrent ? TEXT("YES") : TEXT("NO"));
+		UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Cleared (CancelCurrent=%s) - Combo state and directional buffer reset"), bCancelCurrent ? TEXT("YES") : TEXT("NO"));
 	}
 }
 
@@ -954,7 +1264,7 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 	// AnimNotify fires at hold window start, we check if button is STILL pressed
 	// This replaces tick-based CheckHoldActivation with event-driven pattern
 
-	if (!CombatComponent || !CurrentAttackData || HoldState.bActivatedThisAttack)
+	if (!CurrentAttackData || HoldState.bActivatedThisAttack)
 	{
 		return;
 	}
@@ -977,6 +1287,16 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 	{
 		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Button held at window start: %s, activating hold"),
 			*UEnum::GetValueAsString(InputType));
+	}
+
+	// ARCHITECTURAL FIX: Enable directional input context
+	// From this point until hold clears, movement stick = directional attack input
+	// This allows direction to be sampled at button release for directional follow-ups
+	SetInputContext(EInputContext::DirectionalInput);
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Directional input window OPENED (awaiting release)"));
 	}
 
 	// Determine hold behavior based on attack type
@@ -1011,9 +1331,14 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 				// STEP 3: Activate hold state (no playrate change for heavy attacks - loops at normal speed)
 				ActivateHold(InputType, 1.0f);
 
+				// CRITICAL FIX: Mark Heavy hold as completed immediately after activation
+				// This allows IsHoldCompleted() to return true for Heavy attacks
+				// Without this, directional follow-ups never work for Heavy attacks
+				HoldState.MarkHoldCompleted();
+
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack charge loop started: jumped to '%s' and looping"),
+					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack charge loop started and marked completed: jumped to '%s' and looping"),
 						*CurrentAttackData->ChargeLoopSection.ToString());
 				}
 			}
@@ -1065,11 +1390,6 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 
 void UCombatComponentV2::ActivateHold(EInputType InputType, float PlayRate)
 {
-	if (!CombatComponent)
-	{
-		return;
-	}
-
 	HoldState.Activate(InputType, GetWorld()->GetTimeSeconds(), PlayRate);
 
 	// Apply playrate to montage using utility library
@@ -1127,8 +1447,37 @@ void UCombatComponentV2::DeactivateHold()
 		}
 		else
 		{
-			// FALLBACK: No release section configured - blend out montage to return to idle
-			if (Character)
+			// FALLBACK: No release section configured - try directional follow-up, otherwise blend to idle
+			UAttackData* FollowUpAttack = nullptr;
+
+			// Check for directional follow-up based on held direction
+			if (HoldState.CurrentHold.Direction != EAttackDirection::None)
+			{
+				TObjectPtr<UAttackData>* DirectionalAttack = CurrentAttackData->DirectionalFollowUps.Find(HoldState.CurrentHold.Direction);
+				if (DirectionalAttack && DirectionalAttack->Get())
+				{
+					FollowUpAttack = DirectionalAttack->Get();
+
+					if (GetDebugDraw())
+					{
+						UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack has no ChargeReleaseSection - queueing directional follow-up: %s (direction=%s)"),
+							*FollowUpAttack->GetName(),
+							*UDirectionDebugLibrary::FormatAttackDirectionDebug(HoldState.CurrentHold.Direction));
+					}
+
+					// Queue directional follow-up for immediate execution
+					FQueuedInputAction FollowUpInput(
+						CurrentAttackInputType,           // Same input type as current attack
+						EInputEventType::Press,           // Treat as press event
+						GetWorld()->GetTimeSeconds(),     // Current time
+						false                             // Not in combo window
+					);
+					QueueAction(FollowUpInput, FollowUpAttack);
+				}
+			}
+
+			// If no directional follow-up found, blend to idle
+			if (!FollowUpAttack && Character)
 			{
 				UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance();
 				if (AnimInstance)
@@ -1141,7 +1490,7 @@ void UCombatComponentV2::DeactivateHold()
 
 						if (GetDebugDraw())
 						{
-							UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack has no ChargeReleaseSection - blending to idle (%.2fs)"),
+							UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack has no ChargeReleaseSection or directional follow-up - blending to idle (%.2fs)"),
 								CurrentAttackData->ChargeReleaseBlendTime);
 						}
 
@@ -1445,13 +1794,17 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 			CurrentAttackData = nullptr;
 			CurrentAttackInputType = EInputType::None;
 
+			// CRITICAL: Ensure input context returns to Movement on attack completion
+			// This prevents directional input context leaking into idle/movement state
+			SetInputContext(EInputContext::Movement);
+
 			// CRITICAL: Clear hold state completely (ease timer, flags, movement)
 			// This prevents hold state leaking into next attack
 			ClearHoldState();
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Attack finished - Combo state and hold state cleared"));
+				UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Attack finished - Combo state, hold state, and input context cleared"));
 			}
 			break;
 
@@ -1485,6 +1838,20 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 		UE_LOG(LogCombat, Log, TEXT("[V2 MONTAGE] Montage ended: %s | Interrupted: %s"),
 			Montage ? *Montage->GetName() : TEXT("None"),
 			bInterrupted ? TEXT("YES") : TEXT("NO"));
+	}
+
+	// CRITICAL: Reset input state on interruption (stun, knockback, etc.)
+	// Prevents directional input context leaking when montage is forcibly stopped
+	if (bInterrupted)
+	{
+		SetInputContext(EInputContext::Movement);
+		DirectionalInputBuffer.Reset();
+		ClearHoldState();
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[V2 MONTAGE] Interrupted - input state reset"));
+		}
 	}
 
 	// Broadcast montage event
@@ -1707,6 +2074,15 @@ void UCombatComponentV2::ClearHoldState()
 		}
 	}
 
+	// ARCHITECTURAL FIX: Reset input context to Movement
+	// Hold window closed, movement stick no longer interpreted as directional input
+	SetInputContext(EInputContext::Movement);
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Directional input window CLOSED"));
+	}
+
 	// Ensure movement is synced to new state
 	UpdateMovementFromMontageState();
 }
@@ -1921,16 +2297,11 @@ EActionExecutionMode UCombatComponentV2::DetermineExecutionMode(const FQueuedInp
 	return EActionExecutionMode::Immediate;
 }
 
-UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType) const
+UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType)
 {
-	if (!CombatComponent)
-	{
-		return nullptr;
-	}
-
-	// Get default attacks as fallbacks
-	UAttackData* DefaultLightAttack = CombatComponent->GetDefaultLightAttack();
-	UAttackData* DefaultHeavyAttack = CombatComponent->GetDefaultHeavyAttack();
+	// Get default attacks as fallbacks through CombatSettings → AttackConfiguration
+	UAttackData* DefaultLightAttack = GetDefaultLightAttack();
+	UAttackData* DefaultHeavyAttack = GetDefaultHeavyAttack();
 
 	// Determine if we should combo: Check combo window OR valid attack continuation
 	// This fixes combo progression for both queued AND immediate execution
@@ -1961,18 +2332,39 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType) const
 			bShouldCombo ? TEXT("TRUE") : TEXT("FALSE"));
 	}
 
-	// Convert 8-way input direction to 4-way attack direction for follow-ups
+	// ============================================================================
+	// DIRECTIONAL INPUT RESOLUTION (Architectural Fix)
+	// ============================================================================
+	// Use DirectionalInputBuffer (discrete sampling at hold release) instead of
+	// LastDirectionalInput (continuous sampling causing semantic conflation)
+	//
+	// Direction is ONLY available if:
+	// 1. Player held attack button (hold window opened)
+	// 2. Input context switched to DirectionalInput
+	// 3. Player released button WITH direction (captured at release event)
+	//
+	// If no directional input buffered → AttackDirection = None → resolution
+	// uses normal combo chains (Priority 3) instead of directional follow-ups (Priority 2)
+
 	EAttackDirection AttackDirection = EAttackDirection::None;
-	if (LastDirectionalInput != EInputDirection::None)
+
+	if (DirectionalInputBuffer.HasValidInput())
 	{
-		AttackDirection = CombatHelpers::InputToAttackDirection(LastDirectionalInput);
+		// Use buffered direction (sampled at release during hold window)
+		AttackDirection = CombatHelpers::InputToAttackDirection(DirectionalInputBuffer.DirectionAtRelease);
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 DIRECTIONAL] LastDirectionalInput=%s → AttackDirection=%s"),
-				*UEnum::GetValueAsString(LastDirectionalInput),
+			UE_LOG(LogCombat, Log, TEXT("[V2 DIRECTIONAL] Using buffered direction: %s (captured at %.2f) → AttackDirection=%s"),
+				*UEnum::GetValueAsString(DirectionalInputBuffer.DirectionAtRelease),
+				DirectionalInputBuffer.CaptureTime,
 				*UEnum::GetValueAsString(AttackDirection));
 		}
+	}
+	else if (GetDebugDraw())
+	{
+		// No directional input buffered (movement context OR no hold release)
+		UE_LOG(LogCombat, Verbose, TEXT("[V2 DIRECTIONAL] No buffered direction (AttackDirection=None)"));
 	}
 
 	// ========================================================================
@@ -1980,19 +2372,20 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType) const
 	// ========================================================================
 
 	// Clear visited set at start of resolution (cycle detection)
-	const_cast<UCombatComponentV2*>(this)->VisitedAttacks.Empty();
+	VisitedAttacks.Empty();
 
 	// Call V2 resolution with context awareness
+	// CRITICAL FIX: Pass entire HoldState (not just IsHolding()) so resolution can check IsHoldCompleted()
 	FAttackResolutionResult Result = UMontageUtilityLibrary::ResolveNextAttack_V2(
 		CurrentAttackData,
 		InputType,
 		AttackDirection,
-		HoldState.IsHolding(),
+		HoldState,  // Pass entire HoldState, not just boolean
 		bShouldCombo,
 		DefaultLightAttack,
 		DefaultHeavyAttack,
 		ActiveContextTags,  // NEW: Pass runtime context tags
-		const_cast<UCombatComponentV2*>(this)->VisitedAttacks  // NEW: Pass visited set for cycle detection
+		VisitedAttacks  // NEW: Pass visited set for cycle detection
 	);
 
 	// Check for cycle detection error
@@ -2002,16 +2395,22 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType) const
 		return nullptr;
 	}
 
-	// KEY FIX: Clear LastDirectionalInput if result signals to do so
-	// This prevents directional follow-up loop bug
-	if (Result.bShouldClearDirectionalInput)
+	// ARCHITECTURAL FIX: Clear directional input buffer after consumption
+	// Buffer is cleared when:
+	// 1. Directional follow-up executed (Path=DirectionalFollowUp)
+	// 2. Resolution explicitly signals to clear (bShouldClearDirectionalInput)
+	// This prevents reusing the same buffered direction for multiple attacks
+	if (Result.bShouldClearDirectionalInput || Result.Path == EResolutionPath::DirectionalFollowUp)
 	{
-		const_cast<UCombatComponentV2*>(this)->LastDirectionalInput = EInputDirection::None;
+		DirectionalInputBuffer.Reset();
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Clearing LastDirectionalInput (directional follow-up completed)"));
+			UE_LOG(LogCombat, Log, TEXT("[V2 DIRECTIONAL] Buffer cleared (directional consumed)"));
 		}
+
+		// DEPRECATED: Keep LastDirectionalInput clearing for backward compatibility
+		LastDirectionalInput = EInputDirection::None;
 	}
 
 	// Debug: Log resolution result with path metadata
@@ -2034,8 +2433,15 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType) const
 			Result.bShouldClearDirectionalInput ? TEXT("YES") : TEXT("NO"));
 	}
 
-	// DEPRECATED: bCurrentAttackIsDirectionalFollowUp flag no longer needed with proper clear signal
-	// Keeping for now for backward compatibility, but will be removed in Phase 2
+	// DEPRECATED: Old consumption flag system (replaced by DirectionalInputBuffer.Reset())
+	// Kept for backward compatibility, will be removed when LastDirectionalInput fully deprecated
+	if (Result.Path == EResolutionPath::DirectionalFollowUp)
+	{
+		const_cast<UCombatComponentV2*>(this)->bDirectionalInputConsumed = true;
+	}
+
+	// DEPRECATED: bCurrentAttackIsDirectionalFollowUp flag no longer needed
+	// Keeping for backward compatibility only
 	const_cast<UCombatComponentV2*>(this)->bCurrentAttackIsDirectionalFollowUp =
 		(Result.Path == EResolutionPath::DirectionalFollowUp);
 
@@ -2138,3 +2544,155 @@ bool UCombatComponentV2::CanAcceptNewInput(EInputType InputType) const
 
 	return true;
 }
+
+// ============================================================================
+// DEBUG VISUALIZATION TEST HELPERS
+// ============================================================================
+
+#if WITH_AUTOMATION_TESTS
+
+FDebugVisualizationData UCombatComponentV2::CalculateDebugVisualizationData(
+	const FRotator& CameraRotation,
+	const FRotator& CharacterRotation,
+	const FVector2D& CameraRelativeInput,
+	EInputDirection ResolvedDirection) const
+{
+	FDebugVisualizationData Data;
+
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	if (!Character)
+	{
+		return Data;
+	}
+
+	const FVector CharacterLocation = Character->GetActorLocation();
+	Data.ChestOffset = FVector(0.0f, 0.0f, 90.0f);
+	Data.YawDelta = UDirectionDebugLibrary::CalculateYawDelta(CameraRotation.Yaw, CharacterRotation.Yaw);
+	Data.bShowHoldIndicator = HoldState.IsHolding();
+	Data.HoldStateLabel = Data.bShowHoldIndicator ? TEXT("⬛ HOLD ACTIVE") : TEXT("");
+
+	// Calculate transformation vectors
+	const FVector CameraForward = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::X);
+	const FVector CameraRight = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::Y);
+	FVector WorldInput = (CameraRight * CameraRelativeInput.X) + (CameraForward * CameraRelativeInput.Y);
+	WorldInput.Z = 0.0f;
+	WorldInput.Normalize();
+
+	const FRotator InverseCharacterYaw(0.0f, -CharacterRotation.Yaw, 0.0f);
+	const FVector CharacterRelativeVec = InverseCharacterYaw.RotateVector(WorldInput);
+	const FVector CharacterForward = FRotationMatrix(CharacterRotation).GetScaledAxis(EAxis::X);
+	const EAttackDirection AttackDir = CombatHelpers::InputToAttackDirection(ResolvedDirection);
+
+	// Arrow 1: Camera
+	{
+		FDebugArrowInfo Arrow;
+		Arrow.StartPosition = CharacterLocation + Data.ChestOffset;
+		Arrow.Length = 180.0f;
+		Arrow.EndPosition = Arrow.StartPosition + (CameraForward * Arrow.Length);
+		Arrow.LabelPosition = Arrow.EndPosition + FVector(0, 0, 25);
+		Arrow.Label = FString::Printf(TEXT("1.CAMERA\n%s"),
+			*UDirectionDebugLibrary::FormatRotationDebug(CameraRotation));
+		Arrow.Color = FColor(0, 100, 255);
+		Arrow.Thickness = 2.5f;
+		Arrow.bIsDashed = false;
+		Data.Arrows.Add(Arrow);
+	}
+
+	// Arrow 2: Input
+	{
+		FDebugArrowInfo Arrow;
+		Arrow.StartPosition = CharacterLocation + Data.ChestOffset;
+		Arrow.Length = 140.0f;
+		Arrow.EndPosition = Arrow.StartPosition + (WorldInput * Arrow.Length);
+		Arrow.LabelPosition = Arrow.EndPosition + FVector(0, 0, 25);
+		Arrow.Label = Data.bShowHoldIndicator ? TEXT("2.INPUT (hold-release)") : TEXT("2.INPUT (continuous)");
+		Arrow.Color = Data.bShowHoldIndicator ? FColor(255, 215, 0) : FColor(255, 255, 0);
+		Arrow.Thickness = 2.5f;
+		Arrow.bIsDashed = Data.bShowHoldIndicator;
+		Data.Arrows.Add(Arrow);
+	}
+
+	// Arrow 3: Character Forward
+	{
+		FDebugArrowInfo Arrow;
+		Arrow.StartPosition = CharacterLocation + Data.ChestOffset;
+		Arrow.Length = 160.0f;
+		Arrow.EndPosition = Arrow.StartPosition + (CharacterForward * Arrow.Length);
+		Arrow.LabelPosition = Arrow.EndPosition + FVector(0, 0, 25);
+		Arrow.Label = FString::Printf(TEXT("CHAR FORWARD\n%s"),
+			*UDirectionDebugLibrary::FormatRotationDebug(CharacterRotation));
+		Arrow.Color = FColor(0, 255, 0);
+		Arrow.Thickness = 3.0f;
+		Arrow.bIsDashed = false;
+		Data.Arrows.Add(Arrow);
+	}
+
+	// Arrow 4: Character-Relative
+	{
+		FDebugArrowInfo Arrow;
+		Arrow.StartPosition = CharacterLocation + Data.ChestOffset;
+		Arrow.Length = 120.0f;
+		Arrow.EndPosition = Arrow.StartPosition + (CharacterRelativeVec * Arrow.Length);
+		Arrow.LabelPosition = Arrow.EndPosition + FVector(0, 0, 25);
+		Arrow.Label = TEXT("4.CHAR-REL");
+		Arrow.Color = FColor(255, 165, 0);
+		Arrow.Thickness = 2.5f;
+		Arrow.bIsDashed = false;
+		Data.Arrows.Add(Arrow);
+	}
+
+	// Arrow 5: Attack Direction
+	{
+		FDebugArrowInfo Arrow;
+		Arrow.StartPosition = CharacterLocation + Data.ChestOffset;
+		FVector FinalDirectionVec = CharacterRelativeVec;
+		FinalDirectionVec.Normalize();
+		Arrow.Length = 160.0f;
+		Arrow.EndPosition = Arrow.StartPosition + (FinalDirectionVec * Arrow.Length);
+		Arrow.LabelPosition = Arrow.EndPosition + FVector(0, 0, 30);
+		Arrow.Label = FString::Printf(TEXT("5.ATTACK: %s"),
+			*UDirectionDebugLibrary::FormatAttackDirectionDebug(AttackDir));
+		Arrow.Color = FColor(255, 0, 255);
+		Arrow.Thickness = 4.0f;
+		Arrow.bIsDashed = false;
+		Data.Arrows.Add(Arrow);
+	}
+
+	// Calculate arc points
+	const float ArcRadius = 100.0f;
+	const float AbsYawDelta = FMath::Abs(Data.YawDelta);
+	if (AbsYawDelta > 5.0f)
+	{
+		const int32 NumArcSegments = FMath::Max(3, FMath::CeilToInt(AbsYawDelta / 10.0f));
+		const float StartAngle = CharacterRotation.Yaw * (PI / 180.0f);
+		const float AngleStep = (Data.YawDelta * (PI / 180.0f)) / NumArcSegments;
+
+		for (int32 i = 0; i <= NumArcSegments; ++i)
+		{
+			const float Angle = StartAngle + (AngleStep * i);
+			const FVector Point = CharacterLocation + Data.ChestOffset +
+				FVector(FMath::Cos(Angle), FMath::Sin(Angle), 0) * ArcRadius;
+			Data.ArcPoints.Add(Point);
+		}
+	}
+
+	return Data;
+}
+
+FColor UCombatComponentV2::GetPhaseDebugColor() const
+{
+	switch (CurrentPhase)
+	{
+		case EAttackPhase::Windup:   return FColor::Orange;
+		case EAttackPhase::Active:   return FColor::Red;
+		case EAttackPhase::Recovery: return FColor::Yellow;
+		default:                      return FColor::White;
+	}
+}
+
+bool UCombatComponentV2::ShouldUseDashedArrowForInput() const
+{
+	return HoldState.IsHolding();
+}
+
+#endif // WITH_AUTOMATION_TESTS

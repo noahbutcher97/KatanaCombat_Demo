@@ -51,6 +51,10 @@ class UAttackData;
 class UCombatSettings;
 class UAnimInstance;
 
+// ============================================================================
+// DEBUG VISUALIZATION TESTING SUPPORT
+// ============================================================================
+
 UCLASS(Blueprintable, ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
 class KATANACOMBAT_API UCombatComponentV2 : public UActorComponent
 {
@@ -71,13 +75,21 @@ public:
 	UFUNCTION(BlueprintPure, Category= "Combat|Debug")
 	bool GetDebugDraw() const;
 
+	/** Get default light attack from AttackConfiguration */
+	UFUNCTION(BlueprintPure, Category = "Combat|Attack")
+	UAttackData* GetDefaultLightAttack() const;
+
+	/** Get default heavy attack from AttackConfiguration */
+	UFUNCTION(BlueprintPure, Category = "Combat|Attack")
+	UAttackData* GetDefaultHeavyAttack() const;
+
+	/** Get currently executing attack data */
+	UFUNCTION(BlueprintPure, Category = "Combat|Attack")
+	UAttackData* GetCurrentAttack() const { return CurrentAttackData; }
+
 	// ============================================================================
 	// CACHED REFERENCES
 	// ============================================================================
-
-	/** Reference to main combat component (for shared state access) */
-	UPROPERTY(BlueprintReadOnly, Category = "Combat")
-	UCombatComponent* CombatComponent = nullptr;
 
 	/** Cached owner character (for performance - avoids repeated casts) */
 	UPROPERTY()
@@ -92,14 +104,51 @@ public:
 	// ============================================================================
 
 	/**
-	 * Unified input event handler
+	 * Unified input event handler (LEGACY - Camera-Relative)
 	 * All input goes through here (light, heavy, dodge, block)
+	 * WARNING: This version assumes InputDirection is already in camera space. Use OnInputEventWithTransform() for character-relative input.
 	 * @param InputType - Type of input (LightAttack, HeavyAttack, Evade, Block)
 	 * @param EventType - Press or Release
-	 * @param InputDirection - Optional 8-way directional input (captured from movement stick/keys)
+	 * @param InputDirection - Optional 8-way directional input (already converted, camera-relative)
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Combat|Input")
+	UFUNCTION(BlueprintCallable, Category = "Combat|Input", meta = (DisplayName = "On Input Event (Legacy)"))
 	void OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection = EInputDirection::None);
+
+	/**
+	 * Unified input event handler with CHARACTER-RELATIVE transformation (RECOMMENDED)
+	 * Properly transforms camera-relative input to character-relative space before processing
+	 * Use this for correct directional attacks when character facing != camera facing
+	 *
+	 * @param InputType - Type of input (LightAttack, HeavyAttack, Evade, Block)
+	 * @param EventType - Press or Release
+	 * @param CameraRelativeInput - Raw 2D input from gamepad/keyboard (X=right, Y=forward relative to camera)
+	 * @param CameraRotation - Current camera rotation (only Yaw used)
+	 * @param CharacterRotation - Current character rotation (only Yaw used)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Input", meta = (DisplayName = "On Input Event (Character-Relative)"))
+	void OnInputEventWithTransform(
+		EInputType InputType,
+		EInputEventType EventType,
+		FVector2D CameraRelativeInput,
+		FRotator CameraRotation,
+		FRotator CharacterRotation);
+
+	/**
+	 * SIMPLIFIED helper that automatically gets camera and character rotations
+	 * Call this from Blueprint or C++ with just input type, event type, and raw movement input
+	 * Automatically transforms to character-relative or camera-relative space based on flag
+	 *
+	 * @param InputType - Type of input (LightAttack, HeavyAttack, Evade, Block)
+	 * @param EventType - Press or Release
+	 * @param MovementInput - Raw 2D input from gamepad/keyboard (X=right, Y=forward relative to camera)
+	 * @param bCharacterRelative - If true (default), transforms to character-relative. If false, uses camera-relative (legacy behavior)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Input", meta = (DisplayName = "On Input Event (Auto Transform)"))
+	void OnInputEventAuto(
+		EInputType InputType,
+		EInputEventType EventType,
+		FVector2D MovementInput,
+		bool bCharacterRelative = true);
 
 	/**
 	 * Check if input can be processed
@@ -347,9 +396,50 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	TMap<EInputType, float> HeldInputs;
 
-	/** Last captured 8-way directional input (used for directional attacks, evades, holds) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
+	/**
+	 * Last captured 8-way directional input (used for directional attacks, evades, holds)
+	 *
+	 * DEPRECATED (v2.0 - 2025-11-19): Use DirectionalInputBuffer instead.
+	 * This variable sampled direction continuously (semantic input conflation bug).
+	 * Maintained for backward compatibility only. Will be removed in v2.1.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State", meta = (DeprecatedProperty, DeprecationMessage = "Use DirectionalInputBuffer instead. Removal planned for v2.1."))
 	EInputDirection LastDirectionalInput = EInputDirection::None;
+
+	/**
+	 * Tracks whether LastDirectionalInput has been consumed by a directional follow-up.
+	 * Prevents infinite loop bug where holding direction + spamming attack repeats same directional.
+	 * Reset to false on each new directional input, set to true after first directional follow-up.
+	 *
+	 * DEPRECATED (v2.0 - 2025-11-19): Use DirectionalInputBuffer instead.
+	 * This was a symptom fix for semantic input conflation. Architectural fix now implemented.
+	 * Maintained for backward compatibility only. Will be removed in v2.1.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State", meta = (DeprecatedProperty, DeprecationMessage = "Use DirectionalInputBuffer.HasValidInput() instead. Removal planned for v2.1."))
+	bool bDirectionalInputConsumed = false;
+
+	/**
+	 * Directional input buffer - Captures direction at KEY MOMENTS only (hold release)
+	 *
+	 * ARCHITECTURAL FIX: Separates movement input (continuous) from attack input (discrete).
+	 * Direction is sampled ONLY when player releases attack button after hold completion.
+	 * This prevents movement stick deflection during normal combos from triggering directionals.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Directional Input")
+	FDirectionalInputBuffer DirectionalInputBuffer;
+
+	/**
+	 * Current input interpretation context
+	 *
+	 * Determines how movement stick input is interpreted:
+	 * - Movement: Stick = character movement ONLY (ignore for attacks)
+	 * - DirectionalInput: Stick = directional attack input (during hold release window)
+	 * - Disabled: No input processing
+	 *
+	 * Context switches automatically based on combat state (hold windows, phases, etc.)
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Directional Input")
+	EInputContext CurrentInputContext = EInputContext::Movement;
 
 	// ============================================================================
 	// CONTEXT TRACKING (Phase 1 - Context-Aware Resolution)
@@ -379,8 +469,79 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Context")
 	int32 MaxChainDepth = 10;
 
+	// ============================================================================
+	// DEBUG VISUALIZATION TESTING (WITH_AUTOMATION_TESTS only)
+	// ============================================================================
+
+#if WITH_AUTOMATION_TESTS
+	/**
+	 * Calculate all debug visualization data without drawing
+	 * Allows unit tests to verify positioning, coloring, and visibility logic
+	 *
+	 * @param CameraRotation - Camera/controller rotation
+	 * @param CharacterRotation - Character actor rotation
+	 * @param CameraRelativeInput - Raw input vector
+	 * @param ResolvedDirection - Direction after transformation
+	 * @return Complete visualization data for testing
+	 */
+	FDebugVisualizationData CalculateDebugVisualizationData(
+		const FRotator& CameraRotation,
+		const FRotator& CharacterRotation,
+		const FVector2D& CameraRelativeInput,
+		EInputDirection ResolvedDirection) const;
+
+	/**
+	 * Get current phase debug color
+	 * @return Color based on current phase (Windup=Orange, Active=Red, Recovery=Yellow, None=White)
+	 */
+	FColor GetPhaseDebugColor() const;
+
+	/**
+	 * Should input arrow be drawn as dashed?
+	 * @return True if hold-release input (dashed), False if continuous input (solid)
+	 */
+	bool ShouldUseDashedArrowForInput() const;
+
+	// Friend declarations for test classes
+	friend class FDebugLabelPositionTest;
+	friend class FDebugArrowPositionTest;
+	friend class FDebugHoldStateVisualizationTest;
+	friend class FDebugPhaseColorTest;
+	friend class FDebugQueueVisualizationTest;
+	friend class FDebugArrowLengthTest;
+	friend class FDebugChestHeightTest;
+#endif // WITH_AUTOMATION_TESTS
+
 protected:
 	virtual void BeginPlay() override;
+
+	/**
+	 * Validates that default attacks are assigned (called in BeginPlay in editor builds)
+	 * Shows on-screen warnings if defaults are missing
+	 * Critical for graceful fallback system to work properly
+	 */
+	void ValidateDefaultAttacks();
+
+	/**
+	 * Called when character dies to reset all combat state
+	 * Prevents state leaks across respawns (hold state, queued actions, input context)
+	 * Bind this to character's OnDeath event delegate
+	 */
+	UFUNCTION()
+	void OnCharacterDeath();
+
+	/**
+	 * Set current input interpretation context
+	 *
+	 * Controls how movement stick input is interpreted:
+	 * - Movement: Stick ignored for attack resolution (normal behavior)
+	 * - DirectionalInput: Stick sampled for directional attacks (during hold release)
+	 * - Disabled: No input processing
+	 *
+	 * Called automatically by hold window callbacks and phase transitions.
+	 * Logs context changes for debugging.
+	 */
+	void SetInputContext(EInputContext NewContext);
 
 	/** Is combo window currently active? */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
@@ -448,8 +609,13 @@ protected:
 	/** Determine execution mode for input */
 	EActionExecutionMode DetermineExecutionMode(const FQueuedInputAction& InputAction) const;
 
-	/** Get attack data for input type */
-	UAttackData* GetAttackForInput(EInputType InputType) const;
+	/**
+	 * Get attack data for input type
+	 *
+	 * NOTE: Not const because it may mutate DirectionalInputBuffer (clearing consumed direction)
+	 * This is intentional behavior - buffer consumption is part of attack resolution
+	 */
+	UAttackData* GetAttackForInput(EInputType InputType);
 
 	/** Calculate action priority */
 	int32 CalculatePriority(const FActionQueueEntry& Action) const;

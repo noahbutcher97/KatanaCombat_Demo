@@ -8,7 +8,8 @@
 #include "GameFramework/Character.h"
 #include "Characters/SamuraiCharacter.h"
 #include "Animation/AnimMontage.h"
-#include "Core/CombatComponent.h"
+// V1 REMOVED: #include "Core/CombatComponent.h"
+#include "Core/CombatComponentV2.h"
 #include "Core/TargetingComponent.h"
 #include "Data/CombatSettings.h"
 #include "Data/AttackData.h"
@@ -54,7 +55,7 @@ public:
 	 * @param OutCombat - Output parameter for created combat component
 	 * @return Created character
 	 */
-	static ASamuraiCharacter* CreateTestCharacterWithCombat(UWorld* World, UCombatComponent*& OutCombat)
+	static ASamuraiCharacter* CreateTestCharacterWithCombat(UWorld* World, UCombatComponentV2*& OutCombat)
 	{
 		ASamuraiCharacter* Character = World->SpawnActor<ASamuraiCharacter>();
 
@@ -71,10 +72,11 @@ public:
 		Settings->AttackConfiguration = AttackConfig;
 		Settings->CounterWindowDuration = 1.5f;
 		Settings->CounterDamageMultiplier = 1.5f;
+		Settings->bUseV2System = true; // V2: Enable V2 system for tests
 		Character->CombatSettings = Settings;
 
-		// Get the existing combat component (created by character constructor)
-		OutCombat = Character->CombatComponent;
+		// V2: Get the existing V2 combat component (created by character constructor)
+		OutCombat = Character->CombatComponentV2;
 
 		return Character;
 	}
@@ -88,7 +90,7 @@ public:
 	 */
 	static ASamuraiCharacter* CreateTestCharacterWithCombatAndTargeting(
 		UWorld* World,
-		UCombatComponent*& OutCombat,
+		UCombatComponentV2*& OutCombat,
 		UTargetingComponent*& OutTargeting)
 	{
 		ASamuraiCharacter* Character = CreateTestCharacterWithCombat(World, OutCombat);

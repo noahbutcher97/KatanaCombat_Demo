@@ -1,7 +1,7 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/SamuraiAnimInstance.h"
-#include "Core/CombatComponent.h"
+// V1 REMOVED: #include "Core/CombatComponent.h"
 #include "Core/HitReactionComponent.h"
 #include "Interfaces/CombatInterface.h"
 #include "GameFramework/Character.h"
@@ -13,11 +13,11 @@ void USamuraiAnimInstance::NativeInitializeAnimation()
 
     // Cache owner references
     OwnerCharacter = Cast<ACharacter>(TryGetPawnOwner());
-    
+
     if (OwnerCharacter)
     {
         MovementComponent = OwnerCharacter->GetCharacterMovement();
-        CombatComponent = OwnerCharacter->FindComponentByClass<UCombatComponent>();
+        // V1 REMOVED: CombatComponent = OwnerCharacter->FindComponentByClass<UCombatComponent>();
         HitReactionComponent = OwnerCharacter->FindComponentByClass<UHitReactionComponent>();
     }
 }
@@ -104,8 +104,9 @@ void USamuraiAnimInstance::UpdateMovement()
 
 void USamuraiAnimInstance::UpdateCombatState()
 {
-    if (!CombatComponent)
-    {
+    // V1 REMOVED: Combat state updates not yet migrated to V2
+    // if (!CombatComponent)
+    // {
         CombatState = ECombatState::Idle;
         CurrentPhase = EAttackPhase::None;
         bIsAttacking = false;
@@ -113,67 +114,69 @@ void USamuraiAnimInstance::UpdateCombatState()
         bIsGuardBroken = false;
         bIsHoldingAttack = false;
         return;
-    }
+    // }
 
-    // Sync state from combat component
-    CombatState = CombatComponent->GetCombatState();
-    CurrentPhase = CombatComponent->GetCurrentPhase();
-    bIsAttacking = CombatComponent->IsAttacking();
-    bIsBlocking = CombatComponent->IsBlocking();
-    bIsGuardBroken = CombatComponent->IsGuardBroken();
-    bIsHoldingAttack = CombatComponent->IsHolding();
+    // V1 REMOVED: Sync state from combat component
+    // CombatState = CombatComponent->GetCombatState();
+    // CurrentPhase = CombatComponent->GetCurrentPhase();
+    // bIsAttacking = CombatComponent->IsAttacking();
+    // bIsBlocking = CombatComponent->IsBlocking();
+    // bIsGuardBroken = CombatComponent->IsGuardBroken();
+    // bIsHoldingAttack = CombatComponent->IsHolding();
 }
 
 void USamuraiAnimInstance::UpdateCombo()
 {
-    if (!CombatComponent)
-    {
+    // V1 REMOVED: Combo updates not yet migrated to V2
+    // if (!CombatComponent)
+    // {
         ComboCount = 0;
         bCanCombo = false;
         return;
-    }
+    // }
 
-    ComboCount = CombatComponent->GetComboCount();
-    bCanCombo = CombatComponent->CanCombo();
+    // V1 REMOVED
+    // ComboCount = CombatComponent->GetComboCount();
+    // bCanCombo = CombatComponent->CanCombo();
 }
 
 void USamuraiAnimInstance::UpdatePosture()
 {
-    if (!CombatComponent)
-    {
+    // V1 REMOVED: Posture updates not yet migrated to V2
+    // if (!CombatComponent)
+    // {
         PosturePercent = 1.0f;
         bIsPostureLow = false;
         return;
-    }
+    // }
 
-    PosturePercent = CombatComponent->GetPosturePercent();
-    bIsPostureLow = (PosturePercent < 0.4f);
+    // V1 REMOVED
+    // PosturePercent = CombatComponent->GetPosturePercent();
+    // bIsPostureLow = (PosturePercent < 0.4f);
 }
 
 void USamuraiAnimInstance::UpdateCharge()
 {
-    if (!CombatComponent)
-    {
+    // V1 REMOVED: Charge updates not yet migrated to V2
+    // if (!CombatComponent)
+    // {
         ChargePercent = 0.0f;
         bIsCharging = false;
         return;
-    }
+    // }
 
-    // Check if in charging state
-    bIsCharging = (CombatState == ECombatState::ChargingHeavyAttack);
+    // V1 REMOVED: Check if in charging state
+    // bIsCharging = (CombatState == ECombatState::ChargingHeavyAttack);
 
-    // Calculate charge percentage (requires public getter or we approximate)
-    // For now, approximate based on state duration
-    if (bIsCharging)
-    {
-        // Note: If we need precise charge percentage, add getter to CombatComponent
-        // For now, animation blueprint can handle visual feedback
-        ChargePercent = 0.5f; // Placeholder - add precise tracking if needed
-    }
-    else
-    {
-        ChargePercent = 0.0f;
-    }
+    // V1 REMOVED: Charge calculation
+    // if (bIsCharging)
+    // {
+    //     ChargePercent = 0.5f; // Placeholder - add precise tracking if needed
+    // }
+    // else
+    // {
+    //     ChargePercent = 0.0f;
+    // }
 }
 
 void USamuraiAnimInstance::UpdateHitReaction()
@@ -233,18 +236,20 @@ void USamuraiAnimInstance::OnAttackPhaseTransition(EAttackPhase NewPhase)
 
 void USamuraiAnimInstance::OnComboWindowOpened(float Duration)
 {
-    if (CombatComponent)
-    {
-        CombatComponent->OpenComboWindow(Duration);
-    }
+    // V1 REMOVED: Combo window routing not yet migrated to V2
+    // if (CombatComponent)
+    // {
+    //     CombatComponent->OpenComboWindow(Duration);
+    // }
 }
 
 void USamuraiAnimInstance::OnComboWindowClosed()
 {
-    if (CombatComponent)
-    {
-        CombatComponent->CloseComboWindow();
-    }
+    // V1 REMOVED: Combo window routing not yet migrated to V2
+    // if (CombatComponent)
+    // {
+    //     CombatComponent->CloseComboWindow();
+    // }
 }
 
 void USamuraiAnimInstance::OnEnableHitDetection()

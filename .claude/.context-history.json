@@ -1,5 +1,5 @@
 {
-    "autoSwitchEnabled":  false,
+    "autoSwitchEnabled":  true,
     "history":  [
                     {
                         "from":  "full",
