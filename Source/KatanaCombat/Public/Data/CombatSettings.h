@@ -22,13 +22,11 @@ public:
     // SYSTEM CONFIGURATION
     // ============================================================================
 
-    /** Enable V2 combat system (timer-based action queue) instead of V1 (immediate execution) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
-    bool bUseV2System = false;
-
-    /** Enable debug visualization for combat system state */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "System")
-    bool bDebugDraw = false;
+    // Debug visualization is now controlled via CVars (see DebugConfig.h):
+    // Combat.Debug.All 1         - Enable all debug visualization
+    // Combat.Debug.Direction 1   - Direction transformation arrows
+    // Combat.Debug.Targeting 1   - Targeting cones and targets
+    // Combat.Debug.Weapon 1      - Weapon trace visualization
 
     // ============================================================================
     // POSTURE SYSTEM
@@ -93,6 +91,30 @@ public:
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Motion Warping")
     float DefaultWarpRotationSpeed = 720.0f;
+
+    // ============================================================================
+    // DIRECTIONAL TARGETING (Soft Target / Aim Assist)
+    // ============================================================================
+
+    /** Max range to consider enemies for directional targeting */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Directional Targeting")
+    float DirectionalTargetingRange = 500.0f;
+
+    /** Angle threshold (degrees) - enemies within this angle of input direction are candidates */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Directional Targeting", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+    float GradientAngleThreshold = 45.0f;
+
+    /** Angle threshold (degrees) - enemies beyond this are considered "opposite" and ignored */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Directional Targeting", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+    float OppositeAngleThreshold = 120.0f;
+
+    /** Weight for angle alignment in scoring (0-1). Higher = prefer enemies more aligned with input direction */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Directional Targeting", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float DirectionalAngleWeight = 0.7f;
+
+    /** Weight for distance in scoring (0-1). Higher = prefer closer enemies */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Directional Targeting", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float DirectionalDistanceWeight = 0.3f;
 
     // ============================================================================
     // HIT REACTION DEFAULTS

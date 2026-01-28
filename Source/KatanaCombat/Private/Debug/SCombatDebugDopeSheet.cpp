@@ -1,7 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Debug/SCombatDebugDopeSheet.h"
-#include "Core/CombatComponentV2.h"
+#include "Core/CombatComponent.h"
 #include "Rendering/DrawElements.h"
 #include "Fonts/FontMeasure.h"
 #include "Framework/Application/SlateApplication.h"
@@ -22,7 +22,7 @@ const FLinearColor SCombatDebugDopeSheet::PlayheadColor = FLinearColor(1.0f, 0.0
 const FLinearColor SCombatDebugDopeSheet::GridLineColor = FLinearColor(0.3f, 0.3f, 0.3f, 0.5f);           // Dark Gray
 const FLinearColor SCombatDebugDopeSheet::BackgroundColor = FLinearColor(0.05f, 0.05f, 0.05f, 0.95f);     // Almost Black
 
-void SCombatDebugDopeSheet::Construct(const FArguments& InArgs, UCombatComponentV2* InCombatComponent)
+void SCombatDebugDopeSheet::Construct(const FArguments& InArgs, UCombatComponent* InCombatComponent)
 {
 	CombatComponent = InCombatComponent;
 	ViewRangeMin = InArgs._ViewRangeMin;

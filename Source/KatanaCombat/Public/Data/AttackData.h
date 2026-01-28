@@ -220,11 +220,20 @@ public:
     FAttackPhaseTimingOverride ManualTiming;
 
     // ============================================================================
-    // MOTION WARPING
+    // MOTION WARPING (Target-Based)
     // ============================================================================
 
+    /** Configuration for target-based motion warping (toward enemies) */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Motion Warping")
     FMotionWarpingConfig MotionWarpingConfig;
+
+    // ============================================================================
+    // DIRECTIONAL WARP (Input Direction-Based)
+    // ============================================================================
+
+    /** Configuration for directional rotation warping (from input direction) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Directional Warp")
+    FDirectionalWarpConfig DirectionalWarpConfig;
 
     // ============================================================================
     // CONTEXT & TAGS (V2 Combat System)

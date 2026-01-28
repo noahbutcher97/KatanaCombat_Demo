@@ -1,9 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/AnimNotifyState_ActionWindow_Base.h"
-// V1 REMOVED: #include "Core/CombatComponent.h"
-#include "Core/CombatComponentV2.h"
-#include "Characters/SamuraiCharacter.h"
+#include "Core/CombatComponent.h"
+#include "Characters/BaseCombatCharacter.h"
 #include "Data/CombatSettings.h"
 #include "Animation/AnimInstance.h"
 #include "GameFramework/Character.h"
@@ -21,12 +20,12 @@ void UAnimNotifyState_ActionWindow_Base::NotifyBegin(USkeletalMeshComponent* Mes
 		return;
 	}
 
-	// Check if using V2 system via CombatSettings (owned by character)
-	ASamuraiCharacter* Character = Cast<ASamuraiCharacter>(MeshComp->GetOwner());
-	if (Character && Character->CombatSettings && Character->CombatSettings->bUseV2System)
+	// Cast to BaseCombatCharacter to support both player and enemy characters
+	ABaseCombatCharacter* Character = Cast<ABaseCombatCharacter>(MeshComp->GetOwner());
+	if (Character)
 	{
-		// V2: Register checkpoint for timer-based execution
-		if (UCombatComponentV2* CombatV2 = Character->FindComponentByClass<UCombatComponentV2>())
+		// Register checkpoint for timer-based execution
+		if (UCombatComponent* Combat = Character->GetCombatComponent())
 		{
 			// Get current montage time for checkpoint registration
 			if (UAnimInstance* AnimInstance = MeshComp->GetAnimInstance())
@@ -34,21 +33,11 @@ void UAnimNotifyState_ActionWindow_Base::NotifyBegin(USkeletalMeshComponent* Mes
 				if (UAnimMontage* CurrentMontage = AnimInstance->GetCurrentActiveMontage())
 				{
 					float CurrentMontageTime = AnimInstance->Montage_GetPosition(CurrentMontage);
-					CombatV2->RegisterCheckpoint(GetWindowType(), CurrentMontageTime, TotalDuration);
+					Combat->RegisterCheckpoint(GetWindowType(), CurrentMontageTime, TotalDuration);
 				}
 			}
-			return; // Early exit for V2
 		}
 	}
-
-	// V1 REMOVED: V1 fallback removed
-	// if (Character)
-	// {
-	//     if (UCombatComponent* CombatComp = Character->FindComponentByClass<UCombatComponent>())
-	//     {
-	//         OnOpenWindow_V1(CombatComp, TotalDuration);
-	//     }
-	// }
 }
 
 void UAnimNotifyState_ActionWindow_Base::NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
@@ -60,18 +49,5 @@ void UAnimNotifyState_ActionWindow_Base::NotifyEnd(USkeletalMeshComponent* MeshC
 		return;
 	}
 
-	// V2: Checkpoints expire automatically via ClearExpiredCheckpoints()
-
-	// V1 REMOVED: V1 fallback removed
-	// if (ASamuraiCharacter* Character = Cast<ASamuraiCharacter>(MeshComp->GetOwner()))
-	// {
-	//     bool bUseV2 = Character->CombatSettings && Character->CombatSettings->bUseV2System;
-	//     if (!bUseV2)
-	//     {
-	//         if (UCombatComponent* CombatComp = Character->FindComponentByClass<UCombatComponent>())
-	//         {
-	//             OnCloseWindow_V1(CombatComp);
-	//         }
-	//     }
-	// }
+	// Checkpoints expire automatically via ClearExpiredCheckpoints()
 }

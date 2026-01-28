@@ -1,9 +1,9 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/WeaponComponent.h"
-// V1 REMOVED: #include "Core/CombatComponent.h"
-#include "Core/CombatComponentV2.h"
+#include "Core/CombatComponent.h"
 #include "Data/AttackData.h"
+#include "Debug/DebugConfig.h"
 #include "GameFramework/Character.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
@@ -165,8 +165,8 @@ void UWeaponComponent::PerformWeaponTrace()
         }
     }
     
-    // Debug visualization
-    if (bDebugDraw)
+    // Debug visualization (CVar-controlled)
+    if (CombatDebug::IsWeaponDebugEnabled())
     {
         DrawDebugTrace(PreviousTipLocation, EndLocation, bHit, bHit ? HitResults[0] : FHitResult());
     }
@@ -216,8 +216,8 @@ UAttackData* UWeaponComponent::GetCurrentAttackData() const
     //     return CombatComp->GetCurrentAttack();
     // }
 
-    // V2: Get current attack from CombatComponentV2
-    if (UCombatComponentV2* CombatV2 = OwnerCharacter->FindComponentByClass<UCombatComponentV2>())
+    // V2: Get current attack from CombatComponent
+    if (UCombatComponent* CombatV2 = OwnerCharacter->FindComponentByClass<UCombatComponent>())
     {
         return CombatV2->GetCurrentAttack();
     }
@@ -231,20 +231,21 @@ void UWeaponComponent::DrawDebugTrace(const FVector& Start, const FVector& End, 
     {
         return;
     }
-    
+
     const FColor TraceColor = bHit ? FColor::Red : FColor::Green;
-    
+    const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+
     // Draw line from start to end
-    DrawDebugLine(GetWorld(), Start, End, TraceColor, false, DebugDrawDuration, 0, 2.0f);
-    
+    DrawDebugLine(GetWorld(), Start, End, TraceColor, false, DrawDuration, 0, 2.0f);
+
     // Draw sphere at tip
-    DrawDebugSphere(GetWorld(), End, TraceRadius, 12, TraceColor, false, DebugDrawDuration);
-    
+    DrawDebugSphere(GetWorld(), End, TraceRadius, 12, TraceColor, false, DrawDuration);
+
     // Draw hit point if we hit something
     if (bHit)
     {
-        DrawDebugPoint(GetWorld(), Hit.ImpactPoint, 10.0f, FColor::Orange, false, DebugDrawDuration);
-        DrawDebugLine(GetWorld(), Hit.ImpactPoint, Hit.ImpactPoint + Hit.ImpactNormal * 30.0f, 
-                     FColor::Yellow, false, DebugDrawDuration, 0, 2.0f);
+        DrawDebugPoint(GetWorld(), Hit.ImpactPoint, 10.0f, FColor::Orange, false, DrawDuration);
+        DrawDebugLine(GetWorld(), Hit.ImpactPoint, Hit.ImpactPoint + Hit.ImpactNormal * 30.0f,
+                     FColor::Yellow, false, DrawDuration, 0, 2.0f);
     }
 }

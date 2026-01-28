@@ -7,8 +7,8 @@
 #include "GameplayTagContainer.h"
 #include "ActionQueueTypes.h"
 #include "CombatTypes.h"
-#include "Characters/SamuraiCharacter.h"
-#include "CombatComponentV2.generated.h"
+#include "Characters/BaseCombatCharacter.h"
+#include "CombatComponent.generated.h"
 
 // ============================================================================
 // LOG CATEGORY
@@ -24,29 +24,26 @@
 DECLARE_LOG_CATEGORY_EXTERN(LogCombat, Log, All);
 
 /**
- * V2 Combat System - Timer-Based Action Queue
+ * Combat Component - Timer-Based Action Queue
  *
- * This component implements the V2 combat system with:
+ * This component implements the combat system with:
  * - Timestamped input queue (all input captured, timing determined later)
  * - Timer checkpoint execution (snap vs responsive based on windows)
  * - Hold state persistence across combos
  * - Priority-based action cancellation
  *
  * Architecture:
- * 1. Input → FQueuedInputAction created with timestamp
+ * 1. Input -> FQueuedInputAction created with timestamp
  * 2. Input added to queue, matched with press/release pairs
  * 3. Timer checkpoints discovered from montage AnimNotifyStates
  * 4. Actions scheduled at checkpoints (snap or responsive)
- * 5. Montage playback reaches checkpoint → action executes
+ * 5. Montage playback reaches checkpoint -> action executes
  *
- * Compatibility:
- * - Can run alongside V1 system (toggled via bUseV2System)
- * - Shares CombatComponent state, attack data, targeting
- * - Independent input processing and execution logic
+ * NOTE: This component was previously named UCombatComponentV2.
+ * V1 CombatComponent has been fully removed.
  */
 
 // Forward declarations
-class UCombatComponent;
 class UAttackData;
 class UCombatSettings;
 class UAnimInstance;
@@ -56,12 +53,12 @@ class UAnimInstance;
 // ============================================================================
 
 UCLASS(Blueprintable, ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
-class KATANACOMBAT_API UCombatComponentV2 : public UActorComponent
+class KATANACOMBAT_API UCombatComponent : public UActorComponent
 {
 	GENERATED_BODY()
 
 public:
-	UCombatComponentV2();
+	UCombatComponent();
 
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
@@ -70,7 +67,7 @@ public:
 	// ============================================================================
 
 	UFUNCTION(BlueprintPure, Category = "Combat|Input")
-	ASamuraiCharacter* GetOwnerCharacter() const;
+	ABaseCombatCharacter* GetOwnerCharacter() const;
 
 	UFUNCTION(BlueprintPure, Category= "Combat|Debug")
 	bool GetDebugDraw() const;
@@ -93,37 +90,40 @@ public:
 
 	/** Cached owner character (for performance - avoids repeated casts) */
 	UPROPERTY()
-	TObjectPtr<ASamuraiCharacter> OwnerCharacter = nullptr;
+	TObjectPtr<ABaseCombatCharacter> OwnerCharacter = nullptr;
 
 	/** Combat settings (cached from character for performance) */
 	UPROPERTY()
 	TObjectPtr<UCombatSettings> CombatSettings = nullptr;
 
 	// ============================================================================
-	// INPUT PROCESSING (V2)
+	// INPUT PROCESSING
 	// ============================================================================
 
 	/**
-	 * Unified input event handler (LEGACY - Camera-Relative)
-	 * All input goes through here (light, heavy, dodge, block)
-	 * WARNING: This version assumes InputDirection is already in camera space. Use OnInputEventWithTransform() for character-relative input.
+	 * Core input event handler - processes already-transformed input
+	 * All input processing logic lives here (queuing, hold detection, state management)
+	 *
+	 * NOTE: Input should be pre-transformed to character-relative space via OnInputEventWithTransform()
+	 * or OnInputEventAuto(). Direct calls with camera-relative directions will produce incorrect results.
+	 *
 	 * @param InputType - Type of input (LightAttack, HeavyAttack, Evade, Block)
 	 * @param EventType - Press or Release
-	 * @param InputDirection - Optional 8-way directional input (already converted, camera-relative)
+	 * @param InputDirection - Character-relative 8-way directional input
 	 */
-	UFUNCTION(BlueprintCallable, Category = "Combat|Input", meta = (DisplayName = "On Input Event (Legacy)"))
+	UFUNCTION(BlueprintCallable, Category = "Combat|Input", meta = (DisplayName = "On Input Event (Core Handler)"))
 	void OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection = EInputDirection::None);
 
 	/**
-	 * Unified input event handler with CHARACTER-RELATIVE transformation (RECOMMENDED)
-	 * Properly transforms camera-relative input to character-relative space before processing
-	 * Use this for correct directional attacks when character facing != camera facing
+	 * Character-relative input transformation handler
+	 * Transforms camera-relative input to character space (accounting for mesh offset)
+	 * then delegates to OnInputEvent() for processing
 	 *
 	 * @param InputType - Type of input (LightAttack, HeavyAttack, Evade, Block)
 	 * @param EventType - Press or Release
 	 * @param CameraRelativeInput - Raw 2D input from gamepad/keyboard (X=right, Y=forward relative to camera)
 	 * @param CameraRotation - Current camera rotation (only Yaw used)
-	 * @param CharacterRotation - Current character rotation (only Yaw used)
+	 * @param CharacterRotation - Current character ACTOR rotation (mesh offset applied automatically)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Input", meta = (DisplayName = "On Input Event (Character-Relative)"))
 	void OnInputEventWithTransform(
@@ -152,7 +152,7 @@ public:
 
 	/**
 	 * Check if input can be processed
-	 * V2 accepts input in more states than V1 (including during attacks)
+	 * Accepts input in most states (including during attacks)
 	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Input")
 	bool CanProcessInput(EInputType InputType) const;
@@ -176,7 +176,7 @@ public:
 	void ProcessQueue(float CurrentMontageTime);
 
 	/**
-	 * Process queued actions targeting specific phase (EVENT-DRIVEN - Phase 9)
+	 * Process queued actions targeting specific phase (EVENT-DRIVEN)
 	 * Called from OnPhaseTransition instead of tick
 	 * @param TargetPhase - Execute actions queued for this phase
 	 */
@@ -190,8 +190,8 @@ public:
 	bool ExecuteAction(FActionQueueEntry& Action);
 
 	/**
-	 * Play attack montage (V2 independent implementation)
-	 * Does NOT touch V1 state machine - V2 manages its own phases
+	 * Play attack montage (independent implementation)
+	 * Manages its own phases
 	 * @param AttackData - Attack to play
 	 * @return True if montage started successfully
 	 */
@@ -225,7 +225,7 @@ public:
 
 	/**
 	 * Register checkpoint from AnimNotifyState
-	 * Called by V2 window notifies (Combo, Parry, Cancel, Hold)
+	 * Called by window notifies (Combo, Parry, Cancel, Hold)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Timing")
 	void RegisterCheckpoint(EActionWindowType WindowType, float StartTime, float Duration);
@@ -244,12 +244,12 @@ public:
 	float GetExecutionCheckpoint(const FActionQueueEntry& Action) const;
 
 	// ============================================================================
-	// HOLD SYSTEM (V2)
+	// HOLD SYSTEM
 	// ============================================================================
 
 	/**
 	 * Called when hold window starts (from AnimNotify_HoldWindowStart)
-	 * V2 SYSTEM: Event-driven hold detection - checks button state at window start
+	 * Event-driven hold detection - checks button state at window start
 	 *
 	 * Implementation:
 	 * - Checks if corresponding button is STILL pressed (via HeldInputs map)
@@ -278,7 +278,7 @@ public:
 
 
 	// ============================================================================
-	// PHASE TRANSITION SYSTEM (V2)
+	// PHASE TRANSITION SYSTEM
 	// ============================================================================
 
 	/**
@@ -289,8 +289,8 @@ public:
 	void OnPhaseTransition(EAttackPhase NewPhase);
 
 	/**
-	 * Set phase (internal V2 phase management)
-	 * Called when V2 independently changes phase state
+	 * Set phase (internal phase management)
+	 * Called when independently changing phase state
 	 */
 	void SetPhase(EAttackPhase NewPhase);
 
@@ -316,9 +316,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
 	bool IsQueueEmpty() const { return ActionQueue.Num() == 0; }
 
-	/** Get number of pending actions */
+	/** Get total number of actions in queue */
+	UFUNCTION(BlueprintPure, Category = "Combat|State")
+	int32 GetQueueSize() const { return ActionQueue.Num(); }
+
+	/** Get number of pending (not yet executing) actions */
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
 	int32 GetPendingActionCount() const;
+
+	/** Get const reference to action queue for inspection/testing */
+	const TArray<FActionQueueEntry>& GetActionQueue() const { return ActionQueue; }
 
 	/** Is currently in hold state? */
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
@@ -328,6 +335,13 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
 	float GetHoldDuration() const;
 
+	/** Get input type that triggered current hold */
+	UFUNCTION(BlueprintPure, Category = "Combat|State")
+	EInputType GetHoldInputType() const { return HoldState.CurrentHold.InputType; }
+
+	/** Get const reference to directional input buffer for inspection/testing */
+	const FDirectionalInputBuffer& GetDirectionalInputBuffer() const { return DirectionalInputBuffer; }
+
 	/** Get current attack phase */
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
 	EAttackPhase GetCurrentPhase() const { return CurrentPhase; }
@@ -336,29 +350,37 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
 	bool IsInComboWindow() const { return bComboWindowActive; }
 
+	/** Is character currently attacking? (has active attack data) */
+	UFUNCTION(BlueprintPure, Category = "Combat|State")
+	bool IsAttacking() const { return CurrentAttackData != nullptr; }
+
+	/** Get active windows at specified montage time */
+	UFUNCTION(BlueprintPure, Category = "Combat|State")
+	TArray<FTimerCheckpoint> GetActiveWindows(float CurrentTime) const;
+
 	// ============================================================================
 	// EVENT DELEGATES (Blueprint-exposed)
 	// ============================================================================
 
 	/** Fires when attack starts (IMMEDIATE or queued execution) */
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
-	FOnV2AttackStarted OnAttackStarted;
+	FOnAttackStarted OnAttackStarted;
 
-	/** Fires when attack phase changes (Windup→Active→Recovery→None) */
+	/** Fires when attack phase changes (Windup->Active->Recovery->None) */
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
-	FOnV2PhaseChanged OnPhaseChanged;
+	FOnPhaseChanged OnPhaseChanged;
 
 	/** Fires when combo window state changes (opened/closed) */
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
-	FOnV2ComboWindowChanged OnComboWindowChanged;
+	FOnComboWindowChanged OnComboWindowChanged;
 
 	/** Fires when hold state activates */
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
-	FOnV2HoldActivated OnHoldActivated;
+	FOnHoldActivated OnHoldActivated;
 
 	/** Fires on montage events (started, blending out, ended) */
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
-	FOnV2MontageEvent OnMontageEvent;
+	FOnMontageEvent OnMontageEvent;
 
 	// ============================================================================
 	// DEBUG / VISUALIZATION
@@ -399,11 +421,11 @@ public:
 	/**
 	 * Last captured 8-way directional input (used for directional attacks, evades, holds)
 	 *
-	 * DEPRECATED (v2.0 - 2025-11-19): Use DirectionalInputBuffer instead.
+	 * DEPRECATED: Use DirectionalInputBuffer instead.
 	 * This variable sampled direction continuously (semantic input conflation bug).
-	 * Maintained for backward compatibility only. Will be removed in v2.1.
+	 * Maintained for backward compatibility only.
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State", meta = (DeprecatedProperty, DeprecationMessage = "Use DirectionalInputBuffer instead. Removal planned for v2.1."))
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State", meta = (DeprecatedProperty, DeprecationMessage = "Use DirectionalInputBuffer instead."))
 	EInputDirection LastDirectionalInput = EInputDirection::None;
 
 	/**
@@ -411,11 +433,11 @@ public:
 	 * Prevents infinite loop bug where holding direction + spamming attack repeats same directional.
 	 * Reset to false on each new directional input, set to true after first directional follow-up.
 	 *
-	 * DEPRECATED (v2.0 - 2025-11-19): Use DirectionalInputBuffer instead.
+	 * DEPRECATED: Use DirectionalInputBuffer instead.
 	 * This was a symptom fix for semantic input conflation. Architectural fix now implemented.
-	 * Maintained for backward compatibility only. Will be removed in v2.1.
+	 * Maintained for backward compatibility only.
 	 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State", meta = (DeprecatedProperty, DeprecationMessage = "Use DirectionalInputBuffer.HasValidInput() instead. Removal planned for v2.1."))
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State", meta = (DeprecatedProperty, DeprecationMessage = "Use DirectionalInputBuffer.HasValidInput() instead."))
 	bool bDirectionalInputConsumed = false;
 
 	/**
@@ -442,12 +464,12 @@ public:
 	EInputContext CurrentInputContext = EInputContext::Movement;
 
 	// ============================================================================
-	// CONTEXT TRACKING (Phase 1 - Context-Aware Resolution)
+	// CONTEXT TRACKING (Context-Aware Resolution)
 	// ============================================================================
 
 	/**
 	 * Active runtime context tags (e.g., ParryCounter, LowHealthFinisher)
-	 * Used by ResolveNextAttack_V2 for context-sensitive attack resolution
+	 * Used by ResolveNextAttack for context-sensitive attack resolution
 	 * Updated dynamically based on combat events (parry success, health thresholds, etc.)
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Context")
@@ -456,7 +478,7 @@ public:
 	/**
 	 * Visited attacks during current resolution (cycle detection)
 	 * Cleared at start of each resolution, prevents infinite loops
-	 * Passed to ResolveNextAttack_V2 by reference
+	 * Passed to ResolveNextAttack by reference
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Context")
 	TSet<UAttackData*> VisitedAttacks;
@@ -559,7 +581,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	FQueueStats QueueStats;
 
-	/** Current attack phase (tracked independently from V1) */
+	/** Current attack phase (tracked independently) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	EAttackPhase CurrentPhase = EAttackPhase::None;
 
@@ -571,7 +593,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	EInputType CurrentAttackInputType = EInputType::None;
 
-	/** Timer handle for light attack ease transition (V2 timer-based, NOT tick-based) */
+	/** Timer handle for light attack ease transition (timer-based, NOT tick-based) */
 	FTimerHandle EaseTimerHandle;
 
 	/** Is character movement currently disabled? (for procedural sync) */
@@ -587,7 +609,7 @@ protected:
 	// INTERNAL HELPERS
 	// ============================================================================
 
-	/** Timer callback for procedural ease transitions (V2 timer-based, NOT tick-based) */
+	/** Timer callback for procedural ease transitions (timer-based, NOT tick-based) */
 	void OnEaseTimerTick();
 
 	/**
@@ -602,6 +624,13 @@ protected:
 	 * Called when starting new attack or on montage end
 	 */
 	void ClearHoldState();
+
+	/**
+	 * Setup directional warp for attack based on buffered input direction
+	 * Uses soft aim assist to find best target in direction, or pure direction if no target
+	 * @param AttackData - Attack being executed (contains DirectionalWarpConfig)
+	 */
+	void SetupDirectionalWarpForAttack(UAttackData* AttackData);
 
 	/** Match press/release pairs */
 	void ProcessInputPair(const FQueuedInputAction& PressEvent, const FQueuedInputAction& ReleaseEvent);
@@ -632,4 +661,3 @@ protected:
 	/** Check if can accept new input (prevents double-queueing same input) */
 	bool CanAcceptNewInput(EInputType InputType) const;
 };
-

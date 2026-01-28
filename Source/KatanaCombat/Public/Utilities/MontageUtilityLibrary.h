@@ -139,7 +139,7 @@ struct KATANACOMBAT_API FAttackResolutionResult
  * Montage Utility Library
  *
  * Blueprint function library providing safe, encapsulated access to montage timing utilities.
- * Used by CombatComponentV2 for checkpoint discovery and timing queries.
+ * Used by CombatComponent for checkpoint discovery and timing queries.
  *
  * Features:
  * - Basic montage queries (time, playrate, sections)
@@ -153,7 +153,7 @@ struct KATANACOMBAT_API FAttackResolutionResult
  * - Separation of concerns (utility functions separate from component logic)
  * - Reusability (can be used by other systems like AI, animations)
  * - Blueprint exposure (designers can use these in animation blueprints)
- * - Reduced component bloat (keeps CombatComponentV2 focused on combat logic)
+ * - Reduced component bloat (keeps CombatComponent focused on combat logic)
  * - Stateless design (components own state, library provides calculations)
  */
 UCLASS()
@@ -227,7 +227,7 @@ public:
 	 * Discover all AnimNotifyState windows in montage
 	 * Scans montage for window timing information (Combo, Parry, Hold, Cancel)
 	 *
-	 * Used by CombatComponentV2 to populate checkpoint arrays for timer-based execution.
+	 * Used by CombatComponent to populate checkpoint arrays for timer-based execution.
 	 *
 	 * @param Montage - Montage to scan
 	 * @param OutCheckpoints - Array to populate with discovered checkpoints (cleared first)

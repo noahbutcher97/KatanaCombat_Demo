@@ -1,15 +1,17 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-#include "Core/CombatComponentV2.h"
+#include "Core/CombatComponent.h"
 #include "Data/AttackData.h"
 #include "Data/AttackConfiguration.h"
 #include "Data/CombatSettings.h"
+#include "Debug/DebugConfig.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Characters/SamuraiCharacter.h"
+#include "Characters/BaseCombatCharacter.h"
+#include "Core/TargetingComponent.h"
 #include "Utilities/MontageUtilityLibrary.h"
 #include "Utilities/DirectionDebugLibrary.h"
 
@@ -19,13 +21,13 @@
 
 DEFINE_LOG_CATEGORY(LogCombat);
 
-UCombatComponentV2::UCombatComponentV2()
+UCombatComponent::UCombatComponent()
 {
 	PrimaryComponentTick.bCanEverTick = true;
 	PrimaryComponentTick.bStartWithTickEnabled = true;
 }
 
-void UCombatComponentV2::BeginPlay()
+void UCombatComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
@@ -33,8 +35,8 @@ void UCombatComponentV2::BeginPlay()
 	// Ensures clean state on component spawn/respawn
 	CurrentInputContext = EInputContext::Movement;
 
-	// Cache owner character (ASamuraiCharacter instead of AActor for performance)
-	OwnerCharacter = Cast<ASamuraiCharacter>(GetOwner());
+	// Cache owner character (ABaseCombatCharacter for proper CombatSettings access)
+	OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner());
 	if (OwnerCharacter)
 	{
 		// Cache combat settings from character
@@ -43,12 +45,12 @@ void UCombatComponentV2::BeginPlay()
 		// Bind to montage event delegates for event-driven phase transitions
 		if (UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance())
 		{
-			AnimInstance->OnMontageBlendingOut.AddDynamic(this, &UCombatComponentV2::OnMontageBlendingOut);
-			AnimInstance->OnMontageEnded.AddDynamic(this, &UCombatComponentV2::OnMontageEnded);
+			AnimInstance->OnMontageBlendingOut.AddDynamic(this, &UCombatComponent::OnMontageBlendingOut);
+			AnimInstance->OnMontageEnded.AddDynamic(this, &UCombatComponent::OnMontageEnded);
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 INIT] Montage event delegates bound (BlendingOut, Ended)"));
+				UE_LOG(LogCombat, Log, TEXT("[INIT] Montage event delegates bound (BlendingOut, Ended)"));
 			}
 		}
 
@@ -59,11 +61,11 @@ void UCombatComponentV2::BeginPlay()
 	}
 }
 
-void UCombatComponentV2::ValidateDefaultAttacks()
+void UCombatComponent::ValidateDefaultAttacks()
 {
 	if (!CombatSettings || !CombatSettings->AttackConfiguration)
 	{
-		UE_LOG(LogCombat, Error, TEXT("[V2 VALIDATION] CombatSettings or AttackConfiguration is nullptr on %s! "
+		UE_LOG(LogCombat, Error, TEXT("[VALIDATION] CombatSettings or AttackConfiguration is nullptr on %s! "
 		                              "Combat system cannot function. Assign CombatSettings with AttackConfiguration in Character Blueprint."),
 			*GetOwner()->GetName());
 
@@ -81,7 +83,7 @@ void UCombatComponentV2::ValidateDefaultAttacks()
 	UAttackData* DefaultLight = GetDefaultLightAttack();
 	if (!DefaultLight)
 	{
-		UE_LOG(LogCombat, Error, TEXT("[V2 VALIDATION] DefaultLightAttack is nullptr on %s! "
+		UE_LOG(LogCombat, Error, TEXT("[VALIDATION] DefaultLightAttack is nullptr on %s! "
 		                              "Combat system will not work properly. Assign in AttackConfiguration asset."),
 			*GetOwner()->GetName());
 		bHasErrors = true;
@@ -91,7 +93,7 @@ void UCombatComponentV2::ValidateDefaultAttacks()
 	UAttackData* DefaultHeavy = GetDefaultHeavyAttack();
 	if (!DefaultHeavy)
 	{
-		UE_LOG(LogCombat, Error, TEXT("[V2 VALIDATION] DefaultHeavyAttack is nullptr on %s! "
+		UE_LOG(LogCombat, Error, TEXT("[VALIDATION] DefaultHeavyAttack is nullptr on %s! "
 		                              "Combat system will not work properly. Assign in AttackConfiguration asset."),
 			*GetOwner()->GetName());
 		bHasErrors = true;
@@ -101,32 +103,32 @@ void UCombatComponentV2::ValidateDefaultAttacks()
 	if (bHasErrors && GEngine)
 	{
 		const FString ErrorMsg = FString::Printf(
-			TEXT("⚠️ CombatComponentV2 on %s: Default attacks not assigned! Fix in AttackConfiguration asset."),
+			TEXT("⚠️ CombatComponent on %s: Default attacks not assigned! Fix in AttackConfiguration asset."),
 			*GetOwner()->GetName()
 		);
 
 		GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Red, ErrorMsg);
 
 		// Log comprehensive fix instructions
-		UE_LOG(LogCombat, Warning, TEXT("[V2 VALIDATION] To fix this:"));
+		UE_LOG(LogCombat, Warning, TEXT("[VALIDATION] To fix this:"));
 		UE_LOG(LogCombat, Warning, TEXT("  1. Open your CombatSettings asset"));
 		UE_LOG(LogCombat, Warning, TEXT("  2. Open the AttackConfiguration asset"));
 		UE_LOG(LogCombat, Warning, TEXT("  3. Assign DefaultLightAttack and DefaultHeavyAttack in the Details panel"));
 	}
 	else if (!bHasErrors && GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 VALIDATION] ✓ Default attacks validated successfully"));
+		UE_LOG(LogCombat, Log, TEXT("[VALIDATION] ✓ Default attacks validated successfully"));
 	}
 }
 
-void UCombatComponentV2::OnCharacterDeath()
+void UCombatComponent::OnCharacterDeath()
 {
 	// CRITICAL: Full combat state reset on death
 	// Prevents state leaks across respawns (hold state, queued actions, input context)
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Warning, TEXT("[V2 DEATH] Character died - resetting all combat state"));
+		UE_LOG(LogCombat, Warning, TEXT("[DEATH] Character died - resetting all combat state"));
 	}
 
 	// Clear action queue and statistics
@@ -156,17 +158,17 @@ void UCombatComponentV2::OnCharacterDeath()
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 DEATH] ✓ Combat state reset complete - ready for respawn"));
+		UE_LOG(LogCombat, Log, TEXT("[DEATH] ✓ Combat state reset complete - ready for respawn"));
 	}
 }
 
-void UCombatComponentV2::SetInputContext(EInputContext NewContext)
+void UCombatComponent::SetInputContext(EInputContext NewContext)
 {
 	if (CurrentInputContext != NewContext)
 	{
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 INPUT CONTEXT] %s → %s"),
+			UE_LOG(LogCombat, Log, TEXT("[INPUT CONTEXT] %s → %s"),
 				*UEnum::GetValueAsString(CurrentInputContext),
 				*UEnum::GetValueAsString(NewContext));
 		}
@@ -175,7 +177,7 @@ void UCombatComponentV2::SetInputContext(EInputContext NewContext)
 	}
 }
 
-void UCombatComponentV2::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
+void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
@@ -196,19 +198,19 @@ void UCombatComponentV2::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 	}
 }
 
-ASamuraiCharacter* UCombatComponentV2::GetOwnerCharacter() const
+ABaseCombatCharacter* UCombatComponent::GetOwnerCharacter() const
 {
 	// Return cached owner character (no cast needed - already cached in BeginPlay)
 	return OwnerCharacter;
 }
 
-bool UCombatComponentV2::GetDebugDraw() const
+bool UCombatComponent::GetDebugDraw() const
 {
-	// Read debug draw setting from cached combat settings
-	return CombatSettings && CombatSettings->bDebugDraw;
+	// Debug visualization is now CVar-controlled (Combat.Debug.All or specific CVars)
+	return CombatDebug::IsDebugEnabled();
 }
 
-UAttackData* UCombatComponentV2::GetDefaultLightAttack() const
+UAttackData* UCombatComponent::GetDefaultLightAttack() const
 {
 	// Access through CombatSettings → AttackConfiguration → DefaultLightAttack
 	if (!CombatSettings || !CombatSettings->AttackConfiguration)
@@ -218,7 +220,7 @@ UAttackData* UCombatComponentV2::GetDefaultLightAttack() const
 	return CombatSettings->AttackConfiguration->DefaultLightAttack;
 }
 
-UAttackData* UCombatComponentV2::GetDefaultHeavyAttack() const
+UAttackData* UCombatComponent::GetDefaultHeavyAttack() const
 {
 	// Access through CombatSettings → AttackConfiguration → DefaultHeavyAttack
 	if (!CombatSettings || !CombatSettings->AttackConfiguration)
@@ -232,108 +234,31 @@ UAttackData* UCombatComponentV2::GetDefaultHeavyAttack() const
 // INPUT PROCESSING (V2)
 // ============================================================================
 
-void UCombatComponentV2::OnInputEventWithTransform(
+void UCombatComponent::OnInputEventWithTransform(
 	EInputType InputType,
 	EInputEventType EventType,
 	FVector2D CameraRelativeInput,
 	FRotator CameraRotation,
 	FRotator CharacterRotation)
 {
+	// Get owner character for mesh offset detection
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+
 	// Transform camera-relative input to character-relative direction
+	// CRITICAL FIX (2025-11-20): Now passes Character for automatic mesh offset correction
 	EInputDirection CharacterRelativeDirection = CombatHelpers::VectorToCharacterRelativeDirection(
 		CameraRelativeInput,
 		CameraRotation,
+		Character,  // Mesh offset detection
 		CharacterRotation,
 		0.2f  // Dead zone
 	);
 
-	// Call the existing OnInputEvent with transformed direction
+	// Delegate to core input handler with transformed direction
 	OnInputEvent(InputType, EventType, CharacterRelativeDirection);
-
-	// Comprehensive debug visualization and diagnostic logging
-	/*if (GetDebugDraw() && CharacterRelativeDirection != EInputDirection::None)
-	{
-		ACharacter* Character = Cast<ACharacter>(GetOwner());
-		if (!Character) return;
-
-		const FVector CharacterLocation = Character->GetActorLocation();
-
-		// ========================================================================
-		// STEP 1: CALCULATE TRANSFORMATION VECTORS
-		// ========================================================================
-
-		// Camera-relative to world space conversion
-		const FVector CameraForward = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::X);
-		const FVector CameraRight = FRotationMatrix(CameraRotation).GetScaledAxis(EAxis::Y);
-		FVector WorldInput = (CameraRight * CameraRelativeInput.X) + (CameraForward * CameraRelativeInput.Y);
-		WorldInput.Z = 0.0f;
-		WorldInput.Normalize();
-
-		// World to character-relative conversion
-		const FRotator InverseCharacterYaw(0.0f, -CharacterRotation.Yaw, 0.0f);
-		const FVector CharacterRelativeVec = InverseCharacterYaw.RotateVector(WorldInput);
-		const FVector2D CharacterRelative2D(CharacterRelativeVec.X, CharacterRelativeVec.Y);
-
-		// Calculate angles for diagnostics
-		const float WorldAngle = FMath::Atan2(WorldInput.Y, WorldInput.X) * (180.0f / PI);
-		const float CharAngle = FMath::Atan2(CharacterRelative2D.Y, CharacterRelative2D.X) * (180.0f / PI);
-
-		// Get final attack direction
-		const EAttackDirection AttackDir = CombatHelpers::InputToAttackDirection(CharacterRelativeDirection);
-
-		// ========================================================================
-		// VISUAL DEBUG DRAWING - Context-Aware, Numbered Pipeline
-		// ========================================================================
-		UDirectionDebugLibrary::DrawDirectionTransformDebug(
-			GetWorld(),
-			CharacterLocation,
-			CameraRotation,
-			CharacterRotation,
-			CameraRelativeInput,
-			WorldInput,
-			CharacterRelativeVec,
-			CharacterRelativeDirection,
-			AttackDir,
-			HoldState.IsHolding());
-
-		// ========================================================================
-		// DIAGNOSTIC LOGGING
-		// ========================================================================
-
-		FString DiagnosticLog;
-		DiagnosticLog += TEXT("\n[DIRECTION DIAGNOSTIC]\n");
-		DiagnosticLog += TEXT("=== Input ===\n");
-		DiagnosticLog += FString::Printf(TEXT("Raw Input: %s\n"), *UDirectionDebugLibrary::FormatVector2DDebug(CameraRelativeInput));
-		DiagnosticLog += TEXT("\n=== Rotations ===\n");
-		DiagnosticLog += FString::Printf(TEXT("Camera Yaw:    %s\n"), *UDirectionDebugLibrary::FormatRotationDebug(CameraRotation));
-		DiagnosticLog += FString::Printf(TEXT("Character Yaw: %s\n"), *UDirectionDebugLibrary::FormatRotationDebug(CharacterRotation));
-		DiagnosticLog += FString::Printf(TEXT("Yaw Delta:     %.1f°\n"), UDirectionDebugLibrary::CalculateYawDelta(CameraRotation.Yaw, CharacterRotation.Yaw));
-
-		FRotator MeshOffset = UDirectionDebugLibrary::GetMeshRotationOffset(Character);
-		DiagnosticLog += FString::Printf(TEXT("Mesh Offset:   (P=%.1f°, Y=%.1f°, R=%.1f°)\n"), MeshOffset.Pitch, MeshOffset.Yaw, MeshOffset.Roll);
-
-		DiagnosticLog += TEXT("\n=== Transformation Step 1: Camera-Relative to World ===\n");
-		DiagnosticLog += FString::Printf(TEXT("CameraForward: (X=%.2f, Y=%.2f, Z=%.2f)\n"), CameraForward.X, CameraForward.Y, CameraForward.Z);
-		DiagnosticLog += FString::Printf(TEXT("CameraRight:   (X=%.2f, Y=%.2f, Z=%.2f)\n"), CameraRight.X, CameraRight.Y, CameraRight.Z);
-		DiagnosticLog += FString::Printf(TEXT("WorldInput:    (X=%.2f, Y=%.2f, Z=%.2f)\n"), WorldInput.X, WorldInput.Y, WorldInput.Z);
-		DiagnosticLog += FString::Printf(TEXT("World Angle:   %.1f°\n"), WorldAngle);
-
-		DiagnosticLog += TEXT("\n=== Transformation Step 2: World to Character-Relative ===\n");
-		DiagnosticLog += FString::Printf(TEXT("InverseYaw:    %.1f°\n"), -CharacterRotation.Yaw);
-		DiagnosticLog += FString::Printf(TEXT("CharRelative:  (X=%.2f, Y=%.2f, Z=%.2f)\n"), CharacterRelativeVec.X, CharacterRelativeVec.Y, CharacterRelativeVec.Z);
-		DiagnosticLog += FString::Printf(TEXT("CharRelative2D: %s\n"), *UDirectionDebugLibrary::FormatVector2DDebug(CharacterRelative2D));
-		DiagnosticLog += FString::Printf(TEXT("Char Angle:    %.1f°\n"), CharAngle);
-
-		DiagnosticLog += TEXT("\n=== Resolution ===\n");
-		DiagnosticLog += FString::Printf(TEXT("Resolved:      %s\n"), *UDirectionDebugLibrary::FormatInputDirectionDebug(CharacterRelativeDirection));
-		DiagnosticLog += FString::Printf(TEXT("Attack:        %s\n"), *UDirectionDebugLibrary::FormatAttackDirectionDebug(AttackDir));
-		DiagnosticLog += TEXT("Expected:      [VERIFY MANUALLY]\n");
-
-		UE_LOG(LogCombat, Log, TEXT("%s"), *DiagnosticLog);
-	}*/
 }
 
-void UCombatComponentV2::OnInputEventAuto(
+void UCombatComponent::OnInputEventAuto(
 	EInputType InputType,
 	EInputEventType EventType,
 	FVector2D MovementInput,
@@ -343,7 +268,7 @@ void UCombatComponentV2::OnInputEventAuto(
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
 	if (!Character)
 	{
-		UE_LOG(LogCombat, Error, TEXT("[V2 INPUT AUTO] Owner is not a Character! Cannot auto-transform input."));
+		UE_LOG(LogCombat, Error, TEXT("[INPUT AUTO] Owner is not a Character! Cannot auto-transform input."));
 		return;
 	}
 
@@ -356,7 +281,7 @@ void UCombatComponentV2::OnInputEventAuto(
 	{
 		// Fallback: If no player controller, assume camera faces same direction as character
 		// This handles AI-controlled characters gracefully
-		UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT AUTO] No PlayerController found, assuming camera = character rotation"));
+		UE_LOG(LogCombat, Warning, TEXT("[INPUT AUTO] No PlayerController found, assuming camera = character rotation"));
 		OnInputEventWithTransform(InputType, EventType, MovementInput, CharacterRotation, CharacterRotation);
 		return;
 	}
@@ -379,26 +304,26 @@ void UCombatComponentV2::OnInputEventAuto(
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 INPUT AUTO] Mode=%s, Camera=%.1f°, Character=%.1f°"),
+		UE_LOG(LogCombat, Log, TEXT("[INPUT AUTO] Mode=%s, Camera=%.1f°, Character=%.1f°"),
 			bCharacterRelative ? TEXT("Character-Relative") : TEXT("Camera-Relative"),
 			CameraRotation.Yaw, CharacterRotation.Yaw);
 	}
 }
 
-void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection)
+void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection)
 {
-	// Early exit if V2 system is not enabled or dependencies missing
-	if (!CombatSettings || !CombatSettings->bUseV2System)
+	// Early exit if no CombatSettings
+	if (!CombatSettings)
 	{
 		return;
 	}
 
-	// CRITICAL FIX: Check if input can be processed (gate stunned/dead/guard broken states)
+	// Check if input can be processed (gate stunned/dead/guard broken states)
 	if (!CanProcessInput(InputType))
 	{
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT] Input REJECTED - Cannot process in current combat state"));
+			UE_LOG(LogCombat, Warning, TEXT("[INPUT] Input REJECTED - Cannot process in current combat state"));
 		}
 		return;
 	}
@@ -431,7 +356,7 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogCombat, Log, TEXT("[V2 DIRECTIONAL] Direction captured at RELEASE: %s (time=%.2f) → HoldEvent.Direction=%s"),
+						UE_LOG(LogCombat, Log, TEXT("[DIRECTIONAL] Direction captured at RELEASE: %s (time=%.2f) → HoldEvent.Direction=%s"),
 							*UDirectionDebugLibrary::FormatInputDirectionDebug(InputDirection),
 							DirectionalInputBuffer.CaptureTime,
 							*UDirectionDebugLibrary::FormatAttackDirectionDebug(HoldState.CurrentHold.Direction));
@@ -439,7 +364,7 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 				}
 				else if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[V2 DIRECTIONAL] Direction captured at RELEASE: %s (time=%.2f) [NO ACTIVE HOLD]"),
+					UE_LOG(LogCombat, Log, TEXT("[DIRECTIONAL] Direction captured at RELEASE: %s (time=%.2f) [NO ACTIVE HOLD]"),
 						*UDirectionDebugLibrary::FormatInputDirectionDebug(InputDirection),
 						DirectionalInputBuffer.CaptureTime);
 				}
@@ -447,14 +372,14 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 			else if (GetDebugDraw())
 			{
 				// Direction provided during hold, but not capturing until release
-				UE_LOG(LogCombat, Verbose, TEXT("[V2 DIRECTIONAL] Direction during hold: %s (awaiting release to capture)"),
+				UE_LOG(LogCombat, Verbose, TEXT("[DIRECTIONAL] Direction during hold: %s (awaiting release to capture)"),
 					*UDirectionDebugLibrary::FormatInputDirectionDebug(InputDirection));
 			}
 		}
 		else if (GetDebugDraw())
 		{
 			// Direction provided but context is Movement (ignored for attack purposes)
-			UE_LOG(LogCombat, Verbose, TEXT("[V2 DIRECTIONAL] Direction IGNORED (context=%s, not DirectionalInput)"),
+			UE_LOG(LogCombat, Verbose, TEXT("[DIRECTIONAL] Direction IGNORED (context=%s, not DirectionalInput)"),
 				*UEnum::GetValueAsString(CurrentInputContext));
 		}
 
@@ -465,7 +390,7 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 	else if (GetDebugDraw())
 	{
 		// No direction provided (Blueprint might not be passing movement input)
-		UE_LOG(LogCombat, Verbose, TEXT("[V2 INPUT] No directional input provided"));
+		UE_LOG(LogCombat, Verbose, TEXT("[INPUT] No directional input provided"));
 	}
 
 	// Get current game time
@@ -487,7 +412,7 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 
 		if ( GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 INPUT] %s PRESSED at %.2f (Combo: %s, Direction: %s)"),
+			UE_LOG(LogCombat, Log, TEXT("[INPUT] %s PRESSED at %.2f (Combo: %s, Direction: %s)"),
 				*UEnum::GetValueAsString(InputType),
 				CurrentTime,
 				bComboWindowActive ? TEXT("YES") : TEXT("NO"),
@@ -506,7 +431,7 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 
 		if ( GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 INPUT] %s RELEASED at %.2f"),
+			UE_LOG(LogCombat, Log, TEXT("[INPUT] %s RELEASED at %.2f"),
 				*UEnum::GetValueAsString(InputType),
 				CurrentTime);
 		}
@@ -525,13 +450,12 @@ void UCombatComponentV2::OnInputEvent(EInputType InputType, EInputEventType Even
 	QueueStats.TotalInputs++;
 }
 
-bool UCombatComponentV2::CanProcessInput(EInputType InputType) const
+bool UCombatComponent::CanProcessInput(EInputType InputType) const
 {
-	// V2 accepts input unless explicitly disabled
+	// Accepts input unless explicitly disabled
 	// Higher-level systems (death, hit reactions) should disable input at the source
-	// by unbinding input events or setting bUseV2System to false
 
-	// Future: Add V2-specific state flags (bIsDead, bIsStunned) if needed
+	// Future: Add state flags (bIsDead, bIsStunned) if needed
 	return true;
 }
 
@@ -539,7 +463,7 @@ bool UCombatComponentV2::CanProcessInput(EInputType InputType) const
 // ACTION QUEUE MANAGEMENT
 // ============================================================================
 
-void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAttackData* AttackData)
+void UCombatComponent::QueueAction(const FQueuedInputAction& InputAction, UAttackData* AttackData)
 {
 	// Only queue press events (releases handled separately)
 	if (InputAction.EventType != EInputEventType::Press)
@@ -554,6 +478,15 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 	if (!AttackData)
 	{
 		AttackData = GetAttackForInput(InputAction.InputType);
+	}
+
+	// CRITICAL: If we couldn't resolve any attack, bail out gracefully
+	// This can happen if CombatSettings is not assigned to the character
+	if (!AttackData)
+	{
+		UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Cannot queue action: No attack resolved. "
+		                                "Check that CombatSettings is assigned to the character."));
+		return;
 	}
 
 	// Create queue entry
@@ -640,7 +573,7 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Combo-aware clear: Preserved %d valid combos (anti-spam), cancelled %d"),
+				UE_LOG(LogCombat, Log, TEXT("[QUEUE] Combo-aware clear: Preserved %d valid combos (anti-spam), cancelled %d"),
 					ValidCombos.Num(), CancelledCount);
 			}
 		}
@@ -662,13 +595,13 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 
 			if (GetDebugDraw() && ClearedCount > 0)
 			{
-				UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Cleared %d pending actions (no combo branches - chain ended)"), ClearedCount);
+				UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Cleared %d pending actions (no combo branches - chain ended)"), ClearedCount);
 			}
 		}
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Executing IMMEDIATE action: Type=%s"),
+			UE_LOG(LogCombat, Log, TEXT("[QUEUE] Executing IMMEDIATE action: Type=%s"),
 				*UEnum::GetValueAsString(InputAction.InputType));
 		}
 
@@ -680,14 +613,14 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Immediate execution SUCCESS"));
+				UE_LOG(LogCombat, Log, TEXT("[QUEUE] Immediate execution SUCCESS"));
 			}
 		}
 		else
 		{
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Immediate execution FAILED"));
+				UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Immediate execution FAILED"));
 			}
 		}
 
@@ -705,7 +638,7 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Added queued action: Type=%s, Mode=%s, Scheduled=%.2f, Priority=%d"),
+		UE_LOG(LogCombat, Log, TEXT("[QUEUE] Added queued action: Type=%s, Mode=%s, Scheduled=%.2f, Priority=%d"),
 			*UEnum::GetValueAsString(InputAction.InputType),
 			*UEnum::GetValueAsString(ExecMode),
 			Entry.ScheduledTime,
@@ -713,7 +646,7 @@ void UCombatComponentV2::QueueAction(const FQueuedInputAction& InputAction, UAtt
 	}
 }
 
-void UCombatComponentV2::ProcessQueuedActions(EAttackPhase TargetPhase)
+void UCombatComponent::ProcessQueuedActions(EAttackPhase TargetPhase)
 {
 	// PHASE 9: EVENT-DRIVEN QUEUE PROCESSING (NOT tick-based!)
 	// Execute actions that are waiting for this phase transition
@@ -756,7 +689,7 @@ void UCombatComponentV2::ProcessQueuedActions(EAttackPhase TargetPhase)
 
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[V2 EVENT-DRIVEN] Executed action on phase %s (TargetPhase: %s)"),
+					UE_LOG(LogCombat, Log, TEXT("[EVENT-DRIVEN] Executed action on phase %s (TargetPhase: %s)"),
 						*UEnum::GetValueAsString(TargetPhase),
 						*UEnum::GetValueAsString(Entry.TargetPhase));
 				}
@@ -772,7 +705,7 @@ void UCombatComponentV2::ProcessQueuedActions(EAttackPhase TargetPhase)
 
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Warning, TEXT("[V2 EVENT-DRIVEN] Action execution failed on phase %s, cancelled"),
+					UE_LOG(LogCombat, Warning, TEXT("[EVENT-DRIVEN] Action execution failed on phase %s, cancelled"),
 						*UEnum::GetValueAsString(TargetPhase));
 				}
 
@@ -783,12 +716,12 @@ void UCombatComponentV2::ProcessQueuedActions(EAttackPhase TargetPhase)
 
 	if (GetDebugDraw() && ExecutedCount > 0)
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 EVENT-DRIVEN] Processed %d queued actions on phase %s"),
+		UE_LOG(LogCombat, Log, TEXT("[EVENT-DRIVEN] Processed %d queued actions on phase %s"),
 			ExecutedCount, *UEnum::GetValueAsString(TargetPhase));
 	}
 }
 
-void UCombatComponentV2::ProcessQueue(float CurrentMontageTime)
+void UCombatComponent::ProcessQueue(float CurrentMontageTime)
 {
 	// DEPRECATED: Tick-based queue processing
 	// Replaced by event-driven ProcessQueuedActions(TargetPhase) in Phase 9
@@ -850,7 +783,7 @@ void UCombatComponentV2::ProcessQueue(float CurrentMontageTime)
 
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Executed action at %.2f (scheduled: %.2f)"),
+					UE_LOG(LogCombat, Log, TEXT("[QUEUE] Executed action at %.2f (scheduled: %.2f)"),
 						CurrentMontageTime, Entry.ScheduledTime);
 				}
 
@@ -863,7 +796,7 @@ void UCombatComponentV2::ProcessQueue(float CurrentMontageTime)
 				// Mark as cancelled if it keeps failing
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Action execution failed at %.2f, keeping in queue"),
+					UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Action execution failed at %.2f, keeping in queue"),
 						CurrentMontageTime);
 				}
 			}
@@ -871,7 +804,7 @@ void UCombatComponentV2::ProcessQueue(float CurrentMontageTime)
 	}
 }
 
-bool UCombatComponentV2::ExecuteAction(FActionQueueEntry& Action)
+bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 {
 	if (!Action.AttackData)
 	{
@@ -906,6 +839,9 @@ bool UCombatComponentV2::ExecuteAction(FActionQueueEntry& Action)
 				// CRITICAL FIX: Reset hold state for new attack (clears bActivatedThisAttack)
 				HoldState.Reset();
 
+				// DIRECTIONAL WARP: Setup rotation toward input direction if captured
+				SetupDirectionalWarpForAttack(Action.AttackData);
+
 				// Broadcast attack started event
 				bool bIsCombo = (CurrentPhase == EAttackPhase::Recovery || CurrentPhase == EAttackPhase::Active);
 				OnAttackStarted.Broadcast(Action.AttackData, Action.InputAction.InputType, bIsCombo);
@@ -915,14 +851,14 @@ bool UCombatComponentV2::ExecuteAction(FActionQueueEntry& Action)
 					FString SectionName = Action.AttackData->MontageSection.IsNone() ?
 						TEXT("Default") : Action.AttackData->MontageSection.ToString();
 
-					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] ═══════════════════════════════════════"));
-					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Attack Data: %s"), *Action.AttackData->GetName());
-					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Montage: %s"), *Action.AttackData->AttackMontage->GetName());
-					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Section: %s"), *SectionName);
-					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Input Type: %s"), *UEnum::GetValueAsString(CurrentAttackInputType));
-					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Is Combo: %s"), bIsCombo ? TEXT("YES") : TEXT("NO"));
-					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] Checkpoints Discovered: %d"), Checkpoints.Num());
-					UE_LOG(LogCombat, Log, TEXT("[V2 EXECUTE] ═══════════════════════════════════════"));
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] ═══════════════════════════════════════"));
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Attack Data: %s"), *Action.AttackData->GetName());
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Montage: %s"), *Action.AttackData->AttackMontage->GetName());
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Section: %s"), *SectionName);
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Input Type: %s"), *UEnum::GetValueAsString(CurrentAttackInputType));
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Is Combo: %s"), bIsCombo ? TEXT("YES") : TEXT("NO"));
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Checkpoints Discovered: %d"), Checkpoints.Num());
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] ═══════════════════════════════════════"));
 				}
 			}
 			break;
@@ -943,23 +879,23 @@ bool UCombatComponentV2::ExecuteAction(FActionQueueEntry& Action)
 	return bSuccess;
 }
 
-bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
+bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 {
 	if (!AttackData || !AttackData->AttackMontage)
 	{
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Warning, TEXT("[V2 MONTAGE] Failed - Invalid AttackData or Montage"));
+			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Failed - Invalid AttackData or Montage"));
 		}
 		return false;
 	}
 
-	ASamuraiCharacter* Character = GetOwnerCharacter();
+	ABaseCombatCharacter* Character = GetOwnerCharacter();
 	if (!Character || !Character->GetMesh())
 	{
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Warning, TEXT("[V2 MONTAGE] Failed - No character or mesh"));
+			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Failed - No character or mesh"));
 		}
 		return false;
 	}
@@ -969,7 +905,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 	{
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Warning, TEXT("[V2 MONTAGE] Failed - No AnimInstance"));
+			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Failed - No AnimInstance"));
 		}
 		return false;
 	}
@@ -996,7 +932,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 
 		if (GetDebugDraw() && (BlendOutTime > 0.0f || BlendInTime > 0.0f))
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 BLEND] Combo transition: %s (out=%.2fs) → %s (in=%.2fs)"),
+			UE_LOG(LogCombat, Log, TEXT("[BLEND] Combo transition: %s (out=%.2fs) → %s (in=%.2fs)"),
 				*CurrentAttackData->GetName(), BlendOutTime,
 				*AttackData->GetName(), BlendInTime);
 		}
@@ -1013,7 +949,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 BLEND] Combo blend started - bInComboBlend=true (prevents None phase during blend-out)"));
+			UE_LOG(LogCombat, Log, TEXT("[BLEND] Combo blend started - bInComboBlend=true (prevents None phase during blend-out)"));
 		}
 	}
 
@@ -1051,7 +987,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 BLEND] New montage started - bInComboBlend=false (blend transition complete)"));
+			UE_LOG(LogCombat, Log, TEXT("[BLEND] New montage started - bInComboBlend=false (blend transition complete)"));
 		}
 	}
 
@@ -1067,7 +1003,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 MONTAGE] Section-only mode: %s (no auto-advance)"),
+				UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Section-only mode: %s (no auto-advance)"),
 					*AttackData->MontageSection.ToString());
 			}
 		}
@@ -1075,7 +1011,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 MONTAGE] Playing: %s | Section: %s | Delegate bound"),
+		UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Playing: %s | Section: %s | Delegate bound"),
 			*AttackData->AttackMontage->GetName(),
 			*AttackData->MontageSection.ToString());
 	}
@@ -1083,7 +1019,7 @@ bool UCombatComponentV2::PlayAttackMontage(UAttackData* AttackData)
 	return true;
 }
 
-void UCombatComponentV2::ClearQueue(bool bCancelCurrent)
+void UCombatComponent::ClearQueue(bool bCancelCurrent)
 {
 	if (bCancelCurrent)
 	{
@@ -1122,11 +1058,11 @@ void UCombatComponentV2::ClearQueue(bool bCancelCurrent)
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Cleared (CancelCurrent=%s) - Combo state and directional buffer reset"), bCancelCurrent ? TEXT("YES") : TEXT("NO"));
+		UE_LOG(LogCombat, Log, TEXT("[QUEUE] Cleared (CancelCurrent=%s) - Combo state and directional buffer reset"), bCancelCurrent ? TEXT("YES") : TEXT("NO"));
 	}
 }
 
-void UCombatComponentV2::CancelActionsWithPriority(int32 MinPriority)
+void UCombatComponent::CancelActionsWithPriority(int32 MinPriority)
 {
 	for (int32 i = ActionQueue.Num() - 1; i >= 0; --i)
 	{
@@ -1140,7 +1076,7 @@ void UCombatComponentV2::CancelActionsWithPriority(int32 MinPriority)
 
 			if ( GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Cancelled action (Priority %d < %d)"),
+				UE_LOG(LogCombat, Log, TEXT("[QUEUE] Cancelled action (Priority %d < %d)"),
 					Entry.Priority, MinPriority);
 			}
 		}
@@ -1151,7 +1087,7 @@ void UCombatComponentV2::CancelActionsWithPriority(int32 MinPriority)
 // TIMER CHECKPOINT SYSTEM
 // ============================================================================
 
-void UCombatComponentV2::DiscoverCheckpoints(UAnimMontage* Montage)
+void UCombatComponent::DiscoverCheckpoints(UAnimMontage* Montage)
 {
 	if (!Montage)
 	{
@@ -1166,7 +1102,7 @@ void UCombatComponentV2::DiscoverCheckpoints(UAnimMontage* Montage)
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINTS] Discovered %d checkpoints from montage: %s"),
+		UE_LOG(LogCombat, Log, TEXT("[CHECKPOINTS] Discovered %d checkpoints from montage: %s"),
 			NumDiscovered,
 			*Montage->GetName());
 
@@ -1187,7 +1123,7 @@ void UCombatComponentV2::DiscoverCheckpoints(UAnimMontage* Montage)
 	}
 }
 
-void UCombatComponentV2::RegisterCheckpoint(EActionWindowType WindowType, float StartTime, float Duration)
+void UCombatComponent::RegisterCheckpoint(EActionWindowType WindowType, float StartTime, float Duration)
 {
 	FTimerCheckpoint Checkpoint(WindowType, StartTime, Duration);
 	Checkpoint.bActive = true;
@@ -1204,19 +1140,34 @@ void UCombatComponentV2::RegisterCheckpoint(EActionWindowType WindowType, float 
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINTS] Registered: Type=%s, Start=%.2f, Duration=%.2f"),
+		UE_LOG(LogCombat, Log, TEXT("[CHECKPOINTS] Registered: Type=%s, Start=%.2f, Duration=%.2f"),
 			*UEnum::GetValueAsString(WindowType),
 			StartTime,
 			Duration);
 	}
 }
 
-bool UCombatComponentV2::HasReachedCheckpoint(const FTimerCheckpoint& Checkpoint, float CurrentTime) const
+bool UCombatComponent::HasReachedCheckpoint(const FTimerCheckpoint& Checkpoint, float CurrentTime) const
 {
 	return Checkpoint.bActive && CurrentTime >= Checkpoint.MontageTime;
 }
 
-float UCombatComponentV2::GetExecutionCheckpoint(const FActionQueueEntry& Action) const
+TArray<FTimerCheckpoint> UCombatComponent::GetActiveWindows(float CurrentTime) const
+{
+	TArray<FTimerCheckpoint> ActiveWindows;
+	for (const FTimerCheckpoint& Checkpoint : Checkpoints)
+	{
+		if (Checkpoint.bActive &&
+		    CurrentTime >= Checkpoint.MontageTime &&
+		    CurrentTime <= (Checkpoint.MontageTime + Checkpoint.Duration))
+		{
+			ActiveWindows.Add(Checkpoint);
+		}
+	}
+	return ActiveWindows;
+}
+
+float UCombatComponent::GetExecutionCheckpoint(const FActionQueueEntry& Action) const
 {
 	if (Action.ExecutionMode == EActionExecutionMode::Immediate)
 	{
@@ -1235,7 +1186,7 @@ float UCombatComponentV2::GetExecutionCheckpoint(const FActionQueueEntry& Action
 			// Return the checkpoint time (Active phase end)
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINT] Found Active-end checkpoint at %.2f for queued execution"),
+				UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] Found Active-end checkpoint at %.2f for queued execution"),
 					Checkpoint.MontageTime);
 			}
 
@@ -1247,7 +1198,7 @@ float UCombatComponentV2::GetExecutionCheckpoint(const FActionQueueEntry& Action
 	// The checkpoint will be created when Active→Recovery transition happens via OnPhaseTransition
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINT] Active-end checkpoint not found yet, will execute when created"));
+		UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] Active-end checkpoint not found yet, will execute when created"));
 	}
 
 	/*TODO: Consider warning if no Active-end checkpoint found after montage ends*/
@@ -1258,7 +1209,7 @@ float UCombatComponentV2::GetExecutionCheckpoint(const FActionQueueEntry& Action
 // HOLD SYSTEM (V2)
 // ============================================================================
 
-void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
+void UCombatComponent::OnHoldWindowStart(EInputType InputType)
 {
 	// V2 EVENT-DRIVEN HOLD DETECTION:
 	// AnimNotify fires at hold window start, we check if button is STILL pressed
@@ -1276,7 +1227,7 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 		// Button not held - normal combo flow
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Window start, but button not held: %s"),
+			UE_LOG(LogCombat, Log, TEXT("[HOLD] Window start, but button not held: %s"),
 				*UEnum::GetValueAsString(InputType));
 		}
 		return;
@@ -1285,7 +1236,7 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 	// Button is held - activate hold behavior
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Button held at window start: %s, activating hold"),
+		UE_LOG(LogCombat, Log, TEXT("[HOLD] Button held at window start: %s, activating hold"),
 			*UEnum::GetValueAsString(InputType));
 	}
 
@@ -1296,7 +1247,7 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Directional input window OPENED (awaiting release)"));
+		UE_LOG(LogCombat, Log, TEXT("[HOLD] Directional input window OPENED (awaiting release)"));
 	}
 
 	// Determine hold behavior based on attack type
@@ -1317,7 +1268,7 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 			{
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] Failed to jump to charge section: %s"),
+					UE_LOG(LogCombat, Warning, TEXT("[HOLD] Failed to jump to charge section: %s"),
 						*CurrentAttackData->ChargeLoopSection.ToString());
 				}
 				return;
@@ -1338,19 +1289,19 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack charge loop started and marked completed: jumped to '%s' and looping"),
+					UE_LOG(LogCombat, Log, TEXT("[HOLD] Heavy attack charge loop started and marked completed: jumped to '%s' and looping"),
 						*CurrentAttackData->ChargeLoopSection.ToString());
 				}
 			}
 			else if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] Failed to loop charge section: %s"),
+				UE_LOG(LogCombat, Warning, TEXT("[HOLD] Failed to loop charge section: %s"),
 					*CurrentAttackData->ChargeLoopSection.ToString());
 			}
 		}
 		else if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] Heavy attack has no ChargeLoopSection defined"));
+			UE_LOG(LogCombat, Warning, TEXT("[HOLD] Heavy attack has no ChargeLoopSection defined"));
 		}
 	}
 	else if (CurrentAttackData->AttackType == EAttackType::Light)
@@ -1373,14 +1324,14 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 		GetWorld()->GetTimerManager().SetTimer(
 			EaseTimerHandle,
 			this,
-			&UCombatComponentV2::OnEaseTimerTick,
+			&UCombatComponent::OnEaseTimerTick,
 			TimerInterval,
 			true // Loop
 		);
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 HOLD TIMER] Light attack EASE-IN started (1.0 → %.2f over %.2fs using %s @ 60Hz)"),
+			UE_LOG(LogCombat, Log, TEXT("[HOLD TIMER] Light attack EASE-IN started (1.0 → %.2f over %.2fs using %s @ 60Hz)"),
 				CurrentAttackData->HoldTargetPlayRate,
 				CurrentAttackData->HoldEaseInDuration,
 				*UEnum::GetValueAsString(CurrentAttackData->HoldEaseInType));
@@ -1388,7 +1339,7 @@ void UCombatComponentV2::OnHoldWindowStart(EInputType InputType)
 	}
 }
 
-void UCombatComponentV2::ActivateHold(EInputType InputType, float PlayRate)
+void UCombatComponent::ActivateHold(EInputType InputType, float PlayRate)
 {
 	HoldState.Activate(InputType, GetWorld()->GetTimeSeconds(), PlayRate);
 
@@ -1398,13 +1349,13 @@ void UCombatComponentV2::ActivateHold(EInputType InputType, float PlayRate)
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Activated: Input=%s, PlayRate=%.2f"),
+		UE_LOG(LogCombat, Log, TEXT("[HOLD] Activated: Input=%s, PlayRate=%.2f"),
 			*UEnum::GetValueAsString(InputType),
 			PlayRate);
 	}
 }
 
-void UCombatComponentV2::DeactivateHold()
+void UCombatComponent::DeactivateHold()
 {
 	if (!HoldState.IsHolding() || !CurrentAttackData)
 	{
@@ -1435,12 +1386,12 @@ void UCombatComponentV2::DeactivateHold()
 			{
 				if (bJumped)
 				{
-					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack released: jumping to release section '%s'"),
+					UE_LOG(LogCombat, Log, TEXT("[HOLD] Heavy attack released: jumping to release section '%s'"),
 						*CurrentAttackData->ChargeReleaseSection.ToString());
 				}
 				else
 				{
-					UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] Failed to jump to release section '%s'"),
+					UE_LOG(LogCombat, Warning, TEXT("[HOLD] Failed to jump to release section '%s'"),
 						*CurrentAttackData->ChargeReleaseSection.ToString());
 				}
 			}
@@ -1460,7 +1411,7 @@ void UCombatComponentV2::DeactivateHold()
 
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack has no ChargeReleaseSection - queueing directional follow-up: %s (direction=%s)"),
+						UE_LOG(LogCombat, Log, TEXT("[HOLD] Heavy attack has no ChargeReleaseSection - queueing directional follow-up: %s (direction=%s)"),
 							*FollowUpAttack->GetName(),
 							*UDirectionDebugLibrary::FormatAttackDirectionDebug(HoldState.CurrentHold.Direction));
 					}
@@ -1490,7 +1441,7 @@ void UCombatComponentV2::DeactivateHold()
 
 						if (GetDebugDraw())
 						{
-							UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack has no ChargeReleaseSection or directional follow-up - blending to idle (%.2fs)"),
+							UE_LOG(LogCombat, Log, TEXT("[HOLD] Heavy attack has no ChargeReleaseSection or directional follow-up - blending to idle (%.2fs)"),
 								CurrentAttackData->ChargeReleaseBlendTime);
 						}
 
@@ -1504,7 +1455,7 @@ void UCombatComponentV2::DeactivateHold()
 
 						if (GetDebugDraw())
 						{
-							UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Heavy attack state cleared - ready for new input"));
+							UE_LOG(LogCombat, Log, TEXT("[HOLD] Heavy attack state cleared - ready for new input"));
 						}
 					}
 				}
@@ -1530,7 +1481,7 @@ void UCombatComponentV2::DeactivateHold()
 		CurrentPlayRate = HoldState.CurrentPlayRate;
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Warning, TEXT("[V2 HOLD] Failed to query montage playrate, using HoldState: %.2f"), CurrentPlayRate);
+			UE_LOG(LogCombat, Warning, TEXT("[HOLD] Failed to query montage playrate, using HoldState: %.2f"), CurrentPlayRate);
 		}
 	}
 
@@ -1542,7 +1493,7 @@ void UCombatComponentV2::DeactivateHold()
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Light attack EASE-OUT starting from ACTUAL playrate: %.2f → 1.0"), CurrentPlayRate);
+		UE_LOG(LogCombat, Log, TEXT("[HOLD] Light attack EASE-OUT starting from ACTUAL playrate: %.2f → 1.0"), CurrentPlayRate);
 	}
 
 	// NOTE: We keep HoldState.bIsHolding = true during ease-out
@@ -1555,21 +1506,21 @@ void UCombatComponentV2::DeactivateHold()
 	GetWorld()->GetTimerManager().SetTimer(
 		EaseTimerHandle,
 		this,
-		&UCombatComponentV2::OnEaseTimerTick,
+		&UCombatComponent::OnEaseTimerTick,
 		TimerInterval,
 		true // Loop
 	);
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD TIMER] EASE-OUT started (%.2f → 1.0 over %.2fs using %s @ 60Hz)"),
+		UE_LOG(LogCombat, Log, TEXT("[HOLD TIMER] EASE-OUT started (%.2f → 1.0 over %.2fs using %s @ 60Hz)"),
 			CurrentPlayRate,
 			CurrentAttackData->HoldEaseOutDuration,
 			*UEnum::GetValueAsString(CurrentAttackData->HoldEaseOutType));
 	}
 }
 
-void UCombatComponentV2::OnEaseTimerTick()
+void UCombatComponent::OnEaseTimerTick()
 {
 	// V2 TIMER-BASED EASE TRANSITION (NOT tick-based!)
 	// This function is called by FTimerHandle at regular intervals (60 Hz)
@@ -1619,7 +1570,7 @@ void UCombatComponentV2::OnEaseTimerTick()
 			if (GetDebugDraw())
 			{
 				float TotalHoldDuration = CurrentTime - HoldState.CurrentHold.StartTime;
-				UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Light attack freeze reached - hold marked completed (duration: %.2fs)"), TotalHoldDuration);
+				UE_LOG(LogCombat, Log, TEXT("[HOLD] Light attack freeze reached - hold marked completed (duration: %.2fs)"), TotalHoldDuration);
 			}
 		}
 		// If EASE-OUT just completed, execute follow-up attack ONLY if hold was completed
@@ -1648,7 +1599,7 @@ void UCombatComponentV2::OnEaseTimerTick()
 
 						if (GetDebugDraw())
 						{
-							UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Directional follow-up found: Direction=%s, Attack=%s (hold duration: %.2fs)"),
+							UE_LOG(LogCombat, Log, TEXT("[HOLD] Directional follow-up found: Direction=%s, Attack=%s (hold duration: %.2fs)"),
 								*UEnum::GetValueAsString(HoldState.CurrentHold.Direction),
 								*FollowUpAttack->GetName(),
 								TotalHoldDuration);
@@ -1670,18 +1621,18 @@ void UCombatComponentV2::OnEaseTimerTick()
 
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Directional follow-up queued: %s"), *FollowUpAttack->GetName());
+						UE_LOG(LogCombat, Log, TEXT("[HOLD] Directional follow-up queued: %s"), *FollowUpAttack->GetName());
 					}
 				}
 				else if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] No directional follow-up configured for direction=%s"),
+					UE_LOG(LogCombat, Log, TEXT("[HOLD] No directional follow-up configured for direction=%s"),
 						*UEnum::GetValueAsString(HoldState.CurrentHold.Direction));
 				}
 			}
 			else if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Hold not completed - skipping follow-up attack (duration: %.2fs)"),
+				UE_LOG(LogCombat, Log, TEXT("[HOLD] Hold not completed - skipping follow-up attack (duration: %.2fs)"),
 					TotalHoldDuration);
 			}
 
@@ -1694,7 +1645,7 @@ void UCombatComponentV2::OnEaseTimerTick()
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 HOLD TIMER] %s complete, final playrate: %.2f"),
+			UE_LOG(LogCombat, Log, TEXT("[HOLD TIMER] %s complete, final playrate: %.2f"),
 				bIsEasingIn ? TEXT("EASE-IN") : TEXT("EASE-OUT"),
 				HoldState.CurrentPlayRate);
 		}
@@ -1724,7 +1675,7 @@ void UCombatComponentV2::OnEaseTimerTick()
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Verbose, TEXT("[V2 HOLD TIMER] %s playrate: %.2f → %.2f (%.1f%% complete)"),
+		UE_LOG(LogCombat, Verbose, TEXT("[HOLD TIMER] %s playrate: %.2f → %.2f (%.1f%% complete)"),
 			bIsEasingIn ? TEXT("EASE-IN") : TEXT("EASE-OUT"),
 			HoldState.EaseStartPlayRate, TargetPlayRate,
 			(ElapsedTime / EaseDuration) * 100.0f);
@@ -1735,7 +1686,7 @@ void UCombatComponentV2::OnEaseTimerTick()
 // PHASE TRANSITION SYSTEM (V2)
 // ============================================================================
 
-void UCombatComponentV2::OnPhaseTransition(EAttackPhase NewPhase)
+void UCombatComponent::OnPhaseTransition(EAttackPhase NewPhase)
 {
 	// CRITICAL: Update CurrentPhase FIRST before any other logic
 	// This ensures DetermineExecutionMode sees the correct phase for incoming input
@@ -1752,12 +1703,12 @@ void UCombatComponentV2::OnPhaseTransition(EAttackPhase NewPhase)
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Phase transition complete: %s (queue processed event-driven)"),
+		UE_LOG(LogCombat, Log, TEXT("[PHASE] Phase transition complete: %s (queue processed event-driven)"),
 			*UEnum::GetValueAsString(NewPhase));
 	}
 }
 
-void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
+void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 {
 	if (CurrentPhase == NewPhase)
 	{
@@ -1769,7 +1720,7 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Phase transition: %d → %d"),
+		UE_LOG(LogCombat, Log, TEXT("[PHASE] Phase transition: %d → %d"),
 			static_cast<int32>(OldPhase),
 			static_cast<int32>(NewPhase));
 	}
@@ -1784,8 +1735,7 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Recovery entered - Commit window cleared"));
-				/*TODO: We have gotten rid of the commit window system so please confirm that the above line is referencing that deprecated system and if so update it so it is inline with our current architecture*/
+				UE_LOG(LogCombat, Log, TEXT("[PHASE] Recovery entered - Input state reset"));
 			}
 			break;
 
@@ -1804,7 +1754,7 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 PHASE] Attack finished - Combo state, hold state, and input context cleared"));
+				UE_LOG(LogCombat, Log, TEXT("[PHASE] Attack finished - Combo state, hold state, and input context cleared"));
 			}
 			break;
 
@@ -1814,11 +1764,11 @@ void UCombatComponentV2::SetPhase(EAttackPhase NewPhase)
 }
 /*TODO: Consider adding OnPhaseEnter/Exit events for more granular control --> Also we know that active phase is when queued input actions can be executed so perhaps having phase specific logic for simple things like this would be prudent*/
 
-void UCombatComponentV2::OnMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
+void UCombatComponent::OnMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
 {
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 MONTAGE] Montage blending out: %s | Interrupted: %s"),
+		UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Montage blending out: %s | Interrupted: %s"),
 			Montage ? *Montage->GetName() : TEXT("None"),
 			bInterrupted ? TEXT("YES") : TEXT("NO"));
 	}
@@ -1831,11 +1781,11 @@ void UCombatComponentV2::OnMontageBlendingOut(UAnimMontage* Montage, bool bInter
 	/*TODO: Consider allowing new attack to start here during blend out? Place some helpful checks and transition smoothing here of some sort*/
 }
 
-void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 MONTAGE] Montage ended: %s | Interrupted: %s"),
+		UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Montage ended: %s | Interrupted: %s"),
 			Montage ? *Montage->GetName() : TEXT("None"),
 			bInterrupted ? TEXT("YES") : TEXT("NO"));
 	}
@@ -1850,7 +1800,7 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Warning, TEXT("[V2 MONTAGE] Interrupted - input state reset"));
+			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Interrupted - input state reset"));
 		}
 	}
 
@@ -1866,7 +1816,7 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 	{
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Warning, TEXT("[V2 MONTAGE] Montage ended with %d queued actions - checking which are ready"), ActionQueue.Num());
+			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Montage ended with %d queued actions - checking which are ready"), ActionQueue.Num());
 		}
 
 		// Get montage end time to check if actions reached their checkpoint
@@ -1892,7 +1842,7 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 				{
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Discarding action (checkpoint never reached): Type=%s, ScheduledTime=%.2f"),
+						UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Discarding action (checkpoint never reached): Type=%s, ScheduledTime=%.2f"),
 							*UEnum::GetValueAsString(Entry.InputAction.InputType), Entry.ScheduledTime);
 					}
 
@@ -1907,7 +1857,7 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 				{
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogCombat, Log, TEXT("[V2 QUEUE] Executing action from ended montage: Type=%s, ScheduledTime=%.2f, MontageEndTime=%.2f"),
+						UE_LOG(LogCombat, Log, TEXT("[QUEUE] Executing action from ended montage: Type=%s, ScheduledTime=%.2f, MontageEndTime=%.2f"),
 							*UEnum::GetValueAsString(Entry.InputAction.InputType), Entry.ScheduledTime, MontageEndTime);
 					}
 
@@ -1926,7 +1876,7 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 				{
 					if (GetDebugDraw())
 					{
-						UE_LOG(LogCombat, Warning, TEXT("[V2 QUEUE] Discarding action (montage ended before checkpoint): Type=%s, ScheduledTime=%.2f, MontageEndTime=%.2f"),
+						UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Discarding action (montage ended before checkpoint): Type=%s, ScheduledTime=%.2f, MontageEndTime=%.2f"),
 							*UEnum::GetValueAsString(Entry.InputAction.InputType), Entry.ScheduledTime, MontageEndTime);
 					}
 
@@ -1956,13 +1906,13 @@ void UCombatComponentV2::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted
 // PROCEDURAL MOVEMENT CONTROL (Phase 1 Fix)
 // ============================================================================
 
-void UCombatComponentV2::UpdateMovementFromMontageState()
+void UCombatComponent::UpdateMovementFromMontageState()
 {
 	// PROCEDURAL MOVEMENT SYNC: Automatically enable/disable movement based on current animation state
 	// This replaces manual DisableMovement/SetMovementMode calls scattered throughout the code
 	// Called from: TickComponent (every frame), PlayAttackMontage (new attack), OnEaseTimerTick (during transitions)
 
-	ASamuraiCharacter* Character = GetOwnerCharacter();
+	ABaseCombatCharacter* Character = GetOwnerCharacter();
 	if (!Character)
 	{
 		return;
@@ -1988,7 +1938,7 @@ void UCombatComponentV2::UpdateMovementFromMontageState()
 
 			if (GetDebugDraw() && !bMovementCurrentlyDisabled)
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 MOVEMENT] Locking movement - hold freeze (playrate=%.2f)"), CurrentPlayRate);
+				UE_LOG(LogCombat, Log, TEXT("[MOVEMENT] Locking movement - hold freeze (playrate=%.2f)"), CurrentPlayRate);
 			}
 		}
 	}
@@ -2000,7 +1950,7 @@ void UCombatComponentV2::UpdateMovementFromMontageState()
 
 		if (GetDebugDraw() && !bMovementCurrentlyDisabled)
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 MOVEMENT] Locking movement - ease-in to freeze"));
+			UE_LOG(LogCombat, Log, TEXT("[MOVEMENT] Locking movement - ease-in to freeze"));
 		}
 	}
 
@@ -2013,7 +1963,7 @@ void UCombatComponentV2::UpdateMovementFromMontageState()
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 MOVEMENT] Movement DISABLED"));
+			UE_LOG(LogCombat, Log, TEXT("[MOVEMENT] Movement DISABLED"));
 		}
 	}
 	else if (!bShouldLockMovement && bMovementCurrentlyDisabled)
@@ -2024,12 +1974,12 @@ void UCombatComponentV2::UpdateMovementFromMontageState()
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 MOVEMENT] Movement ENABLED"));
+			UE_LOG(LogCombat, Log, TEXT("[MOVEMENT] Movement ENABLED"));
 		}
 	}
 }
 
-void UCombatComponentV2::ClearHoldState()
+void UCombatComponent::ClearHoldState()
 {
 	// CRITICAL: Complete hold state cleanup when starting new attack or on montage end
 	// Prevents state leaks between attacks
@@ -2041,7 +1991,7 @@ void UCombatComponentV2::ClearHoldState()
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Ease timer cleared"));
+			UE_LOG(LogCombat, Log, TEXT("[HOLD] Ease timer cleared"));
 		}
 	}
 
@@ -2052,14 +2002,14 @@ void UCombatComponentV2::ClearHoldState()
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Hold state cleared"));
+			UE_LOG(LogCombat, Log, TEXT("[HOLD] Hold state cleared"));
 		}
 	}
 
 	// CRITICAL: Forcibly restore montage playrate to 1.0
 	// This prevents blending artifacts when combo interrupts hold ease mid-transition
 	// Without this, new montage starts with wrong playrate (e.g., 0.75) causing "partial blend" visual issues
-	ASamuraiCharacter* Character = GetOwnerCharacter();
+	ABaseCombatCharacter* Character = GetOwnerCharacter();
 	if (Character)
 	{
 		float CurrentPlayRate = UMontageUtilityLibrary::GetMontagePlayRate(Character);
@@ -2069,7 +2019,7 @@ void UCombatComponentV2::ClearHoldState()
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Playrate restored: %.2f → 1.0"), CurrentPlayRate);
+				UE_LOG(LogCombat, Log, TEXT("[HOLD] Playrate restored: %.2f → 1.0"), CurrentPlayRate);
 			}
 		}
 	}
@@ -2080,18 +2030,95 @@ void UCombatComponentV2::ClearHoldState()
 
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 HOLD] Directional input window CLOSED"));
+		UE_LOG(LogCombat, Log, TEXT("[HOLD] Directional input window CLOSED"));
 	}
 
 	// Ensure movement is synced to new state
 	UpdateMovementFromMontageState();
 }
 
+void UCombatComponent::SetupDirectionalWarpForAttack(UAttackData* AttackData)
+{
+	// Early exit if no valid attack data or directional warp disabled
+	if (!AttackData || !AttackData->DirectionalWarpConfig.bEnableDirectionalWarp)
+	{
+		return;
+	}
+
+	// Only setup warp if we have a captured directional input
+	if (!DirectionalInputBuffer.HasValidInput())
+	{
+		return;
+	}
+
+	ABaseCombatCharacter* Character = GetOwnerCharacter();
+	if (!Character)
+	{
+		return;
+	}
+
+	// Convert buffered input direction to world vector
+	const FVector WorldDirection = CombatHelpers::InputDirectionToWorldVector(
+		DirectionalInputBuffer.DirectionAtRelease,
+		Character
+	);
+
+	if (WorldDirection.IsNearlyZero())
+	{
+		return;
+	}
+
+	// Get targeting component for soft aim assist
+	UTargetingComponent* Targeting = Character->GetTargetingComponent();
+	if (!Targeting)
+	{
+		return;
+	}
+
+	// Use soft aim assist to find best target in direction
+	// If found, rotation will snap to target; otherwise, use pure input direction
+	AActor* BestTarget = nullptr;
+	FRotator TargetRotation = Targeting->FindBestTargetForDirection(
+		WorldDirection,
+		BestTarget,  // OutBestTarget is second parameter
+		-1.0f,       // Use CombatSettings defaults for remaining params
+		-1.0f,
+		-1.0f,
+		-1.0f,
+		-1.0f
+	);
+
+	// Setup the directional warp
+	const bool bSuccess = Targeting->SetupDirectionalWarp(
+		TargetRotation.Vector(),
+		AttackData->DirectionalWarpConfig
+	);
+
+	if (GetDebugDraw())
+	{
+		if (bSuccess)
+		{
+			UE_LOG(LogCombat, Log, TEXT("[DIRECTIONAL WARP] Set up: Direction=%s, Target=%s, Rotation=%.1f°"),
+				*UEnum::GetValueAsString(DirectionalInputBuffer.DirectionAtRelease),
+				BestTarget ? *BestTarget->GetName() : TEXT("None (pure direction)"),
+				TargetRotation.Yaw);
+		}
+		else
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[DIRECTIONAL WARP] Setup failed: Direction=%s"),
+				*UEnum::GetValueAsString(DirectionalInputBuffer.DirectionAtRelease));
+		}
+	}
+
+	// Clear directional buffer after use (one-shot)
+	DirectionalInputBuffer.Reset();
+}
+
 // ============================================================================
 // STATE QUERIES
 // ============================================================================
 
-int32 UCombatComponentV2::GetPendingActionCount() const
+int32 UCombatComponent::GetPendingActionCount() const
 {
 	int32 Count = 0;
 	for (const FActionQueueEntry& Entry : ActionQueue)
@@ -2104,7 +2131,7 @@ int32 UCombatComponentV2::GetPendingActionCount() const
 	return Count;
 }
 
-float UCombatComponentV2::GetHoldDuration() const
+float UCombatComponent::GetHoldDuration() const
 {
 	return HoldState.GetHoldDuration(GetWorld()->GetTimeSeconds());
 }
@@ -2113,7 +2140,7 @@ float UCombatComponentV2::GetHoldDuration() const
 // DEBUG / VISUALIZATION
 // ============================================================================
 
-void UCombatComponentV2::DrawDebugInfo() const
+void UCombatComponent::DrawDebugInfo() const
 {
 	if (!GetOwner())
 	{
@@ -2255,14 +2282,14 @@ void UCombatComponentV2::DrawDebugInfo() const
 // INTERNAL HELPERS
 // ============================================================================
 
-void UCombatComponentV2::ProcessInputPair(const FQueuedInputAction& PressEvent, const FQueuedInputAction& ReleaseEvent)
+void UCombatComponent::ProcessInputPair(const FQueuedInputAction& PressEvent, const FQueuedInputAction& ReleaseEvent)
 {
 	// Calculate hold duration
 	float HoldDuration = ReleaseEvent.Timestamp - PressEvent.Timestamp;
 
 	if ( GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 INPUT] Pair processed: %s held for %.2fs"),
+		UE_LOG(LogCombat, Log, TEXT("[INPUT] Pair processed: %s held for %.2fs"),
 			*UEnum::GetValueAsString(PressEvent.InputType),
 			HoldDuration);
 	}
@@ -2271,7 +2298,7 @@ void UCombatComponentV2::ProcessInputPair(const FQueuedInputAction& PressEvent, 
 	// This could trigger special actions based on hold duration in future
 }
 
-EActionExecutionMode UCombatComponentV2::DetermineExecutionMode(const FQueuedInputAction& InputAction) const
+EActionExecutionMode UCombatComponent::DetermineExecutionMode(const FQueuedInputAction& InputAction) const
 {
 	// ============================================================================
 	// PHASE-BASED EXECUTION (V2 Smart Queue Management)
@@ -2297,7 +2324,7 @@ EActionExecutionMode UCombatComponentV2::DetermineExecutionMode(const FQueuedInp
 	return EActionExecutionMode::Immediate;
 }
 
-UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType)
+UAttackData* UCombatComponent::GetAttackForInput(EInputType InputType)
 {
 	// Get default attacks as fallbacks through CombatSettings → AttackConfiguration
 	UAttackData* DefaultLightAttack = GetDefaultLightAttack();
@@ -2316,7 +2343,7 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType)
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 COMBO] Allowing combo from phase %s (CurrentAttack=%s)"),
+			UE_LOG(LogCombat, Log, TEXT("[COMBO] Allowing combo from phase %s (CurrentAttack=%s)"),
 				*UEnum::GetValueAsString(CurrentPhase),
 				*CurrentAttackData->GetName());
 		}
@@ -2325,7 +2352,7 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType)
 	// Debug: Log combo resolution context
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Warning, TEXT("[V2 COMBO DEBUG] GetAttackForInput: Phase=%s, CurrentAttack=%s, ComboWindow=%s, bShouldCombo=%s"),
+		UE_LOG(LogCombat, Warning, TEXT("[COMBO DEBUG] GetAttackForInput: Phase=%s, CurrentAttack=%s, ComboWindow=%s, bShouldCombo=%s"),
 			*UEnum::GetValueAsString(CurrentPhase),
 			CurrentAttackData ? *CurrentAttackData->GetName() : TEXT("nullptr"),
 			bComboWindowActive ? TEXT("ACTIVE") : TEXT("Inactive"),
@@ -2355,7 +2382,7 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType)
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 DIRECTIONAL] Using buffered direction: %s (captured at %.2f) → AttackDirection=%s"),
+			UE_LOG(LogCombat, Log, TEXT("[DIRECTIONAL] Using buffered direction: %s (captured at %.2f) → AttackDirection=%s"),
 				*UEnum::GetValueAsString(DirectionalInputBuffer.DirectionAtRelease),
 				DirectionalInputBuffer.CaptureTime,
 				*UEnum::GetValueAsString(AttackDirection));
@@ -2364,7 +2391,7 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType)
 	else if (GetDebugDraw())
 	{
 		// No directional input buffered (movement context OR no hold release)
-		UE_LOG(LogCombat, Verbose, TEXT("[V2 DIRECTIONAL] No buffered direction (AttackDirection=None)"));
+		UE_LOG(LogCombat, Verbose, TEXT("[DIRECTIONAL] No buffered direction (AttackDirection=None)"));
 	}
 
 	// ========================================================================
@@ -2391,7 +2418,7 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType)
 	// Check for cycle detection error
 	if (Result.bCycleDetected)
 	{
-		UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] Cycle detected! Aborting resolution for safety."));
+		UE_LOG(LogCombat, Error, TEXT("[RESOLVE] Cycle detected! Aborting resolution for safety."));
 		return nullptr;
 	}
 
@@ -2406,7 +2433,7 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType)
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 DIRECTIONAL] Buffer cleared (directional consumed)"));
+			UE_LOG(LogCombat, Log, TEXT("[DIRECTIONAL] Buffer cleared (directional consumed)"));
 		}
 
 		// DEPRECATED: Keep LastDirectionalInput clearing for backward compatibility
@@ -2427,7 +2454,7 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType)
 			case EResolutionPath::ContextSensitive: PathName = TEXT("ContextSensitive"); break;
 		}
 
-		UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] ✓ Resolved to: '%s' (Path=%s, ClearInput=%s)"),
+		UE_LOG(LogCombat, Log, TEXT("[RESOLVE] ✓ Resolved to: '%s' (Path=%s, ClearInput=%s)"),
 			*Result.Attack->GetName(),
 			PathName,
 			Result.bShouldClearDirectionalInput ? TEXT("YES") : TEXT("NO"));
@@ -2437,18 +2464,18 @@ UAttackData* UCombatComponentV2::GetAttackForInput(EInputType InputType)
 	// Kept for backward compatibility, will be removed when LastDirectionalInput fully deprecated
 	if (Result.Path == EResolutionPath::DirectionalFollowUp)
 	{
-		const_cast<UCombatComponentV2*>(this)->bDirectionalInputConsumed = true;
+		const_cast<UCombatComponent*>(this)->bDirectionalInputConsumed = true;
 	}
 
 	// DEPRECATED: bCurrentAttackIsDirectionalFollowUp flag no longer needed
 	// Keeping for backward compatibility only
-	const_cast<UCombatComponentV2*>(this)->bCurrentAttackIsDirectionalFollowUp =
+	const_cast<UCombatComponent*>(this)->bCurrentAttackIsDirectionalFollowUp =
 		(Result.Path == EResolutionPath::DirectionalFollowUp);
 
 	return Result.Attack;
 }
 
-int32 UCombatComponentV2::CalculatePriority(const FActionQueueEntry& Action) const
+int32 UCombatComponent::CalculatePriority(const FActionQueueEntry& Action) const
 {
 	// Base priority on action type
 	// Light attacks: 1
@@ -2475,7 +2502,7 @@ int32 UCombatComponentV2::CalculatePriority(const FActionQueueEntry& Action) con
 	}
 }
 
-void UCombatComponentV2::SortQueueByTime()
+void UCombatComponent::SortQueueByTime()
 {
 	ActionQueue.Sort([](const FActionQueueEntry& A, const FActionQueueEntry& B)
 	{
@@ -2483,7 +2510,7 @@ void UCombatComponentV2::SortQueueByTime()
 	});
 }
 
-FTimerCheckpoint* UCombatComponentV2::FindCheckpoint(EActionWindowType WindowType)
+FTimerCheckpoint* UCombatComponent::FindCheckpoint(EActionWindowType WindowType)
 {
 	for (FTimerCheckpoint& Checkpoint : Checkpoints)
 	{
@@ -2495,7 +2522,7 @@ FTimerCheckpoint* UCombatComponentV2::FindCheckpoint(EActionWindowType WindowTyp
 	return nullptr;
 }
 
-void UCombatComponentV2::ClearExpiredCheckpoints(float CurrentTime)
+void UCombatComponent::ClearExpiredCheckpoints(float CurrentTime)
 {
 	for (int32 i = Checkpoints.Num() - 1; i >= 0; --i)
 	{
@@ -2513,7 +2540,7 @@ void UCombatComponentV2::ClearExpiredCheckpoints(float CurrentTime)
 
 			if ( GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[V2 CHECKPOINTS] Expired: Type=%s at %.2f"),
+				UE_LOG(LogCombat, Log, TEXT("[CHECKPOINTS] Expired: Type=%s at %.2f"),
 					*UEnum::GetValueAsString(Checkpoint.WindowType),
 					CurrentTime);
 			}
@@ -2523,7 +2550,7 @@ void UCombatComponentV2::ClearExpiredCheckpoints(float CurrentTime)
 	}
 }
 
-bool UCombatComponentV2::CanAcceptNewInput(EInputType InputType) const
+bool UCombatComponent::CanAcceptNewInput(EInputType InputType) const
 {
 	// V2 Design: Input is ALWAYS buffered during Windup/Active (queued execution)
 	// Commit window only blocks IMMEDIATE execution during None/Recovery, not queuing
@@ -2536,7 +2563,7 @@ bool UCombatComponentV2::CanAcceptNewInput(EInputType InputType) const
 		{
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Warning, TEXT("[V2 INPUT] Input REJECTED - Already queued action of same type"));
+				UE_LOG(LogCombat, Warning, TEXT("[INPUT] Input REJECTED - Already queued action of same type"));
 			}
 			return false;
 		}
@@ -2551,7 +2578,7 @@ bool UCombatComponentV2::CanAcceptNewInput(EInputType InputType) const
 
 #if WITH_AUTOMATION_TESTS
 
-FDebugVisualizationData UCombatComponentV2::CalculateDebugVisualizationData(
+FDebugVisualizationData UCombatComponent::CalculateDebugVisualizationData(
 	const FRotator& CameraRotation,
 	const FRotator& CharacterRotation,
 	const FVector2D& CameraRelativeInput,
@@ -2679,7 +2706,7 @@ FDebugVisualizationData UCombatComponentV2::CalculateDebugVisualizationData(
 	return Data;
 }
 
-FColor UCombatComponentV2::GetPhaseDebugColor() const
+FColor UCombatComponent::GetPhaseDebugColor() const
 {
 	switch (CurrentPhase)
 	{
@@ -2690,7 +2717,7 @@ FColor UCombatComponentV2::GetPhaseDebugColor() const
 	}
 }
 
-bool UCombatComponentV2::ShouldUseDashedArrowForInput() const
+bool UCombatComponent::ShouldUseDashedArrowForInput() const
 {
 	return HoldState.IsHolding();
 }

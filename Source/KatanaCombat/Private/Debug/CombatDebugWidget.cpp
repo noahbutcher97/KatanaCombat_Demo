@@ -2,7 +2,7 @@
 
 #include "Debug/CombatDebugWidget.h"
 #include "Debug/SCombatDebugDopeSheet.h"
-#include "Core/CombatComponentV2.h"
+#include "Core/CombatComponent.h"
 #include "GameFramework/Character.h"
 #include "Animation/AnimInstance.h"
 #include "Widgets/SWeakWidget.h"
@@ -30,10 +30,10 @@ void UCombatDebugWidget::BeginPlay()
 	AActor* Owner = GetOwner();
 	if (Owner)
 	{
-		CombatComponent = Owner->FindComponentByClass<UCombatComponentV2>();
+		CombatComponent = Owner->FindComponentByClass<UCombatComponent>();
 		if (!CombatComponent.Get())
 		{
-			UE_LOG(LogTemp, Warning, TEXT("[CombatDebugWidget] No CombatComponentV2 found on %s"), *Owner->GetName());
+			UE_LOG(LogTemp, Warning, TEXT("[CombatDebugWidget] No CombatComponent found on %s"), *Owner->GetName());
 		}
 	}
 }
@@ -117,7 +117,7 @@ void UCombatDebugWidget::CreateWidget()
 {
 	if (!IsValid(CombatComponent))
 	{
-		UE_LOG(LogTemp, Error, TEXT("[CombatDebugWidget] Cannot create widget: No CombatComponentV2"));
+		UE_LOG(LogTemp, Error, TEXT("[CombatDebugWidget] Cannot create widget: No CombatComponent"));
 		return;
 	}
 

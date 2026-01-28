@@ -257,6 +257,8 @@ Combo chains or return to Idle
 - **[ATTACK_CREATION.md](ATTACK_CREATION.md)** - Attack authoring workflow
 - **[API_REFERENCE.md](API_REFERENCE.md)** - Complete API documentation
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** - Common issues and solutions
+- **[CHANGELOG.md](CHANGELOG.md)** - Combat system change history and bug fixes
+- **[ROADMAP.md](ROADMAP.md)** - Planned features and system status
 - **[Source/KatanaCombatTest/README.md](../Source/KatanaCombatTest/README.md)** - C++ unit test suite documentation
 
 ---

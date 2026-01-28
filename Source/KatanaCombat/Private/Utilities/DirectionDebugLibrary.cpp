@@ -185,6 +185,10 @@ void UDirectionDebugLibrary::DrawDirectionTransformDebug(
 	const float DebugDuration = 0.0f; // Single frame (updates each tick from character)
 	const float YawDelta = CalculateYawDelta(FlatCameraRotation.Yaw, CharacterRotation.Yaw);
 
+	// CRITICAL FIX (2025-11-20): Detect mesh offset for debug display
+	FRotator MeshOffset = GetMeshRotationOffset(Character);
+	const bool bHasMeshOffset = !MeshOffset.IsNearlyZero(0.1f);
+
 	// Priority-based colors
 	const FColor ColorCamera(0, 100, 255);        // Blue (medium)
 	const FColor ColorInputContinuous(255, 255, 0); // Yellow (medium) - solid
@@ -321,23 +325,69 @@ void UDirectionDebugLibrary::DrawDirectionTransformDebug(
 				1.5f);
 		}
 
-		// Arc label at midpoint
+		// Arc label OUTSIDE the arc (at 130% radius) with Z offset for visibility
+		// Position at midpoint of the arc, lifted above the arc plane
 		const float MidAngle = StartAngle + ((YawDelta * (PI / 180.0f)) / 2.0f);
+		const float LabelRadius = ArcRadius * 1.3f; // Outside the arc
+		const float LabelZOffset = 15.0f; // Lift above arc plane
+		const FVector ArcLabelPoint = CharacterLocation + ChestOffset +
+			FVector(FMath::Cos(MidAngle), FMath::Sin(MidAngle), 0) * LabelRadius +
+			FVector(0, 0, LabelZOffset);
+
+		// Draw connecting line from arc to label for clarity
 		const FVector ArcMidPoint = CharacterLocation + ChestOffset +
-			FVector(FMath::Cos(MidAngle), FMath::Sin(MidAngle), 0) * (ArcRadius * 0.7f);
-		DrawDebugString(World, ArcMidPoint,
-			FString::Printf(TEXT("Δ%.0f°"), AbsYawDelta),
-			nullptr, FColor::White, DebugDuration, true, 1.0f);
+			FVector(FMath::Cos(MidAngle), FMath::Sin(MidAngle), 0) * ArcRadius;
+		DrawDebugLine(World,
+			ArcMidPoint, ArcLabelPoint,
+			FColor(200, 200, 200, 180), // Light gray
+			false, DebugDuration, 0, 1.0f);
+
+		// Label with cyan color for better visibility against other elements
+		DrawDebugString(World, ArcLabelPoint,
+			FString::Printf(TEXT("CAM-CHAR Δ%.0f°"), AbsYawDelta),
+			nullptr, FColor::Cyan, DebugDuration, true, 1.2f);
 	}
 
 	// ========================================================================
-	// HOLD STATE INDICATOR (if active)
+	// SUMMARY PANEL - Always visible above character's head
+	// Shows key info regardless of facing direction
 	// ========================================================================
+	const float SummaryBaseZ = 150.0f; // Well above chest height
+	const float SummaryLineSpacing = 18.0f;
+	int32 SummaryLine = 0;
+
+	// Resolved Direction (most important - large and bright)
+	DrawDebugString(World, CharacterLocation + FVector(0, 0, SummaryBaseZ + SummaryLineSpacing * SummaryLine++),
+		FString::Printf(TEXT("► ATTACK: %s"), *FormatAttackDirectionDebug(AttackDirection)),
+		nullptr, FColor::Magenta, DebugDuration, true, 1.6f);
+
+	// Input Direction
+	DrawDebugString(World, CharacterLocation + FVector(0, 0, SummaryBaseZ + SummaryLineSpacing * SummaryLine++),
+		FString::Printf(TEXT("  Input: %s"), *FormatInputDirectionDebug(CharacterRelativeDirection)),
+		nullptr, FColor::Orange, DebugDuration, true, 1.2f);
+
+	// Camera-Character Delta (if significant)
+	if (AbsYawDelta > 5.0f)
+	{
+		DrawDebugString(World, CharacterLocation + FVector(0, 0, SummaryBaseZ + SummaryLineSpacing * SummaryLine++),
+			FString::Printf(TEXT("  Cam-Char: Δ%.0f°"), YawDelta),
+			nullptr, FColor::Cyan, DebugDuration, true, 1.2f);
+	}
+
+	// Hold state indicator
 	if (bIsHoldActive)
 	{
-		DrawDebugString(World, CharacterLocation + ChestOffset + FVector(0, 0, 200),
-			TEXT("⬛ HOLD ACTIVE"),
-			nullptr, ColorInputHold, DebugDuration, true, 1.5f);
+		DrawDebugString(World, CharacterLocation + FVector(0, 0, SummaryBaseZ + SummaryLineSpacing * SummaryLine++),
+			TEXT("  [HOLD ACTIVE]"),
+			nullptr, ColorInputHold, DebugDuration, true, 1.2f);
+	}
+
+	// Mesh offset indicator
+	if (bHasMeshOffset)
+	{
+		DrawDebugString(World, CharacterLocation + FVector(0, 0, SummaryBaseZ + SummaryLineSpacing * SummaryLine++),
+			FString::Printf(TEXT("  Mesh Offset: %.0f°"), MeshOffset.Yaw),
+			nullptr, FColor::Green, DebugDuration, true, 1.0f);
 	}
 }
 

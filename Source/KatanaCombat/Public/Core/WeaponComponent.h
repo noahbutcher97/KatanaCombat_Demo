@@ -57,13 +57,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Pawn;
 
-    /** Enable debug visualization */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Debug")
-    bool bDebugDraw = false;
-
-    /** Debug draw duration (seconds) */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Debug")
-    float DebugDrawDuration = 2.0f;
+    // Debug visualization is now controlled via CVars:
+    // Combat.Debug.Weapon 1 - Enable weapon trace visualization
+    // Combat.Debug.DrawDuration 2.0 - Set debug draw duration
 
     // ============================================================================
     // HIT DETECTION CONTROL

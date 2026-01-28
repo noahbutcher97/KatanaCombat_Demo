@@ -11,7 +11,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "Data/AttackData.h"
-#include "Core/CombatComponentV2.h"  // For LogCombat declaration
+#include "Core/CombatComponent.h"  // For LogCombat declaration
 
 // ============================================================================
 // MONTAGE TIME QUERIES
@@ -1152,16 +1152,32 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 			}
 			else
 			{
-				// LAST RESORT: Even emergency fallback failed
-				UE_LOG(LogCombat, Fatal, TEXT("[V2 RESOLVE] FATAL: Cannot resolve attack! "
-				                              "No default attack AND no current attack. Combat system is broken."));
+				// LAST RESORT: Even emergency fallback failed - return nullptr, DON'T crash
+				UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] Cannot resolve attack: No default AND no current attack. "
+				                              "Check CombatSettings assignment on character."));
+				#if WITH_EDITOR
+				if (GEngine)
+				{
+					GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red,
+						TEXT("Combat: No attacks configured. Assign CombatSettings!"));
+				}
+				#endif
+				// Return empty result - caller handles nullptr gracefully
 			}
 		}
 		else
 		{
-			// No visited attacks either (first attack in chain was nullptr)
-			UE_LOG(LogCombat, Fatal, TEXT("[V2 RESOLVE] FATAL: Cannot resolve attack! "
-			                              "No default attack AND no current attack. Combat system is broken."));
+			// No visited attacks either (first attack in chain was nullptr) - DON'T crash
+			UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] Cannot resolve attack: No default AND no current attack. "
+			                              "Check CombatSettings assignment on character."));
+			#if WITH_EDITOR
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(-1, 5.0f, FColor::Red,
+					TEXT("Combat: No attacks configured. Assign CombatSettings!"));
+			}
+			#endif
+			// Return empty result - caller handles nullptr gracefully
 		}
 	}
 

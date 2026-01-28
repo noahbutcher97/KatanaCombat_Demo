@@ -6,7 +6,7 @@
 #include "Widgets/SCompoundWidget.h"
 #include "ActionQueueTypes.h"
 
-class UCombatComponentV2;
+class UCombatComponent;
 
 /**
  * Visual event marker for dope sheet
@@ -91,7 +91,7 @@ public:
 	SLATE_END_ARGS()
 
 	/** Constructs this widget with InArgs */
-	void Construct(const FArguments& InArgs, UCombatComponentV2* InCombatComponent);
+	void Construct(const FArguments& InArgs, UCombatComponent* InCombatComponent);
 
 	/** SWidget overrides */
 	virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyCullingRect,
@@ -111,7 +111,7 @@ public:
 
 private:
 	/** Combat component being visualized */
-	TWeakObjectPtr<UCombatComponentV2> CombatComponent;
+	TWeakObjectPtr<UCombatComponent> CombatComponent;
 
 	/** Timeline tracks */
 	TArray<FDopeSheetTrack> Tracks;

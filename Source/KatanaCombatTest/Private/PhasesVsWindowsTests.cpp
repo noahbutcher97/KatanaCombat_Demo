@@ -8,7 +8,7 @@
  *
  * V2 MIGRATION STATUS: NEEDS REWRITE
  * - V2 uses event-driven phase management via AnimNotify_AttackPhaseTransition
- * - V2 tracks windows via FTimerCheckpoint system in CombatComponentV2
+ * - V2 tracks windows via FTimerCheckpoint system in CombatComponent
  * - Need to use V2 APIs: SetPhase(), GetPhase(), RegisterCheckpoint(), GetActiveWindows()
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPhasesVsWindowsTest, "KatanaCombat.CombatComponent.PhasesVsWindows", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
@@ -17,7 +17,7 @@ bool FPhasesVsWindowsTest::RunTest(const FString& Parameters)
 {
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponentV2* CombatComp = nullptr;
+	UCombatComponent* CombatComp = nullptr;
 	ACharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))

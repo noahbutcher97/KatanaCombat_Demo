@@ -13,7 +13,7 @@
  *
  * TODO V2: Rewrite tests using V2 parry mechanics:
  * - Attacker: RegisterCheckpoint(EActionWindowType::Parry, MontageTime, Duration)
- * - Defender: Check GetActiveWindows() on enemy CombatComponentV2
+ * - Defender: Check GetActiveWindows() on enemy CombatComponent
  * - Test parry timing window (typically 0.3s during early windup)
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FParryDetectionTest, "KatanaCombat.CombatComponent.ParryDetection", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
@@ -22,8 +22,8 @@ bool FParryDetectionTest::RunTest(const FString& Parameters)
 {
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponentV2* AttackerComp = nullptr;
-	UCombatComponentV2* DefenderComp = nullptr;
+	UCombatComponent* AttackerComp = nullptr;
+	UCombatComponent* DefenderComp = nullptr;
 	UTargetingComponent* DefenderTargeting = nullptr;
 
 	ACharacter* Attacker = FCombatTestHelpers::CreateTestCharacterWithCombat(World, AttackerComp);

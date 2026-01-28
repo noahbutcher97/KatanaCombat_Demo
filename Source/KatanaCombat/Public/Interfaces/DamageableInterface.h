@@ -106,4 +106,29 @@ public:
      */
     UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
     bool IsInCounterWindow() const;
+
+    // ========================================================================
+    // HEALTH QUERIES (for targeting system)
+    // ========================================================================
+
+    /**
+     * Get current health value
+     * @return Current health
+     */
+    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Health")
+    float GetCurrentHealth() const;
+
+    /**
+     * Get maximum health value
+     * @return Max health
+     */
+    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Health")
+    float GetMaxHealth() const;
+
+    /**
+     * Check if this actor is alive
+     * @return True if health > 0
+     */
+    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Health")
+    bool IsAlive() const;
 };

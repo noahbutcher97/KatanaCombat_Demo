@@ -21,7 +21,7 @@ bool FStateTransitionTest::RunTest(const FString& Parameters)
 {
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponentV2* CombatComp = nullptr;
+	UCombatComponent* CombatComp = nullptr;
 	ACharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))

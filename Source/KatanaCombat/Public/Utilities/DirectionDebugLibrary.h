@@ -147,12 +147,17 @@ public:
 	 * - Angular arc showing camera-character offset
 	 * - Context-aware filtering and color-coding
 	 * - Real-time updates
+	 * - Mesh offset indicator (shows when mesh rotation differs from actor)
+	 *
+	 * CRITICAL (2025-11-20): CharacterRotation should be TRUE character rotation
+	 * (actor rotation + mesh offset). Use CombatHelpers::GetTrueCharacterRotation(Character)
+	 * to ensure directional calculations account for mesh offset (-90° is common for UE characters).
 	 *
 	 * @param World - World context for drawing
-	 * @param Character - Character actor reference (for text anchoring)
+	 * @param Character - Character actor reference (for text anchoring and mesh offset detection)
 	 * @param CharacterLocation - Character's world position
 	 * @param CameraRotation - Camera rotation (for camera-relative input)
-	 * @param CharacterRotation - Character rotation (for character-relative conversion)
+	 * @param CharacterRotation - TRUE character rotation (actor + mesh offset, NOT just GetActorRotation()!)
 	 * @param CameraRelativeInput - Raw input vector in camera space
 	 * @param WorldInput - Input converted to world space
 	 * @param CharacterRelativeVec - Input converted to character-relative space

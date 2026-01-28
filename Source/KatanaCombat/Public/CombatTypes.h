@@ -4,6 +4,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameFramework/Character.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "CombatTypes.generated.h"
 
 // Forward declarations
@@ -408,6 +410,33 @@ struct FMotionWarpingConfig
     bool bRequireLineOfSight = true;
 };
 
+/**
+ * Configuration for directional rotation warping (input direction-based, not target-based)
+ *
+ * Used for directional attacks where player holds attack button, deflects stick,
+ * and releases to attack in that direction. Separate from FMotionWarpingConfig
+ * which handles target-based warping toward enemies.
+ */
+USTRUCT(BlueprintType)
+struct FDirectionalWarpConfig
+{
+    GENERATED_BODY()
+
+    /** Enable directional rotation warp for this attack */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Directional Warp")
+    bool bEnableDirectionalWarp = true;
+
+    /** Name of the warp target (must match AnimNotifyState_MotionWarping in animation) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Directional Warp",
+        meta = (EditCondition = "bEnableDirectionalWarp"))
+    FName DirectionalWarpTargetName = "DirectionTarget";
+
+    /** Rotation warp speed (degrees per second) - higher = snappier */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Directional Warp",
+        meta = (EditCondition = "bEnableDirectionalWarp", ClampMin = "90.0", ClampMax = "1800.0"))
+    float DirectionalWarpRotationSpeed = 720.0f;
+};
+
 #if WITH_AUTOMATION_TESTS
 /**
  * Debug arrow information for testing
@@ -467,12 +496,12 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCombatStateChanged, ECombatState,
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAttackHit, AActor*, HitActor, float, Damage);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPostureChanged, float, NewPosture);
 
-// V2 Combat System Event Delegates
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnV2AttackStarted, UAttackData*, AttackData, EInputType, InputType, bool, bIsCombo);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnV2PhaseChanged, EAttackPhase, OldPhase, EAttackPhase, NewPhase);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnV2ComboWindowChanged, bool, bActive, float, Duration);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnV2HoldActivated, EInputType, InputType, float, HoldDuration);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnV2MontageEvent, UAnimMontage*, Montage, bool, bInterrupted, FName, EventName);
+// Combat System Event Delegates
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnAttackStarted, UAttackData*, AttackData, EInputType, InputType, bool, bIsCombo);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnPhaseChanged, EAttackPhase, OldPhase, EAttackPhase, NewPhase);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnComboWindowChanged, bool, bActive, float, Duration);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHoldActivated, EInputType, InputType, float, HoldDuration);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnMontageEvent, UAnimMontage*, Montage, bool, bInterrupted, FName, EventName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnGuardBroken);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectParry, AActor*, ParriedActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectEvade, AActor*, EvadedActor);
@@ -530,8 +559,11 @@ namespace CombatHelpers
 			return EInputDirection::None;
 		}
 
-		// Calculate angle in degrees (0 = right, 90 = forward, 180 = left, 270 = backward)
-		float Angle = FMath::Atan2(InputVector.Y, InputVector.X) * (180.0f / PI);
+		// Calculate angle in degrees
+		// Unreal 2D character space convention: X=Forward/Backward, Y=Right/Left
+		// Atan2(X, Y) gives: 0°=Right, 90°=Forward, 180°=Left, 270°=Backward
+		// CRITICAL: Parameter order is Atan2(X, Y) NOT Atan2(Y, X) for correct mapping
+		float Angle = FMath::Atan2(InputVector.X, InputVector.Y) * (180.0f / PI);
 
 		// Normalize to 0-360 range
 		if (Angle < 0.0f)
@@ -540,7 +572,8 @@ namespace CombatHelpers
 		}
 
 		// Map angle to 8-way direction (45-degree sectors)
-		// Right: 337.5-22.5, ForwardRight: 22.5-67.5, Forward: 67.5-112.5, etc.
+		// Right: 337.5-22.5°, ForwardRight: 22.5-67.5°, Forward: 67.5-112.5°, etc.
+		// FIXED (2025-11-21): Mappings rotated 90° to match corrected Atan2(X,Y) parameter order
 		if (Angle >= 337.5f || Angle < 22.5f)
 			return EInputDirection::Right;
 		else if (Angle >= 22.5f && Angle < 67.5f)
@@ -560,12 +593,86 @@ namespace CombatHelpers
 	}
 
 	/**
+	 * Get character rotation for directional calculations
+	 *
+	 * For characters using bOrientRotationToMovement (standard), actor rotation = visual facing direction.
+	 * The mesh relative rotation is typically model correction (e.g., -90° for Y+-facing models),
+	 * NOT an intentional facing offset.
+	 *
+	 * @param Character - Character to query
+	 * @param bIncludeMeshOffset - If true, adds mesh relative rotation to actor rotation.
+	 *                             Default false (standard UE characters with model correction offset).
+	 *                             Set true only for characters where mesh is intentionally rotated
+	 *                             relative to movement direction.
+	 * @return Actor rotation, optionally with mesh offset applied
+	 */
+	inline FRotator GetMeshCompensatedRotation(const ACharacter* Character, bool bIncludeMeshOffset = false)
+	{
+		if (!Character)
+		{
+			return FRotator::ZeroRotator;
+		}
+
+		FRotator ActorRotation = Character->GetActorRotation();
+
+		// Default: Return actor rotation directly
+		// For bOrientRotationToMovement characters, this IS the visual facing direction
+		if (!bIncludeMeshOffset)
+		{
+			return ActorRotation;
+		}
+
+		// Optional: Include mesh offset (rare - only for intentionally offset meshes)
+		USkeletalMeshComponent* Mesh = Character->GetMesh();
+		if (!Mesh)
+		{
+			return ActorRotation;
+		}
+
+		FRotator MeshRelativeRotation = Mesh->GetRelativeRotation();
+		FRotator TrueRotation = ActorRotation;
+		TrueRotation.Yaw += MeshRelativeRotation.Yaw;
+
+		// Normalize yaw to -180 to +180 range
+		TrueRotation.Yaw = FMath::Fmod(TrueRotation.Yaw + 180.0f, 360.0f) - 180.0f;
+
+		return TrueRotation;
+	}
+
+	/**
+	 * Get mesh rotation offset from actor rotation
+	 * Convenience wrapper around DirectionDebugLibrary::GetMeshRotationOffset for inline use
+	 *
+	 * @param Character - Character to query
+	 * @return Mesh rotation offset (ZeroRotator if no offset or invalid)
+	 */
+	inline FRotator GetMeshRotationOffset(const ACharacter* Character)
+	{
+		if (!Character)
+		{
+			return FRotator::ZeroRotator;
+		}
+
+		USkeletalMeshComponent* Mesh = Character->GetMesh();
+		if (!Mesh)
+		{
+			return FRotator::ZeroRotator;
+		}
+
+		// Return mesh's relative rotation (offset from actor)
+		return Mesh->GetRelativeRotation();
+	}
+
+	/**
 	 * Calculate 8-way input direction from camera-relative input vector, transformed to CHARACTER-RELATIVE space
 	 * This function properly handles cases where character facing != camera facing
 	 *
+	 * CRITICAL FIX (2025-11-20): Now accounts for mesh rotation offset to prevent 90° calculation errors
+	 * when character mesh is rotated in editor (common UE pattern: -90° yaw for character meshes)
+	 *
 	 * Coordinate Space Transformations:
 	 * 1. Camera-Relative Input (from gamepad) → World Space (rotate by camera yaw)
-	 * 2. World Space → Character-Relative Space (rotate by -character yaw)
+	 * 2. World Space → Character-Relative Space (rotate by -character yaw WITH mesh offset)
 	 * 3. Character-Relative 3D → 2D (project to XY plane)
 	 * 4. 2D Vector → 8-way direction enum
 	 *
@@ -577,13 +684,15 @@ namespace CombatHelpers
 	 *
 	 * @param CameraRelativeInput - Normalized 2D input from gamepad (X=right, Y=forward relative to camera view)
 	 * @param CameraRotation - Current camera rotation (only Yaw is used)
-	 * @param CharacterRotation - Current character rotation (only Yaw is used)
+	 * @param Character - Character for mesh offset detection (if nullptr, uses CharacterRotation as-is)
+	 * @param CharacterRotation - Current character ACTOR rotation (mesh offset applied automatically if Character provided)
 	 * @param DeadZone - Minimum magnitude to register input (default 0.2)
-	 * @return 8-way direction enum relative to character's facing direction
+	 * @return 8-way direction enum relative to character's mesh-compensated facing direction
 	 */
 	inline EInputDirection VectorToCharacterRelativeDirection(
 		const FVector2D& CameraRelativeInput,
 		const FRotator& CameraRotation,
+		const ACharacter* Character,
 		const FRotator& CharacterRotation,
 		float DeadZone = 0.2f)
 	{
@@ -591,6 +700,15 @@ namespace CombatHelpers
 		if (CameraRelativeInput.Size() < DeadZone)
 		{
 			return EInputDirection::None;
+		}
+
+		// STEP 0: Get mesh-compensated character rotation (actor rotation + mesh offset)
+		// CRITICAL: Character meshes are often rotated -90° in editor
+		// We must use the mesh's actual forward direction, not the actor's root rotation
+		FRotator MeshCompensatedRotation = CharacterRotation;
+		if (Character)
+		{
+			MeshCompensatedRotation = GetMeshCompensatedRotation(Character);
 		}
 
 		// STEP 1: Convert camera-relative 2D input to world space 3D vector
@@ -608,8 +726,8 @@ namespace CombatHelpers
 		WorldInput.Normalize();
 
 		// STEP 2: Convert world space vector to character-relative space
-		// Rotate by inverse of character's yaw to get direction relative to character's facing
-		const FRotator InverseCharacterYaw(0.0f, -CharacterRotation.Yaw, 0.0f);
+		// Rotate by inverse of character's mesh-compensated yaw to get direction relative to character's ACTUAL facing
+		const FRotator InverseCharacterYaw(0.0f, -MeshCompensatedRotation.Yaw, 0.0f);
 		const FVector CharacterRelative = InverseCharacterYaw.RotateVector(WorldInput);
 
 		// STEP 3: Project 3D character-relative vector to 2D (XY plane)
@@ -617,5 +735,65 @@ namespace CombatHelpers
 
 		// STEP 4: Convert 2D vector to 8-way direction using existing helper
 		return VectorToInputDirection(CharacterRelative2D, DeadZone);
+	}
+
+	/**
+	 * Convert EInputDirection enum to world space direction vector
+	 * Used by directional attack system to determine attack direction from buffered input
+	 *
+	 * @param Direction - 8-way input direction
+	 * @param Character - Character to get rotation from
+	 * @return World space direction vector (normalized), or ZeroVector if Direction is None
+	 */
+	inline FVector InputDirectionToWorldVector(EInputDirection Direction, const ACharacter* Character)
+	{
+		if (!Character || Direction == EInputDirection::None)
+		{
+			return FVector::ZeroVector;
+		}
+
+		const FRotator CharRotation = Character->GetActorRotation();
+		const FVector Forward = CharRotation.Vector();
+		const FVector Right = FRotationMatrix(CharRotation).GetScaledAxis(EAxis::Y);
+
+		switch (Direction)
+		{
+			case EInputDirection::Forward:
+				return Forward;
+			case EInputDirection::ForwardRight:
+				return (Forward + Right).GetSafeNormal();
+			case EInputDirection::Right:
+				return Right;
+			case EInputDirection::BackwardRight:
+				return (-Forward + Right).GetSafeNormal();
+			case EInputDirection::Backward:
+				return -Forward;
+			case EInputDirection::BackwardLeft:
+				return (-Forward - Right).GetSafeNormal();
+			case EInputDirection::Left:
+				return -Right;
+			case EInputDirection::ForwardLeft:
+				return (Forward - Right).GetSafeNormal();
+			default:
+				return Forward;
+		}
+	}
+
+	/**
+	 * Convert EInputDirection enum to world rotation (yaw only)
+	 * Convenience wrapper for setting motion warp targets
+	 *
+	 * @param Direction - 8-way input direction
+	 * @param Character - Character to get rotation from
+	 * @return World rotation (yaw only), or character's rotation if Direction is None
+	 */
+	inline FRotator InputDirectionToWorldRotation(EInputDirection Direction, const ACharacter* Character)
+	{
+		FVector WorldDir = InputDirectionToWorldVector(Direction, Character);
+		if (WorldDir.IsNearlyZero())
+		{
+			return Character ? Character->GetActorRotation() : FRotator::ZeroRotator;
+		}
+		return WorldDir.Rotation();
 	}
 }

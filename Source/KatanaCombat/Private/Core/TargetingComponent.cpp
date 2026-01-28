@@ -1,23 +1,28 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/TargetingComponent.h"
+#include "Debug/DebugConfig.h"
 #include "GameFramework/Character.h"
 #include "MotionWarpingComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
+#include "Interfaces/DamageableInterface.h"
+#include "Interfaces/TeamMemberInterface.h"
+#include "Data/CombatSettings.h"
+#include "Characters/BaseCombatCharacter.h"
 
 UTargetingComponent::UTargetingComponent()
 {
     PrimaryComponentTick.bCanEverTick = false;
-    
+
     DirectionalConeAngle = 60.0f;
     MaxTargetDistance = 1000.0f;
     bRequireLineOfSight = true;
     LineOfSightChannel = ECC_Visibility;
-    bDebugDraw = false;
-    
+    // Debug visualization is now controlled via Combat.Debug.Targeting CVar
+
     CurrentTarget = nullptr;
 }
 
@@ -38,25 +43,29 @@ void UTargetingComponent::BeginPlay()
 
 AActor* UTargetingComponent::FindTarget(EAttackDirection Direction)
 {
-    if (!OwnerCharacter)
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
     {
         return nullptr;
     }
-    
+
     const FVector SearchDirection = GetDirectionVector(Direction, false);
     return FindBestTarget(SearchDirection);
 }
 
 AActor* UTargetingComponent::FindTargetInDirection(const FVector& DirectionVector)
 {
-    if (!OwnerCharacter || DirectionVector.IsNearlyZero())
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner || DirectionVector.IsNearlyZero())
     {
         return nullptr;
     }
-    
+
     FVector NormalizedDirection = DirectionVector;
     NormalizedDirection.Normalize();
-    
+
     return FindBestTarget(NormalizedDirection);
 }
 
@@ -81,35 +90,49 @@ int32 UTargetingComponent::GetAllTargetsInRange(TArray<AActor*>& OutTargets)
 
 bool UTargetingComponent::IsTargetInCone(AActor* Target, const FVector& Direction, float AngleTolerance) const
 {
-    if (!OwnerCharacter || !Target || Direction.IsNearlyZero())
+    if (!Target || Direction.IsNearlyZero())
     {
         return false;
     }
-    
+
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        return false;
+    }
+
     const float ConeAngle = (AngleTolerance > 0.0f) ? AngleTolerance : DirectionalConeAngle;
-    
-    const FVector ToTarget = (Target->GetActorLocation() - OwnerCharacter->GetActorLocation()).GetSafeNormal();
+
+    const FVector ToTarget = (Target->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
     const float DotProduct = FVector::DotProduct(Direction, ToTarget);
     const float Angle = FMath::RadiansToDegrees(FMath::Acos(DotProduct));
-    
+
     return Angle <= ConeAngle;
 }
 
 bool UTargetingComponent::HasLineOfSightTo(AActor* Target) const
 {
-    if (!OwnerCharacter || !Target || !GetWorld())
+    if (!Target || !GetWorld())
     {
         return false;
     }
-    
-    const FVector Start = OwnerCharacter->GetActorLocation();
+
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        return false;
+    }
+
+    const FVector Start = Owner->GetActorLocation();
     const FVector End = Target->GetActorLocation();
-    
+
     FHitResult HitResult;
     FCollisionQueryParams QueryParams;
-    QueryParams.AddIgnoredActor(OwnerCharacter);
+    QueryParams.AddIgnoredActor(Owner);
     QueryParams.AddIgnoredActor(Target);
-    
+
     const bool bHit = GetWorld()->LineTraceSingleByChannel(
         HitResult,
         Start,
@@ -117,13 +140,15 @@ bool UTargetingComponent::HasLineOfSightTo(AActor* Target) const
         LineOfSightChannel,
         QueryParams
     );
-    
+
     return !bHit; // No hit means clear line of sight
 }
 
 FVector UTargetingComponent::GetDirectionVector(EAttackDirection Direction, bool bUseCamera) const
 {
-    if (!OwnerCharacter)
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
     {
         return FVector::ForwardVector;
     }
@@ -132,7 +157,7 @@ FVector UTargetingComponent::GetDirectionVector(EAttackDirection Direction, bool
     {
         if (bUseCamera)
         {
-            if (const APlayerController* PC = Cast<APlayerController>(OwnerCharacter->GetController()))
+            if (const APlayerController* PC = Cast<APlayerController>(Owner->GetController()))
             {
                 FRotator CameraRotation = PC->PlayerCameraManager->GetCameraRotation();
                 CameraRotation.Pitch = 0.0f;
@@ -140,12 +165,12 @@ FVector UTargetingComponent::GetDirectionVector(EAttackDirection Direction, bool
                 return FRotationMatrix(CameraRotation).GetUnitAxis(EAxis::X);
             }
         }
-        
-        return OwnerCharacter->GetActorForwardVector();
+
+        return Owner->GetActorForwardVector();
     }
-    
-    FVector BaseForward = OwnerCharacter->GetActorForwardVector();
-    FVector BaseRight = OwnerCharacter->GetActorRightVector();
+
+    FVector BaseForward = Owner->GetActorForwardVector();
+    FVector BaseRight = Owner->GetActorRightVector();
     
     switch (Direction)
     {
@@ -164,13 +189,20 @@ FVector UTargetingComponent::GetDirectionVector(EAttackDirection Direction, bool
 
 float UTargetingComponent::GetAngleToTarget(AActor* Target) const
 {
-    if (!OwnerCharacter || !Target)
+    if (!Target)
     {
         return 0.0f;
     }
-    
-    const FVector Forward = OwnerCharacter->GetActorForwardVector();
-    const FVector ToTarget = (Target->GetActorLocation() - OwnerCharacter->GetActorLocation()).GetSafeNormal();
+
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        return 0.0f;
+    }
+
+    const FVector Forward = Owner->GetActorForwardVector();
+    const FVector ToTarget = (Target->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
     
     const float DotProduct = FVector::DotProduct(Forward, ToTarget);
     const float CrossZ = FVector::CrossProduct(Forward, ToTarget).Z;
@@ -186,12 +218,19 @@ float UTargetingComponent::GetAngleToTarget(AActor* Target) const
 
 float UTargetingComponent::GetDistanceToTarget(AActor* Target) const
 {
-    if (!OwnerCharacter || !Target)
+    if (!Target)
     {
         return 0.0f;
     }
-    
-    return FVector::Dist(OwnerCharacter->GetActorLocation(), Target->GetActorLocation());
+
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        return 0.0f;
+    }
+
+    return FVector::Dist(Owner->GetActorLocation(), Target->GetActorLocation());
 }
 
 // ============================================================================
@@ -214,13 +253,15 @@ void UTargetingComponent::ClearCurrentTarget()
 
 bool UTargetingComponent::SetupMotionWarp(AActor* Target, FName WarpTargetName, float MaxDistance)
 {
-    if (!MotionWarpingComponent || !Target || !OwnerCharacter)
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!MotionWarpingComponent || !Target || !Owner)
     {
         return false;
     }
-    
+
     const FVector WarpLocation = CalculateWarpLocation(Target, MaxDistance);
-    const FRotator LookAtRotation = (Target->GetActorLocation() - OwnerCharacter->GetActorLocation()).Rotation();
+    const FRotator LookAtRotation = (Target->GetActorLocation() - Owner->GetActorLocation()).Rotation();
     
     MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
         WarpTargetName,
@@ -237,7 +278,7 @@ void UTargetingComponent::ClearMotionWarp(FName WarpTargetName)
     {
         return;
     }
-    
+
     if (WarpTargetName == NAME_None)
     {
         MotionWarpingComponent->RemoveAllWarpTargets();
@@ -249,22 +290,168 @@ void UTargetingComponent::ClearMotionWarp(FName WarpTargetName)
 }
 
 // ============================================================================
+// SOFT AIM ASSIST
+// ============================================================================
+
+FRotator UTargetingComponent::FindBestTargetForDirection(
+    const FVector& InputDirection,
+    AActor*& OutBestTarget,
+    float MaxRange,
+    float GradientAngle,
+    float OppositeAngle,
+    float AngleWeight,
+    float DistanceWeight)
+{
+    OutBestTarget = nullptr;
+
+    // Lazy fetch owner for test compatibility
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+
+    if (!Owner || InputDirection.IsNearlyZero())
+    {
+        return Owner ? Owner->GetActorRotation() : FRotator::ZeroRotator;
+    }
+
+    // Get CombatSettings from owner if it's a BaseCombatCharacter
+    const UCombatSettings* Settings = nullptr;
+    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(Owner))
+    {
+        Settings = CombatChar->CombatSettings;
+    }
+
+    // Use provided values or fall back to CombatSettings defaults
+    const float UseMaxRange = (MaxRange > 0.0f) ? MaxRange : (Settings ? Settings->DirectionalTargetingRange : 500.0f);
+    const float UseGradientAngle = (GradientAngle > 0.0f) ? GradientAngle : (Settings ? Settings->GradientAngleThreshold : 45.0f);
+    const float UseOppositeAngle = (OppositeAngle > 0.0f) ? OppositeAngle : (Settings ? Settings->OppositeAngleThreshold : 120.0f);
+    const float UseAngleWeight = (AngleWeight >= 0.0f) ? AngleWeight : (Settings ? Settings->DirectionalAngleWeight : 0.7f);
+    const float UseDistanceWeight = (DistanceWeight >= 0.0f) ? DistanceWeight : (Settings ? Settings->DirectionalDistanceWeight : 0.3f);
+
+    const FVector OwnerLocation = Owner->GetActorLocation();
+    const FVector NormalizedInput = InputDirection.GetSafeNormal();
+
+    // Get all potential targets in range
+    TArray<AActor*> PotentialTargets;
+    GetActorsInRange(PotentialTargets);
+    FilterByTargetableClass(PotentialTargets);
+
+    if (bRequireLineOfSight)
+    {
+        FilterByLineOfSight(PotentialTargets);
+    }
+
+    // Score each target
+    float BestScore = -1.0f;
+    AActor* BestTarget = nullptr;
+
+    for (AActor* Target : PotentialTargets)
+    {
+        if (!Target)
+        {
+            continue;
+        }
+
+        const FVector ToTarget = Target->GetActorLocation() - OwnerLocation;
+        const float Distance = ToTarget.Size();
+
+        // Skip if out of range
+        if (Distance > UseMaxRange)
+        {
+            continue;
+        }
+
+        const FVector ToTargetNorm = ToTarget.GetSafeNormal();
+        const float DotProduct = FVector::DotProduct(NormalizedInput, ToTargetNorm);
+        const float AngleToTarget = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(DotProduct, -1.0f, 1.0f)));
+
+        // Skip if target is in "opposite" direction
+        if (AngleToTarget > UseOppositeAngle)
+        {
+            continue;
+        }
+
+        // Calculate scores
+        // Angle score: 1.0 = perfect alignment, 0.0 = at gradient threshold
+        const float AngleScore = FMath::Clamp(1.0f - (AngleToTarget / UseGradientAngle), 0.0f, 1.0f);
+
+        // Distance score: 1.0 = at owner location, 0.0 = at max range
+        const float DistanceScore = FMath::Clamp(1.0f - (Distance / UseMaxRange), 0.0f, 1.0f);
+
+        // Combined weighted score
+        const float TotalScore = (AngleScore * UseAngleWeight) + (DistanceScore * UseDistanceWeight);
+
+        if (TotalScore > BestScore)
+        {
+            BestScore = TotalScore;
+            BestTarget = Target;
+        }
+    }
+
+    // Debug visualization (CVar-controlled)
+    if (CombatDebug::IsTargetingDebugEnabled())
+    {
+        DrawDebugTargeting(PotentialTargets, BestTarget, NormalizedInput);
+    }
+
+    OutBestTarget = BestTarget;
+
+    // Return rotation toward best target if found, otherwise toward input direction
+    if (BestTarget)
+    {
+        return (BestTarget->GetActorLocation() - OwnerLocation).Rotation();
+    }
+    else
+    {
+        return NormalizedInput.Rotation();
+    }
+}
+
+bool UTargetingComponent::SetupDirectionalWarp(const FVector& InputDirection, const FDirectionalWarpConfig& Config)
+{
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!MotionWarpingComponent || !Owner || InputDirection.IsNearlyZero())
+    {
+        return false;
+    }
+
+    if (!Config.bEnableDirectionalWarp)
+    {
+        return false;
+    }
+
+    // Calculate rotation toward input direction
+    const FRotator TargetRotation = InputDirection.GetSafeNormal().Rotation();
+
+    // For rotation-only warping, we use owner's location but different rotation
+    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
+        Config.DirectionalWarpTargetName,
+        Owner->GetActorLocation(),
+        TargetRotation
+    );
+
+    return true;
+}
+
+// ============================================================================
 // INTERNAL HELPERS - TARGET FINDING
 // ============================================================================
 
 void UTargetingComponent::GetActorsInRange(TArray<AActor*>& OutActors) const
 {
-    if (!OwnerCharacter || !GetWorld())
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+
+    if (!Owner || !GetWorld())
     {
         return;
     }
-    
-    const FVector OwnerLocation = OwnerCharacter->GetActorLocation();
-    
+
+    const FVector OwnerLocation = Owner->GetActorLocation();
+
     TArray<FOverlapResult> Overlaps;
     FCollisionQueryParams QueryParams;
-    QueryParams.AddIgnoredActor(OwnerCharacter);
-    
+    QueryParams.AddIgnoredActor(Owner);
+
     GetWorld()->OverlapMultiByChannel(
         Overlaps,
         OwnerLocation,
@@ -273,13 +460,37 @@ void UTargetingComponent::GetActorsInRange(TArray<AActor*>& OutActors) const
         FCollisionShape::MakeSphere(MaxTargetDistance),
         QueryParams
     );
-    
+
     for (const FOverlapResult& Overlap : Overlaps)
     {
-        if (AActor* Actor = Overlap.GetActor())
+        AActor* Actor = Overlap.GetActor();
+        if (!Actor)
         {
-            OutActors.Add(Actor);
+            continue;
         }
+
+        // Must implement IDamageableInterface (can be targeted)
+        if (!Actor->Implements<UDamageableInterface>())
+        {
+            continue;
+        }
+
+        // Must be alive
+        if (!IDamageableInterface::Execute_IsAlive(Actor))
+        {
+            continue;
+        }
+
+        // Check team hostility (if owner implements ITeamMemberInterface)
+        if (Owner->Implements<UTeamMemberInterface>())
+        {
+            if (!ITeamMemberInterface::Execute_IsHostileTo(Owner, Actor))
+            {
+                continue; // Skip friendly actors
+            }
+        }
+
+        OutActors.Add(Actor);
     }
 }
 
@@ -327,12 +538,14 @@ void UTargetingComponent::FilterByLineOfSight(TArray<AActor*>& InOutActors) cons
 
 void UTargetingComponent::SortByDistance(TArray<AActor*>& InOutActors) const
 {
-    if (!OwnerCharacter)
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
     {
         return;
     }
-    
-    const FVector OwnerLocation = OwnerCharacter->GetActorLocation();
+
+    const FVector OwnerLocation = Owner->GetActorLocation();
     
     InOutActors.Sort([&OwnerLocation](const AActor& A, const AActor& B)
     {
@@ -364,8 +577,8 @@ AActor* UTargetingComponent::FindBestTarget(const FVector& Direction) const
     // Sort by distance
     SortByDistance(PotentialTargets);
     
-    // Debug visualization
-    if (bDebugDraw)
+    // Debug visualization (CVar-controlled)
+    if (CombatDebug::IsTargetingDebugEnabled())
     {
         AActor* SelectedTarget = (PotentialTargets.Num() > 0) ? PotentialTargets[0] : nullptr;
         DrawDebugTargeting(PotentialTargets, SelectedTarget, Direction);
@@ -380,28 +593,35 @@ AActor* UTargetingComponent::FindBestTarget(const FVector& Direction) const
 
 FVector UTargetingComponent::CalculateWarpLocation(AActor* Target, float MaxDistance) const
 {
-    if (!OwnerCharacter || !Target)
+    if (!Target)
     {
         return FVector::ZeroVector;
     }
-    
-    const FVector OwnerLocation = OwnerCharacter->GetActorLocation();
+
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        return FVector::ZeroVector;
+    }
+
+    const FVector OwnerLocation = Owner->GetActorLocation();
     const FVector TargetLocation = Target->GetActorLocation();
     const FVector ToTarget = TargetLocation - OwnerLocation;
     const float Distance = ToTarget.Size();
-    
+
     // If max distance not specified, use target location directly
     if (MaxDistance <= 0.0f)
     {
         return TargetLocation;
     }
-    
+
     // If target is within max distance, use target location
     if (Distance <= MaxDistance)
     {
         return TargetLocation;
     }
-    
+
     // Clamp to max distance
     return OwnerLocation + (ToTarget.GetSafeNormal() * MaxDistance);
 }
@@ -412,13 +632,16 @@ FVector UTargetingComponent::CalculateWarpLocation(AActor* Target, float MaxDist
 
 void UTargetingComponent::DrawDebugTargeting(const TArray<AActor*>& PotentialTargets, AActor* SelectedTarget, const FVector& SearchDirection) const
 {
-    if (!GetWorld() || !OwnerCharacter)
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!GetWorld() || !Owner)
     {
         return;
     }
-    
-    const FVector OwnerLocation = OwnerCharacter->GetActorLocation();
-    
+
+    const FVector OwnerLocation = Owner->GetActorLocation();
+    const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+
     // Draw search cone
     DrawDebugCone(
         GetWorld(),
@@ -430,9 +653,9 @@ void UTargetingComponent::DrawDebugTargeting(const TArray<AActor*>& PotentialTar
         12,
         FColor::Yellow,
         false,
-        0.1f
+        DrawDuration
     );
-    
+
     // Draw potential targets
     for (AActor* Target : PotentialTargets)
     {
@@ -440,10 +663,10 @@ void UTargetingComponent::DrawDebugTargeting(const TArray<AActor*>& PotentialTar
         {
             continue;
         }
-        
+
         const FColor Color = (Target == SelectedTarget) ? FColor::Green : FColor::Orange;
-        DrawDebugSphere(GetWorld(), Target->GetActorLocation(), 50.0f, 12, Color, false, 0.1f);
-        DrawDebugLine(GetWorld(), OwnerLocation, Target->GetActorLocation(), Color, false, 0.1f);
+        DrawDebugSphere(GetWorld(), Target->GetActorLocation(), 50.0f, 12, Color, false, DrawDuration);
+        DrawDebugLine(GetWorld(), OwnerLocation, Target->GetActorLocation(), Color, false, DrawDuration);
     }
 }
 
@@ -453,13 +676,20 @@ void UTargetingComponent::DrawDebugTargeting(const TArray<AActor*>& PotentialTar
 
 EAttackDirection UTargetingComponent::GetAttackDirectionFromInput(FVector InputDirection) const
 {
-    if (!OwnerCharacter || InputDirection.IsNearlyZero())
+    if (InputDirection.IsNearlyZero())
     {
         return EAttackDirection::Forward;
     }
-    
+
+    // Lazy fetch owner for test compatibility
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        return EAttackDirection::Forward;
+    }
+
     // Convert to local space
-    FVector LocalInput = OwnerCharacter->GetActorTransform().InverseTransformVector(InputDirection);
+    FVector LocalInput = Owner->GetActorTransform().InverseTransformVector(InputDirection);
     LocalInput.Z = 0;
     LocalInput.Normalize();
     

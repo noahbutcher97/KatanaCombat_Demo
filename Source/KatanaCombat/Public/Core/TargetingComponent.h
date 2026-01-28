@@ -11,6 +11,7 @@
 class ACharacter;
 class AActor;
 class UMotionWarpingComponent;
+class UCombatSettings;
 
 /**
  * Handles directional cone-based targeting and motion warping setup
@@ -55,9 +56,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Targeting")
     TArray<TSubclassOf<AActor>> TargetableClasses;
 
-    /** Enable debug visualization */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Targeting|Debug")
-    bool bDebugDraw = false;
+    // Debug visualization is now controlled via CVars:
+    // Combat.Debug.Targeting 1 - Enable targeting visualization
+    // Combat.Debug.DrawDuration 2.0 - Set debug draw duration
 
     // ============================================================================
     // TARGETING - PRIMARY API
@@ -155,6 +156,33 @@ public:
     bool HasTarget() const { return CurrentTarget != nullptr; }
 
     // ============================================================================
+    // SOFT AIM ASSIST (Directional Attack Targeting)
+    // ============================================================================
+
+    /**
+     * Find best target in given direction using soft aim assist scoring
+     * Uses gradient angle threshold and distance weighting from CombatSettings
+     *
+     * @param InputDirection - World space direction to search
+     * @param MaxRange - Maximum search range (uses CombatSettings default if <= 0)
+     * @param GradientAngle - Enemies within this angle are candidates (uses CombatSettings if <= 0)
+     * @param OppositeAngle - Enemies beyond this angle are ignored (uses CombatSettings if <= 0)
+     * @param AngleWeight - Weight for angle alignment in scoring (uses CombatSettings if < 0)
+     * @param DistanceWeight - Weight for distance in scoring (uses CombatSettings if < 0)
+     * @param OutBestTarget - Output: best target actor (nullptr if none)
+     * @return Rotation to face best target, or rotation toward InputDirection if no target
+     */
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Soft Aim Assist")
+    FRotator FindBestTargetForDirection(
+        const FVector& InputDirection,
+        AActor*& OutBestTarget,
+        float MaxRange = -1.0f,
+        float GradientAngle = -1.0f,
+        float OppositeAngle = -1.0f,
+        float AngleWeight = -1.0f,
+        float DistanceWeight = -1.0f);
+
+    // ============================================================================
     // MOTION WARPING INTEGRATION
     // ============================================================================
 
@@ -167,6 +195,18 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping")
     bool SetupMotionWarp(AActor* Target, FName WarpTargetName = "AttackTarget", float MaxDistance = -1.0f);
+
+    /**
+     * Setup directional rotation warp (input direction-based, not target-based)
+     * Used for directional attacks where player deflects stick and releases
+     *
+     * @param InputDirection - World space direction to rotate toward
+     * @param Config - Directional warp configuration from AttackData
+     * @param Settings - CombatSettings for defaults (optional)
+     * @return True if warp was set up successfully
+     */
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping")
+    bool SetupDirectionalWarp(const FVector& InputDirection, const struct FDirectionalWarpConfig& Config);
 
     /**
      * Clear motion warp targets

@@ -7,7 +7,7 @@
 #include "CombatDebugWidget.generated.h"
 
 class SCombatDebugDopeSheet;
-class UCombatComponentV2;
+class UCombatComponent;
 class SWidget;
 
 /**
@@ -51,7 +51,7 @@ protected:
 private:
 	/** Combat component being visualized */
 	UPROPERTY()
-	TObjectPtr<UCombatComponentV2> CombatComponent;
+	TObjectPtr<UCombatComponent> CombatComponent;
 
 	/** Slate widget */
 	TSharedPtr<SCombatDebugDopeSheet> DopeSheetWidget;
