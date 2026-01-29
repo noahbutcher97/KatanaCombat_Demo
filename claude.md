@@ -175,6 +175,13 @@ Source/KatanaCombat/Public/
 - Convert `FLinearColor` to `FColor` directly (use `.ToFColor(true)`)
 - Use component tick without explicit permission
 
+## Git Conventions
+
+- **Clean commit messages**: No trailers, sign-offs, or co-author tags - just the message and content
+- Include rollback checkpoint (previous commit hash) in significant commits
+- Use descriptive commit messages with bullet points for changes
+- Bypass pre-commit hooks with `--no-verify` if they have errors (hooks in `.claude/hooks/` may have issues)
+
 ## Environment Notes
 
 **GPU Crash Workaround (RTX 5090 + UE 5.6)**: Currently using DX11 (`Config/DefaultEngine.ini:47`) due to driver 581.57 + DX12 crashes. Revert to DX12 when stable Studio Driver available.
