@@ -111,7 +111,7 @@ public:
 
 	/**
 	 * Called when a hold window starts (from AnimNotify_HoldWindowStart)
-	 * V2 SYSTEM: Event-driven hold detection - checks button state at window start
+	 * Event-driven hold detection - checks button state at window start
 	 *
 	 * Hold Detection Pattern:
 	 * - AnimNotify fires at hold window start time

@@ -12,7 +12,7 @@ class SWidget;
 
 /**
  * Component that manages the combat debug overlay
- * Displays dope sheet visualization of V2 combat system
+ * Displays dope sheet visualization of combat system
  */
 UCLASS(Blueprintable, ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
 class KATANACOMBAT_API UCombatDebugWidget : public UActorComponent

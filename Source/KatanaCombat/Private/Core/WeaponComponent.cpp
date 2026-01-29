@@ -3,10 +3,18 @@
 #include "Core/WeaponComponent.h"
 #include "Core/CombatComponent.h"
 #include "Data/AttackData.h"
+#include "Data/AttackConfiguration.h"
+#include "Data/WeaponData.h"
+#include "Data/CombatSettings.h"
 #include "Debug/DebugConfig.h"
 #include "GameFramework/Character.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Animation/AnimInstance.h"
 #include "DrawDebugHelpers.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogWeaponComponent, Log, All);
 
 UWeaponComponent::UWeaponComponent()
 {
@@ -17,12 +25,18 @@ UWeaponComponent::UWeaponComponent()
 void UWeaponComponent::BeginPlay()
 {
     Super::BeginPlay();
-    
+
     // Cache owner references
     OwnerCharacter = Cast<ACharacter>(GetOwner());
     if (OwnerCharacter)
     {
         OwnerMesh = OwnerCharacter->GetMesh();
+    }
+
+    // Initialize from WeaponData if set
+    if (WeaponData)
+    {
+        InitializeFromWeaponData(WeaponData, true);
     }
 }
 
@@ -113,9 +127,9 @@ void UWeaponComponent::PerformWeaponTrace()
     {
         return;
     }
-    
-    const FVector StartLocation = GetSocketLocation(WeaponStartSocket);
-    const FVector EndLocation = GetSocketLocation(WeaponEndSocket);
+
+    const FVector StartLocation = GetSocketLocation(GetEffectiveStartSocket());
+    const FVector EndLocation = GetSocketLocation(GetEffectiveEndSocket());
     
     // Skip first trace to avoid hitting at spawn
     if (bFirstTrace)
@@ -143,13 +157,14 @@ void UWeaponComponent::PerformWeaponTrace()
     
     // Perform swept sphere trace from previous to current position
     TArray<FHitResult> HitResults;
+    const float EffectiveRadius = GetEffectiveTraceRadius();
     const bool bHit = GetWorld()->SweepMultiByChannel(
         HitResults,
         PreviousTipLocation,
         EndLocation,
         FQuat::Identity,
         TraceChannel,
-        FCollisionShape::MakeSphere(TraceRadius),
+        FCollisionShape::MakeSphere(EffectiveRadius),
         QueryParams
     );
     
@@ -168,7 +183,17 @@ void UWeaponComponent::PerformWeaponTrace()
     // Debug visualization (CVar-controlled)
     if (CombatDebug::IsWeaponDebugEnabled())
     {
-        DrawDebugTrace(PreviousTipLocation, EndLocation, bHit, bHit ? HitResults[0] : FHitResult());
+        // Pass effective radius for debug drawing
+        const FColor TraceColor = bHit ? FColor::Red : FColor::Green;
+        const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+        DrawDebugLine(GetWorld(), PreviousTipLocation, EndLocation, TraceColor, false, DrawDuration, 0, 2.0f);
+        DrawDebugSphere(GetWorld(), EndLocation, EffectiveRadius, 12, TraceColor, false, DrawDuration);
+        if (bHit && HitResults.Num() > 0)
+        {
+            DrawDebugPoint(GetWorld(), HitResults[0].ImpactPoint, 10.0f, FColor::Orange, false, DrawDuration);
+            DrawDebugLine(GetWorld(), HitResults[0].ImpactPoint, HitResults[0].ImpactPoint + HitResults[0].ImpactNormal * 30.0f,
+                         FColor::Yellow, false, DrawDuration, 0, 2.0f);
+        }
     }
     
     // Store current positions for next frame
@@ -210,16 +235,10 @@ UAttackData* UWeaponComponent::GetCurrentAttackData() const
         return nullptr;
     }
 
-    // V1 REMOVED: Get current attack from V2 instead
-    // if (UCombatComponent* CombatComp = OwnerCharacter->FindComponentByClass<UCombatComponent>())
-    // {
-    //     return CombatComp->GetCurrentAttack();
-    // }
-
-    // V2: Get current attack from CombatComponent
-    if (UCombatComponent* CombatV2 = OwnerCharacter->FindComponentByClass<UCombatComponent>())
+    // Get current attack from CombatComponent
+    if (UCombatComponent* CombatComp = OwnerCharacter->FindComponentByClass<UCombatComponent>())
     {
-        return CombatV2->GetCurrentAttack();
+        return CombatComp->GetCurrentAttack();
     }
 
     return nullptr;
@@ -234,12 +253,13 @@ void UWeaponComponent::DrawDebugTrace(const FVector& Start, const FVector& End, 
 
     const FColor TraceColor = bHit ? FColor::Red : FColor::Green;
     const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+    const float EffectiveRadius = GetEffectiveTraceRadius();
 
     // Draw line from start to end
     DrawDebugLine(GetWorld(), Start, End, TraceColor, false, DrawDuration, 0, 2.0f);
 
     // Draw sphere at tip
-    DrawDebugSphere(GetWorld(), End, TraceRadius, 12, TraceColor, false, DrawDuration);
+    DrawDebugSphere(GetWorld(), End, EffectiveRadius, 12, TraceColor, false, DrawDuration);
 
     // Draw hit point if we hit something
     if (bHit)
@@ -248,4 +268,293 @@ void UWeaponComponent::DrawDebugTrace(const FVector& Start, const FVector& End, 
         DrawDebugLine(GetWorld(), Hit.ImpactPoint, Hit.ImpactPoint + Hit.ImpactNormal * 30.0f,
                      FColor::Yellow, false, DrawDuration, 0, 2.0f);
     }
+}
+
+// ============================================================================
+// WEAPON EQUIP STATE
+// ============================================================================
+
+void UWeaponComponent::Equip()
+{
+    if (bIsEquipped)
+    {
+        return;
+    }
+
+    bIsEquipped = true;
+
+    // Move mesh to equipped socket
+    if (SpawnedWeaponMesh && WeaponData)
+    {
+        AttachMeshToSocket(WeaponData->EquippedSocket);
+        UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Weapon equipped to socket: %s"),
+            *GetNameSafe(GetOwner()), *WeaponData->EquippedSocket.ToString());
+    }
+}
+
+void UWeaponComponent::Holster()
+{
+    if (!bIsEquipped)
+    {
+        return;
+    }
+
+    bIsEquipped = false;
+
+    // Move mesh to holstered socket
+    if (SpawnedWeaponMesh && WeaponData)
+    {
+        AttachMeshToSocket(WeaponData->HolsteredSocket);
+        UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Weapon holstered to socket: %s"),
+            *GetNameSafe(GetOwner()), *WeaponData->HolsteredSocket.ToString());
+    }
+}
+
+bool UWeaponComponent::PlayEquipAnimation()
+{
+    if (!WeaponData || !WeaponData->EquipMontage || !OwnerCharacter)
+    {
+        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Cannot play equip animation - missing WeaponData, EquipMontage, or Owner"),
+            *GetNameSafe(GetOwner()));
+        return false;
+    }
+
+    UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
+    if (!AnimInstance)
+    {
+        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Cannot play equip animation - no AnimInstance"),
+            *GetNameSafe(GetOwner()));
+        return false;
+    }
+
+    // Play the montage - AnimNotify_WeaponEquip in the montage will call Equip() at the right frame
+    const float Duration = AnimInstance->Montage_Play(WeaponData->EquipMontage, WeaponData->EquipPlayRate);
+
+    UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Playing equip animation: %s (Duration: %.2f)"),
+        *GetNameSafe(GetOwner()),
+        *WeaponData->EquipMontage->GetName(),
+        Duration);
+
+    return Duration > 0.0f;
+}
+
+bool UWeaponComponent::PlayHolsterAnimation()
+{
+    if (!WeaponData || !WeaponData->HolsterMontage || !OwnerCharacter)
+    {
+        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Cannot play holster animation - missing WeaponData, HolsterMontage, or Owner"),
+            *GetNameSafe(GetOwner()));
+        return false;
+    }
+
+    UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
+    if (!AnimInstance)
+    {
+        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Cannot play holster animation - no AnimInstance"),
+            *GetNameSafe(GetOwner()));
+        return false;
+    }
+
+    // Play the montage - AnimNotify_WeaponHolster in the montage will call Holster() at the right frame
+    const float Duration = AnimInstance->Montage_Play(WeaponData->HolsterMontage, WeaponData->HolsterPlayRate);
+
+    UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Playing holster animation: %s (Duration: %.2f)"),
+        *GetNameSafe(GetOwner()),
+        *WeaponData->HolsterMontage->GetName(),
+        Duration);
+
+    return Duration > 0.0f;
+}
+
+void UWeaponComponent::InitializeFromWeaponData(UWeaponData* NewWeaponData, bool bStartEquipped)
+{
+    // Clean up existing weapon
+    DestroyWeaponMesh();
+
+    // Update weapon data reference
+    WeaponData = NewWeaponData;
+
+    if (!WeaponData)
+    {
+        UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Weapon cleared"), *GetNameSafe(GetOwner()));
+        return;
+    }
+
+    // Spawn mesh
+    SpawnWeaponMesh();
+
+    // Set initial state
+    bIsEquipped = bStartEquipped;
+    if (SpawnedWeaponMesh)
+    {
+        AttachMeshToSocket(bIsEquipped ? WeaponData->EquippedSocket : WeaponData->HolsteredSocket);
+    }
+
+    UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Initialized weapon: %s (Equipped: %s)"),
+        *GetNameSafe(GetOwner()),
+        *WeaponData->GetDisplayNameString(),
+        bIsEquipped ? TEXT("Yes") : TEXT("No"));
+}
+
+// ============================================================================
+// ATTACK CONFIGURATION ACCESS
+// ============================================================================
+
+UAttackConfiguration* UWeaponComponent::GetEffectiveAttackConfiguration() const
+{
+    // Priority 1: WeaponData's attack configuration
+    if (WeaponData && WeaponData->AttackConfiguration)
+    {
+        return WeaponData->AttackConfiguration;
+    }
+
+    // Priority 2: CombatSettings' attack configuration
+    if (UCombatSettings* Settings = GetOwnerCombatSettings())
+    {
+        return Settings->AttackConfiguration;
+    }
+
+    return nullptr;
+}
+
+float UWeaponComponent::GetDamageMultiplier() const
+{
+    if (WeaponData)
+    {
+        return WeaponData->DamageMultiplier;
+    }
+    return 1.0f;
+}
+
+float UWeaponComponent::GetWeaponReach() const
+{
+    if (WeaponData)
+    {
+        return WeaponData->WeaponReach;
+    }
+    return 150.0f; // Default reach
+}
+
+// ============================================================================
+// INTERNAL HELPERS - WEAPON DATA
+// ============================================================================
+
+FName UWeaponComponent::GetEffectiveStartSocket() const
+{
+    if (WeaponData)
+    {
+        return WeaponData->TraceStartSocket;
+    }
+    return WeaponStartSocket;
+}
+
+FName UWeaponComponent::GetEffectiveEndSocket() const
+{
+    if (WeaponData)
+    {
+        return WeaponData->TraceEndSocket;
+    }
+    return WeaponEndSocket;
+}
+
+float UWeaponComponent::GetEffectiveTraceRadius() const
+{
+    if (WeaponData)
+    {
+        return WeaponData->TraceRadius;
+    }
+    return TraceRadius;
+}
+
+void UWeaponComponent::SpawnWeaponMesh()
+{
+    if (!WeaponData || !OwnerCharacter)
+    {
+        return;
+    }
+
+    // Check if mesh asset is valid
+    if (WeaponData->WeaponMesh.IsNull())
+    {
+        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] WeaponData '%s' has no mesh assigned"),
+            *GetNameSafe(GetOwner()), *WeaponData->GetDisplayNameString());
+        return;
+    }
+
+    // Load mesh synchronously (could be async in production)
+    UStaticMesh* MeshAsset = WeaponData->WeaponMesh.LoadSynchronous();
+    if (!MeshAsset)
+    {
+        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Failed to load weapon mesh for '%s'"),
+            *GetNameSafe(GetOwner()), *WeaponData->GetDisplayNameString());
+        return;
+    }
+
+    // Create mesh component
+    SpawnedWeaponMesh = NewObject<UStaticMeshComponent>(OwnerCharacter, TEXT("WeaponMesh"));
+    if (!SpawnedWeaponMesh)
+    {
+        UE_LOG(LogWeaponComponent, Error, TEXT("[%s] Failed to create weapon mesh component"),
+            *GetNameSafe(GetOwner()));
+        return;
+    }
+
+    // Configure mesh component
+    SpawnedWeaponMesh->SetStaticMesh(MeshAsset);
+    SpawnedWeaponMesh->SetWorldScale3D(WeaponData->MeshScale);
+    SpawnedWeaponMesh->SetRelativeTransform(WeaponData->MeshAttachOffset);
+    SpawnedWeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    SpawnedWeaponMesh->RegisterComponent();
+
+    UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Spawned weapon mesh: %s"),
+        *GetNameSafe(GetOwner()), *MeshAsset->GetName());
+}
+
+void UWeaponComponent::DestroyWeaponMesh()
+{
+    if (SpawnedWeaponMesh)
+    {
+        SpawnedWeaponMesh->DestroyComponent();
+        SpawnedWeaponMesh = nullptr;
+    }
+}
+
+void UWeaponComponent::AttachMeshToSocket(FName SocketName)
+{
+    if (!SpawnedWeaponMesh || !OwnerMesh)
+    {
+        return;
+    }
+
+    SpawnedWeaponMesh->AttachToComponent(
+        OwnerMesh,
+        FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+        SocketName
+    );
+
+    // Apply offset transform after attachment
+    if (WeaponData)
+    {
+        SpawnedWeaponMesh->SetRelativeTransform(WeaponData->MeshAttachOffset);
+    }
+}
+
+UCombatSettings* UWeaponComponent::GetOwnerCombatSettings() const
+{
+    if (!OwnerCharacter)
+    {
+        return nullptr;
+    }
+
+    // Try to get CombatSettings from BaseCombatCharacter via property reflection
+    // This avoids hard dependency on BaseCombatCharacter header
+    if (FProperty* SettingsProp = OwnerCharacter->GetClass()->FindPropertyByName(TEXT("CombatSettings")))
+    {
+        if (FObjectProperty* ObjProp = CastField<FObjectProperty>(SettingsProp))
+        {
+            return Cast<UCombatSettings>(ObjProp->GetObjectPropertyValue_InContainer(OwnerCharacter));
+        }
+    }
+
+    return nullptr;
 }

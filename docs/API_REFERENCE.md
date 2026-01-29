@@ -2066,4 +2066,218 @@ void AMyCharacter::HandleWeaponHit(AActor* HitActor, const FHitResult& HitResult
 
 ---
 
-## V2 Combat System
+## Data Assets (New in v3.0.0)
+
+### TargetingSettings
+
+**Class**: `UTargetingSettings : UPrimaryDataAsset`
+**Header**: `KatanaCombat/Public/Data/TargetingSettings.h`
+
+Character-level targeting configuration. Referenced by CombatSettings or overridden per-instance.
+
+#### Properties
+
+```cpp
+// Soft Aim Assist
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Soft Aim Assist")
+float GradientAngle = 45.0f;  // Angle within which targets get distance bonus
+
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Soft Aim Assist")
+float OppositeAngle = 120.0f;  // Angle beyond which targets are ignored (behind player)
+
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Soft Aim Assist")
+float AngleWeight = 0.6f;  // Weight for angle scoring (0-1)
+
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Soft Aim Assist")
+float DistanceWeight = 0.4f;  // Weight for distance scoring (0-1)
+
+// Target Detection
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Target Detection")
+float MaxTargetDistance = 800.0f;  // Maximum distance to search for targets
+
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Target Detection")
+TEnumAsByte<ECollisionChannel> LineOfSightChannel = ECC_Visibility;
+
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Target Detection")
+bool bRequireLineOfSight = true;
+```
+
+---
+
+### MotionWarpingSettings
+
+**Class**: `UMotionWarpingSettings : UPrimaryDataAsset`
+**Header**: `KatanaCombat/Public/Data/MotionWarpingSettings.h`
+
+Character-level motion warping defaults.
+
+#### Properties
+
+```cpp
+// Target-Based Warping (translation+rotation toward enemy)
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Target Warping")
+float MaxWarpDistance = 400.0f;  // Maximum distance to warp toward target
+
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Target Warping")
+float MinWarpDistance = 50.0f;  // Minimum distance before warping activates
+
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Target Warping")
+bool bRequireLineOfSight = true;
+
+// Directional Warping (rotation-only, no enemy)
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Directional Warping")
+float DirectionalWarpRotationSpeed = 720.0f;  // Degrees per second
+
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Directional Warping")
+float AlreadyFacingThreshold = 15.0f;  // Skip rotation if already facing within this angle
+
+UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Directional Warping")
+float NoInputFacingCone = 90.0f;  // Facing cone for auto-targeting when no input
+```
+
+---
+
+### FAttackWarpConfig (Struct)
+
+**Location**: `CombatTypes.h`
+
+Unified per-attack warp configuration. Replaces separate FMotionWarpingConfig and FDirectionalWarpConfig.
+
+```cpp
+USTRUCT(BlueprintType)
+struct FAttackWarpConfig
+{
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    bool bEnableWarp = true;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    float AlreadyFacingThreshold = 15.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    float NoInputFacingCone = 90.0f;
+
+    // Target-based warping (translation+rotation)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FName TargetWarpName = "AttackTarget";
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    float MaxWarpDistance = 400.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    float MinWarpDistance = 50.0f;
+
+    // Rotation-only warping (no enemy)
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    FName RotationWarpName = "RotationTarget";
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    float RotationSpeed = 720.0f;
+};
+```
+
+---
+
+## AnimNotifyState_CombatWarp (New in v3.0.0)
+
+**Class**: `UAnimNotifyState_CombatWarp : UAnimNotifyState_MotionWarping`
+**Header**: `KatanaCombat/Public/Animation/AnimNotifyState_CombatWarp.h`
+
+Custom motion warp notify that automatically selects between translation+rotation (enemy found) and rotation-only (no enemy) modes at runtime.
+
+### Why Use This?
+
+- **One notify per montage** instead of two separate motion warp notifies
+- **No sliding** when rotation-only warping (bWarpTranslation correctly set to false)
+- **Runtime-adaptive** - behavior changes based on combat context
+
+### How It Works
+
+```
+1. CombatComponent::SetupAttackWarp() runs before montage plays
+   - If enemy found: Sets "AttackTarget" warp target (location + rotation)
+   - If no enemy: Sets "RotationTarget" warp target (rotation only)
+
+2. AnimNotifyState_CombatWarp::AddRootMotionModifier() runs when notify becomes relevant
+   - Checks if "AttackTarget" exists → bWarpTranslation = true (move toward enemy)
+   - Checks if "RotationTarget" exists → bWarpTranslation = false (rotate only)
+   - Neither exists → Returns nullptr (skip warp entirely)
+```
+
+### Properties
+
+```cpp
+UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat Warp")
+FName TargetWarpName = "AttackTarget";  // Warp target for translation+rotation
+
+UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat Warp")
+FName RotationWarpName = "RotationTarget";  // Warp target for rotation-only
+
+UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat Warp")
+bool bEnableTranslationForTarget = true;  // Enable translation when using TargetWarpName
+```
+
+### Usage
+
+1. Add `Combat Warp` notify to attack montage (replaces standard Motion Warping notify)
+2. Configure RootMotionModifier (same as standard - select SkewWarp or similar)
+3. Leave TargetWarpName and RotationWarpName at defaults ("AttackTarget", "RotationTarget")
+4. Ensure CombatComponent::SetupAttackWarp() is called before montage plays
+
+---
+
+## TargetingComponent (Updated in v3.0.0)
+
+### New Methods
+
+#### SetupAttackWarp
+```cpp
+UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping")
+bool SetupAttackWarp(AActor* Target, const FRotator& TargetRotation, const FAttackWarpConfig& Config);
+```
+**Parameters**:
+- `Target` - Enemy target (can be nullptr for rotation-only)
+- `TargetRotation` - Desired facing rotation
+- `Config` - Warp configuration from AttackData
+
+**Returns**: True if warp was set up
+
+Unified warp setup function. Sets either "AttackTarget" (if Target valid) or "RotationTarget" (if no target) for AnimNotifyState_CombatWarp to consume.
+
+#### FindBestTargetForDirection
+```cpp
+UFUNCTION(BlueprintCallable, Category = "Targeting|Soft Aim Assist")
+FRotator FindBestTargetForDirection(
+    const FVector& InputDirection,
+    float MaxRange,
+    float GradientAngle,
+    float OppositeAngle,
+    float AngleWeight,
+    float DistanceWeight,
+    AActor*& OutBestTarget
+);
+```
+**Parameters**:
+- `InputDirection` - World-space input direction
+- `MaxRange` - Maximum search distance
+- `GradientAngle` - Angle within which targets get distance bonus
+- `OppositeAngle` - Angle beyond which targets are ignored
+- `AngleWeight` - Scoring weight for angle (0-1)
+- `DistanceWeight` - Scoring weight for distance (0-1)
+- `OutBestTarget` - Output: Best target found (nullptr if none)
+
+**Returns**: Target rotation (or input direction as rotation if no target)
+
+Soft aim assist function that finds the best target in a direction using weighted scoring.
+
+#### GetEffectiveSettings
+```cpp
+UFUNCTION(BlueprintPure, Category = "Targeting")
+UTargetingSettings* GetEffectiveSettings() const;
+```
+**Returns**: Effective settings (Override → CombatSettings → nullptr)
+
+Get the active targeting settings based on configuration hierarchy.
+
+---
+
+## Combat System (Unified)

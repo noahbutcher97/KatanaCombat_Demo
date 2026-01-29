@@ -15,7 +15,7 @@ bool FQueueStartsEmptyTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -45,7 +45,7 @@ bool FQueueActionAddsEntryTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -86,7 +86,7 @@ bool FClearQueueEmptiesTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -131,7 +131,7 @@ bool FDefaultPhaseNoneTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -160,7 +160,7 @@ bool FPhaseTransitionTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -198,7 +198,7 @@ bool FNoCurrentAttackWhenIdleTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -227,7 +227,7 @@ bool FComboWindowDefaultFalseTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -255,7 +255,7 @@ bool FRegisterCheckpointActivatesComboTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -286,7 +286,7 @@ bool FGetActiveWindowsTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -326,7 +326,7 @@ bool FPendingCountStartsZeroTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -355,7 +355,7 @@ bool FGetActionQueueTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* Character = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{

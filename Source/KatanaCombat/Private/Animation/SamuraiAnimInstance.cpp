@@ -1,7 +1,6 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/SamuraiAnimInstance.h"
-// V1 REMOVED: #include "Core/CombatComponent.h"
 #include "Core/HitReactionComponent.h"
 #include "Interfaces/CombatInterface.h"
 #include "GameFramework/Character.h"
@@ -17,7 +16,6 @@ void USamuraiAnimInstance::NativeInitializeAnimation()
     if (OwnerCharacter)
     {
         MovementComponent = OwnerCharacter->GetCharacterMovement();
-        // V1 REMOVED: CombatComponent = OwnerCharacter->FindComponentByClass<UCombatComponent>();
         HitReactionComponent = OwnerCharacter->FindComponentByClass<UHitReactionComponent>();
     }
 }
@@ -104,79 +102,34 @@ void USamuraiAnimInstance::UpdateMovement()
 
 void USamuraiAnimInstance::UpdateCombatState()
 {
-    // V1 REMOVED: Combat state updates not yet migrated to V2
-    // if (!CombatComponent)
-    // {
-        CombatState = ECombatState::Idle;
-        CurrentPhase = EAttackPhase::None;
-        bIsAttacking = false;
-        bIsBlocking = false;
-        bIsGuardBroken = false;
-        bIsHoldingAttack = false;
-        return;
-    // }
-
-    // V1 REMOVED: Sync state from combat component
-    // CombatState = CombatComponent->GetCombatState();
-    // CurrentPhase = CombatComponent->GetCurrentPhase();
-    // bIsAttacking = CombatComponent->IsAttacking();
-    // bIsBlocking = CombatComponent->IsBlocking();
-    // bIsGuardBroken = CombatComponent->IsGuardBroken();
-    // bIsHoldingAttack = CombatComponent->IsHolding();
+    // TODO: Connect to CombatComponent when interface is ready
+    CombatState = ECombatState::Idle;
+    CurrentPhase = EAttackPhase::None;
+    bIsAttacking = false;
+    bIsBlocking = false;
+    bIsGuardBroken = false;
+    bIsHoldingAttack = false;
 }
 
 void USamuraiAnimInstance::UpdateCombo()
 {
-    // V1 REMOVED: Combo updates not yet migrated to V2
-    // if (!CombatComponent)
-    // {
-        ComboCount = 0;
-        bCanCombo = false;
-        return;
-    // }
-
-    // V1 REMOVED
-    // ComboCount = CombatComponent->GetComboCount();
-    // bCanCombo = CombatComponent->CanCombo();
+    // TODO: Connect to CombatComponent when interface is ready
+    ComboCount = 0;
+    bCanCombo = false;
 }
 
 void USamuraiAnimInstance::UpdatePosture()
 {
-    // V1 REMOVED: Posture updates not yet migrated to V2
-    // if (!CombatComponent)
-    // {
-        PosturePercent = 1.0f;
-        bIsPostureLow = false;
-        return;
-    // }
-
-    // V1 REMOVED
-    // PosturePercent = CombatComponent->GetPosturePercent();
-    // bIsPostureLow = (PosturePercent < 0.4f);
+    // TODO: Connect to PostureComponent when implemented
+    PosturePercent = 1.0f;
+    bIsPostureLow = false;
 }
 
 void USamuraiAnimInstance::UpdateCharge()
 {
-    // V1 REMOVED: Charge updates not yet migrated to V2
-    // if (!CombatComponent)
-    // {
-        ChargePercent = 0.0f;
-        bIsCharging = false;
-        return;
-    // }
-
-    // V1 REMOVED: Check if in charging state
-    // bIsCharging = (CombatState == ECombatState::ChargingHeavyAttack);
-
-    // V1 REMOVED: Charge calculation
-    // if (bIsCharging)
-    // {
-    //     ChargePercent = 0.5f; // Placeholder - add precise tracking if needed
-    // }
-    // else
-    // {
-    //     ChargePercent = 0.0f;
-    // }
+    // TODO: Connect to CombatComponent hold state when interface is ready
+    ChargePercent = 0.0f;
+    bIsCharging = false;
 }
 
 void USamuraiAnimInstance::UpdateHitReaction()
@@ -236,20 +189,14 @@ void USamuraiAnimInstance::OnAttackPhaseTransition(EAttackPhase NewPhase)
 
 void USamuraiAnimInstance::OnComboWindowOpened(float Duration)
 {
-    // V1 REMOVED: Combo window routing not yet migrated to V2
-    // if (CombatComponent)
-    // {
-    //     CombatComponent->OpenComboWindow(Duration);
-    // }
+    // Combo windows are now inferred from phase transitions
+    // (see AnimNotify_AttackPhaseTransition and DiscoverCheckpoints)
 }
 
 void USamuraiAnimInstance::OnComboWindowClosed()
 {
-    // V1 REMOVED: Combo window routing not yet migrated to V2
-    // if (CombatComponent)
-    // {
-    //     CombatComponent->CloseComboWindow();
-    // }
+    // Combo windows are now inferred from phase transitions
+    // (see AnimNotify_AttackPhaseTransition and DiscoverCheckpoints)
 }
 
 void USamuraiAnimInstance::OnEnableHitDetection()

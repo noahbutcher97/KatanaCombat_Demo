@@ -1,17 +1,15 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Utilities/MontageUtilityLibrary.h"
-#include "Animation/AnimInstance.h"
-#include "Animation/AnimNotifies/AnimNotifyState.h"
-#include "GameFramework/Character.h"
+#include "Animation/AnimNotifies/AnimNotify.h"
 #include "ActionQueueTypes.h"
-#include "Animation/AnimNotifyState_ComboWindow.h"
-#include "Animation/AnimNotifyState_ParryWindow.h"
-#include "Animation/AnimNotifyState_HoldWindow.h"
+#include "Animation/AnimNotifyState_ActionWindow_Base.h"
+#include "Animation/AnimNotify_AttackPhaseTransition.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "Data/AttackData.h"
 #include "Core/CombatComponent.h"  // For LogCombat declaration
+#include "Animation/AnimInstance.h"
 
 // ============================================================================
 // MONTAGE TIME QUERIES
@@ -133,41 +131,173 @@ int32 UMontageUtilityLibrary::DiscoverCheckpoints(UAnimMontage* Montage, TArray<
 		return 0;
 	}
 
-	// Scan all AnimNotifyStates in the montage
+	const float MontageDuration = Montage->GetPlayLength();
+	if (MontageDuration <= 0.0f)
+	{
+		return 0;
+	}
+
+	// ========================================================================
+	// PHASE 1: Find phase transition notifies (instant events, NOT states)
+	// ========================================================================
+	// Phase transitions define contiguous phase boundaries:
+	// - Windup: 0.0s → Active transition
+	// - Active: Active transition → Recovery transition
+	// - Recovery: Recovery transition → Montage end
+
+	float ActiveTransitionTime = -1.0f;   // When Active phase starts
+	float RecoveryTransitionTime = -1.0f; // When Recovery phase starts (Active ends)
+
+	UE_LOG(LogCombat, Verbose, TEXT("[CHECKPOINT] Scanning montage '%s' (duration: %.3fs)..."),
+		*Montage->GetName(), MontageDuration);
+
+	for (const FAnimNotifyEvent& NotifyEvent : Montage->Notifies)
+	{
+		// Check for instant notifies (AnimNotify, not AnimNotifyState)
+		if (NotifyEvent.Notify)
+		{
+			// Check if this is an AttackPhaseTransition notify
+			if (const UAnimNotify_AttackPhaseTransition* PhaseNotify =
+				Cast<UAnimNotify_AttackPhaseTransition>(NotifyEvent.Notify))
+			{
+				const float TriggerTime = NotifyEvent.GetTriggerTime();
+
+				if (PhaseNotify->TransitionToPhase == EAttackPhase::Active)
+				{
+					ActiveTransitionTime = TriggerTime;
+					UE_LOG(LogCombat, Verbose, TEXT("[CHECKPOINT] Found Active transition at %.3fs"), TriggerTime);
+				}
+				else if (PhaseNotify->TransitionToPhase == EAttackPhase::Recovery)
+				{
+					RecoveryTransitionTime = TriggerTime;
+					UE_LOG(LogCombat, Verbose, TEXT("[CHECKPOINT] Found Recovery transition at %.3fs"), TriggerTime);
+				}
+			}
+		}
+	}
+
+	// ========================================================================
+	// PHASE 2: Infer windows from phase transitions
+	// ========================================================================
+	// Combo System (Implicit Windows):
+	// - Input during Windup/Active → Snap execution at Active END (Recovery start)
+	// - Input during Recovery → Immediate interrupt (responsive)
+	// - No input by Recovery END → Combo resets
+	//
+	// This means:
+	// - Combo window spans entire attack (montage start to end)
+	// - Snap checkpoint at Recovery transition (Active→Recovery boundary)
+	// - Parry window during Active phase (for defenders to check attacker's state)
+
+	// Only create implicit windows if we found at least one phase transition
+	if (ActiveTransitionTime >= 0.0f || RecoveryTransitionTime >= 0.0f)
+	{
+		// Default fallbacks if only partial transitions found
+		if (ActiveTransitionTime < 0.0f)
+		{
+			ActiveTransitionTime = 0.0f; // Assume immediate Active
+			UE_LOG(LogCombat, Verbose, TEXT("[CHECKPOINT] No Active transition found, assuming 0.0s"));
+		}
+		if (RecoveryTransitionTime < 0.0f)
+		{
+			RecoveryTransitionTime = MontageDuration; // Assume no Recovery phase
+			UE_LOG(LogCombat, Verbose, TEXT("[CHECKPOINT] No Recovery transition found, assuming end of montage"));
+		}
+
+		// 1. COMBO WINDOW: Entire attack duration (input is always buffered)
+		// The execution timing differs based on WHEN input is received:
+		// - During Windup/Active: Queued for snap execution at Active end
+		// - During Recovery: Immediate interrupt
+		{
+			FTimerCheckpoint ComboCheckpoint;
+			ComboCheckpoint.WindowType = EActionWindowType::Combo;
+			ComboCheckpoint.MontageTime = 0.0f; // Starts at montage begin
+			ComboCheckpoint.Duration = MontageDuration; // Spans entire montage
+			ComboCheckpoint.bActive = true;
+			OutCheckpoints.Add(ComboCheckpoint);
+			UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] + Combo window: 0.0s - %.3fs (full montage)"), MontageDuration);
+		}
+
+		// 2. SNAP CHECKPOINT (Recovery start): When queued actions execute
+		// This is the key timing point - actions queued during Windup/Active
+		// execute at this moment (end of Active phase)
+		{
+			FTimerCheckpoint SnapCheckpoint;
+			SnapCheckpoint.WindowType = EActionWindowType::Recovery;
+			SnapCheckpoint.MontageTime = RecoveryTransitionTime;
+			SnapCheckpoint.Duration = MontageDuration - RecoveryTransitionTime;
+			SnapCheckpoint.bActive = true;
+			OutCheckpoints.Add(SnapCheckpoint);
+			UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] + Recovery (snap point): %.3fs - %.3fs"), RecoveryTransitionTime, MontageDuration);
+		}
+
+		// 3. PARRY WINDOW: During Active phase
+		// Defenders check if attacker is in parry window to trigger parry
+		// Parry window = Active phase duration
+		if (ActiveTransitionTime < RecoveryTransitionTime)
+		{
+			FTimerCheckpoint ParryCheckpoint;
+			ParryCheckpoint.WindowType = EActionWindowType::Parry;
+			ParryCheckpoint.MontageTime = ActiveTransitionTime;
+			ParryCheckpoint.Duration = RecoveryTransitionTime - ActiveTransitionTime;
+			ParryCheckpoint.bActive = true;
+			OutCheckpoints.Add(ParryCheckpoint);
+			UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] + Parry window: %.3fs - %.3fs (Active phase)"),
+				ActiveTransitionTime, RecoveryTransitionTime);
+		}
+	}
+	else
+	{
+		UE_LOG(LogCombat, Warning, TEXT("[CHECKPOINT] No phase transitions found in montage '%s' - windows cannot be inferred"),
+			*Montage->GetName());
+	}
+
+	// ========================================================================
+	// PHASE 3: Scan for explicit AnimNotifyState windows (ActionWindow_Base)
+	// ========================================================================
+	// Generic scanning for any ActionWindow_Base subclass. This allows:
+	// - HoldWindow (explicit duration tracking for hold mechanics)
+	// - ParryWindow (explicit override for specialized parry timing)
+	// - ComboWindow (explicit override for specialized combo timing)
+	// - CancelWindow (future: animation cancellation timing)
+	//
+	// NOTE: Explicit AnimNotifyStates found here are ADDITIVE to inferred windows.
+	// They can provide specialized timing for specific attacks while defaults
+	// are inferred from phase transitions.
+
 	for (const FAnimNotifyEvent& NotifyEvent : Montage->Notifies)
 	{
 		if (NotifyEvent.NotifyStateClass)
 		{
-			EActionWindowType WindowType = EActionWindowType::Recovery;
-			bool bIsWindowNotify = false;
+			UClass* NotifyClass = static_cast<UClass*>(NotifyEvent.NotifyStateClass);
 
-			// Check for window-type AnimNotifyStates
-			if (Cast<UAnimNotifyState_ComboWindow>(NotifyEvent.NotifyStateClass))
+			// Check if this is an ActionWindow subclass
+			if (NotifyClass && NotifyClass->IsChildOf(UAnimNotifyState_ActionWindow_Base::StaticClass()))
 			{
-				WindowType = EActionWindowType::Combo;
-				bIsWindowNotify = true;
-			}
-			else if (Cast<UAnimNotifyState_ParryWindow>(NotifyEvent.NotifyStateClass))
-			{
-				WindowType = EActionWindowType::Parry;
-				bIsWindowNotify = true;
-			}
-			else if (Cast<UAnimNotifyState_HoldWindow>(NotifyEvent.NotifyStateClass))
-			{
-				WindowType = EActionWindowType::Hold;
-				bIsWindowNotify = true;
-			}
-			// Note: Cancel windows can be added here when AnimNotifyState_CancelWindow is implemented
+				// Get the CDO to call GetWindowType()
+				if (const UAnimNotifyState_ActionWindow_Base* WindowCDO =
+					NotifyClass->GetDefaultObject<UAnimNotifyState_ActionWindow_Base>())
+				{
+					FTimerCheckpoint Checkpoint;
+					Checkpoint.WindowType = WindowCDO->GetWindowType();
+					Checkpoint.MontageTime = NotifyEvent.GetTriggerTime();
+					Checkpoint.Duration = NotifyEvent.GetDuration();
+					Checkpoint.bActive = true;
+					OutCheckpoints.Add(Checkpoint);
 
-			if (bIsWindowNotify)
-			{
-				FTimerCheckpoint Checkpoint;
-				Checkpoint.WindowType = WindowType;
-				Checkpoint.MontageTime = NotifyEvent.GetTriggerTime();
-				Checkpoint.Duration = NotifyEvent.GetDuration();
-				Checkpoint.bActive = true;
-
-				OutCheckpoints.Add(Checkpoint);
+					// Log window type name
+					const TCHAR* WindowTypeName = TEXT("Unknown");
+					switch (Checkpoint.WindowType)
+					{
+						case EActionWindowType::Combo:    WindowTypeName = TEXT("Combo"); break;
+						case EActionWindowType::Parry:    WindowTypeName = TEXT("Parry"); break;
+						case EActionWindowType::Hold:     WindowTypeName = TEXT("Hold"); break;
+						case EActionWindowType::Cancel:   WindowTypeName = TEXT("Cancel"); break;
+						case EActionWindowType::Recovery: WindowTypeName = TEXT("Recovery"); break;
+					}
+					UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] + %s window (explicit): %.3fs - %.3fs"),
+						WindowTypeName, Checkpoint.MontageTime, Checkpoint.MontageTime + Checkpoint.Duration);
+				}
 			}
 		}
 	}
@@ -177,6 +307,9 @@ int32 UMontageUtilityLibrary::DiscoverCheckpoints(UAnimMontage* Montage, TArray<
 	{
 		return A.MontageTime < B.MontageTime;
 	});
+
+	UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] Discovered %d checkpoints in '%s'"),
+		OutCheckpoints.Num(), *Montage->GetName());
 
 	return OutCheckpoints.Num();
 }
@@ -982,10 +1115,10 @@ UAttackData* UMontageUtilityLibrary::ResolveNextAttack(
 }
 
 // ============================================================================
-// V2 CONTEXT-AWARE ATTACK RESOLUTION (Phase 1)
+// CONTEXT-AWARE ATTACK RESOLUTION
 // ============================================================================
 
-FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
+FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttackContextual(
 	UAttackData* CurrentAttack,
 	EInputType InputType,
 	EAttackDirection Direction,
@@ -1001,7 +1134,7 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 	// Safety: Check for cycle (visited this attack already)
 	if (CurrentAttack && VisitedAttacks.Contains(CurrentAttack))
 	{
-		UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] ✗ Cycle detected! Attack '%s' already visited in this resolution chain. Falling back to default attack for graceful recovery."),
+		UE_LOG(LogCombat, Error, TEXT("[RESOLVE] Cycle detected! Attack '%s' already visited. Falling back to default."),
 			*CurrentAttack->GetName());
 		Result.bCycleDetected = true;
 
@@ -1021,7 +1154,7 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 	const TCHAR* InputTypeName = InputType == EInputType::LightAttack ? TEXT("Light") :
 	                             InputType == EInputType::HeavyAttack ? TEXT("Heavy") : TEXT("Other");
 
-	UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Input=%s, Direction=%d, HoldCompleted=%s, ComboWindow=%s, CurrentAttack=%s"),
+	UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Input=%s, Direction=%d, HoldCompleted=%s, ComboWindow=%s, CurrentAttack=%s"),
 		InputTypeName,
 		static_cast<int32>(Direction),
 		HoldState.IsHoldCompleted() ? TEXT("Yes") : TEXT("No"),
@@ -1031,43 +1164,43 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 	// ========================================================================
 	// PRIORITY 1: Context-Sensitive Attacks (Future: Parry Counters, Finishers)
 	// ========================================================================
-	// TODO Phase 2: Check RequiredContextTags against ActiveContext
+	// TODO: Check RequiredContextTags against ActiveContext
 	// For now, skip this priority (no context-sensitive attacks yet)
 
 	// ========================================================================
 	// PRIORITY 2: Directional Follow-Ups (if hold COMPLETED + direction + current attack has directionals)
 	// ========================================================================
-	// CRITICAL FIX: Check IsHoldCompleted() instead of just IsHolding()
+	// Check IsHoldCompleted() instead of just IsHolding()
 	// This ensures hold was completed (button held through freeze/charge then released)
 	// Prevents directional attacks from triggering during normal combos when player presses movement direction
 	if (HoldState.IsHoldCompleted() && Direction != EAttackDirection::None && CurrentAttack)
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Checking directional follow-ups (Hold COMPLETED detected)..."));
+		UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Checking directional follow-ups (Hold COMPLETED detected)..."));
 
 		// Check input-type-specific directional maps
 		UAttackData* DirectionalAttack = nullptr;
 		if (InputType == EInputType::HeavyAttack && CurrentAttack->HeavyDirectionalFollowUps.Contains(Direction))
 		{
 			DirectionalAttack = CurrentAttack->HeavyDirectionalFollowUps[Direction];
-			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Found HeavyDirectionalFollowUp for direction %d"), static_cast<int32>(Direction));
+			UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Found HeavyDirectionalFollowUp for direction %d"), static_cast<int32>(Direction));
 		}
 		else if (InputType == EInputType::LightAttack && CurrentAttack->DirectionalFollowUps.Contains(Direction))
 		{
 			DirectionalAttack = CurrentAttack->DirectionalFollowUps[Direction];
-			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Found DirectionalFollowUp for direction %d"), static_cast<int32>(Direction));
+			UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Found DirectionalFollowUp for direction %d"), static_cast<int32>(Direction));
 		}
 
 		if (DirectionalAttack)
 		{
 			Result.Attack = DirectionalAttack;
 			Result.Path = EResolutionPath::DirectionalFollowUp;
-			Result.bShouldClearDirectionalInput = true; // KEY FIX: Signal to clear LastDirectionalInput
-			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] ✓ Resolved to DirectionalFollowUp: '%s' (CLEAR SIGNAL)"), *DirectionalAttack->GetName());
+			Result.bShouldClearDirectionalInput = true; // Signal to clear LastDirectionalInput
+			UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Resolved to DirectionalFollowUp: '%s' (CLEAR SIGNAL)"), *DirectionalAttack->GetName());
 			return Result;
 		}
 		else
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] No directional follow-up found for direction %d"), static_cast<int32>(Direction));
+			UE_LOG(LogCombat, Log, TEXT("[RESOLVE] No directional follow-up found for direction %d"), static_cast<int32>(Direction));
 		}
 	}
 
@@ -1076,19 +1209,19 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 	// ========================================================================
 	if (bComboWindowActive && CurrentAttack)
 	{
-		UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Checking combo chain (ComboWindow active)..."));
+		UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Checking combo chain (ComboWindow active)..."));
 
 		UAttackData* ComboAttack = GetComboAttack(CurrentAttack, InputType, Direction);
 		if (ComboAttack)
 		{
 			Result.Attack = ComboAttack;
 			Result.Path = EResolutionPath::NormalCombo;
-			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] ✓ Resolved to NormalCombo: '%s'"), *ComboAttack->GetName());
+			UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Resolved to NormalCombo: '%s'"), *ComboAttack->GetName());
 			return Result;
 		}
 		else
 		{
-			UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] Combo chain ended (nullptr), falling back to default"));
+			UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Combo chain ended (nullptr), falling back to default"));
 		}
 	}
 
@@ -1114,14 +1247,13 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 	{
 		Result.Attack = DefaultAttack;
 		Result.Path = EResolutionPath::Default;
-		UE_LOG(LogCombat, Log, TEXT("[V2 RESOLVE] ✓ Resolved to Default: '%s'"), *DefaultAttack->GetName());
+		UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Resolved to Default: '%s'"), *DefaultAttack->GetName());
 	}
 	else
 	{
-		// EMERGENCY FALLBACK (Tier 5): Default attack is nullptr - this should never happen if validation works
+		// EMERGENCY FALLBACK: Default attack is nullptr - this should never happen if validation works
 		// But we provide graceful degradation instead of crashing or giving "dead input"
-		UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] ✗ CRITICAL: Default %s attack is nullptr! This indicates improper setup. "
-		                              "Using emergency fallback to prevent dead input."),
+		UE_LOG(LogCombat, Error, TEXT("[RESOLVE] CRITICAL: Default %s attack is nullptr! Check CombatSettings setup."),
 			InputType == EInputType::LightAttack ? TEXT("Light") : TEXT("Heavy"));
 
 		// Try to use the original current attack as fallback (repeat same attack)
@@ -1136,8 +1268,7 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 			{
 				Result.Attack = OriginalAttack;
 				Result.Path = EResolutionPath::Default; // Mark as default even though it's emergency
-				UE_LOG(LogCombat, Warning, TEXT("[V2 RESOLVE] Emergency fallback: Repeating original attack '%s' "
-				                                "(better than dead input, but FIX YOUR DEFAULT ATTACKS!)"),
+				UE_LOG(LogCombat, Warning, TEXT("[RESOLVE] Emergency fallback: Repeating original attack '%s'"),
 					*OriginalAttack->GetName());
 
 				// Show on-screen error in editor
@@ -1153,7 +1284,7 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 			else
 			{
 				// LAST RESORT: Even emergency fallback failed - return nullptr, DON'T crash
-				UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] Cannot resolve attack: No default AND no current attack. "
+				UE_LOG(LogCombat, Error, TEXT("[RESOLVE] Cannot resolve attack: No default AND no current attack. "
 				                              "Check CombatSettings assignment on character."));
 				#if WITH_EDITOR
 				if (GEngine)
@@ -1168,7 +1299,7 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttack_V2(
 		else
 		{
 			// No visited attacks either (first attack in chain was nullptr) - DON'T crash
-			UE_LOG(LogCombat, Error, TEXT("[V2 RESOLVE] Cannot resolve attack: No default AND no current attack. "
+			UE_LOG(LogCombat, Error, TEXT("[RESOLVE] Cannot resolve attack: No default AND no current attack. "
 			                              "Check CombatSettings assignment on character."));
 			#if WITH_EDITOR
 			if (GEngine)

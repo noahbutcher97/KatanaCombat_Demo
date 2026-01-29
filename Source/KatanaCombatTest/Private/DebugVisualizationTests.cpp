@@ -2,6 +2,7 @@
 
 #include "CombatTestHelpers.h"
 #include "Core/CombatComponent.h"
+#include "Utilities/CombatUtils.h"
 #include "GameFramework/Character.h"
 
 /**
@@ -14,10 +15,10 @@ bool FDebugLabelPositionTest::RunTest(const FString& Parameters)
 {
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* CombatV2 = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatV2);
+	UCombatComponent* CombatComp = nullptr;
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
-	if (!TestNotNull("CombatComponent should be created", CombatV2))
+	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
 		FCombatTestHelpers::DestroyTestWorld(World);
 		return false;
@@ -30,7 +31,7 @@ bool FDebugLabelPositionTest::RunTest(const FString& Parameters)
 	const EInputDirection ResolvedDirection = EInputDirection::Forward;
 
 	// Calculate debug visualization data
-	FDebugVisualizationData DebugData = CombatV2->CalculateDebugVisualizationData(
+	FDebugVisualizationData DebugData = CombatComp->CalculateDebugVisualizationData(
 		CameraRotation, CharacterRotation, CameraRelativeInput, ResolvedDirection);
 
 	// Verify we have 5 arrows
@@ -57,7 +58,7 @@ bool FDebugLabelPositionTest::RunTest(const FString& Parameters)
 
 	// Test with divergent directions to ensure labels don't all overlap
 	const FRotator DivergentCamera(0.0f, 90.0f, 0.0f); // Camera looking perpendicular
-	FDebugVisualizationData DivergentData = CombatV2->CalculateDebugVisualizationData(
+	FDebugVisualizationData DivergentData = CombatComp->CalculateDebugVisualizationData(
 		DivergentCamera, CharacterRotation, CameraRelativeInput, EInputDirection::Right);
 
 	// With divergent camera, labels should be more spread out in XY
@@ -92,7 +93,7 @@ bool FDebugArrowPositionTest::RunTest(const FString& Parameters)
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -151,7 +152,7 @@ bool FDebugHoldStateVisualizationTest::RunTest(const FString& Parameters)
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -196,7 +197,7 @@ bool FDebugPhaseColorTest::RunTest(const FString& Parameters)
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -226,10 +227,10 @@ bool FDebugArrowLengthTest::RunTest(const FString& Parameters)
 {
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* CombatV2 = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatV2);
+	UCombatComponent* CombatComp = nullptr;
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
-	if (!TestNotNull("CombatComponent should be created", CombatV2))
+	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
 		FCombatTestHelpers::DestroyTestWorld(World);
 		return false;
@@ -241,7 +242,7 @@ bool FDebugArrowLengthTest::RunTest(const FString& Parameters)
 	const FVector2D TestInput(0.0f, 1.0f);
 	const EInputDirection TestDirection = EInputDirection::Forward;
 
-	FDebugVisualizationData DebugData = CombatV2->CalculateDebugVisualizationData(
+	FDebugVisualizationData DebugData = CombatComp->CalculateDebugVisualizationData(
 		TestRotation, TestRotation, TestInput, TestDirection);
 
 	// Verify calculated end positions match specified lengths
@@ -272,7 +273,7 @@ bool FDebugChestHeightTest::RunTest(const FString& Parameters)
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -322,10 +323,10 @@ bool FDebugAngularArcTest::RunTest(const FString& Parameters)
 {
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* CombatV2 = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatV2);
+	UCombatComponent* CombatComp = nullptr;
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
-	if (!TestNotNull("CombatComponent should be created", CombatV2))
+	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
 		FCombatTestHelpers::DestroyTestWorld(World);
 		return false;
@@ -337,7 +338,7 @@ bool FDebugAngularArcTest::RunTest(const FString& Parameters)
 	const FVector2D TestInput(0.0f, 1.0f);
 	const EInputDirection TestDirection = EInputDirection::ForwardRight;
 
-	FDebugVisualizationData DebugData = CombatV2->CalculateDebugVisualizationData(
+	FDebugVisualizationData DebugData = CombatComp->CalculateDebugVisualizationData(
 		CameraRotation, CharacterRotation, TestInput, TestDirection);
 
 	// Should generate arc points for 45° delta
@@ -346,7 +347,7 @@ bool FDebugAngularArcTest::RunTest(const FString& Parameters)
 
 	// Test with small yaw delta (< 5 degrees) - should not generate arc
 	const FRotator SmallDeltaCamera(0.0f, 2.0f, 0.0f);
-	FDebugVisualizationData SmallDeltaData = CombatV2->CalculateDebugVisualizationData(
+	FDebugVisualizationData SmallDeltaData = CombatComp->CalculateDebugVisualizationData(
 		SmallDeltaCamera, CharacterRotation, TestInput, TestDirection);
 
 	TestEqual("Arc should not be generated for yaw delta < 5°",
@@ -388,7 +389,7 @@ bool FDebugDirectionMappingTest::RunTest(const FString& Parameters)
 
 	for (const FDirectionMapping& TestCase : TestCases)
 	{
-		EAttackDirection Result = CombatHelpers::InputToAttackDirection(TestCase.Input);
+		EAttackDirection Result = UCombatUtils::InputToAttackDirection(TestCase.Input);
 		TestEqual(TestCase.Description, Result, TestCase.ExpectedAttack);
 	}
 
@@ -406,7 +407,7 @@ bool FDebugLabelContentTest::RunTest(const FString& Parameters)
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -457,10 +458,10 @@ bool FDebugArrowIdentityTest::RunTest(const FString& Parameters)
 {
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* CombatV2 = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatV2);
+	UCombatComponent* CombatComp = nullptr;
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
-	if (!TestNotNull("CombatComponent should be created", CombatV2))
+	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
 		FCombatTestHelpers::DestroyTestWorld(World);
 		return false;
@@ -473,7 +474,7 @@ bool FDebugArrowIdentityTest::RunTest(const FString& Parameters)
 	const FVector2D CameraRelativeInput(1.0f, 0.0f); // Right
 	const EInputDirection ResolvedDirection = EInputDirection::Right;
 
-	FDebugVisualizationData DebugData = CombatV2->CalculateDebugVisualizationData(
+	FDebugVisualizationData DebugData = CombatComp->CalculateDebugVisualizationData(
 		CameraRotation, CharacterRotation, CameraRelativeInput, ResolvedDirection);
 
 	// Verify we have exactly 5 arrows in correct order
@@ -526,7 +527,7 @@ bool FDebugResolvedColorTest::RunTest(const FString& Parameters)
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -584,7 +585,7 @@ bool FDebugZeroInputTest::RunTest(const FString& Parameters)
 	// Setup - use proper character spawning via test helper
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ASamuraiCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{

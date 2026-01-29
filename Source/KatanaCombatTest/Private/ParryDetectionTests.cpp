@@ -1,48 +1,67 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "CombatTestHelpers.h"
+#include "Core/CombatComponent.h"
 
 /**
  * Test: Parry Detection
  * Verifies parry window is on ATTACKER's montage and defender checks it
  *
- * V2 MIGRATION STATUS: NEEDS REWRITE
- * - V1 used OpenParryWindow(), IsInParryWindow(), CloseParryWindow()
- * - V2 uses RegisterCheckpoint(EActionWindowType::Parry) via AnimNotifyState_ParryWindow
- * - Defender checks attacker's checkpoints using GetActiveWindows()
- *
- * TODO V2: Rewrite tests using V2 parry mechanics:
- * - Attacker: RegisterCheckpoint(EActionWindowType::Parry, MontageTime, Duration)
- * - Defender: Check GetActiveWindows() on enemy CombatComponent
- * - Test parry timing window (typically 0.3s during early windup)
+ * Design Rule: Parry window goes on the ATTACKER's animation, not the defender's.
+ * Defender queries the attacker's CombatComponent to check if parry is available.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FParryDetectionTest, "KatanaCombat.CombatComponent.ParryDetection", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
 bool FParryDetectionTest::RunTest(const FString& Parameters)
 {
-	// Setup
+	// Setup - create two characters
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* AttackerComp = nullptr;
 	UCombatComponent* DefenderComp = nullptr;
-	UTargetingComponent* DefenderTargeting = nullptr;
 
-	ACharacter* Attacker = FCombatTestHelpers::CreateTestCharacterWithCombat(World, AttackerComp);
-	ACharacter* Defender = FCombatTestHelpers::CreateTestCharacterWithCombatAndTargeting(
-		World, DefenderComp, DefenderTargeting);
+	APlayerCharacter* Attacker = FCombatTestHelpers::CreateTestCharacterWithCombat(World, AttackerComp);
+	APlayerCharacter* Defender = FCombatTestHelpers::CreateTestCharacterWithCombat(World, DefenderComp);
 
-	if (!TestNotNull("Attacker should be created", AttackerComp) ||
-		!TestNotNull("Defender should be created", DefenderComp))
+	if (!TestNotNull("Attacker CombatComponent should be created", AttackerComp) ||
+		!TestNotNull("Defender CombatComponent should be created", DefenderComp))
 	{
 		FCombatTestHelpers::DestroyTestWorld(World);
 		return false;
 	}
 
-	AddWarning("ParryDetectionTests not yet migrated to V2 - skipping");
+	// Helper lambda to check if parry window is active
+	auto HasActiveParryWindow = [](UCombatComponent* Comp, float Time) -> bool
+	{
+		TArray<FTimerCheckpoint> Windows = Comp->GetActiveWindows(Time);
+		for (const FTimerCheckpoint& Checkpoint : Windows)
+		{
+			if (Checkpoint.WindowType == EActionWindowType::Parry)
+			{
+				return true;
+			}
+		}
+		return false;
+	};
 
-	/* V1 REMOVED: All parry detection tests
-	V1 tested: Parry window on attacker, defender checks IsInParryWindow()
-	V2 TODO: Test RegisterCheckpoint on attacker, GetActiveWindows() query from defender
-	*/
+	// Test 1: Parry window not active by default
+	TestFalse("Attacker should not have parry window by default", HasActiveParryWindow(AttackerComp, 0.0f));
+
+	// Test 2: Registering parry checkpoint on attacker activates parry window
+	// Parry window at 0.1s with 0.3s duration (active from 0.1 to 0.4)
+	AttackerComp->RegisterCheckpoint(EActionWindowType::Parry, 0.1f, 0.3f);
+
+	// At 0.2s (within window), parry should be active
+	TestTrue("Attacker should have parry window at 0.2s", HasActiveParryWindow(AttackerComp, 0.2f));
+
+	// Test 3: Defender can query attacker's parry window
+	// (In real gameplay, defender would get attacker via targeting system)
+	TestFalse("Defender should NOT have parry window (on their own component)", HasActiveParryWindow(DefenderComp, 0.2f));
+
+	// Test 4: Outside parry window timing
+	TestFalse("Parry window should not be active at 0.5s (outside 0.1-0.4 range)", HasActiveParryWindow(AttackerComp, 0.5f));
+
+	// Test 5: Before parry window starts
+	TestFalse("Parry window should not be active at 0.05s (before 0.1 start)", HasActiveParryWindow(AttackerComp, 0.05f));
 
 	// Cleanup
 	World->DestroyActor(Attacker);

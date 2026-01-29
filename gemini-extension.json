@@ -1,0 +1,15 @@
+{
+  "name": "katana-combat-context",
+  "version": "1.0.0",
+  "description": "Project-specific agents and context for KatanaCombat",
+  "commands": [
+    { "path": ".gemini/agents/lead_architect.toml" },
+    { "path": ".gemini/agents/combat_engineer.toml" },
+    { "path": ".gemini/agents/technical_animator.toml" },
+    { "path": ".gemini/agents/systems_designer.toml" },
+    { "path": ".gemini/agents/qa_engineer.toml" },
+    { "path": ".gemini/commands/check-warnings.toml" },
+    { "path": ".gemini/commands/validate-combat.toml" },
+    { "path": ".gemini/commands/fix-crash.toml" }
+  ]
+}

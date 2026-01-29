@@ -4,9 +4,9 @@ Current implementation status and planned features for the combat system.
 
 ---
 
-## Current Status (As of 2025-11-19)
+## Current Status (As of 2025-01-28)
 
-### V2 System - Core Mechanics Complete
+### v3.0.0 - Unified Combat System Complete
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -18,10 +18,21 @@ Current implementation status and planned features for the combat system.
 | Directional Follow-ups | Complete | Context-aware input, consumption tracking |
 | Graceful Fallback Chain | Complete | 5-tier system that NEVER breaks combat |
 | Blending | Complete | Universal crossfade with per-attack blend times |
-| Debug Visualization | Complete | Phase, queue, timeline, stats |
+| Debug Visualization | Complete | CVar-based (Combat.Debug.* commands) |
 | Montage Utilities | Complete | 27 functions |
 | Editor Tools | Complete | Custom AttackData panel with validation |
 | Context System | Complete | GameplayTag resolution with cycle detection |
+| **Character Hierarchy** | **Complete** | BaseCombatCharacter → PlayerCharacter/EnemyCharacter |
+| **Modular Settings** | **Complete** | TargetingSettings, MotionWarpingSettings data assets |
+| **Unified Motion Warping** | **Complete** | SetupAttackWarp() + AnimNotifyState_CombatWarp |
+| **Team System** | **Complete** | ITeamMemberInterface for friend/foe detection |
+
+### Architecture Consolidation (v3.0.0)
+
+- **V1 Removed**: Single unified `CombatComponent` (no more V1/V2 distinction)
+- **Character Hierarchy**: `ABaseCombatCharacter` → `APlayerCharacter` / `AEnemyCharacter`
+- **Modular Settings**: Three-tier configuration (Override → CombatSettings → Fallback)
+- **AnimNotifyState_CombatWarp**: Auto-selects translation+rotation vs rotation-only
 
 ### Robustness Features
 
@@ -39,7 +50,7 @@ Current implementation status and planned features for the combat system.
 
 ### Test Coverage
 
-- 7 test files, 45+ assertions, all passing
+- 9 test files, 70+ assertions, all passing
 - 96% design specification compliance (validated via audit)
 
 ---

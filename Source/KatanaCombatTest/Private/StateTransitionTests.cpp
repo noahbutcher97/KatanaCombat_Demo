@@ -3,17 +3,14 @@
 #include "CombatTestHelpers.h"
 
 /**
- * Test: State Transition Validation
- * Verifies all valid and invalid state transitions in the combat state machine
+ * Test: Phase Transition Validation
+ * Verifies phase transitions in the combat system
  *
- * V2 MIGRATION STATUS: DEPRECATED
- * - V2 does NOT use ECombatState (Idle, Attacking, Blocking, etc.)
- * - V2 uses EAttackPhase (None, Windup, Active, Recovery) for attack progression
- * - V2 uses EActionState (Pending, Executing, Completed, Cancelled) for queued actions
- * - State machine concept no longer applies to V2 architecture
+ * NOTE: The original state machine (ECombatState) has been removed.
+ * The combat system now uses phases (EAttackPhase) for attack progression:
+ * - None → Windup → Active → Recovery → None
  *
- * TODO V2: This test may not be needed - V2 doesn't have state transitions
- * Consider removing or replacing with phase transition tests (None → Windup → Active → Recovery)
+ * See AttackExecutionTests.cpp for phase transition tests.
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FStateTransitionTest, "KatanaCombat.CombatComponent.StateTransitions", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
@@ -22,7 +19,7 @@ bool FStateTransitionTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ACharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -30,26 +27,11 @@ bool FStateTransitionTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// V2 does not have state transitions - skipping
-	AddWarning("StateTransitionTests not applicable to V2 (no state machine) - skipping");
-
-	/* V1 REMOVED: All state transition tests
-	V1 API: CanTransitionTo(), SetCombatState(), GetCombatState(), ForceSetStateForTest()
-	V2 has NO equivalent - uses phases (Windup/Active/Recovery) instead
-
-	Test 1-8: All removed
-	- Idle → Attacking
-	- Dead terminal state
-	- Blocking → Parrying
-	- GuardBroken → Idle
-	- etc.
-
-	TODO V2: Consider testing phase transitions instead:
-	- None → Windup (via SetPhase())
-	- Windup → Active (via SetPhase())
-	- Active → Recovery (via SetPhase())
-	- Recovery → None (via SetPhase())
-	*/
+	// Combat system uses phases, not state machine transitions
+	// See AttackExecutionTests.cpp for phase transition coverage:
+	// - FDefaultPhaseNoneTest: Verifies default phase is None
+	// - FPhaseTransitionTest: Tests Windup → Active → Recovery → None
+	AddInfo("State machine tests deprecated - phase transition tests in AttackExecutionTests.cpp");
 
 	// Cleanup
 	World->DestroyActor(TestCharacter);

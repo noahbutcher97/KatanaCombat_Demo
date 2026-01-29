@@ -27,7 +27,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDeath, AActor*, Killer);
  * Provides common combat components, health system, and interface implementations
  *
  * This class is the foundation for:
- * - Player characters (ASamuraiCharacter / APlayerCharacter)
+ * - Player characters (APlayerCharacter)
  * - Enemy characters (AEnemyCharacter)
  * - Any other character that participates in combat
  *
@@ -119,6 +119,14 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Combat")
     UHitReactionComponent* GetHitReactionComponent() const { return HitReactionComponent; }
+
+    /**
+     * Get current movement input vector (camera-relative)
+     * Used by debug visualization to show attack direction preview during hold
+     * @return 2D movement input from last frame, or ZeroVector if no input
+     */
+    UFUNCTION(BlueprintPure, Category = "Combat|Input")
+    virtual FVector2D GetLastMovementInput() const { return FVector2D::ZeroVector; }
 
     // ========================================================================
     // HEALTH UTILITIES

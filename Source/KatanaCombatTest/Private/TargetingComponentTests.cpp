@@ -2,7 +2,7 @@
 
 #include "CombatTestHelpers.h"
 #include "Core/TargetingComponent.h"
-#include "Characters/SamuraiCharacter.h"
+#include "Characters/PlayerCharacter.h"
 #include "Characters/EnemyCharacter.h"
 
 /**
@@ -15,7 +15,7 @@ bool FTargetingFindEnemyAheadTest::RunTest(const FString& Parameters)
 {
 	// Setup: Player at origin, enemy 300 units ahead
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	ASamuraiCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
 	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(300.0f, 0.0f, 0.0f));
 
 	if (!TestNotNull("Player should be created", Player) ||
@@ -66,7 +66,7 @@ bool FTargetingIgnoreEnemyBehindTest::RunTest(const FString& Parameters)
 {
 	// Setup: Player at origin, enemy 300 units behind
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	ASamuraiCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
 	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(-300.0f, 0.0f, 0.0f));
 
 	if (!TestNotNull("Player should be created", Player) ||
@@ -113,7 +113,7 @@ bool FTargetingMultipleEnemyScoringTest::RunTest(const FString& Parameters)
 {
 	// Setup: Player at origin, enemies at various positions
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	ASamuraiCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
 
 	// Enemy A: Far but perfectly aligned (500 units ahead)
 	AEnemyCharacter* EnemyFar = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(500.0f, 0.0f, 0.0f));
@@ -187,7 +187,7 @@ bool FTargetingNoTargetReturnsInputDirTest::RunTest(const FString& Parameters)
 {
 	// Setup: Player alone, no enemies
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	ASamuraiCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
 
 	if (!TestNotNull("Player should be created", Player))
 	{
@@ -237,7 +237,7 @@ bool FTargetingOutOfRangeTest::RunTest(const FString& Parameters)
 {
 	// Setup: Player at origin, enemy 600 units ahead (beyond 500 max range)
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	ASamuraiCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
 	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(600.0f, 0.0f, 0.0f));
 
 	if (!TestNotNull("Player should be created", Player) ||
@@ -284,7 +284,7 @@ bool FTargetingAngleAccuracyTest::RunTest(const FString& Parameters)
 {
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	ASamuraiCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
 
 	if (!TestNotNull("Player should be created", Player))
 	{
@@ -337,7 +337,7 @@ bool FTargetingDistanceAccuracyTest::RunTest(const FString& Parameters)
 {
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	ASamuraiCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
 	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(300.0f, 400.0f, 0.0f));
 
 	if (!TestNotNull("Player should be created", Player) ||

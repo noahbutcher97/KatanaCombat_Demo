@@ -7,9 +7,9 @@
 #include "ActionQueueTypes.generated.h"
 
 /**
- * V2 Combat System - Action Queue Data Structures
+ * Combat System - Action Queue Data Structures
  *
- * This file defines all data types for the V2 timer-based action queue system.
+ * This file defines all data types for the timer-based action queue system.
  * Key concepts:
  * - Input events are timestamped and queued (not processed immediately)
  * - Timer checkpoints define when actions execute (snap vs responsive)
@@ -21,7 +21,7 @@
 class UAttackData;
 
 /**
- * Input event types for the V2 system
+ * Input event types for the action queue system
  */
 UENUM(BlueprintType)
 enum class EInputEventType : uint8
@@ -31,7 +31,7 @@ enum class EInputEventType : uint8
 };
 
 /**
- * Action execution timing modes (V2)
+ * Action execution timing modes
  */
 UENUM(BlueprintType)
 enum class EActionExecutionMode : uint8
@@ -85,7 +85,7 @@ enum class EActionWindowType : uint8
 };
 
 /**
- * Represents a single input event with timestamp (V2)
+ * Represents a single input event with timestamp
  */
 USTRUCT(BlueprintType)
 struct FQueuedInputAction

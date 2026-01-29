@@ -7,8 +7,12 @@
 #include "WeaponComponent.generated.h"
 
 class UAttackData;
+class UAttackConfiguration;
+class UWeaponData;
+class UCombatSettings;
 class ACharacter;
 class USkeletalMeshComponent;
+class UStaticMeshComponent;
 
 /**
  * Handles weapon-based hit detection via socket tracing
@@ -38,28 +42,118 @@ public:
     virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
     // ============================================================================
-    // CONFIGURATION
+    // WEAPON DATA (Primary Configuration Source)
+    // ============================================================================
+
+    /**
+     * Weapon data asset defining this weapon's properties
+     * When set, overrides manual socket/radius configuration
+     * Also provides AttackConfiguration for moveset
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Data")
+    TObjectPtr<UWeaponData> WeaponData;
+
+    // ============================================================================
+    // MANUAL CONFIGURATION (Used when WeaponData is null)
     // ============================================================================
 
     /** Socket name for weapon start (usually weapon base/handle) */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Manual Config",
+        meta = (EditCondition = "WeaponData == nullptr", EditConditionHides))
     FName WeaponStartSocket = "weapon_start";
 
     /** Socket name for weapon end (usually weapon tip) */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Manual Config",
+        meta = (EditCondition = "WeaponData == nullptr", EditConditionHides))
     FName WeaponEndSocket = "weapon_end";
 
     /** Trace radius for swept sphere (adjust based on weapon size) */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Manual Config",
+        meta = (EditCondition = "WeaponData == nullptr", EditConditionHides))
     float TraceRadius = 5.0f;
 
     /** Trace channel for hit detection */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Hit Detection")
     TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Pawn;
 
     // Debug visualization is now controlled via CVars:
     // Combat.Debug.Weapon 1 - Enable weapon trace visualization
     // Combat.Debug.DrawDuration 2.0 - Set debug draw duration
+
+    // ============================================================================
+    // WEAPON EQUIP STATE
+    // ============================================================================
+
+    /** Is the weapon currently equipped (in hand) vs holstered? */
+    UFUNCTION(BlueprintPure, Category = "Weapon|State")
+    bool IsEquipped() const { return bIsEquipped; }
+
+    /**
+     * Equip the weapon (move from holster to hand)
+     * Called by animation notifies during draw animations
+     */
+    UFUNCTION(BlueprintCallable, Category = "Weapon|State")
+    void Equip();
+
+    /**
+     * Holster the weapon (move from hand to holster position)
+     * Called by animation notifies during sheathe animations
+     */
+    UFUNCTION(BlueprintCallable, Category = "Weapon|State")
+    void Holster();
+
+    /**
+     * Play the equip (draw) animation montage
+     * The montage should contain AnimNotify_WeaponEquip to trigger Equip() at the right frame
+     * @return True if montage was started
+     */
+    UFUNCTION(BlueprintCallable, Category = "Weapon|Animation")
+    bool PlayEquipAnimation();
+
+    /**
+     * Play the holster (sheathe) animation montage
+     * The montage should contain AnimNotify_WeaponHolster to trigger Holster() at the right frame
+     * @return True if montage was started
+     */
+    UFUNCTION(BlueprintCallable, Category = "Weapon|Animation")
+    bool PlayHolsterAnimation();
+
+    /**
+     * Initialize weapon from WeaponData
+     * Spawns mesh, configures sockets, sets up initial state
+     * Called automatically in BeginPlay if WeaponData is set
+     * Can also be called manually to change weapons at runtime
+     * @param NewWeaponData - Weapon data to use (nullptr to clear weapon)
+     * @param bStartEquipped - Should weapon start in equipped (hand) position?
+     */
+    UFUNCTION(BlueprintCallable, Category = "Weapon|Setup")
+    void InitializeFromWeaponData(UWeaponData* NewWeaponData, bool bStartEquipped = true);
+
+    // ============================================================================
+    // ATTACK CONFIGURATION ACCESS
+    // ============================================================================
+
+    /**
+     * Get the effective attack configuration for this weapon
+     * Priority: WeaponData->AttackConfiguration > CombatSettings->AttackConfiguration
+     * @return Attack configuration, or nullptr if none available
+     */
+    UFUNCTION(BlueprintPure, Category = "Weapon|Combat")
+    UAttackConfiguration* GetEffectiveAttackConfiguration() const;
+
+    /**
+     * Get the damage multiplier from weapon data
+     * @return Damage multiplier (1.0 if no weapon data)
+     */
+    UFUNCTION(BlueprintPure, Category = "Weapon|Combat")
+    float GetDamageMultiplier() const;
+
+    /**
+     * Get the weapon reach for targeting adjustments
+     * @return Weapon reach in units (150.0 default)
+     */
+    UFUNCTION(BlueprintPure, Category = "Weapon|Combat")
+    float GetWeaponReach() const;
 
     // ============================================================================
     // HIT DETECTION CONTROL
@@ -157,7 +251,19 @@ protected:
 
 private:
     // ============================================================================
-    // STATE
+    // WEAPON STATE
+    // ============================================================================
+
+    /** Is weapon currently equipped (in hand)? */
+    UPROPERTY()
+    bool bIsEquipped = true;
+
+    /** Spawned mesh component for the weapon visual */
+    UPROPERTY()
+    TObjectPtr<UStaticMeshComponent> SpawnedWeaponMesh;
+
+    // ============================================================================
+    // HIT DETECTION STATE
     // ============================================================================
 
     /** Is hit detection currently active? */
@@ -226,4 +332,29 @@ private:
      * @param Hit - Hit result (if bHit is true)
      */
     void DrawDebugTrace(const FVector& Start, const FVector& End, bool bHit, const FHitResult& Hit) const;
+
+    // ============================================================================
+    // INTERNAL HELPERS - WEAPON DATA
+    // ============================================================================
+
+    /** Get effective start socket (from WeaponData or manual config) */
+    FName GetEffectiveStartSocket() const;
+
+    /** Get effective end socket (from WeaponData or manual config) */
+    FName GetEffectiveEndSocket() const;
+
+    /** Get effective trace radius (from WeaponData or manual config) */
+    float GetEffectiveTraceRadius() const;
+
+    /** Spawn and configure mesh component from WeaponData */
+    void SpawnWeaponMesh();
+
+    /** Destroy spawned mesh component */
+    void DestroyWeaponMesh();
+
+    /** Attach mesh to specified socket */
+    void AttachMeshToSocket(FName SocketName);
+
+    /** Get CombatSettings from owner character */
+    UCombatSettings* GetOwnerCombatSettings() const;
 };

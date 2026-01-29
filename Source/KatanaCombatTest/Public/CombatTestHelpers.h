@@ -6,7 +6,7 @@
 #include "Misc/AutomationTest.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
-#include "Characters/SamuraiCharacter.h"
+#include "Characters/PlayerCharacter.h"
 #include "Characters/EnemyCharacter.h"
 #include "Animation/AnimMontage.h"
 #include "Core/CombatComponent.h"
@@ -56,13 +56,13 @@ public:
     static UCombatSettings* CreateTestCombatSettings()
     {
         UCombatSettings* Settings = NewObject<UCombatSettings>();
-        Settings->MaxPosture = 100.0f;
-        Settings->PostureRegenRate_Idle = 20.0f;
-        Settings->PostureRegenRate_Attacking = 50.0f;
-        Settings->PostureRegenRate_NotBlocking = 30.0f;
+        //Settings->MaxPosture = 100.0f;
+        //Settings->PostureRegenRate_Idle = 20.0f;
+        //Settings->PostureRegenRate_Attacking = 50.0f;
+        //Settings->PostureRegenRate_NotBlocking = 30.0f;
         Settings->AttackConfiguration = NewObject<UAttackConfiguration>();
-        Settings->CounterWindowDuration = 1.5f;
-        Settings->CounterDamageMultiplier = 1.5f;
+        //Settings->CounterWindowDuration = 1.5f;
+        //Settings->CounterDamageMultiplier = 1.5f;
         return Settings;
     }
 
@@ -72,9 +72,9 @@ public:
      * @param OutCombat - Output parameter for created combat component
      * @return Created character
      */
-    static ASamuraiCharacter* CreateTestCharacterWithCombat(UWorld* World, UCombatComponent*& OutCombat)
+    static APlayerCharacter* CreateTestCharacterWithCombat(UWorld* World, UCombatComponent*& OutCombat)
     {
-        ASamuraiCharacter* Character = World->SpawnActor<ASamuraiCharacter>();
+        APlayerCharacter* Character = World->SpawnActor<APlayerCharacter>();
 
         // Setup minimal combat settings
         Character->CombatSettings = CreateTestCombatSettings();
@@ -92,12 +92,12 @@ public:
      * @param OutTargeting - Output parameter for created targeting component
      * @return Created character
      */
-    static ASamuraiCharacter* CreateTestCharacterWithCombatAndTargeting(
+    static APlayerCharacter* CreateTestCharacterWithCombatAndTargeting(
         UWorld* World,
         UCombatComponent*& OutCombat,
         UTargetingComponent*& OutTargeting)
     {
-        ASamuraiCharacter* Character = CreateTestCharacterWithCombat(World, OutCombat);
+        APlayerCharacter* Character = CreateTestCharacterWithCombat(World, OutCombat);
 
         // Get the existing targeting component (created by character constructor)
         OutTargeting = Character->TargetingComponent;
@@ -111,10 +111,10 @@ public:
      * @param Location - Spawn location (default: origin)
      * @return Created player character
      */
-    static ASamuraiCharacter* CreateTestPlayerCharacter(UWorld* World, FVector Location = FVector::ZeroVector)
+    static APlayerCharacter* CreateTestPlayerCharacter(UWorld* World, FVector Location = FVector::ZeroVector)
     {
         FActorSpawnParameters SpawnParams;
-        ASamuraiCharacter* Character = World->SpawnActor<ASamuraiCharacter>(ASamuraiCharacter::StaticClass(), Location, FRotator::ZeroRotator, SpawnParams);
+        APlayerCharacter* Character = World->SpawnActor<APlayerCharacter>(APlayerCharacter::StaticClass(), Location, FRotator::ZeroRotator, SpawnParams);
 
         // Setup minimal combat settings
         Character->CombatSettings = CreateTestCombatSettings();
@@ -149,7 +149,7 @@ public:
      */
     static void CreateCombatScenario(
         UWorld* World,
-        ASamuraiCharacter*& OutPlayer,
+        APlayerCharacter*& OutPlayer,
         TArray<AEnemyCharacter*>& OutEnemies,
         int32 EnemyCount = 1,
         float EnemyDistance = 300.0f)

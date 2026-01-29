@@ -374,12 +374,19 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
     // Check if target implements IDamageableInterface
     if (HitActor->Implements<UDamageableInterface>())
     {
+        // Get weapon damage multiplier
+        float WeaponMultiplier = 1.0f;
+        if (WeaponComponent)
+        {
+            WeaponMultiplier = WeaponComponent->GetDamageMultiplier();
+        }
+
         // Build hit reaction info
         FHitReactionInfo HitInfo;
         HitInfo.Attacker = this;
         HitInfo.HitDirection = (HitActor->GetActorLocation() - GetActorLocation()).GetSafeNormal();
         HitInfo.AttackData = AttackData;
-        HitInfo.Damage = AttackData->BaseDamage;
+        HitInfo.Damage = AttackData->BaseDamage * WeaponMultiplier;
         HitInfo.StunDuration = AttackData->HitStunDuration;
         HitInfo.bWasCounter = false; // TODO: Counter window not migrated yet
         HitInfo.ImpactPoint = HitResult.ImpactPoint;

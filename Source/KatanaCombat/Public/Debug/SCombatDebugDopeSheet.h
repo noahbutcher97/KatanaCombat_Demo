@@ -62,7 +62,7 @@ struct FDopeSheetTrack
 };
 
 /**
- * Slate dope sheet widget for V2 combat system visualization
+ * Slate dope sheet widget for combat system visualization
  *
  * Shows timeline with:
  * - Window tracks (Combo, Parry, Cancel, Hold, Recovery)

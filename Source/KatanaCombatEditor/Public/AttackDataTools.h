@@ -9,7 +9,8 @@
 
 class UAttackData;
 class UAnimMontage;
-class UAnimNotifyState_AttackPhase;
+class UAnimNotify_AttackPhaseTransition;
+class UAnimNotifyState_AttackPhase; // Deprecated - for backward compatibility
 class UAnimNotifyState_ComboWindow;
 class UAnimNotify_ToggleHitDetection;
 struct FAnimNotifyEvent;
@@ -54,9 +55,11 @@ public:
     static bool AutoCalculateTiming(UAttackData* AttackData);
 
     /**
-     * Calculate timing based on existing AnimNotifyStates in montage
-     * Reads AnimNotifyState_AttackPhase notifies and extracts timing
-     * 
+     * Calculate timing based on existing notifies in montage
+     * Supports both systems:
+     * - NEW: AnimNotify_AttackPhaseTransition (2 transition points)
+     * - OLD: AnimNotifyState_AttackPhase (3 duration notifies) - deprecated
+     *
      * @param AttackData - Attack to extract timing from
      * @param OutWindup - Output windup duration (seconds)
      * @param OutActive - Output active duration (seconds)
@@ -84,9 +87,12 @@ public:
     // ============================================================================
 
     /**
-     * Generate AnimNotifyState_AttackPhase notifies in the target section
-     * Creates Windup, Active, and Recovery notifies based on calculated timing
-     * 
+     * Generate AnimNotify_AttackPhaseTransition notifies in the target section
+     * Creates 2 transition point notifies based on calculated timing:
+     * - Transition to Active (at end of windup)
+     * - Transition to Recovery (at end of active)
+     * Also generates HoldWindow notify if applicable
+     *
      * @param AttackData - Attack to generate notifies for
      * @return True if notifies were successfully generated
      */

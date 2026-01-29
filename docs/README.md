@@ -6,36 +6,30 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 
 ---
 
-## Recent Updates (2025-11-11)
+## Recent Updates (2025-01-28)
 
-### V2 Combat System - Feature Complete (Core Mechanics)
+### v3.0.0 - Architecture Consolidation & Motion Warping Unification
 
-**Status**: ✅ Input system, action queue, phase management, combos, hold mechanics, and blending fully implemented
+**Status**: ✅ Major infrastructure refactor complete - unified combat system, modular settings, adaptive motion warping
 
-**Universal Combo Blending System** - All combo transitions now support configurable blend times:
-- `ComboBlendOutTime` - Smooth exit when transitioning FROM this attack (default: 0.1s)
-- `ComboBlendInTime` - Smooth entry when this attack is the TARGET of transition (default: 0.1s)
-- Works for all combo types: light→light, light→heavy, heavy→any, hold→directional follow-ups
-- Designer-tunable per-attack via data assets (0.0-1.0s range, 0.0-0.5s recommended)
+**Key Changes**:
+- **V1 Removed**: Single unified `CombatComponent` (no more V1/V2 distinction)
+- **Character Hierarchy**: New `BaseCombatCharacter` → `PlayerCharacter` / `EnemyCharacter`
+- **Modular Settings**: `TargetingSettings` and `MotionWarpingSettings` as separate data assets
+- **Unified Motion Warping**: `AnimNotifyState_CombatWarp` auto-selects translation+rotation vs rotation-only
 
-**Heavy Attack Charge System Enhancements**:
-- `ChargeLoopSection` / `ChargeReleaseSection` - Montage section support for distinct charge/release animations
-- `ChargeLoopBlendTime` / `ChargeReleaseBlendTime` - Smooth transitions between charge phases (0.3s/0.2s defaults)
-- Time-based damage scaling with configurable charge time
-- Directional follow-ups after charge release
-- Editor UI combo boxes for section selection with montage integration
+**AnimNotifyState_CombatWarp** - Single notify replaces dual motion warping setup:
+- Detects at runtime which warp target exists (AttackTarget vs RotationTarget)
+- Enemy found → Translation + Rotation (move toward target)
+- No enemy → Rotation only (face direction, no sliding)
+- Neither → Skip warp entirely
 
-**Light Attack Hold System**:
-- Procedural easing with bidirectional transitions (ease-in to slowdown, ease-out back to normal)
-- Timer-based updates (60Hz) for smooth playrate interpolation
-- 10 easing types supported (Linear, Quad, Cubic, Expo, Sine with In/Out/InOut variants)
-- Fixed critical freeze bug (explicit ease direction tracking via `bIsEasingOut` flag)
-
-**V2 Architecture Improvements**:
-- **Independent Peer Systems**: V1 and V2 now operate without cross-dependencies
-- **Event-Driven Phases**: `AnimNotify_AttackPhaseTransition` replaces state-based windows
-- **Comprehensive Debug Visualization**: Phase indicators, queue state, checkpoint timelines, execution stats
-- **27 Montage Utilities**: Blueprint-exposed library for timing queries, blending, easing, section navigation
+**Modular Settings Pattern** - Three-tier configuration hierarchy:
+```cpp
+1. Component->SettingsOverride      // Per-instance override (highest priority)
+2. CombatSettings->SubsystemSettings // Character-type default
+3. Hardcoded fallback               // Safe defaults (lowest priority)
+```
 
 **Next Steps**: Phase 6 (Parry & Evade systems), Phase 7 (Posture integration), Phase 8+ (Polish & AI)
 
@@ -136,32 +130,39 @@ For complete setup instructions, see [GETTING_STARTED.md](GETTING_STARTED.md).
 Source/KatanaCombat/
 ├── Public/
 │   ├── CombatTypes.h                    # Enums, structs, system-wide delegates
-│   ├── ActionQueueTypes.h               # V2 input/action queue data structures
+│   ├── ActionQueueTypes.h               # Input/action queue data structures
 │   ├── Core/                            # Core combat components
-│   │   ├── CombatComponent.h            # V1 - State machine, attacks, posture, combos
-│   │   ├── CombatComponentV2.h          # V2 - Event-driven combat with FIFO queue
-│   │   ├── TargetingComponent.h         # Cone-based targeting, motion warp setup
+│   │   ├── CombatComponent.h            # Main combat component (event-driven, FIFO queue)
+│   │   ├── TargetingComponent.h         # Cone-based targeting, soft aim assist, motion warp
 │   │   ├── WeaponComponent.h            # Socket-based hit detection
 │   │   └── HitReactionComponent.h       # Damage reception, hit reactions
 │   ├── Utilities/                       # Utility libraries
-│   │   └── MontageUtilityLibrary.h      # 27 Blueprint functions for montage operations
+│   │   ├── MontageUtilityLibrary.h      # 27 Blueprint functions for montage operations
+│   │   └── CombatUtils.h                # Combat helper functions
 │   ├── Data/                            # Data assets
-│   │   ├── AttackData.h                 # Attack configuration
+│   │   ├── AttackData.h                 # Attack configuration (includes FAttackWarpConfig)
 │   │   ├── AttackConfiguration.h        # Attack moveset package (PDA)
-│   │   └── CombatSettings.h             # Global tuning values
+│   │   ├── CombatSettings.h             # Global tuning values + data asset references
+│   │   ├── TargetingSettings.h          # Targeting system configuration
+│   │   └── MotionWarpingSettings.h      # Motion warp defaults
 │   ├── Animation/                       # AnimNotifies and AnimInstance
 │   │   ├── SamuraiAnimInstance.h        # Animation Blueprint bridge
-│   │   ├── AnimNotify_AttackPhaseTransition.h  # V2 event-driven phase transitions
-│   │   ├── AnimNotifyState_AttackPhase.h       # V1 state-based phases (legacy)
+│   │   ├── AnimNotify_AttackPhaseTransition.h  # Event-driven phase transitions
+│   │   ├── AnimNotifyState_CombatWarp.h        # Unified combat-aware motion warping
 │   │   ├── AnimNotifyState_ComboWindow.h
 │   │   ├── AnimNotifyState_ParryWindow.h
-│   │   ├── AnimNotifyState_HoldWindow.h
-│   │   └── AnimNotify_ToggleHitDetection.h     # V1 hit detection (now automatic in V2)
+│   │   └── AnimNotifyState_HoldWindow.h
 │   ├── Characters/                      # Character implementations
-│   │   └── SamuraiCharacter.h
-│   └── Interfaces/                      # Interface contracts
-│       ├── CombatInterface.h
-│       └── DamageableInterface.h
+│   │   ├── BaseCombatCharacter.h        # Abstract base with common combat interfaces
+│   │   ├── PlayerCharacter.h            # Player-specific character
+│   │   └── EnemyCharacter.h             # Enemy-specific character
+│   ├── Interfaces/                      # Interface contracts
+│   │   ├── CombatInterface.h
+│   │   ├── DamageableInterface.h
+│   │   └── TeamMemberInterface.h        # Team affiliation (friend/foe)
+│   └── Debug/                           # Debug utilities
+│       ├── DebugConfig.h                # CVar-based debug configuration
+│       └── DebugUtils.h                 # Debug visualization helpers
 └── Private/                             # .cpp implementations
 
 Source/KatanaCombatEditor/              # Editor-only tools
@@ -173,7 +174,7 @@ Source/KatanaCombatEditor/              # Editor-only tools
 
 Source/KatanaCombatTest/                # C++ Unit Test Suite
 ├── README.md                            # Test documentation
-└── (7 test files with 45+ assertions)
+└── (9 test files with 70+ assertions)
 ```
 
 ---
@@ -324,14 +325,23 @@ DirectionalFollowUps[Right] = RightSweep
 ```
 
 ### Adding an Enemy
-1. Create character class inheriting `ACharacter`
-2. Implement `ICombatInterface` and `IDamageableInterface`
-3. Add the 4 core components
-4. Create `AnimInstance` inheriting `SamuraiAnimInstance`
-5. Create `AttackData` assets for enemy attacks
-6. Assign to `DefaultLightAttack` / `DefaultHeavyAttack`
-7. Configure hit reactions in `HitReactionComponent`
-8. AI uses `ExecuteAttack()` from Behavior Tree tasks
+1. Create character class inheriting `AEnemyCharacter` (or `ABaseCombatCharacter`)
+   - `AEnemyCharacter` automatically sets `TeamId = ETeamId::Enemy`
+   - All combat interfaces are already implemented
+2. Create `AnimInstance` inheriting `SamuraiAnimInstance`
+3. Create `AttackData` assets for enemy attacks
+4. Create a `CombatSettings` data asset for this enemy type
+   - Reference appropriate `TargetingSettings` and `MotionWarpingSettings`
+5. Assign to `DefaultLightAttack` / `DefaultHeavyAttack` on CombatComponent
+6. Configure hit reactions in `HitReactionComponent`
+7. AI uses `ExecuteAttack()` from Behavior Tree tasks
+
+**Character Hierarchy**:
+```cpp
+ABaseCombatCharacter  // Base class with all combat interfaces
+├── APlayerCharacter  // TeamId::Player, input handling
+└── AEnemyCharacter   // TeamId::Enemy, AI-ready
+```
 
 ---
 
@@ -367,68 +377,74 @@ UnrealEditor.exe "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCo
 
 ---
 
-## V1 vs V2 Combat Systems
+## Combat System Architecture
 
-KatanaCombat now features **two independent combat implementations**:
+KatanaCombat features a **unified event-driven combat system**:
 
-### V1 (CombatComponent) - Original Implementation
-- **Architecture**: State-based with manual phase tracking via `AnimNotifyState_AttackPhase`
-- **Input System**: Direct buffering with combo window checks
-- **Hit Detection**: Manual toggle via `AnimNotify_ToggleHitDetection`
-- **Status**: Stable, production-ready, backward compatible
-- **Use Case**: Proven system for immediate production use
-
-### V2 (CombatComponentV2) - Next-Gen Implementation
+### CombatComponent - Core Implementation
 - **Architecture**: Event-driven with `AnimNotify_AttackPhaseTransition` callbacks
 - **Input System**: Timestamped FIFO queue with snap/responsive/immediate modes
 - **Phase Management**: Automatic transitions based on AnimNotify events
-- **Hit Detection**: Automatic during Active phase (no manual toggles needed)
+- **Hit Detection**: Automatic during Active phase
 - **Blending**: Universal combo crossfade with per-attack blend times
 - **Hold Mechanics**: Procedural easing with 10 easing types, bidirectional transitions
-- **Debug Tools**: Comprehensive visualization (phase timeline, queue state, execution stats)
+- **Motion Warping**: Unified `SetupAttackWarp()` with adaptive translation/rotation
+- **Debug Tools**: CVar-based visualization (phase timeline, queue state, execution stats)
 - **Status**: Core mechanics complete, parry/evade systems next
-- **Use Case**: Advanced features, cleaner architecture, future development
 
-### Switching Between V1 and V2
-Toggle in `CombatSettings` data asset:
+### Character Hierarchy
 ```cpp
-bUseV2System = false;  // Use V1 (default)
-bUseV2System = true;   // Use V2
+ACharacter (UE Base)
+  └── ABaseCombatCharacter (implements IDamageable, ICombat, ITeamMember)
+        ├── APlayerCharacter (player input, debug widget)
+        └── AEnemyCharacter (AI-ready, default enemy team)
 ```
 
-Both systems are **independent peers** - no cross-dependencies, can be enabled/disabled without code changes.
+### Modular Configuration
+Combat behavior is configured through a three-tier data asset system:
+```cpp
+// 1. Per-instance override (highest priority)
+TargetingComponent->TargetingSettingsOverride = MyCustomSettings;
+
+// 2. Character-type default (from CombatSettings)
+CombatSettings->TargetingSettings = DA_PlayerTargeting;
+
+// 3. Hardcoded fallback (lowest priority, always safe)
+```
 
 ---
 
 ## Debugging
 
-Enable debug visualization:
-```cpp
-// V1 System
-CombatComponent->bDebugDraw = true;    // State, phase, timing windows
+### CVar-Based Debug System (New in v3.0.0)
 
-// V2 System (Enhanced Visualization)
-CombatSettings->bDebugDraw = true;     // Phase indicators, queue state, checkpoint timeline, stats
-
-// Other Components
-TargetingComponent->bDebugDraw = true;  // Cone, targets, distances
-WeaponComponent->bDebugDraw = true;     // Swept traces, hit points
+Enable debug visualization via console commands:
+```
+Combat.Debug.All 1         // Enable all debug visualization
+Combat.Debug.Direction 1   // Direction arrows and input display
+Combat.Debug.Targeting 1   // Targeting cones, soft aim assist
+Combat.Debug.Weapon 1      // Weapon traces, hit points
+Combat.Debug.Phase 1       // Phase indicators and timeline
+Combat.Debug.Queue 1       // Action queue state
+Combat.Debug.Hold 1        // Hold state tracking
+Combat.Debug.LogVerbose 1  // Verbose logging
 ```
 
-**V2 Debug Visualization Features**:
+### Debug Visualization Features
 - Color-coded phase indicators (Windup=Orange, Active=Red, Recovery=Yellow)
+- Direction arrows: Blue (Camera), Green (Character), Yellow (Input), Magenta (Resolved)
 - Real-time action queue state with scheduled execution times
-- Visual checkpoint timeline with window overlays
+- Soft aim assist cone visualization with target scoring
 - Hold state tracking (duration, input type, ease direction)
-- Execution statistics (snap vs responsive, cancellations)
 
-Check logs:
+### Log Categories
 - `LogCombat` - State transitions, attack execution
-- `LogCombatV2` - V2-specific events, queue processing, checkpoint discovery
+- `LogCombatWarp` - Motion warping mode selection (Target vs Rotation)
+- `LogTargeting` - Soft aim assist scoring, target selection
 - `LogAnimation` - Montage playback issues
 - `LogWeapon` - Hit detection events
 
-Console commands:
+### Console Commands
 ```
 showdebug animation  // View current state, montage info
 stat fps             // Performance monitoring

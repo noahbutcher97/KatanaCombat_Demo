@@ -11,7 +11,7 @@
 /**
  * AnimNotify for hold window start events
  *
- * V2 HOLD SYSTEM (Event-Driven):
+ * EVENT-DRIVEN HOLD SYSTEM:
  * - Hold detection no longer uses AnimNotifyState duration tracking
  * - Single AnimNotify event fires at hold window start time
  * - System checks if button is STILL pressed (not tracking duration)

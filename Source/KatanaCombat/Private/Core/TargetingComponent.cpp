@@ -11,30 +11,60 @@
 #include "Interfaces/DamageableInterface.h"
 #include "Interfaces/TeamMemberInterface.h"
 #include "Data/CombatSettings.h"
+#include "Data/TargetingSettings.h"
+#include "Data/MotionWarpingSettings.h"
 #include "Characters/BaseCombatCharacter.h"
 
 UTargetingComponent::UTargetingComponent()
 {
     PrimaryComponentTick.bCanEverTick = false;
+    // Configuration now comes from TargetingSettings data asset
+    // Debug visualization controlled via Combat.Debug.Targeting CVar
+}
 
-    DirectionalConeAngle = 60.0f;
-    MaxTargetDistance = 1000.0f;
-    bRequireLineOfSight = true;
-    LineOfSightChannel = ECC_Visibility;
-    // Debug visualization is now controlled via Combat.Debug.Targeting CVar
+// ============================================================================
+// SETTINGS ACCESS
+// ============================================================================
 
-    CurrentTarget = nullptr;
+UTargetingSettings* UTargetingComponent::GetEffectiveSettings() const
+{
+    // Priority 1: Per-instance override
+    if (TargetingSettingsOverride)
+    {
+        return TargetingSettingsOverride;
+    }
+
+    // Priority 2: CombatSettings from owning character
+    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (const ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(Owner))
+    {
+        if (CombatChar->CombatSettings && CombatChar->CombatSettings->TargetingSettings)
+        {
+            return CombatChar->CombatSettings->TargetingSettings;
+        }
+    }
+
+    // No settings available - methods will use hardcoded fallbacks
+    return nullptr;
 }
 
 void UTargetingComponent::BeginPlay()
 {
     Super::BeginPlay();
-    
+
     OwnerCharacter = Cast<ACharacter>(GetOwner());
     if (OwnerCharacter)
     {
         MotionWarpingComponent = OwnerCharacter->FindComponentByClass<UMotionWarpingComponent>();
     }
+}
+
+void UTargetingComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    // Clean up tracking to avoid dangling delegate bindings
+    StopWarpTracking();
+
+    Super::EndPlay(EndPlayReason);
 }
 
 // ============================================================================
@@ -72,15 +102,17 @@ AActor* UTargetingComponent::FindTargetInDirection(const FVector& DirectionVecto
 int32 UTargetingComponent::GetAllTargetsInRange(TArray<AActor*>& OutTargets)
 {
     OutTargets.Empty();
-    
+
     GetActorsInRange(OutTargets);
     FilterByTargetableClass(OutTargets);
-    
-    if (bRequireLineOfSight)
+
+    const UTargetingSettings* Settings = GetEffectiveSettings();
+    const bool bCheckLOS = Settings ? Settings->bRequireLineOfSight : true;
+    if (bCheckLOS)
     {
         FilterByLineOfSight(OutTargets);
     }
-    
+
     return OutTargets.Num();
 }
 
@@ -102,7 +134,13 @@ bool UTargetingComponent::IsTargetInCone(AActor* Target, const FVector& Directio
         return false;
     }
 
-    const float ConeAngle = (AngleTolerance > 0.0f) ? AngleTolerance : DirectionalConeAngle;
+    // Use provided tolerance, or fall back to settings, or hardcoded default
+    float ConeAngle = AngleTolerance;
+    if (ConeAngle <= 0.0f)
+    {
+        const UTargetingSettings* Settings = GetEffectiveSettings();
+        ConeAngle = Settings ? Settings->DirectionalConeAngle : 60.0f;
+    }
 
     const FVector ToTarget = (Target->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
     const float DotProduct = FVector::DotProduct(Direction, ToTarget);
@@ -133,11 +171,14 @@ bool UTargetingComponent::HasLineOfSightTo(AActor* Target) const
     QueryParams.AddIgnoredActor(Owner);
     QueryParams.AddIgnoredActor(Target);
 
+    const UTargetingSettings* Settings = GetEffectiveSettings();
+    const ECollisionChannel LOSChannel = Settings ? Settings->LineOfSightChannel.GetValue() : ECC_Visibility;
+
     const bool bHit = GetWorld()->LineTraceSingleByChannel(
         HitResult,
         Start,
         End,
-        LineOfSightChannel,
+        LOSChannel,
         QueryParams
     );
 
@@ -251,29 +292,186 @@ void UTargetingComponent::ClearCurrentTarget()
 // MOTION WARPING INTEGRATION
 // ============================================================================
 
-bool UTargetingComponent::SetupMotionWarp(AActor* Target, FName WarpTargetName, float MaxDistance)
+bool UTargetingComponent::SetupAttackWarp(AActor* Target, const FRotator& TargetRotation, const FAttackWarpConfig& Config)
 {
     // Lazy fetch owner for test compatibility
-    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
-    if (!MotionWarpingComponent || !Target || !Owner)
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!MotionWarpingComponent || !Owner)
     {
         return false;
     }
 
-    const FVector WarpLocation = CalculateWarpLocation(Target, MaxDistance);
-    const FRotator LookAtRotation = (Target->GetActorLocation() - Owner->GetActorLocation()).Rotation();
-    
+    if (!Config.bEnableWarp)
+    {
+        return false;
+    }
+
+    // Stop any previous tracking
+    StopWarpTracking();
+
+    // Clear any previous warp targets to prevent stale data
+    MotionWarpingComponent->RemoveWarpTarget(Config.TargetWarpName);
+    MotionWarpingComponent->RemoveWarpTarget(Config.RotationWarpName);
+
+    const FVector OwnerLocation = Owner->GetActorLocation();
+
+    // CASE 1: Target exists - set up continuous tracking for translation+rotation
+    if (Target)
+    {
+        const FVector TargetLocation = Target->GetActorLocation();
+        const float Distance = FVector::Dist(OwnerLocation, TargetLocation);
+
+        // Skip if too close (within min warp distance) - use rotation-only toward target
+        if (Distance < Config.MinWarpDistance)
+        {
+            const FRotator LookAtRotation = (TargetLocation - OwnerLocation).Rotation();
+            MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
+                Config.RotationWarpName,
+                OwnerLocation,
+                LookAtRotation
+            );
+
+            if (CombatDebug::IsTargetingDebugEnabled())
+            {
+                UE_LOG(LogTemp, Log, TEXT("[ATTACK WARP] Target too close (%.1f < %.1f), using ROTATION-ONLY toward target"),
+                    Distance, Config.MinWarpDistance);
+            }
+            return true;
+        }
+
+        // Store tracking state for continuous updates
+        TrackedWarpTarget = Target;
+        ActiveWarpConfig = Config;
+        bIsTrackingWarpTarget = true;
+
+        // Bind to OnPreUpdate for continuous tracking
+        MotionWarpingComponent->OnPreUpdate.AddDynamic(this, &UTargetingComponent::OnMotionWarpingPreUpdate);
+
+        // Set initial warp target (will be updated each frame)
+        FVector WarpLocation = TargetLocation;
+        if (Distance > Config.MaxWarpDistance)
+        {
+            const FVector ToTarget = (TargetLocation - OwnerLocation).GetSafeNormal();
+            WarpLocation = OwnerLocation + (ToTarget * Config.MaxWarpDistance);
+        }
+
+        const FRotator LookAtRotation = (TargetLocation - OwnerLocation).Rotation();
+        MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
+            Config.TargetWarpName,
+            WarpLocation,
+            LookAtRotation
+        );
+
+        if (CombatDebug::IsTargetingDebugEnabled())
+        {
+            UE_LOG(LogTemp, Log, TEXT("[ATTACK WARP] TARGET mode: Tracking %s with continuous updates (Distance: %.1f, Max: %.1f)"),
+                *Target->GetName(), Distance, Config.MaxWarpDistance);
+        }
+
+        return true;
+    }
+
+    // CASE 2: No target - rotation-only warp toward TargetRotation (no continuous updates needed)
+    // Uses RotationWarpName which should have bWarpTranslation=false in montage
     MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
-        WarpTargetName,
+        Config.RotationWarpName,
+        OwnerLocation,  // Same location - no translation
+        TargetRotation
+    );
+
+    if (CombatDebug::IsTargetingDebugEnabled())
+    {
+        UE_LOG(LogTemp, Log, TEXT("[ATTACK WARP] ROTATION-ONLY mode: Facing %.1f°"), TargetRotation.Yaw);
+
+        // Draw debug visualization - direction arrow
+        const FVector ForwardDir = TargetRotation.Vector() * 200.0f;
+        DrawDebugDirectionalArrow(GetWorld(), OwnerLocation, OwnerLocation + ForwardDir,
+            50.0f, FColor::Yellow, false, 1.0f, 0, 3.0f);
+    }
+
+    return true;
+}
+
+void UTargetingComponent::OnMotionWarpingPreUpdate(UMotionWarpingComponent* MotionWarpingComp)
+{
+    // Skip if not actively tracking
+    if (!bIsTrackingWarpTarget)
+    {
+        return;
+    }
+
+    // Validate target still exists
+    if (!TrackedWarpTarget.IsValid())
+    {
+        if (CombatDebug::IsTargetingDebugEnabled())
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[ATTACK WARP] Tracked target destroyed, stopping tracking"));
+        }
+        StopWarpTracking();
+        return;
+    }
+
+    // Lazy fetch owner
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        StopWarpTracking();
+        return;
+    }
+
+    AActor* Target = TrackedWarpTarget.Get();
+    const FVector OwnerLocation = Owner->GetActorLocation();
+    const FVector TargetLocation = Target->GetActorLocation();
+    const float Distance = FVector::Dist(OwnerLocation, TargetLocation);
+
+    // Optional: Re-validate target is still in valid range/angle
+    // Could add checks here to stop tracking if target moves too far or behind player
+
+    // Calculate warp location (clamped to max distance)
+    FVector WarpLocation = TargetLocation;
+    if (Distance > ActiveWarpConfig.MaxWarpDistance)
+    {
+        const FVector ToTarget = (TargetLocation - OwnerLocation).GetSafeNormal();
+        WarpLocation = OwnerLocation + (ToTarget * ActiveWarpConfig.MaxWarpDistance);
+    }
+
+    // Calculate look-at rotation (face toward target)
+    const FRotator LookAtRotation = (TargetLocation - OwnerLocation).Rotation();
+
+    // Update warp target with current positions
+    MotionWarpingComp->AddOrUpdateWarpTargetFromLocationAndRotation(
+        ActiveWarpConfig.TargetWarpName,
         WarpLocation,
         LookAtRotation
     );
-    
-    return true;
+
+    // Debug visualization
+    if (CombatDebug::IsTargetingDebugEnabled())
+    {
+        DrawDebugLine(GetWorld(), OwnerLocation, WarpLocation, FColor::Green, false, 0.0f, 0, 2.0f);
+        DrawDebugSphere(GetWorld(), WarpLocation, 25.0f, 8, FColor::Green, false, 0.0f);
+        DrawDebugDirectionalArrow(GetWorld(), OwnerLocation,
+            OwnerLocation + (LookAtRotation.Vector() * 150.0f), 30.0f, FColor::Cyan, false, 0.0f, 0, 2.0f);
+    }
+}
+
+void UTargetingComponent::StopWarpTracking()
+{
+    if (bIsTrackingWarpTarget && MotionWarpingComponent)
+    {
+        MotionWarpingComponent->OnPreUpdate.RemoveDynamic(this, &UTargetingComponent::OnMotionWarpingPreUpdate);
+    }
+
+    TrackedWarpTarget.Reset();
+    bIsTrackingWarpTarget = false;
+    ActiveWarpConfig = FAttackWarpConfig();
 }
 
 void UTargetingComponent::ClearMotionWarp(FName WarpTargetName)
 {
+    // Stop continuous tracking
+    StopWarpTracking();
+
     if (!MotionWarpingComponent)
     {
         return;
@@ -287,6 +485,30 @@ void UTargetingComponent::ClearMotionWarp(FName WarpTargetName)
     {
         MotionWarpingComponent->RemoveWarpTarget(WarpTargetName);
     }
+}
+
+// Legacy function - forwards to SetupAttackWarp
+bool UTargetingComponent::SetupMotionWarp(AActor* Target, FName WarpTargetName, float MaxDistance)
+{
+    if (!Target)
+    {
+        return false;
+    }
+
+    // Create a config with the provided values
+    FAttackWarpConfig Config;
+    Config.TargetWarpName = WarpTargetName;
+    Config.MaxWarpDistance = (MaxDistance > 0.0f) ? MaxDistance : Config.MaxWarpDistance;
+
+    // Get rotation toward target
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        return false;
+    }
+
+    const FRotator TargetRotation = (Target->GetActorLocation() - Owner->GetActorLocation()).Rotation();
+    return SetupAttackWarp(Target, TargetRotation, Config);
 }
 
 // ============================================================================
@@ -312,19 +534,15 @@ FRotator UTargetingComponent::FindBestTargetForDirection(
         return Owner ? Owner->GetActorRotation() : FRotator::ZeroRotator;
     }
 
-    // Get CombatSettings from owner if it's a BaseCombatCharacter
-    const UCombatSettings* Settings = nullptr;
-    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(Owner))
-    {
-        Settings = CombatChar->CombatSettings;
-    }
+    // Get effective targeting settings
+    const UTargetingSettings* TargetSettings = GetEffectiveSettings();
 
-    // Use provided values or fall back to CombatSettings defaults
-    const float UseMaxRange = (MaxRange > 0.0f) ? MaxRange : (Settings ? Settings->DirectionalTargetingRange : 500.0f);
-    const float UseGradientAngle = (GradientAngle > 0.0f) ? GradientAngle : (Settings ? Settings->GradientAngleThreshold : 45.0f);
-    const float UseOppositeAngle = (OppositeAngle > 0.0f) ? OppositeAngle : (Settings ? Settings->OppositeAngleThreshold : 120.0f);
-    const float UseAngleWeight = (AngleWeight >= 0.0f) ? AngleWeight : (Settings ? Settings->DirectionalAngleWeight : 0.7f);
-    const float UseDistanceWeight = (DistanceWeight >= 0.0f) ? DistanceWeight : (Settings ? Settings->DirectionalDistanceWeight : 0.3f);
+    // Use provided values or fall back to TargetingSettings defaults
+    const float UseMaxRange = (MaxRange > 0.0f) ? MaxRange : (TargetSettings ? TargetSettings->SoftAimRange : 500.0f);
+    const float UseGradientAngle = (GradientAngle > 0.0f) ? GradientAngle : (TargetSettings ? TargetSettings->SoftAimCandidateAngle : 45.0f);
+    const float UseOppositeAngle = (OppositeAngle > 0.0f) ? OppositeAngle : (TargetSettings ? TargetSettings->OppositeAngleThreshold : 120.0f);
+    const float UseAngleWeight = (AngleWeight >= 0.0f) ? AngleWeight : (TargetSettings ? TargetSettings->AngleWeight : 0.7f);
+    const float UseDistanceWeight = (DistanceWeight >= 0.0f) ? DistanceWeight : (TargetSettings ? TargetSettings->DistanceWeight : 0.3f);
 
     const FVector OwnerLocation = Owner->GetActorLocation();
     const FVector NormalizedInput = InputDirection.GetSafeNormal();
@@ -334,14 +552,195 @@ FRotator UTargetingComponent::FindBestTargetForDirection(
     GetActorsInRange(PotentialTargets);
     FilterByTargetableClass(PotentialTargets);
 
-    if (bRequireLineOfSight)
+    const bool bCheckLOS = TargetSettings ? TargetSettings->bRequireLineOfSight : true;
+    if (bCheckLOS)
     {
         FilterByLineOfSight(PotentialTargets);
     }
 
-    // Score each target
+    // Score each target with detailed debug tracking
     float BestScore = -1.0f;
     AActor* BestTarget = nullptr;
+
+    // Debug: Track rejection reasons
+    const bool bDebugEnabled = CombatDebug::IsTargetingDebugEnabled();
+    TMap<AActor*, FString> RejectionReasons;
+
+    for (AActor* Target : PotentialTargets)
+    {
+        if (!Target)
+        {
+            continue;
+        }
+
+        const FVector ToTarget = Target->GetActorLocation() - OwnerLocation;
+        const float Distance = ToTarget.Size();
+
+        // Skip if out of range
+        if (Distance > UseMaxRange)
+        {
+            if (bDebugEnabled)
+            {
+                RejectionReasons.Add(Target, FString::Printf(TEXT("OUT OF RANGE (%.1f > %.1f)"), Distance, UseMaxRange));
+            }
+            continue;
+        }
+
+        const FVector ToTargetNorm = ToTarget.GetSafeNormal();
+        const float DotProduct = FVector::DotProduct(NormalizedInput, ToTargetNorm);
+        const float AngleToTarget = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(DotProduct, -1.0f, 1.0f)));
+
+        // Skip if target is in "opposite" direction
+        if (AngleToTarget > UseOppositeAngle)
+        {
+            if (bDebugEnabled)
+            {
+                RejectionReasons.Add(Target, FString::Printf(TEXT("OPPOSITE ANGLE (%.1f > %.1f)"), AngleToTarget, UseOppositeAngle));
+            }
+            continue;
+        }
+
+        // Calculate scores
+        // Angle score: 1.0 = perfect alignment, 0.0 = at gradient threshold
+        const float AngleScore = FMath::Clamp(1.0f - (AngleToTarget / UseGradientAngle), 0.0f, 1.0f);
+
+        // Distance score: 1.0 = at owner location, 0.0 = at max range
+        const float DistanceScore = FMath::Clamp(1.0f - (Distance / UseMaxRange), 0.0f, 1.0f);
+
+        // Combined weighted score
+        const float TotalScore = (AngleScore * UseAngleWeight) + (DistanceScore * UseDistanceWeight);
+
+        if (bDebugEnabled)
+        {
+            UE_LOG(LogTemp, Verbose, TEXT("[SOFT AIM] %s: Angle=%.1f° (Score=%.2f), Dist=%.1f (Score=%.2f), Total=%.3f"),
+                *Target->GetName(), AngleToTarget, AngleScore, Distance, DistanceScore, TotalScore);
+        }
+
+        if (TotalScore > BestScore)
+        {
+            BestScore = TotalScore;
+            BestTarget = Target;
+        }
+    }
+
+    // Enhanced debug visualization (CVar-controlled)
+    if (bDebugEnabled)
+    {
+        const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+
+        // Log summary
+        UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] ═══════════════════════════════════════"));
+        UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] Candidates: %d, MaxRange: %.1f, GradientAngle: %.1f°, OppositeAngle: %.1f°"),
+            PotentialTargets.Num(), UseMaxRange, UseGradientAngle, UseOppositeAngle);
+        UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] Weights: Angle=%.2f, Distance=%.2f"), UseAngleWeight, UseDistanceWeight);
+
+        // Draw input direction
+        const FVector InputEnd = OwnerLocation + (NormalizedInput * 300.0f);
+        DrawDebugDirectionalArrow(GetWorld(), OwnerLocation, InputEnd, 40.0f, FColor::Cyan, false, DrawDuration, 0, 3.0f);
+        DrawDebugString(GetWorld(), InputEnd + FVector(0, 0, 30), TEXT("INPUT DIR"), nullptr, FColor::Cyan, DrawDuration, true);
+
+        // Draw soft aim range circle
+        DrawDebugCircle(GetWorld(), OwnerLocation, UseMaxRange, 32, FColor::Yellow, false, DrawDuration, 0, 2.0f, FVector(1, 0, 0), FVector(0, 1, 0), false);
+
+        // Draw gradient angle cone (candidates within this get higher score)
+        const float GradientConeLength = UseMaxRange * 0.7f;
+        const FVector GradientRight = FRotationMatrix(NormalizedInput.Rotation()).GetScaledAxis(EAxis::Y);
+        const FVector GradientLeftEnd = OwnerLocation + (FRotator(0, -UseGradientAngle, 0).RotateVector(NormalizedInput) * GradientConeLength);
+        const FVector GradientRightEnd = OwnerLocation + (FRotator(0, UseGradientAngle, 0).RotateVector(NormalizedInput) * GradientConeLength);
+        DrawDebugLine(GetWorld(), OwnerLocation, GradientLeftEnd, FColor::Green, false, DrawDuration, 0, 2.0f);
+        DrawDebugLine(GetWorld(), OwnerLocation, GradientRightEnd, FColor::Green, false, DrawDuration, 0, 2.0f);
+
+        // Draw opposite angle cone (beyond this = rejected)
+        const FVector OppositeLeftEnd = OwnerLocation + (FRotator(0, -UseOppositeAngle, 0).RotateVector(NormalizedInput) * UseMaxRange * 0.5f);
+        const FVector OppositeRightEnd = OwnerLocation + (FRotator(0, UseOppositeAngle, 0).RotateVector(NormalizedInput) * UseMaxRange * 0.5f);
+        DrawDebugLine(GetWorld(), OwnerLocation, OppositeLeftEnd, FColor::Red, false, DrawDuration, 0, 1.5f);
+        DrawDebugLine(GetWorld(), OwnerLocation, OppositeRightEnd, FColor::Red, false, DrawDuration, 0, 1.5f);
+
+        // Draw rejected targets
+        for (const auto& Pair : RejectionReasons)
+        {
+            if (Pair.Key)
+            {
+                const FVector TargetLoc = Pair.Key->GetActorLocation();
+                DrawDebugSphere(GetWorld(), TargetLoc, 40.0f, 8, FColor::Red, false, DrawDuration);
+                DrawDebugLine(GetWorld(), OwnerLocation, TargetLoc, FColor::Red, false, DrawDuration, 0, 1.0f);
+                DrawDebugString(GetWorld(), TargetLoc + FVector(0, 0, 80), Pair.Value, nullptr, FColor::Red, DrawDuration, true);
+                UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] REJECTED %s: %s"), *Pair.Key->GetName(), *Pair.Value);
+            }
+        }
+
+        // Draw accepted targets
+        for (AActor* Target : PotentialTargets)
+        {
+            if (!Target || RejectionReasons.Contains(Target))
+            {
+                continue;
+            }
+
+            const FVector TargetLoc = Target->GetActorLocation();
+            const FColor Color = (Target == BestTarget) ? FColor::Green : FColor::Orange;
+            DrawDebugSphere(GetWorld(), TargetLoc, (Target == BestTarget) ? 60.0f : 40.0f, 12, Color, false, DrawDuration);
+            DrawDebugLine(GetWorld(), OwnerLocation, TargetLoc, Color, false, DrawDuration, 0, (Target == BestTarget) ? 4.0f : 2.0f);
+
+            if (Target == BestTarget)
+            {
+                DrawDebugString(GetWorld(), TargetLoc + FVector(0, 0, 100),
+                    FString::Printf(TEXT("BEST (Score: %.3f)"), BestScore), nullptr, FColor::Green, DrawDuration, true);
+                UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] SELECTED: %s (Score: %.3f)"), *Target->GetName(), BestScore);
+            }
+        }
+
+        if (!BestTarget)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] NO TARGET SELECTED"));
+        }
+        UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] ═══════════════════════════════════════"));
+    }
+
+    OutBestTarget = BestTarget;
+
+    // Return rotation toward best target if found, otherwise toward input direction
+    if (BestTarget)
+    {
+        return (BestTarget->GetActorLocation() - OwnerLocation).Rotation();
+    }
+    else
+    {
+        return NormalizedInput.Rotation();
+    }
+}
+
+AActor* UTargetingComponent::FindNearestTarget(float MaxRange, float FacingConeAngle)
+{
+    // Lazy fetch owner for test compatibility
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        return nullptr;
+    }
+
+    // Get effective targeting settings
+    const UTargetingSettings* TargetSettings = GetEffectiveSettings();
+
+    // Use provided range or fall back to settings default
+    const float UseMaxRange = (MaxRange > 0.0f) ? MaxRange : (TargetSettings ? TargetSettings->SoftAimRange : 500.0f);
+    const FVector OwnerLocation = Owner->GetActorLocation();
+    const FVector OwnerForward = Owner->GetActorForwardVector();
+
+    // Get all potential targets in range
+    TArray<AActor*> PotentialTargets;
+    GetActorsInRange(PotentialTargets);
+    FilterByTargetableClass(PotentialTargets);
+
+    const bool bCheckLOS = TargetSettings ? TargetSettings->bRequireLineOfSight : true;
+    if (bCheckLOS)
+    {
+        FilterByLineOfSight(PotentialTargets);
+    }
+
+    // Find the nearest target within facing cone
+    float NearestDistance = UseMaxRange;
+    AActor* NearestTarget = nullptr;
 
     for (AActor* Target : PotentialTargets)
     {
@@ -359,77 +758,61 @@ FRotator UTargetingComponent::FindBestTargetForDirection(
             continue;
         }
 
-        const FVector ToTargetNorm = ToTarget.GetSafeNormal();
-        const float DotProduct = FVector::DotProduct(NormalizedInput, ToTargetNorm);
-        const float AngleToTarget = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(DotProduct, -1.0f, 1.0f)));
-
-        // Skip if target is in "opposite" direction
-        if (AngleToTarget > UseOppositeAngle)
+        // Check facing cone (if not 180° which means any direction)
+        if (FacingConeAngle < 180.0f)
         {
-            continue;
+            const FVector ToTargetNorm = ToTarget.GetSafeNormal();
+            const float DotProduct = FVector::DotProduct(OwnerForward, ToTargetNorm);
+            const float AngleToTarget = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(DotProduct, -1.0f, 1.0f)));
+
+            // Skip if outside facing cone
+            if (AngleToTarget > FacingConeAngle)
+            {
+                continue;
+            }
         }
 
-        // Calculate scores
-        // Angle score: 1.0 = perfect alignment, 0.0 = at gradient threshold
-        const float AngleScore = FMath::Clamp(1.0f - (AngleToTarget / UseGradientAngle), 0.0f, 1.0f);
-
-        // Distance score: 1.0 = at owner location, 0.0 = at max range
-        const float DistanceScore = FMath::Clamp(1.0f - (Distance / UseMaxRange), 0.0f, 1.0f);
-
-        // Combined weighted score
-        const float TotalScore = (AngleScore * UseAngleWeight) + (DistanceScore * UseDistanceWeight);
-
-        if (TotalScore > BestScore)
+        if (Distance < NearestDistance)
         {
-            BestScore = TotalScore;
-            BestTarget = Target;
+            NearestDistance = Distance;
+            NearestTarget = Target;
         }
     }
 
-    // Debug visualization (CVar-controlled)
+    // Debug visualization
     if (CombatDebug::IsTargetingDebugEnabled())
     {
-        DrawDebugTargeting(PotentialTargets, BestTarget, NormalizedInput);
+        // Draw facing cone
+        if (FacingConeAngle < 180.0f)
+        {
+            const float ConeLength = 200.0f;
+            const FVector ConeEnd = OwnerLocation + OwnerForward * ConeLength;
+            DrawDebugLine(GetWorld(), OwnerLocation, ConeEnd, FColor::Yellow, false, 0.5f, 0, 1.0f);
+        }
+
+        if (NearestTarget)
+        {
+            DrawDebugLine(GetWorld(), OwnerLocation, NearestTarget->GetActorLocation(),
+                FColor::Cyan, false, 0.5f, 0, 2.0f);
+            DrawDebugString(GetWorld(), NearestTarget->GetActorLocation() + FVector(0, 0, 100),
+                TEXT("NEAREST"), nullptr, FColor::Cyan, 0.5f, true);
+        }
     }
 
-    OutBestTarget = BestTarget;
-
-    // Return rotation toward best target if found, otherwise toward input direction
-    if (BestTarget)
-    {
-        return (BestTarget->GetActorLocation() - OwnerLocation).Rotation();
-    }
-    else
-    {
-        return NormalizedInput.Rotation();
-    }
+    return NearestTarget;
 }
 
-bool UTargetingComponent::SetupDirectionalWarp(const FVector& InputDirection, const FDirectionalWarpConfig& Config)
+// Legacy function - forwards to SetupAttackWarp with rotation-only
+bool UTargetingComponent::SetupDirectionalWarp(const FVector& InputDirection, const FAttackWarpConfig& Config)
 {
-    // Lazy fetch owner for test compatibility
-    const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
-    if (!MotionWarpingComponent || !Owner || InputDirection.IsNearlyZero())
+    if (InputDirection.IsNearlyZero())
     {
         return false;
     }
 
-    if (!Config.bEnableDirectionalWarp)
-    {
-        return false;
-    }
-
-    // Calculate rotation toward input direction
+    // Calculate rotation toward input direction and call unified function with no target
     const FRotator TargetRotation = InputDirection.GetSafeNormal().Rotation();
-
-    // For rotation-only warping, we use owner's location but different rotation
-    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
-        Config.DirectionalWarpTargetName,
-        Owner->GetActorLocation(),
-        TargetRotation
-    );
-
-    return true;
+    return SetupAttackWarp(nullptr, TargetRotation, Config);
 }
 
 // ============================================================================
@@ -447,6 +830,8 @@ void UTargetingComponent::GetActorsInRange(TArray<AActor*>& OutActors) const
     }
 
     const FVector OwnerLocation = Owner->GetActorLocation();
+    const UTargetingSettings* Settings = GetEffectiveSettings();
+    const float SearchRadius = Settings ? Settings->MaxTargetDistance : 1000.0f;
 
     TArray<FOverlapResult> Overlaps;
     FCollisionQueryParams QueryParams;
@@ -457,7 +842,7 @@ void UTargetingComponent::GetActorsInRange(TArray<AActor*>& OutActors) const
         OwnerLocation,
         FQuat::Identity,
         ECC_Pawn,
-        FCollisionShape::MakeSphere(MaxTargetDistance),
+        FCollisionShape::MakeSphere(SearchRadius),
         QueryParams
     );
 
@@ -558,32 +943,34 @@ void UTargetingComponent::SortByDistance(TArray<AActor*>& InOutActors) const
 AActor* UTargetingComponent::FindBestTarget(const FVector& Direction) const
 {
     TArray<AActor*> PotentialTargets;
-    
+
     // Get all actors in range
     GetActorsInRange(PotentialTargets);
-    
+
     // Filter by targetable class
     FilterByTargetableClass(PotentialTargets);
-    
+
     // Filter by directional cone
     FilterByCone(PotentialTargets, Direction);
-    
+
     // Filter by line of sight
-    if (bRequireLineOfSight)
+    const UTargetingSettings* Settings = GetEffectiveSettings();
+    const bool bCheckLOS = Settings ? Settings->bRequireLineOfSight : true;
+    if (bCheckLOS)
     {
         FilterByLineOfSight(PotentialTargets);
     }
-    
+
     // Sort by distance
     SortByDistance(PotentialTargets);
-    
+
     // Debug visualization (CVar-controlled)
     if (CombatDebug::IsTargetingDebugEnabled())
     {
         AActor* SelectedTarget = (PotentialTargets.Num() > 0) ? PotentialTargets[0] : nullptr;
         DrawDebugTargeting(PotentialTargets, SelectedTarget, Direction);
     }
-    
+
     return (PotentialTargets.Num() > 0) ? PotentialTargets[0] : nullptr;
 }
 
@@ -642,14 +1029,19 @@ void UTargetingComponent::DrawDebugTargeting(const TArray<AActor*>& PotentialTar
     const FVector OwnerLocation = Owner->GetActorLocation();
     const float DrawDuration = CombatDebug::GetDebugDrawDuration();
 
+    // Get settings for debug visualization
+    const UTargetingSettings* Settings = GetEffectiveSettings();
+    const float DebugMaxDistance = Settings ? Settings->MaxTargetDistance : 1000.0f;
+    const float DebugConeAngle = Settings ? Settings->DirectionalConeAngle : 60.0f;
+
     // Draw search cone
     DrawDebugCone(
         GetWorld(),
         OwnerLocation,
         SearchDirection,
-        MaxTargetDistance,
-        FMath::DegreesToRadians(DirectionalConeAngle),
-        FMath::DegreesToRadians(DirectionalConeAngle),
+        DebugMaxDistance,
+        FMath::DegreesToRadians(DebugConeAngle),
+        FMath::DegreesToRadians(DebugConeAngle),
         12,
         FColor::Yellow,
         false,

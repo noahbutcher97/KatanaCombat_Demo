@@ -12,14 +12,20 @@ class ACharacter;
 class AActor;
 class UMotionWarpingComponent;
 class UCombatSettings;
+class UTargetingSettings;
 
 /**
  * Handles directional cone-based targeting and motion warping setup
  * Reusable by player and AI for consistent targeting behavior
- * 
+ *
+ * Settings Hierarchy:
+ * 1. TargetingSettingsOverride (if set on this component)
+ * 2. CombatSettings->TargetingSettings (character's default)
+ * 3. Hardcoded fallback (should never be reached)
+ *
  * Key features:
- * - Cone-based directional targeting (120° default)
- * - Distance filtering and line of sight checks
+ * - Cone-based directional targeting
+ * - Soft aim assist with angle/distance scoring
  * - Motion warping setup for cinematic attacks
  * - Optional target locking for lock-on systems
  * - Configurable target class filtering
@@ -33,30 +39,32 @@ public:
     UTargetingComponent();
 
     // ============================================================================
-    // CONFIGURATION
+    // SETTINGS
     // ============================================================================
 
-    /** Angle of directional cone for targeting (degrees, half-angle each side) */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Targeting")
-    float DirectionalConeAngle = 60.0f;
+    /**
+     * Optional per-instance settings override
+     * If set, uses this instead of CombatSettings->TargetingSettings
+     * Useful for special characters that need different targeting behavior
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
+    TObjectPtr<UTargetingSettings> TargetingSettingsOverride;
 
-    /** Maximum distance to search for targets */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Targeting")
-    float MaxTargetDistance = 1000.0f;
-
-    /** Require line of sight to target */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Targeting")
-    bool bRequireLineOfSight = true;
-
-    /** Trace channel for line of sight checks */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Targeting")
-    TEnumAsByte<ECollisionChannel> LineOfSightChannel = ECC_Visibility;
-
-    /** Actor classes to consider as targets (empty = all actors) */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Targeting")
+    /**
+     * Actor classes to consider as targets (empty = all actors implementing IDamageableInterface)
+     * This is per-component since different components might target different things
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Settings")
     TArray<TSubclassOf<AActor>> TargetableClasses;
 
-    // Debug visualization is now controlled via CVars:
+    /**
+     * Get the effective targeting settings (override or from CombatSettings)
+     * @return TargetingSettings to use, or nullptr if none available
+     */
+    UFUNCTION(BlueprintPure, Category = "Settings")
+    UTargetingSettings* GetEffectiveSettings() const;
+
+    // Debug visualization controlled via CVars:
     // Combat.Debug.Targeting 1 - Enable targeting visualization
     // Combat.Debug.DrawDuration 2.0 - Set debug draw duration
 
@@ -182,31 +190,39 @@ public:
         float AngleWeight = -1.0f,
         float DistanceWeight = -1.0f);
 
+    /**
+     * Find nearest valid target within facing cone
+     * Used as fallback when no movement input is provided
+     *
+     * @param MaxRange - Maximum search range (uses CombatSettings default if <= 0)
+     * @param FacingConeAngle - Only consider targets within this angle of forward facing (degrees, 180 = any direction)
+     * @return Nearest valid target within cone, or nullptr if none
+     */
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Soft Aim Assist")
+    AActor* FindNearestTarget(float MaxRange = -1.0f, float FacingConeAngle = 180.0f);
+
     // ============================================================================
     // MOTION WARPING INTEGRATION
     // ============================================================================
 
     /**
-     * Setup motion warping for attack toward target
-     * @param Target - Target to warp toward
-     * @param WarpTargetName - Name of warp target in animation (default: "AttackTarget")
-     * @param MaxDistance - Maximum warp distance (uses AttackData config if <= 0)
-     * @return True if warp was set up successfully
-     */
-    UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping")
-    bool SetupMotionWarp(AActor* Target, FName WarpTargetName = "AttackTarget", float MaxDistance = -1.0f);
-
-    /**
-     * Setup directional rotation warp (input direction-based, not target-based)
-     * Used for directional attacks where player deflects stick and releases
+     * Setup attack warp based on context (unified function)
      *
-     * @param InputDirection - World space direction to rotate toward
-     * @param Config - Directional warp configuration from AttackData
-     * @param Settings - CombatSettings for defaults (optional)
+     * Determines warp type automatically:
+     * - If Target is valid: Uses TargetWarpName with translation+rotation toward target
+     * - If Target is null: Uses RotationWarpName with rotation-only toward TargetRotation
+     *
+     * Animation Setup Required:
+     * - Add AnimNotifyState_MotionWarping with name matching Config.TargetWarpName (bWarpTranslation=true)
+     * - Add AnimNotifyState_MotionWarping with name matching Config.RotationWarpName (bWarpTranslation=false)
+     *
+     * @param Target - Target actor (null = rotation-only warp)
+     * @param TargetRotation - Rotation to face (used when Target is null)
+     * @param Config - Warp configuration from AttackData
      * @return True if warp was set up successfully
      */
     UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping")
-    bool SetupDirectionalWarp(const FVector& InputDirection, const struct FDirectionalWarpConfig& Config);
+    bool SetupAttackWarp(AActor* Target, const FRotator& TargetRotation, const struct FAttackWarpConfig& Config);
 
     /**
      * Clear motion warp targets
@@ -215,8 +231,16 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping")
     void ClearMotionWarp(FName WarpTargetName = NAME_None);
 
+    // Legacy functions - kept for backwards compatibility, prefer SetupAttackWarp
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping", meta = (DeprecatedFunction, DeprecationMessage = "Use SetupAttackWarp instead"))
+    bool SetupMotionWarp(AActor* Target, FName WarpTargetName = "AttackTarget", float MaxDistance = -1.0f);
+
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping", meta = (DeprecatedFunction, DeprecationMessage = "Use SetupAttackWarp instead"))
+    bool SetupDirectionalWarp(const FVector& InputDirection, const struct FAttackWarpConfig& Config);
+
 protected:
     virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
     // ============================================================================
@@ -226,6 +250,26 @@ private:
     /** Currently locked target (for lock-on systems) */
     UPROPERTY()
     TObjectPtr<AActor> CurrentTarget = nullptr;
+
+    // ============================================================================
+    // CONTINUOUS WARP TRACKING STATE
+    // ============================================================================
+
+    /** Target being tracked for continuous warp updates (weak to handle destruction) */
+    TWeakObjectPtr<AActor> TrackedWarpTarget;
+
+    /** Active warp configuration for continuous updates */
+    FAttackWarpConfig ActiveWarpConfig;
+
+    /** Whether we're actively tracking a target for warp updates */
+    bool bIsTrackingWarpTarget = false;
+
+    /** Callback for continuous warp updates - called each frame by MotionWarpingComponent */
+    UFUNCTION()
+    void OnMotionWarpingPreUpdate(UMotionWarpingComponent* MotionWarpingComp);
+
+    /** Stop tracking and unbind from updates */
+    void StopWarpTracking();
 
     // ============================================================================
     // CACHED REFERENCES

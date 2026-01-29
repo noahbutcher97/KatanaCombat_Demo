@@ -224,10 +224,20 @@ public:
 	// ============================================================================
 
 	/**
-	 * Discover all AnimNotifyState windows in montage
-	 * Scans montage for window timing information (Combo, Parry, Hold, Cancel)
+	 * Discover all timing checkpoints in montage
 	 *
-	 * Used by CombatComponent to populate checkpoint arrays for timer-based execution.
+	 * Scans montage for phase transitions (AnimNotify_AttackPhaseTransition) and
+	 * AnimNotifyStates (Hold windows) to build a complete timing map.
+	 *
+	 * Phase-Based Windows (INFERRED from phase transitions):
+	 * - Combo: Entire montage duration (input always buffered, timing varies)
+	 * - Parry: Active phase duration (defenders check attacker's state)
+	 * - Recovery: From Active end to montage end (snap execution point)
+	 *
+	 * Explicit Windows (AnimNotifyStates):
+	 * - Hold: AnimNotifyState_HoldWindow (duration-based behavior)
+	 *
+	 * Used by CombatComponent to understand attack timing for input processing.
 	 *
 	 * @param Montage - Montage to scan
 	 * @param OutCheckpoints - Array to populate with discovered checkpoints (cleared first)
@@ -594,13 +604,13 @@ public:
 	);
 
 	/**
-	 * V2 Context-Aware Attack Resolution (Phase 1)
+	 * Context-Aware Attack Resolution
 	 *
 	 * Enhanced resolution with:
 	 * - Context tag filtering (parry counters, finishers, etc.)
 	 * - Cycle detection (prevents infinite loops)
 	 * - Resolution path tracking (debugging/telemetry)
-	 * - Directional input clear signal (KEY FIX for loop bug)
+	 * - Directional input clear signal (prevents directional attack loops)
 	 *
 	 * Resolution Priority:
 	 * 1. Context-sensitive attacks (if RequiredContextTags match ActiveContext)
@@ -619,8 +629,8 @@ public:
 	 * @param VisitedAttacks - Set of already-visited attacks for cycle detection (pass by reference, modified during traversal)
 	 * @return Resolution result with attack, path metadata, and clear signal
 	 */
-	UFUNCTION(BlueprintPure, Category = "Combat|Montage Utilities|Attack Resolution", meta = (DisplayName = "Resolve Next Attack V2"))
-	static FAttackResolutionResult ResolveNextAttack_V2(
+	UFUNCTION(BlueprintPure, Category = "Combat|Montage Utilities|Attack Resolution", meta = (DisplayName = "Resolve Next Attack Contextual"))
+	static FAttackResolutionResult ResolveNextAttackContextual(
 		class UAttackData* CurrentAttack,
 		EInputType InputType,
 		EAttackDirection Direction,

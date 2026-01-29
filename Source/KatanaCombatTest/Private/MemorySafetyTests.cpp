@@ -1,20 +1,16 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "CombatTestHelpers.h"
+#include "Core/CombatComponent.h"
 
 /**
- * Test: Memory Safety - Null CurrentAttackData
- * Verifies system handles null CurrentAttackData gracefully
+ * Test: Memory Safety - Null CurrentAttack
+ * Verifies system handles null CurrentAttack gracefully
  *
- * V2 MIGRATION STATUS: NEEDS REWRITE
- * - V1 used CurrentAttackData member variable
- * - V2 uses GetCurrentAttack() method
- * - V1 hold APIs (ReleaseHeldLight/Heavy, IsHolding) need V2 equivalents
- *
- * TODO V2: Replace V1 APIs with V2:
- * - bIsHolding, CurrentAttackData → GetCurrentAttack(), HoldState
- * - ReleaseHeldLight/Heavy() → V2 hold release methods
- * - OpenHoldWindow() → RegisterCheckpoint(EActionWindowType::Hold)
+ * Tests:
+ * - GetCurrentAttack() returns null when idle
+ * - Hold state operations don't crash with null attack
+ * - Phase transitions are safe when no attack is active
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMemorySafetyTest, "KatanaCombat.CombatComponent.MemorySafety", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
@@ -23,7 +19,7 @@ bool FMemorySafetyTest::RunTest(const FString& Parameters)
 	// Setup
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	UCombatComponent* CombatComp = nullptr;
-	ACharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
+	APlayerCharacter* TestCharacter = FCombatTestHelpers::CreateTestCharacterWithCombat(World, CombatComp);
 
 	if (!TestNotNull("CombatComponent should be created", CombatComp))
 	{
@@ -31,12 +27,22 @@ bool FMemorySafetyTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	AddWarning("MemorySafetyTests not yet migrated to V2 - skipping");
+	// Test 1: GetCurrentAttack returns null when idle
+	TestNull("GetCurrentAttack should be null when idle", CombatComp->GetCurrentAttack());
 
-	/* V1 REMOVED: All memory safety tests for null CurrentAttackData
-	V1 tested: ReleaseHeldLight/Heavy with null CurrentAttackData, hold state corruption
-	V2 TODO: Test GetCurrentAttack() null handling, hold state safety with V2 APIs
-	*/
+	// Test 2: IsAttacking returns false when idle
+	TestFalse("IsAttacking should be false when idle", CombatComp->IsAttacking());
+
+	// Test 3: Hold operations don't crash without active attack
+	CombatComp->ActivateHold(EInputType::HeavyAttack, 0.5f);
+	TestTrue("ActivateHold should succeed even without active attack", CombatComp->IsHolding());
+
+	// Test 4: Phase transitions don't crash without attack
+	CombatComp->OnPhaseTransition(EAttackPhase::Active);
+	TestEqual("Phase should transition safely", CombatComp->GetCurrentPhase(), EAttackPhase::Active);
+
+	CombatComp->OnPhaseTransition(EAttackPhase::None);
+	TestEqual("Phase should return to None", CombatComp->GetCurrentPhase(), EAttackPhase::None);
 
 	// Cleanup
 	World->DestroyActor(TestCharacter);

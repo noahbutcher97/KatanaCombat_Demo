@@ -39,8 +39,8 @@ DECLARE_LOG_CATEGORY_EXTERN(LogCombat, Log, All);
  * 4. Actions scheduled at checkpoints (snap or responsive)
  * 5. Montage playback reaches checkpoint -> action executes
  *
- * NOTE: This component was previously named UCombatComponentV2.
- * V1 CombatComponent has been fully removed.
+ * This component is the core of the combat system, managing attack execution,
+ * input buffering, combo chains, and hold mechanics.
  */
 
 // Forward declarations
@@ -626,11 +626,12 @@ protected:
 	void ClearHoldState();
 
 	/**
-	 * Setup directional warp for attack based on buffered input direction
-	 * Uses soft aim assist to find best target in direction, or pure direction if no target
-	 * @param AttackData - Attack being executed (contains DirectionalWarpConfig)
+	 * Setup motion warp for attack based on context
+	 * Uses soft aim assist to find best target in direction - if found, uses translation+rotation warp
+	 * If no target found, uses rotation-only warp toward input direction
+	 * @param AttackData - Attack being executed (contains WarpConfig)
 	 */
-	void SetupDirectionalWarpForAttack(UAttackData* AttackData);
+	void SetupAttackWarp(UAttackData* AttackData);
 
 	/** Match press/release pairs */
 	void ProcessInputPair(const FQueuedInputAction& PressEvent, const FQueuedInputAction& ReleaseEvent);

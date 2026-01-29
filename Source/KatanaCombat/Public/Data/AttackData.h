@@ -57,20 +57,21 @@ public:
     // DAMAGE & POSTURE
     // ============================================================================
 
+    /** Base damage dealt on hit (used by BaseCombatCharacter::OnWeaponHit) */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage")
     float BaseDamage = 25.0f;
 
-    /** Posture damage dealt when this attack is blocked (not parried) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage")
-    float PostureDamage = 10.0f;
-
-    /** Multiplier applied during counter window (after successful parry/evade) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage")
-    float CounterDamageMultiplier = 1.5f;
-
-    /** Hitstun duration inflicted on hit (0 = no stun, can be countered immediately) */
+    /** Hitstun duration inflicted on hit (used by BaseCombatCharacter::OnWeaponHit) */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage")
     float HitStunDuration = 0.0f;
+
+    /** [NOT YET IMPLEMENTED] Posture damage dealt when this attack is blocked */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Future|Damage")
+    float PostureDamage = 10.0f;
+
+    /** [NOT YET IMPLEMENTED] Multiplier applied during counter window */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Future|Damage")
+    float CounterDamageMultiplier = 1.5f;
 
     // ============================================================================
     // COMBO SYSTEM
@@ -194,49 +195,42 @@ public:
     EEasingType HoldEaseOutType = EEasingType::EaseInQuad;
 
     // ============================================================================
-    // TIMING SYSTEM (Event-Based Phase Transitions)
+    // LEGACY TIMING (Editor Tools Only - DO NOT USE AT RUNTIME)
     // ============================================================================
-    // NEW SYSTEM: Phases use AnimNotify_AttackPhaseTransition events (2 per attack)
-    // - Windup → Active transition (at end of windup)
-    // - Active → Recovery transition (at end of active/hit detection)
-    // - Windup start is implicit (montage start)
-    // - Recovery end is implicit (montage end)
+    // The combat system uses AnimNotify_AttackPhaseTransition events for phase changes.
+    // These properties exist ONLY for the editor's "Generate Notifies" tooling.
+    // At runtime, timing comes from animation notify events, NOT these values.
     //
-    // DEPRECATED: Old AnimNotifyState_AttackPhase system (6 events per attack)
-    // These properties are kept for backward compatibility but are no longer used
+    // If you need to configure timing, add AnimNotify_AttackPhaseTransition events
+    // to your montage at the appropriate frames.
 
-    /** DEPRECATED: Timing is now always event-driven (AnimNotify_AttackPhaseTransition) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing (Deprecated)")
+    /** Editor-only: Used by AttackDataTools to generate notifies (runtime ignores this) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Editor Tools|Timing Generation",
+        meta = (DisplayName = "Use Notify Timing (Editor Only)"))
     bool bUseAnimNotifyTiming = true;
 
-    /** DEPRECATED: No longer used with event-based phase system */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing (Deprecated)",
-        meta = (EditCondition = "bUseAnimNotifyTiming", EditConditionHides))
+    /** Editor-only: Fallback when notifies are missing (runtime ignores this) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Editor Tools|Timing Generation",
+        meta = (EditCondition = "bUseAnimNotifyTiming", EditConditionHides, DisplayName = "Fallback Mode"))
     ETimingFallbackMode TimingFallbackMode = ETimingFallbackMode::AutoCalculate;
 
-    /** DEPRECATED: Manual timing not supported with event-based system */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing (Deprecated)",
-        meta = (EditCondition = "!bUseAnimNotifyTiming", EditConditionHides))
+    /** Editor-only: Manual timing for notify generation (runtime ignores this) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Editor Tools|Timing Generation",
+        meta = (EditCondition = "!bUseAnimNotifyTiming", EditConditionHides, DisplayName = "Manual Timing"))
     FAttackPhaseTimingOverride ManualTiming;
 
     // ============================================================================
-    // MOTION WARPING (Target-Based)
+    // MOTION WARPING
+    // Unified config for both target-based and direction-based warping
+    // Used by: CombatComponent::SetupAttackWarp()
     // ============================================================================
 
-    /** Configuration for target-based motion warping (toward enemies) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Motion Warping")
-    FMotionWarpingConfig MotionWarpingConfig;
+    /** Motion warping configuration (handles both target and rotation-only scenarios) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Motion Warp")
+    FAttackWarpConfig WarpConfig;
 
     // ============================================================================
-    // DIRECTIONAL WARP (Input Direction-Based)
-    // ============================================================================
-
-    /** Configuration for directional rotation warping (from input direction) */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Directional Warp")
-    FDirectionalWarpConfig DirectionalWarpConfig;
-
-    // ============================================================================
-    // CONTEXT & TAGS (V2 Combat System)
+    // CONTEXT & TAGS
     // ============================================================================
 
     /**
@@ -276,11 +270,11 @@ public:
     UFUNCTION(BlueprintPure, Category = "Attack Data")
     float GetSectionLength() const;
 
-    /** DEPRECATED: Check if attack has valid phase transitions (always returns true for new system) */
+    /** Check if montage section has valid AnimNotify_AttackPhaseTransition events */
     UFUNCTION(BlueprintPure, Category = "Attack Data")
     bool HasValidNotifyTimingInSection() const;
 
-    /** DEPRECATED: Get calculated timing (not used with event-based system) */
+    /** Editor-only: Get timing from ManualTiming struct for notify generation tools */
     UFUNCTION(BlueprintCallable, Category = "Attack Data")
     void GetEffectiveTiming(float& OutWindup, float& OutActive, float& OutRecovery) const;
 

@@ -15,6 +15,91 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [3.0.0] - 2025-01-28
+
+### Major: Architecture Consolidation & Motion Warping Unification
+
+**Status**: COMPLETE (Major Infrastructure Refactor)
+
+#### V1 Removal & Component Rename
+- **REMOVED**: `CombatComponentV2` renamed to `CombatComponent` (V1 fully removed)
+- **REMOVED**: `bUseV2System` toggle from CombatSettings (only one system now)
+- **REMOVED**: All `// V1 REMOVED:` historical comments cleaned up
+- Single unified combat system - no more V1/V2 distinction
+
+#### Character Hierarchy Refactoring
+- **NEW**: `ABaseCombatCharacter` - Abstract base class implementing common combat interfaces
+- **NEW**: `APlayerCharacter` - Player-specific character (replaces SamuraiCharacter)
+- **NEW**: `AEnemyCharacter` - Enemy-specific character for AI opponents
+- **NEW**: `ITeamMemberInterface` - Team affiliation for friend/foe detection
+- **EXTENDED**: `IDamageableInterface` - Added `GetCurrentHealth()`, `GetMaxHealth()`, `IsAlive()` methods
+
+#### Motion Warping Unification
+- **NEW**: `FAttackWarpConfig` - Unified warp configuration struct (replaces separate FMotionWarpingConfig + FDirectionalWarpConfig)
+- **NEW**: `SetupAttackWarp()` - Single function handles both target-based (translation+rotation) and direction-based (rotation-only) warping
+- **NEW**: `AnimNotifyState_CombatWarp` - Custom notify that auto-selects warp mode based on runtime target availability
+- **REMOVED**: Redundant `SetupMotionWarp()`, `SetupDirectionalWarp()` functions consolidated
+
+**How AnimNotifyState_CombatWarp Works**:
+```
+CombatComponent::SetupAttackWarp() → Sets ONE of two targets:
+  - "AttackTarget" (if enemy found) → Translation + Rotation
+  - "RotationTarget" (if no enemy) → Rotation Only
+
+AnimNotifyState_CombatWarp → Detects which exists:
+  - AttackTarget exists → bWarpTranslation = true (move toward enemy)
+  - RotationTarget exists → bWarpTranslation = false (rotate only, no sliding)
+  - Neither exists → Skip warp entirely
+```
+
+**Benefits**:
+- One notify per montage instead of two
+- No more "slidey" movement when rotation-only warping
+- Runtime-adaptive behavior based on combat context
+
+#### Modular Settings Architecture
+- **NEW**: `UTargetingSettings` data asset - Character-level targeting configuration
+- **NEW**: `UMotionWarpingSettings` data asset - Character-level motion warp defaults
+- **NEW**: `GetEffectiveSettings()` pattern on TargetingComponent
+- Three-tier configuration: Component Override → CombatSettings Reference → Hardcoded Fallback
+
+**Configuration Hierarchy**:
+```cpp
+// Priority order (highest to lowest):
+1. TargetingComponent->TargetingSettingsOverride  // Per-instance override
+2. CombatSettings->TargetingSettings              // Character-type default
+3. Hardcoded fallback values                      // Safe defaults
+```
+
+#### Debug System Consolidation
+- **NEW**: `DebugConfig.h` - CVar-based debug configuration
+- **RENAMED**: `DirectionDebugLibrary` → `DebugUtils` (moved from Utilities/ to Debug/)
+- **NEW**: Console commands: `Combat.Debug.All`, `Combat.Debug.Direction`, `Combat.Debug.Targeting`, etc.
+- **REMOVED**: Scattered `bDebugDraw` properties from individual components
+
+**Files Created**:
+- `Public/Animation/AnimNotifyState_CombatWarp.h` (~80 lines)
+- `Private/Animation/AnimNotifyState_CombatWarp.cpp` (~100 lines)
+- `Public/Data/TargetingSettings.h` (~60 lines)
+- `Private/Data/TargetingSettings.cpp`
+- `Public/Data/MotionWarpingSettings.h` (~60 lines)
+- `Private/Data/MotionWarpingSettings.cpp`
+- `Public/Characters/BaseCombatCharacter.h` (~150 lines)
+- `Private/Characters/BaseCombatCharacter.cpp`
+- `Public/Characters/PlayerCharacter.h`
+- `Private/Characters/PlayerCharacter.cpp`
+- `Public/Characters/EnemyCharacter.h`
+- `Public/Interfaces/TeamMemberInterface.h`
+- `Public/Debug/DebugConfig.h`
+- `Public/Debug/DebugUtils.h` (renamed from DirectionDebugLibrary)
+
+**Files Removed/Renamed**:
+- `CombatComponentV2.h/.cpp` → `CombatComponent.h/.cpp`
+- `SamuraiCharacter.h/.cpp` → `PlayerCharacter.h/.cpp`
+- `Utilities/DirectionDebugLibrary.h/.cpp` → `Debug/DebugUtils.h/.cpp`
+
+---
+
 ## [2.0.0] - 2025-11-19
 
 ### Major: Directional Attack System Architectural Fix

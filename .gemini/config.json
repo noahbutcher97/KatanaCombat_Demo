@@ -1,0 +1,20 @@
+{
+  "project": {
+    "name": "KatanaCombat",
+    "description": "Unreal Engine 5.6 Melee Combat System"
+  },
+  "agents": {
+    "default": "lead_architect",
+    "path": ".gemini/agents"
+  },
+  "context": {
+    "modesPath": ".gemini/context-modes",
+    "autoSwitch": true
+  },
+  "hooks": {
+    "afterFileOpen": {
+      "command": "powershell",
+      "args": ["-ExecutionPolicy", "Bypass", "-File", ".gemini/hooks/auto-context.ps1"]
+    }
+  }
+}

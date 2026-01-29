@@ -1,0 +1,32 @@
+{
+  "name": "animation",
+  "description": "Animation system - montages, notifies, phase transitions",
+  "includePatterns": [
+    "**/Animation/**/*.{h,cpp}",
+    "**/AnimNotify*.{h,cpp}",
+    "**/AnimInstance*.{h,cpp}",
+    "**/MontageUtilityLibrary.*",
+    "docs/PHASE_SYSTEM_MIGRATION.md",
+    "docs/ARCHITECTURE.md",
+    "docs/SYSTEM_PROMPT.md",
+    "CLAUDE.md"
+  ],
+  "excludePatterns": [
+    "**/Targeting*",
+    "**/Weapon*",
+    "**/Editor/**",
+    "**/Tests/**",
+    "Content/**/*.uasset"
+  ],
+  "relevantDocs": [
+    "docs/PHASE_SYSTEM_MIGRATION.md - Phase notify setup",
+    "docs/ARCHITECTURE.md:500-700 - Animation integration",
+    "MontageUtilityLibrary - 27 utility functions"
+  ],
+  "commonTasks": [
+    "Add new AnimNotify/AnimNotifyState",
+    "Validate montage notify order",
+    "Debug phase transition timing",
+    "Implement new window type"
+  ]
+}

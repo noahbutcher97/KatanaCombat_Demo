@@ -3,7 +3,8 @@
 #include "AttackDataTools.h"
 #include "Data/AttackData.h"
 #include "Animation/AnimMontage.h"
-#include "Animation/AnimNotifyState_AttackPhase.h"
+#include "Animation/AnimNotify_AttackPhaseTransition.h"
+#include "Animation/AnimNotifyState_AttackPhase.h" // For backward compatibility detection
 #include "Animation/AnimNotifyState_ComboWindow.h"
 #include "Animation/AnimNotifyState_HoldWindow.h"
 #include "Animation/AnimNotify_ToggleHitDetection.h"
@@ -68,11 +69,45 @@ bool UAttackDataTools::ExtractTimingFromNotifies(UAttackData* AttackData, float&
     float SectionStart, SectionEnd;
     AttackData->GetSectionTimeRange(SectionStart, SectionEnd);
 
+    // Try NEW SYSTEM first: AnimNotify_AttackPhaseTransition (2 transition points)
+    float ActiveTransitionTime = -1.0f;
+    float RecoveryTransitionTime = -1.0f;
+
+    for (const FAnimNotifyEvent& NotifyEvent : Montage->Notifies)
+    {
+        const float NotifyTime = NotifyEvent.GetTriggerTime();
+        if (NotifyTime < SectionStart || NotifyTime >= SectionEnd)
+        {
+            continue;
+        }
+
+        if (const UAnimNotify_AttackPhaseTransition* TransitionNotify = Cast<UAnimNotify_AttackPhaseTransition>(NotifyEvent.Notify))
+        {
+            if (TransitionNotify->TransitionToPhase == EAttackPhase::Active)
+            {
+                ActiveTransitionTime = NotifyTime;
+            }
+            else if (TransitionNotify->TransitionToPhase == EAttackPhase::Recovery)
+            {
+                RecoveryTransitionTime = NotifyTime;
+            }
+        }
+    }
+
+    // If we found the new system notifies, calculate timing from transition points
+    if (ActiveTransitionTime >= 0.0f && RecoveryTransitionTime >= 0.0f)
+    {
+        OutWindup = ActiveTransitionTime - SectionStart;
+        OutActive = RecoveryTransitionTime - ActiveTransitionTime;
+        OutRecovery = SectionEnd - RecoveryTransitionTime;
+        return true;
+    }
+
+    // Fallback: Try OLD SYSTEM (deprecated AnimNotifyState_AttackPhase)
     float WindupStart = -1.0f, WindupEnd = -1.0f;
     float ActiveStart = -1.0f, ActiveEnd = -1.0f;
     float RecoveryStart = -1.0f, RecoveryEnd = -1.0f;
 
-    // Find phase notifies in section
     for (const FAnimNotifyEvent& NotifyEvent : Montage->Notifies)
     {
         const float NotifyTime = NotifyEvent.GetTriggerTime();
@@ -106,7 +141,7 @@ bool UAttackDataTools::ExtractTimingFromNotifies(UAttackData* AttackData, float&
         }
     }
 
-    // Validate we found required phases
+    // Validate we found required phases (old system)
     if (WindupStart < 0.0f || ActiveStart < 0.0f || RecoveryStart < 0.0f)
     {
         return false;
@@ -168,43 +203,47 @@ bool UAttackDataTools::GenerateAttackPhaseNotifies(UAttackData* AttackData)
     float SectionStart, SectionEnd;
     AttackData->GetSectionTimeRange(SectionStart, SectionEnd);
 
-    // Remove existing phase notifies
+    // Remove existing phase notifies (both old AnimNotifyState and new AnimNotify types)
     RemoveNotifiesOfType(Montage, AttackData->MontageSection, UAnimNotifyState_AttackPhase::StaticClass());
+    RemoveNotifiesOfType(Montage, AttackData->MontageSection, UAnimNotify_AttackPhaseTransition::StaticClass());
 
-    // Add Windup
-    UAnimNotifyState_AttackPhase* WindupNotify = NewObject<UAnimNotifyState_AttackPhase>(Montage);
-    WindupNotify->Phase = EAttackPhase::Windup;
-    if (!AddNotifyStateToMontage(Montage, SectionStart, Timing.WindupDuration, WindupNotify, AttackData->MontageSection))
+    // NEW SYSTEM: Create 2 transition point notifies instead of 3 duration-based notifies
+    // Timeline: [==Windup==][==Active==][====Recovery====]
+    //                       ↑           ↑
+    //                       Active      Recovery
+    //                       Transition  Transition
+
+    // Add Transition to Active (at end of windup)
+    UAnimNotify_AttackPhaseTransition* ToActiveNotify = NewObject<UAnimNotify_AttackPhaseTransition>(Montage);
+    ToActiveNotify->TransitionToPhase = EAttackPhase::Active;
+    const float ActiveTransitionTime = SectionStart + Timing.WindupDuration;
+    if (!AddNotifyToMontage(Montage, ActiveTransitionTime, ToActiveNotify, AttackData->MontageSection))
     {
+        LogToolMessage(TEXT("GenerateAttackPhaseNotifies: Failed to add Active transition"), true);
         return false;
     }
 
-    // Add Active
-    UAnimNotifyState_AttackPhase* ActiveNotify = NewObject<UAnimNotifyState_AttackPhase>(Montage);
-    ActiveNotify->Phase = EAttackPhase::Active;
-    if (!AddNotifyStateToMontage(Montage, SectionStart + Timing.WindupDuration, Timing.ActiveDuration, ActiveNotify, AttackData->MontageSection))
+    // Add Transition to Recovery (at end of active)
+    UAnimNotify_AttackPhaseTransition* ToRecoveryNotify = NewObject<UAnimNotify_AttackPhaseTransition>(Montage);
+    ToRecoveryNotify->TransitionToPhase = EAttackPhase::Recovery;
+    const float RecoveryTransitionTime = SectionStart + Timing.WindupDuration + Timing.ActiveDuration;
+    if (!AddNotifyToMontage(Montage, RecoveryTransitionTime, ToRecoveryNotify, AttackData->MontageSection))
     {
-        return false;
-    }
-
-    // Add Recovery
-    UAnimNotifyState_AttackPhase* RecoveryNotify = NewObject<UAnimNotifyState_AttackPhase>(Montage);
-    RecoveryNotify->Phase = EAttackPhase::Recovery;
-    if (!AddNotifyStateToMontage(Montage, SectionStart + Timing.WindupDuration + Timing.ActiveDuration, Timing.RecoveryDuration, RecoveryNotify, AttackData->MontageSection))
-    {
+        LogToolMessage(TEXT("GenerateAttackPhaseNotifies: Failed to add Recovery transition"), true);
         return false;
     }
 
     // Add Hold Window if applicable (using separate AnimNotifyState_HoldWindow)
     if (AttackData->bCanHold && Timing.HoldWindowDuration > 0.0f)
     {
+        RemoveNotifiesOfType(Montage, AttackData->MontageSection, UAnimNotifyState_HoldWindow::StaticClass());
         UAnimNotifyState_HoldWindow* HoldNotify = NewObject<UAnimNotifyState_HoldWindow>(Montage);
         AddNotifyStateToMontage(Montage, SectionStart + Timing.HoldWindowStart, Timing.HoldWindowDuration, HoldNotify, AttackData->MontageSection);
     }
 
     MarkMontageModified(Montage);
-    LogToolMessage(FString::Printf(TEXT("GenerateAttackPhaseNotifies: Success for %s"), *AttackData->GetName()));
-    
+    LogToolMessage(FString::Printf(TEXT("GenerateAttackPhaseNotifies: Success for %s (using AnimNotify_AttackPhaseTransition)"), *AttackData->GetName()));
+
     return true;
 }
 

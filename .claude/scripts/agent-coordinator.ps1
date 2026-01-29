@@ -18,25 +18,25 @@ $Pipelines = @{
         name = "Full Feature Pipeline"
         agents = @("ue-code-generator", "design-compliance-auditor", "code-auditor")
         orchestrator = "pipeline-feature"
-        description = "Implement → Validate → Audit"
+        description = "Implement, Validate, Audit"
     }
     "bugfix" = @{
         name = "Bug Fix Pipeline"
         agents = @("design-compliance-auditor", "ue-code-generator", "code-auditor")
         orchestrator = "pipeline-bugfix"
-        description = "Diagnose → Fix → Verify"
+        description = "Diagnose, Fix, Verify"
     }
     "validation" = @{
         name = "Validation Pipeline"
         agents = @("design-compliance-auditor", "code-auditor")
         orchestrator = $null
-        description = "Architecture Check → Quality Check"
+        description = "Architecture Check, Quality Check"
     }
     "refactoring" = @{
         name = "Refactoring Pipeline"
         agents = @("code-auditor", "ue-code-generator", "design-compliance-auditor")
         orchestrator = $null
-        description = "Analyze → Refactor → Validate"
+        description = "Analyze, Refactor, Validate"
     }
 }
 
@@ -82,11 +82,11 @@ $AvailableAgents = @{
 
 function Show-Status {
     Write-Host ""
-    Write-Host "🤖 Agent Coordination System - Status" -ForegroundColor Cyan
+    Write-Host "Agent Coordination System - Status" -ForegroundColor Cyan
     Write-Host "=====================================" -ForegroundColor Cyan
     Write-Host ""
 
-    Write-Host "📊 Available Agents ($($AvailableAgents.Count)):" -ForegroundColor Yellow
+    Write-Host "Available Agents:" -ForegroundColor Yellow
     Write-Host ""
 
     foreach ($agent in $AvailableAgents.GetEnumerator() | Sort-Object Name) {
@@ -102,21 +102,21 @@ function Show-Status {
             default { "White" }
         }
 
-        Write-Host "  • $name" -ForegroundColor $colorName -NoNewline
-        Write-Host " [$($info.model)]" -ForegroundColor DarkGray
+        Write-Host "  * $name" -ForegroundColor $colorName -NoNewline
+        Write-Host " ($($info.model))" -ForegroundColor DarkGray
         Write-Host "    Specialty: $($info.specialty)" -ForegroundColor Gray
         Write-Host ""
     }
 
     Write-Host ""
-    Write-Host "🔄 Predefined Pipelines ($($Pipelines.Count)):" -ForegroundColor Yellow
+    Write-Host "Predefined Pipelines:" -ForegroundColor Yellow
     Write-Host ""
 
     foreach ($pipeline in $Pipelines.GetEnumerator() | Sort-Object Name) {
         $name = $pipeline.Key
         $info = $pipeline.Value
 
-        Write-Host "  • $name" -ForegroundColor Cyan -NoNewline
+        Write-Host "  * $name" -ForegroundColor Cyan -NoNewline
         Write-Host ": $($info.name)" -ForegroundColor White
         Write-Host "    $($info.description)" -ForegroundColor Gray
 
@@ -130,7 +130,7 @@ function Show-Status {
     }
 
     Write-Host ""
-    Write-Host "💡 Usage Examples:" -ForegroundColor Yellow
+    Write-Host "Usage Examples:" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  # Show this status"
     Write-Host "  powershell .claude/scripts/agent-coordinator.ps1 -Action status"
@@ -139,8 +139,7 @@ function Show-Status {
     Write-Host "  powershell .claude/scripts/agent-coordinator.ps1 -Action info -PipelineType feature"
     Write-Host ""
     Write-Host "  # Validate agent chain"
-    Write-Host "  powershell .claude/scripts/agent-coordinator.ps1 -Action validate ``"
-    Write-Host "    -AgentChain ue-code-generator,design-compliance-auditor"
+    Write-Host "  powershell .claude/scripts/agent-coordinator.ps1 -Action validate -AgentChain ue-code-generator,design-compliance-auditor"
     Write-Host ""
 }
 
@@ -148,7 +147,7 @@ function Show-PipelineInfo {
     param([string]$Type)
 
     if (-not $Pipelines.ContainsKey($Type)) {
-        Write-Host "❌ Unknown pipeline type: $Type" -ForegroundColor Red
+        Write-Host "ERROR: Unknown pipeline type: $Type" -ForegroundColor Red
         Write-Host "Available: $($Pipelines.Keys -join ', ')" -ForegroundColor Yellow
         return
     }
@@ -156,7 +155,7 @@ function Show-PipelineInfo {
     $pipeline = $Pipelines[$Type]
 
     Write-Host ""
-    Write-Host "🔄 Pipeline: $($pipeline.name)" -ForegroundColor Cyan
+    Write-Host "Pipeline: $($pipeline.name)" -ForegroundColor Cyan
     Write-Host "=====================================" -ForegroundColor Cyan
     Write-Host ""
 
@@ -171,7 +170,7 @@ function Show-PipelineInfo {
         Write-Host "  $($i + 1). $agentName" -ForegroundColor Green
         Write-Host "     $($agentInfo.specialty)" -ForegroundColor Gray
         if ($i -lt $pipeline.agents.Count - 1) {
-            Write-Host "     ↓" -ForegroundColor DarkGray
+            Write-Host "     |" -ForegroundColor DarkGray
         }
     }
 
@@ -192,7 +191,7 @@ function Validate-AgentChain {
     param([string[]]$Chain)
 
     Write-Host ""
-    Write-Host "✅ Validating Agent Chain" -ForegroundColor Cyan
+    Write-Host "Validating Agent Chain" -ForegroundColor Cyan
     Write-Host "=====================================" -ForegroundColor Cyan
     Write-Host ""
 
@@ -204,10 +203,10 @@ function Validate-AgentChain {
     foreach ($agentName in $Chain) {
         if ($AvailableAgents.ContainsKey($agentName)) {
             $agent = $AvailableAgents[$agentName]
-            Write-Host "  ✅ $agentName" -ForegroundColor Green
+            Write-Host "  OK: $agentName" -ForegroundColor Green
             Write-Host "     $($agent.specialty)" -ForegroundColor Gray
         } else {
-            Write-Host "  ❌ $agentName - NOT FOUND" -ForegroundColor Red
+            Write-Host "  ERROR: $agentName - NOT FOUND" -ForegroundColor Red
             $valid = $false
         }
     }
@@ -215,7 +214,7 @@ function Validate-AgentChain {
     Write-Host ""
 
     if ($valid) {
-        Write-Host "✅ Chain is valid" -ForegroundColor Green
+        Write-Host "OK: Chain is valid" -ForegroundColor Green
 
         # Check if matches known pipeline
         foreach ($pipeline in $Pipelines.GetEnumerator()) {
@@ -224,14 +223,14 @@ function Validate-AgentChain {
 
             if ($pipelineAgents -eq $chainStr) {
                 Write-Host ""
-                Write-Host "💡 This matches the '$($pipeline.Key)' pipeline" -ForegroundColor Yellow
+                Write-Host "INFO: This matches the '$($pipeline.Key)' pipeline" -ForegroundColor Yellow
                 if ($pipeline.Value.orchestrator) {
                     Write-Host "   Use orchestrator: $($pipeline.Value.orchestrator)" -ForegroundColor Cyan
                 }
             }
         }
     } else {
-        Write-Host "❌ Chain has invalid agents" -ForegroundColor Red
+        Write-Host "ERROR: Chain has invalid agents" -ForegroundColor Red
         Write-Host ""
         Write-Host "Available agents: $($AvailableAgents.Keys -join ', ')" -ForegroundColor Yellow
     }
@@ -249,14 +248,14 @@ switch ($Action.ToLower()) {
     }
     "validate" {
         if ($AgentChain.Count -eq 0) {
-            Write-Host "❌ No agents specified for validation" -ForegroundColor Red
+            Write-Host "ERROR: No agents specified for validation" -ForegroundColor Red
             Write-Host "Usage: -Action validate -AgentChain agent1,agent2,agent3" -ForegroundColor Yellow
         } else {
             Validate-AgentChain -Chain $AgentChain
         }
     }
     default {
-        Write-Host "❌ Unknown action: $Action" -ForegroundColor Red
+        Write-Host "ERROR: Unknown action: $Action" -ForegroundColor Red
         Write-Host "Available actions: status, info, validate" -ForegroundColor Yellow
     }
 }

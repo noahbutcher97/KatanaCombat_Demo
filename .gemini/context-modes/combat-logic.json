@@ -1,0 +1,41 @@
+{
+  "name": "combat-logic",
+  "description": "Core combat systems - state machines, input, execution",
+  "includePatterns": [
+    "**/Core/CombatComponent*.{h,cpp}",
+    "**/Core/TargetingComponent*.{h,cpp}",
+    "**/Core/WeaponComponent*.{h,cpp}",
+    "**/Core/HitReactionComponent*.{h,cpp}",
+    "**/CombatTypes.h",
+    "**/ActionQueue*.{h,cpp}",
+    "docs/SYSTEM_PROMPT.md",
+    "docs/ARCHITECTURE.md",
+    "docs/ARCHITECTURE_QUICK.md",
+    "CLAUDE.md"
+  ],
+  "excludePatterns": [
+    "**/Animation/**",
+    "**/Data/**",
+    "**/Editor/**",
+    "**/Tests/**",
+    "Content/**"
+  ],
+  "relevantDocs": [
+    "docs/SYSTEM_PROMPT.md - Core design principles",
+    "docs/ARCHITECTURE.md:1-500 - Component architecture",
+    "docs/ARCHITECTURE_QUICK.md - Default values and patterns"
+  ],
+  "commonTasks": [
+    "Implement new combat state",
+    "Add input handling",
+    "Modify action queue processing",
+    "Fix state transition bugs",
+    "Integrate V1/V2 systems"
+  ],
+  "keyPrinciples": [
+    "Phases exclusive (Windup→Active→Recovery)",
+    "Windows overlap (ParryWindow, ComboWindow, HoldWindow)",
+    "Input ALWAYS buffered",
+    "Timer-based, not Tick-based"
+  ]
+}
