@@ -93,7 +93,8 @@ UHitReactionSettings* UHitReactionComponent::GetEffectiveSettings() const
     }
 
     // Priority 2: CombatSettings from owner character
-    if (const ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
+    // Use helper for lazy initialization (works in test environments)
+    if (const ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(GetOwnerCharacterCached()))
     {
         if (CombatChar->CombatSettings && CombatChar->CombatSettings->HitReactionSettings)
         {
@@ -120,18 +121,20 @@ bool UHitReactionComponent::IsInIFrames() const
 
 float UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
 {
-    const FString OwnerName = OwnerCharacter ? OwnerCharacter->GetName() : TEXT("Unknown");
+    // Use helper for lazy initialization (works in test environments)
+    ACharacter* CharOwner = GetOwnerCharacterCached();
+    const FString OwnerName = CharOwner ? CharOwner->GetName() : TEXT("Unknown");
     const FString AttackerName = HitInfo.Attacker ? HitInfo.Attacker->GetName() : TEXT("Unknown");
 
     UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s receiving damage from %s (Raw: %.1f)"),
         *OwnerName, *AttackerName, HitInfo.Damage);
 
     // Check if owner is alive - don't process damage on dead characters
-    if (OwnerCharacter)
+    if (CharOwner)
     {
-        if (OwnerCharacter->Implements<UDamageableInterface>())
+        if (CharOwner->Implements<UDamageableInterface>())
         {
-            if (!IDamageableInterface::Execute_IsAlive(OwnerCharacter))
+            if (!IDamageableInterface::Execute_IsAlive(CharOwner))
             {
                 UE_LOG(LogTemp, Warning, TEXT("[DAMAGE] %s BLOCKED: Target is dead"),
                     *OwnerName);
@@ -186,10 +189,13 @@ void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
         return;
     }
 
+    // Use helper for lazy initialization (works in test environments)
+    ACharacter* CharOwner = GetOwnerCharacterCached();
+
     // Check if owner is alive - don't play hit reactions on dead characters
-    if (OwnerCharacter && OwnerCharacter->Implements<UDamageableInterface>())
+    if (CharOwner && CharOwner->Implements<UDamageableInterface>())
     {
-        if (!IDamageableInterface::Execute_IsAlive(OwnerCharacter))
+        if (!IDamageableInterface::Execute_IsAlive(CharOwner))
         {
             return;
         }
@@ -211,7 +217,7 @@ void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
 
         // Get current health for damage percentage calculation
         float CurrentHealth = 100.0f; // Default
-        if (const ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
+        if (const ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(CharOwner))
         {
             CurrentHealth = CombatChar->CurrentHealth;
         }
@@ -335,13 +341,15 @@ UAnimMontage* UHitReactionComponent::SelectHitReactionMontage(const FHitReaction
 
 EAttackDirection UHitReactionComponent::GetHitDirectionRelativeToFacing(const FVector& HitDirection) const
 {
-    if (!OwnerCharacter || HitDirection.IsNearlyZero())
+    // Use helper for lazy initialization (works in test environments)
+    ACharacter* CharOwner = GetOwnerCharacterCached();
+    if (!CharOwner || HitDirection.IsNearlyZero())
     {
         return EAttackDirection::Forward;
     }
-    
+
     // Convert to local space
-    FVector LocalDirection = OwnerCharacter->GetActorTransform().InverseTransformVector(HitDirection);
+    FVector LocalDirection = CharOwner->GetActorTransform().InverseTransformVector(HitDirection);
     LocalDirection.Z = 0;
     LocalDirection.Normalize();
     
@@ -376,6 +384,17 @@ void UHitReactionComponent::EndStun()
     SetComponentTickEnabled(false);
 
     OnStunEnd.Broadcast();
+}
+
+ACharacter* UHitReactionComponent::GetOwnerCharacterCached() const
+{
+    // Use cached reference if available (set during BeginPlay)
+    if (OwnerCharacter)
+    {
+        return OwnerCharacter;
+    }
+    // Fallback for test environments where BeginPlay may not be called
+    return Cast<ACharacter>(GetOwner());
 }
 
 // ============================================================================

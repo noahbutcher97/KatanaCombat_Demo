@@ -324,6 +324,14 @@ private:
      */
     UAnimMontage* SelectHitReactionMontage(const FHitReactionInfo& HitInfo) const;
 
+    /**
+     * Get owner character with lazy initialization
+     * Returns cached OwnerCharacter if available, otherwise attempts to get from GetOwner()
+     * This ensures the component works in test environments where BeginPlay may not be called
+     * @return Owner character or nullptr
+     */
+    ACharacter* GetOwnerCharacterCached() const;
+
     /** Update stun timer (called in Tick) */
     void UpdateStun(float DeltaTime);
 

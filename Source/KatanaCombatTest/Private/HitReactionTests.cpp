@@ -414,7 +414,8 @@ bool FOnDamageReceivedFiresTest::RunTest(const FString& Parameters)
 	const float TestDamage = 30.0f;
 
 	FHitReactionInfo HitInfo = FCombatTestHelpers::CreateTestHitInfo(Player, TestDamage);
-	const float DamageDealt = HitReactionComp->ApplyDamage(HitInfo);
+	// Use the interface to go through proper damage flow (character -> component -> health modification)
+	const float DamageDealt = IDamageableInterface::Execute_ApplyDamage(Enemy, HitInfo);
 
 	// Verify damage was applied (which triggers OnDamageReceived internally)
 	TestEqual("Damage dealt should match", DamageDealt, TestDamage);
