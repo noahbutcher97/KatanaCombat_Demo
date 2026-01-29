@@ -3,7 +3,10 @@
 #include "KatanaCombatEditor.h"
 #include "PropertyEditorModule.h"
 #include "Customizations/AttackDataCustomization.h"
+#include "Customizations/HitReactionDataCustomization.h"
+#include "Customizations/HitReactionEntryCustomization.h"
 #include "Data/AttackData.h"
+#include "Data/HitReactionData.h"
 
 #define LOCTEXT_NAMESPACE "FKatanaCombatEditorModule"
 
@@ -27,6 +30,18 @@ void FKatanaCombatEditorModule::RegisterCustomizations()
 		UAttackData::StaticClass()->GetFName(),
 		FOnGetDetailCustomizationInstance::CreateStatic(&FAttackDataCustomization::MakeInstance)
 	);
+
+	// Register custom details panel for HitReactionData
+	PropertyModule.RegisterCustomClassLayout(
+		UHitReactionData::StaticClass()->GetFName(),
+		FOnGetDetailCustomizationInstance::CreateStatic(&FHitReactionDataCustomization::MakeInstance)
+	);
+
+	// Register custom property type layout for FHitReactionEntry struct
+	PropertyModule.RegisterCustomPropertyTypeLayout(
+		"HitReactionEntry",
+		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FHitReactionEntryCustomization::MakeInstance)
+	);
 }
 
 void FKatanaCombatEditorModule::UnregisterCustomizations()
@@ -37,6 +52,8 @@ void FKatanaCombatEditorModule::UnregisterCustomizations()
 			FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
         
 		PropertyModule.UnregisterCustomClassLayout(UAttackData::StaticClass()->GetFName());
+		PropertyModule.UnregisterCustomClassLayout(UHitReactionData::StaticClass()->GetFName());
+		PropertyModule.UnregisterCustomPropertyTypeLayout("HitReactionEntry");
 	}
 }
 

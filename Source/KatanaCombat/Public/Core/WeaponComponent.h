@@ -324,15 +324,6 @@ private:
      */
     UAttackData* GetCurrentAttackData() const;
 
-    /**
-     * Draw debug visualization for trace
-     * @param Start - Trace start location
-     * @param End - Trace end location
-     * @param bHit - Did trace hit something?
-     * @param Hit - Hit result (if bHit is true)
-     */
-    void DrawDebugTrace(const FVector& Start, const FVector& End, bool bHit, const FHitResult& Hit) const;
-
     // ============================================================================
     // INTERNAL HELPERS - WEAPON DATA
     // ============================================================================

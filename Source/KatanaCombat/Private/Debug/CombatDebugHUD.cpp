@@ -5,8 +5,12 @@
 #include "Debug/DebugUtils.h"
 #include "Utilities/CombatUtils.h"
 #include "Core/CombatComponent.h"
+#include "Core/WeaponComponent.h"
+#include "Core/TargetingComponent.h"
 #include "Data/AttackData.h"
+#include "Data/WeaponData.h"
 #include "Characters/BaseCombatCharacter.h"
+#include "Interfaces/DamageableInterface.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
@@ -116,6 +120,20 @@ FCombatDebugData ACombatDebugHUD::GenerateDebugData(ABaseCombatCharacter* Charac
 	if (const UAttackData* CurrentAttack = CombatComp->GetCurrentAttack())
 	{
 		Data.CurrentAttackName = CurrentAttack->GetName();
+	}
+
+	// ========================================================================
+	// WEAPON/HIT DETECTION STATE
+	// ========================================================================
+	if (UWeaponComponent* WeaponComp = Character->WeaponComponent)
+	{
+		Data.bHitDetectionActive = WeaponComp->IsHitDetectionEnabled();
+		Data.HitActorCount = WeaponComp->GetHitActorCount();
+
+		if (const UWeaponData* WepData = WeaponComp->WeaponData)
+		{
+			Data.bUsingWeaponMeshSockets = !WepData->bUseCharacterSocketsForTrace;
+		}
 	}
 
 	// ========================================================================
@@ -243,6 +261,32 @@ FCombatDebugData ACombatDebugHUD::GenerateDebugData(ABaseCombatCharacter* Charac
 		Data.ArcLabel = FString::Printf(TEXT("CAM-CHAR %.0f"), AbsYawDelta);
 	}
 
+	// ========================================================================
+	// TARGET/ENEMY INFO
+	// ========================================================================
+	if (UTargetingComponent* TargetComp = Character->TargetingComponent)
+	{
+		if (AActor* Target = TargetComp->GetCurrentTarget())
+		{
+			Data.CurrentTarget = Target;
+			Data.TargetName = Target->GetName();
+
+			// Get health info via interface
+			if (Target->Implements<UDamageableInterface>())
+			{
+				Data.TargetCurrentHealth = IDamageableInterface::Execute_GetCurrentHealth(Target);
+				Data.TargetMaxHealth = IDamageableInterface::Execute_GetMaxHealth(Target);
+				Data.bTargetIsAlive = IDamageableInterface::Execute_IsAlive(Target);
+			}
+
+			// Get dead flag from combat character
+			if (ABaseCombatCharacter* TargetCombat = Cast<ABaseCombatCharacter>(Target))
+			{
+				Data.bTargetIsDead = TargetCombat->bIsDead;
+			}
+		}
+	}
+
 	return Data;
 }
 
@@ -355,6 +399,53 @@ void ACombatDebugHUD::DrawStatusPanel(const FCombatDebugData& Data)
 		Data.bMovementDisabled ? TEXT("DISABLED") : TEXT("Enabled"));
 	Canvas->SetDrawColor(Data.bMovementDisabled ? FColor::Red : FColor::Green);
 	Canvas->DrawText(GEngine->GetSmallFont(), MovementText, X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Weapon/Hit detection state (only when weapon debug enabled)
+	if (CombatDebug::IsWeaponDebugEnabled())
+	{
+		const FString HitDetectText = FString::Printf(TEXT("Hit Detection: %s | Hits: %d"),
+			Data.bHitDetectionActive ? TEXT("ACTIVE") : TEXT("OFF"),
+			Data.HitActorCount);
+		Canvas->SetDrawColor(Data.bHitDetectionActive ? FColor::Red : FColor::White);
+		Canvas->DrawText(GEngine->GetSmallFont(), HitDetectText, X, Y, StatusFontScale, StatusFontScale);
+		Y += LineHeight;
+
+		const FString SocketText = FString::Printf(TEXT("Sockets: %s"),
+			Data.bUsingWeaponMeshSockets ? TEXT("Weapon Mesh") : TEXT("Character Mesh"));
+		Canvas->SetDrawColor(FColor::Cyan);
+		Canvas->DrawText(GEngine->GetSmallFont(), SocketText, X, Y, StatusFontScale, StatusFontScale);
+		Y += LineHeight;
+	}
+
+	// ========================================================================
+	// TARGET/ENEMY INFO
+	// ========================================================================
+	if (Data.CurrentTarget.IsValid())
+	{
+		Y += LineHeight; // Spacer
+
+		// Target name header
+		const FString TargetText = FString::Printf(TEXT("TARGET: %s"), *Data.TargetName);
+		Canvas->SetDrawColor(FColor::Yellow);
+		Canvas->DrawText(GEngine->GetSmallFont(), TargetText, X, Y, StatusFontScale, StatusFontScale);
+		Y += LineHeight;
+
+		// Health bar
+		const float HealthPercent = Data.TargetMaxHealth > 0.0f ?
+			(Data.TargetCurrentHealth / Data.TargetMaxHealth) * 100.0f : 0.0f;
+		const FString HealthText = FString::Printf(TEXT("  Health: %.0f/%.0f (%.0f%%)"),
+			Data.TargetCurrentHealth, Data.TargetMaxHealth, HealthPercent);
+		Canvas->SetDrawColor(Data.bTargetIsAlive ? FColor::Green : FColor::Red);
+		Canvas->DrawText(GEngine->GetSmallFont(), HealthText, X, Y, StatusFontScale, StatusFontScale);
+		Y += LineHeight;
+
+		// Alive/Dead state
+		const FString AliveText = FString::Printf(TEXT("  State: %s"),
+			Data.bTargetIsDead ? TEXT("DEAD") : (Data.bTargetIsAlive ? TEXT("Alive") : TEXT("Dying")));
+		Canvas->SetDrawColor(Data.bTargetIsDead ? FColor::Red : FColor::Green);
+		Canvas->DrawText(GEngine->GetSmallFont(), AliveText, X, Y, StatusFontScale, StatusFontScale);
+	}
 }
 
 void ACombatDebugHUD::DrawArrowLabels(const FCombatDebugData& Data)

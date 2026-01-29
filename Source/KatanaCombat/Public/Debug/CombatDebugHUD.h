@@ -94,11 +94,32 @@ struct FCombatDebugData
 	/** Current attack name */
 	FString CurrentAttackName;
 
+	/** Weapon/Hit detection state */
+	bool bHitDetectionActive = false;
+	int32 HitActorCount = 0;
+	bool bUsingWeaponMeshSockets = false;
+
 	/** Camera-character yaw delta */
 	float CamCharYawDelta = 0.0f;
 
 	/** Is data valid this frame? */
 	bool bIsValid = false;
+
+	// ========================================================================
+	// TARGET/ENEMY INFO (for displaying enemy state)
+	// ========================================================================
+
+	/** Current soft-aim target (if any) */
+	TWeakObjectPtr<AActor> CurrentTarget;
+
+	/** Target display name */
+	FString TargetName;
+
+	/** Target health info */
+	float TargetCurrentHealth = 0.0f;
+	float TargetMaxHealth = 0.0f;
+	bool bTargetIsAlive = true;
+	bool bTargetIsDead = false;
 };
 
 /**

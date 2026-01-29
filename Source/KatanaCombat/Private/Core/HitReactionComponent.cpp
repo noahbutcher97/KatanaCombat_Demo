@@ -5,6 +5,18 @@
 #include "GameFramework/Character.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Data/HitReactionSettings.h"
+#include "Data/HitReactionData.h"
+#include "Data/CombatSettings.h"
+#include "Data/AttackData.h"
+#include "Characters/BaseCombatCharacter.h"
+#include "Interfaces/DamageableInterface.h"
+#include "GameplayTagContainer.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+
+// Static snapshot name for death pose - use in AnimBP with "Pose Snapshot" node
+const FName UHitReactionComponent::DeathPoseSnapshotName = FName(TEXT("DeathPose"));
 
 UHitReactionComponent::UHitReactionComponent()
 {
@@ -22,22 +34,83 @@ UHitReactionComponent::UHitReactionComponent()
 void UHitReactionComponent::BeginPlay()
 {
     Super::BeginPlay();
-    
+
     OwnerCharacter = Cast<ACharacter>(GetOwner());
     if (OwnerCharacter)
     {
         AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
+
+        // Bind to GLOBAL montage blending out delegate
+        // This is more reliable than per-montage delegates
+        if (AnimInstance)
+        {
+            AnimInstance->OnMontageBlendingOut.AddDynamic(this, &UHitReactionComponent::OnAnyMontageBlendingOut);
+            UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s bound global OnMontageBlendingOut delegate"),
+                *OwnerCharacter->GetName());
+        }
     }
 }
 
 void UHitReactionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-    
+
+    // Update i-frame tracking time
+    if (bCurrentReactionHasIFrames)
+    {
+        CurrentReactionTime += DeltaTime;
+
+        // Disable i-frame tracking once window has passed
+        if (CurrentReactionTime > CurrentIFrameEnd)
+        {
+            bCurrentReactionHasIFrames = false;
+        }
+    }
+
     if (bIsStunned)
     {
         UpdateStun(DeltaTime);
     }
+
+    // Disable tick if nothing needs tracking
+    if (!bIsStunned && !bCurrentReactionHasIFrames)
+    {
+        SetComponentTickEnabled(false);
+    }
+}
+
+// ============================================================================
+// SETTINGS ACCESS
+// ============================================================================
+
+UHitReactionSettings* UHitReactionComponent::GetEffectiveSettings() const
+{
+    // Priority 1: Component override
+    if (HitReactionSettingsOverride)
+    {
+        return HitReactionSettingsOverride;
+    }
+
+    // Priority 2: CombatSettings from owner character
+    if (const ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
+    {
+        if (CombatChar->CombatSettings && CombatChar->CombatSettings->HitReactionSettings)
+        {
+            return CombatChar->CombatSettings->HitReactionSettings;
+        }
+    }
+
+    // Priority 3: No settings available
+    return nullptr;
+}
+
+bool UHitReactionComponent::IsInIFrames() const
+{
+    if (!bCurrentReactionHasIFrames)
+    {
+        return false;
+    }
+    return CurrentReactionTime >= CurrentIFrameStart && CurrentReactionTime <= CurrentIFrameEnd;
 }
 
 // ============================================================================
@@ -46,24 +119,62 @@ void UHitReactionComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 
 float UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
 {
+    const FString OwnerName = OwnerCharacter ? OwnerCharacter->GetName() : TEXT("Unknown");
+    const FString AttackerName = HitInfo.Attacker ? HitInfo.Attacker->GetName() : TEXT("Unknown");
+
+    UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s receiving damage from %s (Raw: %.1f)"),
+        *OwnerName, *AttackerName, HitInfo.Damage);
+
+    // Check if owner is alive - don't process damage on dead characters
+    if (OwnerCharacter)
+    {
+        if (OwnerCharacter->Implements<UDamageableInterface>())
+        {
+            if (!IDamageableInterface::Execute_IsAlive(OwnerCharacter))
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[DAMAGE] %s BLOCKED: Target is dead"),
+                    *OwnerName);
+                return 0.0f;
+            }
+        }
+    }
+
     // Check invulnerability
     if (bIsInvulnerable)
     {
+        UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s BLOCKED: Target is invulnerable"),
+            *OwnerName);
         return 0.0f;
     }
-    
+
+    // Check i-frames
+    if (IsInIFrames())
+    {
+        UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s BLOCKED: Target is in i-frames (%.2f/%.2f-%.2f)"),
+            *OwnerName, CurrentReactionTime, CurrentIFrameStart, CurrentIFrameEnd);
+        return 0.0f;
+    }
+
     // Calculate final damage
     float FinalDamage = HitInfo.Damage * DamageResistance;
-    
+
+    UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s APPLIED: %.1f damage (resistance: %.2f)"),
+        *OwnerName, FinalDamage, DamageResistance);
+
     // Broadcast event
     OnDamageReceived.Broadcast(HitInfo);
-    
+
     // Play hit reaction if not super armored
     if (!bHasSuperArmor)
     {
         PlayHitReaction(HitInfo);
     }
-    
+    else
+    {
+        UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s has super armor - no hit reaction"),
+            *OwnerName);
+    }
+
     return FinalDamage;
 }
 
@@ -74,20 +185,67 @@ void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
         return;
     }
 
+    // Check if owner is alive - don't play hit reactions on dead characters
+    if (OwnerCharacter && OwnerCharacter->Implements<UDamageableInterface>())
+    {
+        if (!IDamageableInterface::Execute_IsAlive(OwnerCharacter))
+        {
+            return;
+        }
+    }
+
+    // Get relative hit direction
+    const EAttackDirection RelativeDir = GetHitDirectionRelativeToFacing(HitInfo.HitDirection);
+
+    // Try settings-based approach first
+    if (UHitReactionSettings* Settings = GetEffectiveSettings())
+    {
+        // Determine intensity from attack
+        EAttackType AttackType = EAttackType::Light;
+        float Damage = HitInfo.Damage;
+        if (HitInfo.AttackData)
+        {
+            AttackType = HitInfo.AttackData->AttackType;
+        }
+
+        // Get current health for damage percentage calculation
+        float CurrentHealth = 100.0f; // Default
+        if (const ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
+        {
+            CurrentHealth = CombatChar->CurrentHealth;
+        }
+
+        const EHitIntensity Intensity = Settings->GetIntensityFromAttack(AttackType, Damage, CurrentHealth);
+        const bool bIsHeavy = (Intensity == EHitIntensity::Heavy);
+
+        // Get directional reaction entry (inline struct, not asset)
+        if (const FHitReactionEntry* ReactionEntry = Settings->GetDirectionalReaction(Intensity, RelativeDir))
+        {
+            if (PlayReactionFromEntry(*ReactionEntry, RelativeDir, bIsHeavy))
+            {
+                // Apply stun from reaction entry
+                if (ReactionEntry->StunDuration > 0.0f)
+                {
+                    ApplyHitStun(ReactionEntry->StunDuration);
+                }
+                return;
+            }
+        }
+    }
+
+    // Fallback: Legacy approach using component properties
     if (UAnimMontage* ReactionMontage = SelectHitReactionMontage(HitInfo))
     {
         AnimInstance->Montage_Play(ReactionMontage);
-        
-        // Determine direction from hit
-        EAttackDirection Direction = GetHitDirectionRelativeToFacing(HitInfo.HitDirection);
-        
-        // Determine if heavy based on stun duration threshold
-        const bool bIsHeavy = (HitInfo.StunDuration > 0.3f);
-        
-        // Broadcast event
-        OnHitReactionStarted.Broadcast(Direction, bIsHeavy);
-        
-        // Apply hitstun if specified
+
+        // Determine if heavy based on attack type
+        const bool bIsHeavy = HitInfo.AttackData &&
+            (HitInfo.AttackData->AttackType == EAttackType::Heavy ||
+             HitInfo.AttackData->AttackType == EAttackType::Special);
+
+        OnHitReactionStarted.Broadcast(RelativeDir, bIsHeavy);
+
+        // Apply hitstun if specified in HitInfo
         if (HitInfo.StunDuration > 0.0f)
         {
             ApplyHitStun(HitInfo.StunDuration);
@@ -215,6 +373,365 @@ void UHitReactionComponent::EndStun()
     bIsStunned = false;
     StunTimeRemaining = 0.0f;
     SetComponentTickEnabled(false);
-    
+
     OnStunEnd.Broadcast();
+}
+
+// ============================================================================
+// NEW DATA-DRIVEN API
+// ============================================================================
+
+bool UHitReactionComponent::PlayReactionFromEntry(const FHitReactionEntry& ReactionEntry, EAttackDirection Direction, bool bIsHeavy)
+{
+    if (!ReactionEntry.ReactionMontage || !AnimInstance)
+    {
+        return false;
+    }
+
+    // Reset and setup i-frame tracking
+    CurrentReactionTime = 0.0f;
+    bCurrentReactionHasIFrames = ReactionEntry.bHasIFrames;
+    CurrentIFrameStart = ReactionEntry.IFrameStart;
+    CurrentIFrameEnd = ReactionEntry.IFrameEnd;
+
+    // Enable tick for i-frame tracking if needed
+    if (bCurrentReactionHasIFrames)
+    {
+        SetComponentTickEnabled(true);
+    }
+
+    // Play montage with section selection
+    const float Duration = AnimInstance->Montage_Play(
+        ReactionEntry.ReactionMontage,
+        ReactionEntry.PlayRate);
+
+    if (Duration <= 0.0f)
+    {
+        bCurrentReactionHasIFrames = false;
+        return false;
+    }
+
+    // Handle section selection
+    if (ReactionEntry.MontageSection != NAME_None)
+    {
+        if (ReactionEntry.bJumpToSectionStart)
+        {
+            AnimInstance->Montage_JumpToSection(
+                ReactionEntry.MontageSection,
+                ReactionEntry.ReactionMontage);
+        }
+
+        if (ReactionEntry.bUseSectionOnly)
+        {
+            AnimInstance->Montage_SetNextSection(
+                ReactionEntry.MontageSection,
+                NAME_None,
+                ReactionEntry.ReactionMontage);
+        }
+    }
+
+    // Broadcast event
+    OnHitReactionStarted.Broadcast(Direction, bIsHeavy);
+
+    return true;
+}
+
+bool UHitReactionComponent::PlayReactionFromData(UHitReactionData* ReactionData)
+{
+    if (!ReactionData || !ReactionData->ReactionMontage || !AnimInstance)
+    {
+        return false;
+    }
+
+    // Setup i-frame tracking from data asset
+    CurrentReactionTime = 0.0f;
+    bCurrentReactionHasIFrames = ReactionData->bHasIFrames;
+    CurrentIFrameStart = ReactionData->IFrameStart;
+    CurrentIFrameEnd = ReactionData->IFrameEnd;
+
+    // Enable tick for i-frame tracking if needed
+    if (bCurrentReactionHasIFrames)
+    {
+        SetComponentTickEnabled(true);
+    }
+
+    // Play montage with section selection
+    const float Duration = AnimInstance->Montage_Play(
+        ReactionData->ReactionMontage,
+        ReactionData->PlayRate);
+
+    if (Duration <= 0.0f)
+    {
+        bCurrentReactionHasIFrames = false;
+        return false;
+    }
+
+    // Handle section selection (like AttackData pattern)
+    if (ReactionData->MontageSection != NAME_None)
+    {
+        if (ReactionData->bJumpToSectionStart)
+        {
+            AnimInstance->Montage_JumpToSection(
+                ReactionData->MontageSection,
+                ReactionData->ReactionMontage);
+        }
+
+        if (ReactionData->bUseSectionOnly)
+        {
+            AnimInstance->Montage_SetNextSection(
+                ReactionData->MontageSection,
+                NAME_None,
+                ReactionData->ReactionMontage);
+        }
+    }
+
+    // Broadcast event (Heavy and Special reactions are considered "heavy" for gameplay purposes)
+    const bool bIsHeavy = ReactionData->ReactionType != EHitReactionType::Light;
+    OnHitReactionStarted.Broadcast(ReactionData->Direction, bIsHeavy);
+
+    return true;
+}
+
+bool UHitReactionComponent::PlayPairedReaction(EPairedReactionType PairedType, FName ReactionName)
+{
+    if (ReactionName == NAME_None)
+    {
+        return false;
+    }
+
+    UHitReactionSettings* Settings = GetEffectiveSettings();
+    if (!Settings)
+    {
+        return false;
+    }
+
+    UHitReactionData* ReactionData = Settings->GetPairedReaction(PairedType, ReactionName);
+    if (!ReactionData)
+    {
+        return false;
+    }
+
+    return PlayReactionFromData(ReactionData);
+}
+
+bool UHitReactionComponent::PlaySpecialReaction(ESpecialReactionType SpecialType)
+{
+    UHitReactionSettings* Settings = GetEffectiveSettings();
+    if (!Settings)
+    {
+        // Fallback to legacy for guard broken
+        if (SpecialType == ESpecialReactionType::GuardBroken && GuardBrokenMontage)
+        {
+            if (AnimInstance)
+            {
+                AnimInstance->Montage_Play(GuardBrokenMontage);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    UHitReactionData* ReactionData = Settings->GetSpecialReaction(SpecialType);
+    if (!ReactionData)
+    {
+        return false;
+    }
+
+    return PlayReactionFromData(ReactionData);
+}
+
+// ============================================================================
+// DEATH REACTION & RAGDOLL
+// ============================================================================
+
+bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
+{
+    UHitReactionSettings* Settings = GetEffectiveSettings();
+    if (!Settings || !AnimInstance)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[HitReaction] %s PlayDeathReaction: No settings or AnimInstance, falling back to ragdoll"),
+            OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
+        ActivateRagdoll(0.2f);
+        return false;
+    }
+
+    const FHitReactionEntry* DeathEntry = Settings->GetDeathReaction(Direction);
+    if (!DeathEntry || !DeathEntry->ReactionMontage)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[HitReaction] %s PlayDeathReaction: No death entry for direction %s, falling back to ragdoll"),
+            OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+            *UEnum::GetValueAsString(Direction));
+        ActivateRagdoll(0.2f);
+        return false;
+    }
+
+    // Store the pending outcome to handle when blend-out starts
+    PendingDeathOutcome = DeathEntry->Outcome;
+    bDeathOutcomePending = true;
+    PendingRagdollBlendTime = DeathEntry->RagdollBlendTime;
+
+    // Store the montage we're waiting for (global delegate will filter by this)
+    PendingDeathMontage = DeathEntry->ReactionMontage;
+
+    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s PlayDeathReaction: Setup for montage %s (Outcome: %s)"),
+        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+        *DeathEntry->ReactionMontage->GetName(),
+        *UEnum::GetValueAsString(PendingDeathOutcome));
+
+    // Play the death animation - global delegate will handle blend-out
+    const bool bSuccess = PlayReactionFromEntry(*DeathEntry, Direction, true);
+
+    if (bSuccess)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s death montage started successfully, waiting for blend-out"),
+            OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
+    }
+    else
+    {
+        UE_LOG(LogTemp, Error, TEXT("[HitReaction] %s PlayDeathReaction: PlayReactionFromEntry FAILED, falling back to ragdoll"),
+            OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
+        bDeathOutcomePending = false;
+        PendingDeathMontage = nullptr;
+        ActivateRagdoll(0.2f);
+    }
+
+    return bSuccess;
+}
+
+void UHitReactionComponent::OnAnyMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
+{
+    // Filter: Only process if this is the death montage we're waiting for
+    if (!bDeathOutcomePending || !PendingDeathMontage || Montage != PendingDeathMontage)
+    {
+        return;
+    }
+
+    UE_LOG(LogTemp, Warning, TEXT("[HitReaction] %s DEATH MONTAGE BLENDING OUT! Montage=%s, Interrupted=%s"),
+        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+        Montage ? *Montage->GetName() : TEXT("nullptr"),
+        bInterrupted ? TEXT("YES") : TEXT("NO"));
+
+    // Clear pending state
+    bDeathOutcomePending = false;
+    PendingDeathMontage = nullptr;
+
+    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s Applying death outcome: %s"),
+        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+        *UEnum::GetValueAsString(PendingDeathOutcome));
+
+    switch (PendingDeathOutcome)
+    {
+        case EReactionOutcome::Death:
+            // Freeze animation at current pose - character stays in death pose permanently
+            FreezeAtCurrentPose();
+            break;
+
+        case EReactionOutcome::Ragdoll:
+            // Activate ragdoll - physics will take over from current pose
+            ActivateRagdoll(PendingRagdollBlendTime);
+            break;
+
+        case EReactionOutcome::StandardRecovery:
+        default:
+            UE_LOG(LogTemp, Warning, TEXT("[HitReaction] %s StandardRecovery outcome for death - this is unusual"),
+                OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
+            // Let normal blend-out happen (shouldn't occur for death, but handle gracefully)
+            break;
+    }
+}
+
+void UHitReactionComponent::ActivateRagdoll(float BlendTime)
+{
+    if (!OwnerCharacter)
+    {
+        return;
+    }
+
+    USkeletalMeshComponent* Mesh = OwnerCharacter->GetMesh();
+    if (!Mesh)
+    {
+        return;
+    }
+
+    // Save pose snapshot BEFORE ragdoll - enables future recovery from ragdoll
+    // (e.g., blend from pre-ragdoll pose to get-up animation)
+    if (AnimInstance)
+    {
+        AnimInstance->SavePoseSnapshot(DeathPoseSnapshotName);
+        bHasDeathPoseSnapshot = true;
+
+        // Stop montages with no blend to freeze at current pose before physics
+        AnimInstance->StopAllMontages(0.0f);
+    }
+
+    // Enable physics simulation on mesh - uses current bone transforms as starting pose
+    Mesh->SetSimulatePhysics(true);
+    Mesh->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
+
+    // Set ragdoll collision profile
+    Mesh->SetCollisionProfileName(TEXT("Ragdoll"));
+
+    // Disable capsule collision so ragdoll can move freely
+    if (UCapsuleComponent* Capsule = OwnerCharacter->GetCapsuleComponent())
+    {
+        Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+
+    // Broadcast ragdoll event
+    OnRagdollActivated.Broadcast();
+
+    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s activated ragdoll (snapshot saved as '%s')"),
+        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+        *DeathPoseSnapshotName.ToString());
+}
+
+void UHitReactionComponent::FreezeAtCurrentPose()
+{
+    if (!OwnerCharacter || !AnimInstance)
+    {
+        return;
+    }
+
+    USkeletalMeshComponent* Mesh = OwnerCharacter->GetMesh();
+    if (!Mesh)
+    {
+        return;
+    }
+
+    // 1. Save pose snapshot BEFORE stopping anything
+    // This captures the exact skeletal pose at the moment of death
+    // Can be used later in AnimBP with "Pose Snapshot" node for recovery/revive
+    AnimInstance->SavePoseSnapshot(DeathPoseSnapshotName);
+    bHasDeathPoseSnapshot = true;
+
+    // 2. Stop all montages with no blend
+    AnimInstance->StopAllMontages(0.0f);
+
+    // 3. CRITICAL: Pause animation evaluation on the mesh
+    // This prevents the AnimBP state machine from transitioning to idle
+    // The mesh will hold its current bone transforms indefinitely
+    Mesh->bPauseAnims = true;
+
+    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s frozen at death pose (snapshot: '%s', anims paused)"),
+        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+        *DeathPoseSnapshotName.ToString());
+}
+
+void UHitReactionComponent::ClearDeathPoseSnapshot()
+{
+    bHasDeathPoseSnapshot = false;
+
+    // Re-enable animation evaluation (for recovery/revive)
+    if (OwnerCharacter)
+    {
+        if (USkeletalMeshComponent* Mesh = OwnerCharacter->GetMesh())
+        {
+            Mesh->bPauseAnims = false;
+        }
+    }
+
+    // Note: UAnimInstance doesn't have a RemovePoseSnapshot function,
+    // but the snapshot will be overwritten on next save or ignored if not used
+    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s death pose snapshot cleared (anims resumed)"),
+        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
 }

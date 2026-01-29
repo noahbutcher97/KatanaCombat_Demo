@@ -9,6 +9,7 @@
 class UAttackConfiguration;
 class UTargetingSettings;
 class UMotionWarpingSettings;
+class UHitReactionSettings;
 
 /**
  * Root configuration for combat system - composes subsystem settings
@@ -24,6 +25,7 @@ class UMotionWarpingSettings;
  *   ├── TargetingSettings (targeting/soft aim)
  *   ├── MotionWarpingSettings (warp distances/speeds)
  *   ├── AttackConfiguration (moveset/default attacks)
+ *   ├── HitReactionSettings (hit reactions, damage response)
  *   └── [Future: PostureSettings, CounterSettings, etc.]
  *
  * Override Pattern:
@@ -59,10 +61,13 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Subsystems")
     TObjectPtr<UAttackConfiguration> AttackConfiguration;
 
+    /** Hit reaction configuration (directional reactions, special reactions) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Subsystems")
+    TObjectPtr<UHitReactionSettings> HitReactionSettings;
+
     // ============================================================================
     // FUTURE SUBSYSTEMS (Add as implemented)
     // ============================================================================
     // TObjectPtr<UPostureSettings> PostureSettings;
     // TObjectPtr<UCounterSettings> CounterSettings;
-    // TObjectPtr<UHitReactionSettings> HitReactionSettings;
 };

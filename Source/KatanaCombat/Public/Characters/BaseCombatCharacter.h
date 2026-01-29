@@ -104,6 +104,10 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
     FOnCharacterDeath OnCharacterDeath;
 
+    /** Is this character dead? Set when health reaches 0, blocks further damage/reactions */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Health")
+    bool bIsDead = false;
+
     // ========================================================================
     // COMPONENT ACCESSORS
     // ========================================================================

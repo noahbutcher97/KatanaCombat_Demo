@@ -8,6 +8,7 @@
 
 // Forward declarations
 class UAttackData;
+class UHitReactionData;
 class UAnimMontage;
 class AActor;
 
@@ -96,19 +97,15 @@ enum class EInputDirection : uint8
 
 /**
  * Hit reaction type classification
+ * Light/Heavy: Directional reactions selected via EHitIntensity × EAttackDirection
+ * Special: Non-directional reactions selected via ESpecialReactionType
  */
 UENUM(BlueprintType)
 enum class EHitReactionType : uint8
 {
-    None            UMETA(DisplayName = "No Reaction"),
-    Flinch          UMETA(DisplayName = "Flinch"),
-    Light           UMETA(DisplayName = "Light Stagger"),
-    Medium          UMETA(DisplayName = "Medium Stagger"),
-    Heavy           UMETA(DisplayName = "Heavy Stagger"),
-    Knockback       UMETA(DisplayName = "Knockback"),
-    Knockdown       UMETA(DisplayName = "Knockdown"),
-    Launch          UMETA(DisplayName = "Launch"),
-    Custom          UMETA(DisplayName = "Custom Reaction")
+    Light           UMETA(DisplayName = "Light"),
+    Heavy           UMETA(DisplayName = "Heavy"),
+    Special         UMETA(DisplayName = "Special")
 };
 
 /**
@@ -136,6 +133,67 @@ enum class ETimingFallbackMode : uint8
     RequireManualOverride   UMETA(DisplayName = "Require Manual Override"),
     UseSafeDefaults         UMETA(DisplayName = "Use Safe Defaults"),
     DisallowMontage         UMETA(DisplayName = "Disallow Montage")
+};
+
+/**
+ * Hit intensity level - determines reaction severity
+ * Separate from direction for modularity (intensity × direction = reaction)
+ */
+UENUM(BlueprintType)
+enum class EHitIntensity : uint8
+{
+    Light           UMETA(DisplayName = "Light"),
+    Heavy           UMETA(DisplayName = "Heavy")
+    // Future: Medium, Critical, etc.
+};
+
+/**
+ * Paired reaction type for synchronized attacker/victim animations
+ * Extension point: Built now, wired when AttackData extended with counter/finisher names
+ */
+UENUM(BlueprintType)
+enum class EPairedReactionType : uint8
+{
+    None            UMETA(DisplayName = "None"),
+    Counter         UMETA(DisplayName = "Counter Reaction"),
+    Finisher        UMETA(DisplayName = "Finisher Victim"),
+    Parry           UMETA(DisplayName = "Parry Stagger"),
+    Throw           UMETA(DisplayName = "Throw Victim")
+};
+
+/**
+ * Special hit reaction categories (non-directional)
+ * Directional reactions use EHitIntensity × EAttackDirection lookup instead
+ */
+UENUM(BlueprintType)
+enum class ESpecialReactionType : uint8
+{
+    GuardBroken     UMETA(DisplayName = "Guard Broken"),
+    Knockdown       UMETA(DisplayName = "Knockdown"),
+    Launch          UMETA(DisplayName = "Launch"),
+    Death           UMETA(DisplayName = "Death")
+};
+
+/**
+ * Outcome of a hit reaction - what happens after animation completes
+ * Separates "what animation plays" from "what state results"
+ * Used to determine post-animation behavior (recovery, ragdoll, etc.)
+ */
+UENUM(BlueprintType)
+enum class EReactionOutcome : uint8
+{
+    /** Return to idle after stun duration (standard hits) */
+    StandardRecovery    UMETA(DisplayName = "Standard Recovery"),
+
+    /** Hold final animation pose permanently (death without ragdoll) */
+    Death               UMETA(DisplayName = "Death"),
+
+    /** Blend to ragdoll physics simulation (death with ragdoll) */
+    Ragdoll             UMETA(DisplayName = "Ragdoll")
+
+    // Future outcomes:
+    // Knockdown - Fall, stay grounded, play get-up
+    // Vulnerable - Open to finisher/counter window
 };
 
 // ============================================================================
@@ -241,43 +299,6 @@ struct FAttackPhaseTiming
 };
 
 /**
- * Hit reaction configuration data
- */
-USTRUCT(BlueprintType)
-struct FHitReactionData
-{
-    GENERATED_BODY()
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reaction")
-    EHitReactionType ReactionType = EHitReactionType::Light;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reaction")
-    float StunDuration = 0.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics")
-    float KnockbackForce = 200.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics")
-    float LaunchForce = 0.0f;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation", 
-              meta = (EditCondition = "ReactionType == EHitReactionType::Custom"))
-    TObjectPtr<UAnimMontage> CustomReactionMontage = nullptr;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reaction")
-    bool bForceInterruptCurrentAction = false;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
-    bool bCanBeBlocked = true;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
-    bool bCanBeParried = true;
-
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
-    bool bUnblockable = false;
-};
-
-/**
  * Target selection scoring data
  */
 USTRUCT(BlueprintType)
@@ -354,6 +375,7 @@ struct FHitReactionInfo
 
 /**
  * Hit reaction animation set based on direction
+ * Legacy: Used by HitReactionComponent before HitReactionSettings migration
  */
 USTRUCT(BlueprintType)
 struct FHitReactionAnimSet
@@ -371,6 +393,147 @@ struct FHitReactionAnimSet
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reactions")
     TObjectPtr<UAnimMontage> RightHit = nullptr;
+};
+
+/**
+ * Single hit reaction entry - inline configuration for one reaction
+ * Contains all data needed to play a reaction without requiring a separate asset
+ * Used inline in FDirectionalReactionSet for directional reactions
+ */
+USTRUCT(BlueprintType)
+struct FHitReactionEntry
+{
+    GENERATED_BODY()
+
+    // ========================================================================
+    // ANIMATION
+    // ========================================================================
+
+    /** Animation montage for this reaction */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+    TObjectPtr<UAnimMontage> ReactionMontage = nullptr;
+
+    /** Which section of the montage to use (NAME_None = use entire montage) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+    FName MontageSection = NAME_None;
+
+    /** If true, only this section plays. If false, montage continues after section */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+    bool bUseSectionOnly = true;
+
+    /** If true, automatically jump to the section start when playing */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+    bool bJumpToSectionStart = true;
+
+    /** Montage play rate (1.0 = normal speed) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation",
+        meta = (ClampMin = "0.1", ClampMax = "3.0"))
+    float PlayRate = 1.0f;
+
+    // ========================================================================
+    // TIMING
+    // ========================================================================
+
+    /** Duration of hitstun (character cannot act) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing",
+        meta = (ClampMin = "0.0", ClampMax = "5.0"))
+    float StunDuration = 0.3f;
+
+    /** If true, cannot be hit during i-frame window */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing")
+    bool bHasIFrames = false;
+
+    /** I-frame start time (relative to montage/section start) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing",
+        meta = (EditCondition = "bHasIFrames", ClampMin = "0.0"))
+    float IFrameStart = 0.0f;
+
+    /** I-frame end time (relative to montage/section start) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing",
+        meta = (EditCondition = "bHasIFrames", ClampMin = "0.0"))
+    float IFrameEnd = 0.5f;
+
+    // ========================================================================
+    // PHYSICS
+    // ========================================================================
+
+    /** Knockback force applied to victim */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics",
+        meta = (ClampMin = "0.0"))
+    float KnockbackForce = 200.0f;
+
+    // ========================================================================
+    // OUTCOME (what happens after animation completes)
+    // ========================================================================
+
+    /** What happens when this reaction completes */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Outcome")
+    EReactionOutcome Outcome = EReactionOutcome::StandardRecovery;
+
+    /** Blend time from animation to ragdoll (only used when Outcome == Ragdoll) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Outcome",
+        meta = (EditCondition = "Outcome == EReactionOutcome::Ragdoll", ClampMin = "0.0", ClampMax = "1.0"))
+    float RagdollBlendTime = 0.2f;
+
+    // ========================================================================
+    // HELPERS
+    // ========================================================================
+
+    /** Is this entry configured with a valid montage? */
+    bool IsValid() const { return ReactionMontage != nullptr; }
+
+    /** Check if currently in i-frame window at given time */
+    bool IsInIFrameWindow(float CurrentTime) const
+    {
+        if (!bHasIFrames) return false;
+        return CurrentTime >= IFrameStart && CurrentTime <= IFrameEnd;
+    }
+
+    /** Get section time range (returns montage length if no section specified) */
+    void GetSectionTimeRange(float& OutStart, float& OutEnd) const;
+
+    /** Get section length */
+    float GetSectionLength() const;
+};
+
+/**
+ * Directional reaction set - reactions for each direction at one intensity level
+ * Contains inline FHitReactionEntry for Front/Back/Left/Right
+ * No separate assets needed for standard directional reactions
+ */
+USTRUCT(BlueprintType)
+struct FDirectionalReactionSet
+{
+    GENERATED_BODY()
+
+    /** Front hit reaction */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reactions")
+    FHitReactionEntry Front;
+
+    /** Back hit reaction */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reactions")
+    FHitReactionEntry Back;
+
+    /** Left hit reaction */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reactions")
+    FHitReactionEntry Left;
+
+    /** Right hit reaction */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Reactions")
+    FHitReactionEntry Right;
+
+    /** Get reaction entry for direction */
+    const FHitReactionEntry* GetReaction(EAttackDirection Direction) const
+    {
+        switch (Direction)
+        {
+            case EAttackDirection::Forward: return &Front;
+            case EAttackDirection::Backward: return &Back;
+            case EAttackDirection::Left: return &Left;
+            case EAttackDirection::Right: return &Right;
+            default: return &Front; // Default to front for None
+        }
+    }
 };
 
 /**

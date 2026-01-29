@@ -2,17 +2,18 @@
 
 #include "Core/WeaponComponent.h"
 #include "Core/CombatComponent.h"
+#include "Characters/BaseCombatCharacter.h"
 #include "Data/AttackData.h"
 #include "Data/AttackConfiguration.h"
 #include "Data/WeaponData.h"
 #include "Data/CombatSettings.h"
 #include "Debug/DebugConfig.h"
+#include "Debug/DebugUtils.h"
 #include "GameFramework/Character.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Animation/AnimInstance.h"
-#include "DrawDebugHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogWeaponComponent, Log, All);
 
@@ -60,14 +61,38 @@ void UWeaponComponent::EnableHitDetection()
     {
         return;
     }
-    
+
     bHitDetectionEnabled = true;
     bFirstTrace = true;
     SetComponentTickEnabled(true);
-    
+
+    // Clear hit actors from previous attack - critical for allowing re-hits on new attacks
+    HitActors.Empty();
+
     // Store initial positions
-    PreviousStartLocation = GetSocketLocation(WeaponStartSocket);
-    PreviousTipLocation = GetSocketLocation(WeaponEndSocket);
+    PreviousStartLocation = GetSocketLocation(GetEffectiveStartSocket());
+    PreviousTipLocation = GetSocketLocation(GetEffectiveEndSocket());
+
+    // Debug: Log hit detection configuration
+    if (CombatDebug::IsWeaponDebugEnabled())
+    {
+        const FName StartSocket = GetEffectiveStartSocket();
+        const FName EndSocket = GetEffectiveEndSocket();
+        const bool bUsingWeaponMesh = WeaponData && !WeaponData->bUseCharacterSocketsForTrace;
+
+        UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Hit detection ENABLED:"), *GetNameSafe(GetOwner()));
+        UE_LOG(LogWeaponComponent, Log, TEXT("  - Socket source: %s"), bUsingWeaponMesh ? TEXT("Weapon Mesh") : TEXT("Character Mesh"));
+        UE_LOG(LogWeaponComponent, Log, TEXT("  - Start socket: %s -> %s"), *StartSocket.ToString(), *PreviousStartLocation.ToString());
+        UE_LOG(LogWeaponComponent, Log, TEXT("  - End socket: %s -> %s"), *EndSocket.ToString(), *PreviousTipLocation.ToString());
+        UE_LOG(LogWeaponComponent, Log, TEXT("  - Trace radius: %.1f"), GetEffectiveTraceRadius());
+
+        // Warn if positions are identical (likely socket not found)
+        if (PreviousStartLocation.Equals(PreviousTipLocation, 1.0f))
+        {
+            UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Start and End socket locations are identical! Check socket configuration."),
+                *GetNameSafe(GetOwner()));
+        }
+    }
 }
 
 void UWeaponComponent::DisableHitDetection()
@@ -94,17 +119,36 @@ void UWeaponComponent::SetWeaponSockets(FName StartSocket, FName EndSocket)
 
 FVector UWeaponComponent::GetSocketLocation(FName SocketName) const
 {
+    // Priority 1: Check spawned weapon mesh for sockets (when NOT using character sockets)
+    // This supports weapons with sockets defined on the weapon static mesh itself
+    if (SpawnedWeaponMesh && WeaponData && !WeaponData->bUseCharacterSocketsForTrace)
+    {
+        if (SpawnedWeaponMesh->DoesSocketExist(SocketName))
+        {
+            return SpawnedWeaponMesh->GetSocketLocation(SocketName);
+        }
+        else
+        {
+            // Log warning if socket not found on weapon mesh
+            UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Socket '%s' not found on weapon mesh! Check socket names on static mesh."),
+                *GetNameSafe(GetOwner()), *SocketName.ToString());
+        }
+    }
+
+    // Priority 2: Check character skeletal mesh for sockets
     if (OwnerMesh && OwnerMesh->DoesSocketExist(SocketName))
     {
         return OwnerMesh->GetSocketLocation(SocketName);
     }
-    
+
     // Fallback to character location
     if (OwnerCharacter)
     {
+        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Socket '%s' not found on character or weapon mesh! Falling back to actor location."),
+            *GetNameSafe(GetOwner()), *SocketName.ToString());
         return OwnerCharacter->GetActorLocation();
     }
-    
+
     return FVector::ZeroVector;
 }
 
@@ -130,7 +174,7 @@ void UWeaponComponent::PerformWeaponTrace()
 
     const FVector StartLocation = GetSocketLocation(GetEffectiveStartSocket());
     const FVector EndLocation = GetSocketLocation(GetEffectiveEndSocket());
-    
+
     // Skip first trace to avoid hitting at spawn
     if (bFirstTrace)
     {
@@ -139,13 +183,13 @@ void UWeaponComponent::PerformWeaponTrace()
         bFirstTrace = false;
         return;
     }
-    
+
     // Setup trace parameters
     FCollisionQueryParams QueryParams;
     QueryParams.AddIgnoredActor(OwnerCharacter);
     QueryParams.bTraceComplex = false;
     QueryParams.bReturnPhysicalMaterial = false;
-    
+
     // Ignore already hit actors
     for (AActor* HitActor : HitActors)
     {
@@ -154,20 +198,34 @@ void UWeaponComponent::PerformWeaponTrace()
             QueryParams.AddIgnoredActor(HitActor);
         }
     }
-    
-    // Perform swept sphere trace from previous to current position
-    TArray<FHitResult> HitResults;
+
+    // Calculate capsule parameters for weapon-length trace
+    // The capsule spans from WeaponStart to WeaponEnd with the trace radius
     const float EffectiveRadius = GetEffectiveTraceRadius();
+    const FVector WeaponAxis = EndLocation - StartLocation;
+    const float WeaponLength = WeaponAxis.Size();
+    const float HalfHeight = WeaponLength * 0.5f;
+    const FVector WeaponCenter = StartLocation + WeaponAxis * 0.5f;
+
+    // Calculate capsule rotation to align with weapon axis
+    const FQuat CapsuleRotation = FQuat::FindBetweenNormals(FVector::UpVector, WeaponAxis.GetSafeNormal());
+
+    // Perform capsule sweep from previous center to current center
+    // This sweeps the entire blade volume through space
+    const FVector PreviousWeaponAxis = PreviousTipLocation - PreviousStartLocation;
+    const FVector PreviousCenter = PreviousStartLocation + PreviousWeaponAxis * 0.5f;
+
+    TArray<FHitResult> HitResults;
     const bool bHit = GetWorld()->SweepMultiByChannel(
         HitResults,
-        PreviousTipLocation,
-        EndLocation,
-        FQuat::Identity,
+        PreviousCenter,
+        WeaponCenter,
+        CapsuleRotation,
         TraceChannel,
-        FCollisionShape::MakeSphere(EffectiveRadius),
+        FCollisionShape::MakeCapsule(EffectiveRadius, HalfHeight),
         QueryParams
     );
-    
+
     // Process all hits
     if (bHit)
     {
@@ -179,23 +237,18 @@ void UWeaponComponent::PerformWeaponTrace()
             }
         }
     }
-    
-    // Debug visualization (CVar-controlled)
-    if (CombatDebug::IsWeaponDebugEnabled())
-    {
-        // Pass effective radius for debug drawing
-        const FColor TraceColor = bHit ? FColor::Red : FColor::Green;
-        const float DrawDuration = CombatDebug::GetDebugDrawDuration();
-        DrawDebugLine(GetWorld(), PreviousTipLocation, EndLocation, TraceColor, false, DrawDuration, 0, 2.0f);
-        DrawDebugSphere(GetWorld(), EndLocation, EffectiveRadius, 12, TraceColor, false, DrawDuration);
-        if (bHit && HitResults.Num() > 0)
-        {
-            DrawDebugPoint(GetWorld(), HitResults[0].ImpactPoint, 10.0f, FColor::Orange, false, DrawDuration);
-            DrawDebugLine(GetWorld(), HitResults[0].ImpactPoint, HitResults[0].ImpactPoint + HitResults[0].ImpactNormal * 30.0f,
-                         FColor::Yellow, false, DrawDuration, 0, 2.0f);
-        }
-    }
-    
+
+    // Debug visualization - pass full weapon geometry
+    UDebugUtils::DrawWeaponTrace(
+        GetWorld(),
+        StartLocation,
+        EndLocation,
+        PreviousStartLocation,
+        PreviousTipLocation,
+        EffectiveRadius,
+        bHit,
+        bHit && HitResults.Num() > 0 ? HitResults[0] : FHitResult());
+
     // Store current positions for next frame
     PreviousStartLocation = StartLocation;
     PreviousTipLocation = EndLocation;
@@ -204,18 +257,27 @@ void UWeaponComponent::PerformWeaponTrace()
 void UWeaponComponent::ProcessHit(const FHitResult& Hit)
 {
     AActor* HitActor = Hit.GetActor();
-    
+
     if (!HitActor || WasActorAlreadyHit(HitActor))
     {
         return;
     }
-    
-    // Add to hit list
+
+    // Filter out dead actors at the trace level - they shouldn't count as hits
+    if (const ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(HitActor))
+    {
+        if (CombatChar->bIsDead)
+        {
+            return;
+        }
+    }
+
+    // Add to hit list (only living actors reach here)
     AddHitActor(HitActor);
-    
+
     // Get current attack data
     UAttackData* AttackData = GetCurrentAttackData();
-    
+
     // Broadcast hit event
     OnWeaponHit.Broadcast(HitActor, Hit, AttackData);
 }
@@ -242,32 +304,6 @@ UAttackData* UWeaponComponent::GetCurrentAttackData() const
     }
 
     return nullptr;
-}
-
-void UWeaponComponent::DrawDebugTrace(const FVector& Start, const FVector& End, bool bHit, const FHitResult& Hit) const
-{
-    if (!GetWorld())
-    {
-        return;
-    }
-
-    const FColor TraceColor = bHit ? FColor::Red : FColor::Green;
-    const float DrawDuration = CombatDebug::GetDebugDrawDuration();
-    const float EffectiveRadius = GetEffectiveTraceRadius();
-
-    // Draw line from start to end
-    DrawDebugLine(GetWorld(), Start, End, TraceColor, false, DrawDuration, 0, 2.0f);
-
-    // Draw sphere at tip
-    DrawDebugSphere(GetWorld(), End, EffectiveRadius, 12, TraceColor, false, DrawDuration);
-
-    // Draw hit point if we hit something
-    if (bHit)
-    {
-        DrawDebugPoint(GetWorld(), Hit.ImpactPoint, 10.0f, FColor::Orange, false, DrawDuration);
-        DrawDebugLine(GetWorld(), Hit.ImpactPoint, Hit.ImpactPoint + Hit.ImpactNormal * 30.0f,
-                     FColor::Yellow, false, DrawDuration, 0, 2.0f);
-    }
 }
 
 // ============================================================================

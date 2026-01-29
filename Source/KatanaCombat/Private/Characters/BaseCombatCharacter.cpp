@@ -51,10 +51,16 @@ float ABaseCombatCharacter::ModifyHealth(float Delta, AActor* DamageInstigator)
 
     if (!FMath::IsNearlyZero(ActualDelta))
     {
+        UE_LOG(LogTemp, Log, TEXT("[HEALTH] %s: %.1f -> %.1f (delta: %.1f, max: %.1f)"),
+            *GetName(), OldHealth, CurrentHealth, ActualDelta, MaxHealth);
+
         OnHealthChanged.Broadcast(CurrentHealth, MaxHealth);
 
         if (CurrentHealth <= 0.0f && OldHealth > 0.0f)
         {
+            UE_LOG(LogTemp, Warning, TEXT("[HEALTH] %s DIED! Killed by %s"),
+                *GetName(),
+                DamageInstigator ? *DamageInstigator->GetName() : TEXT("Unknown"));
             HandleDeath(DamageInstigator);
         }
     }
@@ -70,15 +76,34 @@ void ABaseCombatCharacter::SetHealth(float NewHealth, AActor* DamageInstigator)
 
 void ABaseCombatCharacter::HandleDeath_Implementation(AActor* Killer)
 {
+    // Set dead flag first to block any further damage/reactions
+    bIsDead = true;
+
+    // Broadcast death event
     OnCharacterDeath.Broadcast(Killer);
 
-    // Disable collision and movement
+    // Calculate death direction from killer
+    EAttackDirection DeathDirection = EAttackDirection::Forward;
+    if (Killer && HitReactionComponent)
+    {
+        // Direction FROM killer TO victim (used to determine which way victim was facing killer)
+        FVector ToKiller = (Killer->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+        DeathDirection = HitReactionComponent->GetHitDirectionRelativeToFacing(ToKiller);
+    }
+
+    // Play death reaction through HitReactionComponent (handles animation + ragdoll)
+    if (HitReactionComponent)
+    {
+        HitReactionComponent->PlayDeathReaction(DeathDirection);
+    }
+
+    // Disable movement
     if (GetCharacterMovement())
     {
         GetCharacterMovement()->DisableMovement();
     }
 
-    // Disable combat
+    // Disable combat component
     if (CombatComponent)
     {
         CombatComponent->SetComponentTickEnabled(false);
@@ -371,6 +396,33 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         return;
     }
 
+    UE_LOG(LogTemp, Log, TEXT("[HIT] %s hit %s with %s"),
+        *GetName(),
+        *HitActor->GetName(),
+        *AttackData->GetName());
+
+    // Skip dead actors entirely - no damage, no reactions
+    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(HitActor))
+    {
+        if (CombatChar->bIsDead)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[HIT] %s SKIPPED: Target %s is dead (bIsDead=true)"),
+                *GetName(), *HitActor->GetName());
+            return;
+        }
+    }
+
+    // Check if victim is in i-frames (invulnerable during hit reaction)
+    if (UHitReactionComponent* VictimHitReaction = HitActor->FindComponentByClass<UHitReactionComponent>())
+    {
+        if (VictimHitReaction->IsInIFrames())
+        {
+            UE_LOG(LogTemp, Log, TEXT("[HIT] %s SKIPPED: Target %s is in i-frames"),
+                *GetName(), *HitActor->GetName());
+            return;
+        }
+    }
+
     // Check if target implements IDamageableInterface
     if (HitActor->Implements<UDamageableInterface>())
     {
@@ -384,14 +436,24 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         // Build hit reaction info
         FHitReactionInfo HitInfo;
         HitInfo.Attacker = this;
-        HitInfo.HitDirection = (HitActor->GetActorLocation() - GetActorLocation()).GetSafeNormal();
+        // HitDirection = direction FROM which the attack came (attacker's position relative to victim)
+        // This is used by victim to select correct directional hit reaction
+        HitInfo.HitDirection = (GetActorLocation() - HitActor->GetActorLocation()).GetSafeNormal();
         HitInfo.AttackData = AttackData;
         HitInfo.Damage = AttackData->BaseDamage * WeaponMultiplier;
         HitInfo.StunDuration = AttackData->HitStunDuration;
         HitInfo.bWasCounter = false; // TODO: Counter window not migrated yet
         HitInfo.ImpactPoint = HitResult.ImpactPoint;
 
+        UE_LOG(LogTemp, Log, TEXT("[HIT] %s applying %.1f damage to %s"),
+            *GetName(), HitInfo.Damage, *HitActor->GetName());
+
         // Apply damage via interface
         IDamageableInterface::Execute_ApplyDamage(HitActor, HitInfo);
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[HIT] %s SKIPPED: Target %s doesn't implement IDamageableInterface"),
+            *GetName(), *HitActor->GetName());
     }
 }
