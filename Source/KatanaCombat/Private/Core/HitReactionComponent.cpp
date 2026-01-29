@@ -3,6 +3,7 @@
 
 #include "Core/HitReactionComponent.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Data/HitReactionSettings.h"
@@ -677,6 +678,12 @@ void UHitReactionComponent::ActivateRagdoll(float BlendTime)
         Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     }
 
+    // Disable movement (after death animation completed with root motion)
+    if (UCharacterMovementComponent* MovementComp = OwnerCharacter->GetCharacterMovement())
+    {
+        MovementComp->DisableMovement();
+    }
+
     // Broadcast ragdoll event
     OnRagdollActivated.Broadcast();
 
@@ -711,6 +718,12 @@ void UHitReactionComponent::FreezeAtCurrentPose()
     // This prevents the AnimBP state machine from transitioning to idle
     // The mesh will hold its current bone transforms indefinitely
     Mesh->bPauseAnims = true;
+
+    // 4. Disable movement NOW (after death animation completed with root motion)
+    if (UCharacterMovementComponent* MovementComp = OwnerCharacter->GetCharacterMovement())
+    {
+        MovementComp->DisableMovement();
+    }
 
     UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s frozen at death pose (snapshot: '%s', anims paused)"),
         OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),

@@ -14,6 +14,13 @@
 #include "Data/CombatSettings.h"
 #include "Data/AttackData.h"
 #include "Data/AttackConfiguration.h"
+#include "Core/HitReactionComponent.h"
+#include "Core/WeaponComponent.h"
+#include "Characters/BaseCombatCharacter.h"
+#include "Interfaces/DamageableInterface.h"
+
+class UHitReactionComponent;
+class UWeaponComponent;
 
 /**
  * Shared test utilities for KatanaCombat test suite
@@ -222,5 +229,116 @@ public:
         }
 
         return FirstAttack;
+    }
+
+    /**
+     * Create a hit reaction info for testing damage application
+     * @param Attacker - Actor dealing the damage
+     * @param Damage - Base damage amount
+     * @param HitDirection - Direction of the hit (world space)
+     * @param AttackData - Optional attack data for damage type
+     * @return Configured FHitReactionInfo
+     */
+    static FHitReactionInfo CreateTestHitInfo(
+        AActor* Attacker = nullptr,
+        float Damage = 25.0f,
+        FVector HitDirection = FVector::ForwardVector,
+        UAttackData* AttackData = nullptr)
+    {
+        FHitReactionInfo HitInfo;
+        HitInfo.Attacker = Attacker;
+        HitInfo.Damage = Damage;
+        HitInfo.HitDirection = HitDirection;
+        HitInfo.AttackData = AttackData;
+        HitInfo.StunDuration = 0.2f;
+        HitInfo.bWasCounter = false;
+        HitInfo.ImpactPoint = FVector::ZeroVector;
+        return HitInfo;
+    }
+
+    /**
+     * Get HitReactionComponent from a character
+     * @param Character - Character to query
+     * @return HitReactionComponent or nullptr
+     */
+    static UHitReactionComponent* GetHitReactionComponent(ACharacter* Character)
+    {
+        if (!Character)
+        {
+            return nullptr;
+        }
+        return Character->FindComponentByClass<UHitReactionComponent>();
+    }
+
+    /**
+     * Get WeaponComponent from a character
+     * @param Character - Character to query
+     * @return WeaponComponent or nullptr
+     */
+    static UWeaponComponent* GetWeaponComponent(ACharacter* Character)
+    {
+        if (!Character)
+        {
+            return nullptr;
+        }
+        return Character->FindComponentByClass<UWeaponComponent>();
+    }
+
+    /**
+     * Simulate dealing lethal damage to a character
+     * @param Target - Character to damage
+     * @param Attacker - Actor dealing the damage
+     * @return True if character died
+     */
+    static bool DealLethalDamage(ABaseCombatCharacter* Target, AActor* Attacker = nullptr)
+    {
+        if (!Target)
+        {
+            return false;
+        }
+
+        // Create damage info that will kill the target
+        FHitReactionInfo LethalHit = CreateTestHitInfo(Attacker, Target->MaxHealth + 100.0f);
+
+        // Apply damage through the interface
+        if (Target->Implements<UDamageableInterface>())
+        {
+            IDamageableInterface::Execute_ApplyDamage(Target, LethalHit);
+        }
+
+        return Target->bIsDead;
+    }
+
+    /**
+     * Check if a character is dead (via bIsDead flag)
+     * @param Character - Character to check
+     * @return True if dead
+     */
+    static bool IsCharacterDead(ABaseCombatCharacter* Character)
+    {
+        return Character ? Character->bIsDead : false;
+    }
+
+    /**
+     * Set character health directly for testing
+     * @param Character - Character to modify
+     * @param NewHealth - New health value
+     */
+    static void SetCharacterHealth(ABaseCombatCharacter* Character, float NewHealth)
+    {
+        if (Character)
+        {
+            Character->SetHealth(NewHealth);
+        }
+    }
+
+    /**
+     * Get character health for testing
+     * @param Character - Character to query
+     * @return Current health value
+     */
+    static float GetCharacterHealth(ABaseCombatCharacter* Character)
+    {
+        return Character ? Character->CurrentHealth : 0.0f;
     }
 };

@@ -92,15 +92,11 @@ void ABaseCombatCharacter::HandleDeath_Implementation(AActor* Killer)
     }
 
     // Play death reaction through HitReactionComponent (handles animation + ragdoll)
+    // NOTE: Movement is disabled AFTER the death animation completes (in HitReactionComponent)
+    // to allow root motion to work during the death animation
     if (HitReactionComponent)
     {
         HitReactionComponent->PlayDeathReaction(DeathDirection);
-    }
-
-    // Disable movement
-    if (GetCharacterMovement())
-    {
-        GetCharacterMovement()->DisableMovement();
     }
 
     // Disable combat component
