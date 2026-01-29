@@ -4,7 +4,7 @@ Current implementation status and planned features for the combat system.
 
 ---
 
-## Current Status (As of 2025-01-28)
+## Current Status (As of 2025-01-29)
 
 ### v3.0.0 - Unified Combat System Complete
 
@@ -26,6 +26,8 @@ Current implementation status and planned features for the combat system.
 | **Modular Settings** | **Complete** | TargetingSettings, MotionWarpingSettings data assets |
 | **Unified Motion Warping** | **Complete** | SetupAttackWarp() + AnimNotifyState_CombatWarp |
 | **Team System** | **Complete** | ITeamMemberInterface for friend/foe detection |
+| **Hit Reaction System** | **Complete** | Directional reactions, i-frames, stun, data-driven settings |
+| **Death System** | **Complete** | Directional death animations, ragdoll transition, bIsDead flag |
 
 ### Architecture Consolidation (v3.0.0)
 
@@ -50,8 +52,9 @@ Current implementation status and planned features for the combat system.
 
 ### Test Coverage
 
-- 9 test files, 70+ assertions, all passing
-- 96% design specification compliance (validated via audit)
+- 14 test suites, 126 tests, all passing
+- Comprehensive coverage: State transitions, input buffering, hold mechanics, parry detection, attack execution, phases vs windows, targeting, weapon, hit reactions, damage application, death system, integration, debug visualization, memory safety
+- See `Source/KatanaCombatTest/README.md` for full test documentation
 
 ---
 

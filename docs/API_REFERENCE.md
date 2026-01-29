@@ -1672,36 +1672,49 @@ Check if currently in a counter window (vulnerable to counter attacks).
 
 ## AnimNotifies
 
-### AnimNotifyState_AttackPhase
+### AnimNotify_AttackPhaseTransition (Recommended)
 
-**Class**: `UAnimNotifyState_AttackPhase : UAnimNotifyState`
-**Header**: `KatanaCombat/Public/Animation/AnimNotifyState_AttackPhase.h`
+**Class**: `UAnimNotify_AttackPhaseTransition : UAnimNotify`
+**Header**: `KatanaCombat/Public/Animation/AnimNotify_AttackPhaseTransition.h`
 
-AnimNotifyState that marks attack phases (Windup, Active, Recovery, Hold). Used by AttackData to read timing, and triggers callbacks in AnimInstance.
+Event-driven phase transition notify. Place 4 instances at phase boundaries for complete attack coverage.
 
 **Configuration**:
 ```cpp
-UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Attack Phase")
-EAttackPhase Phase = EAttackPhase::Windup;
-```
-Which phase this notify represents.
+UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Phase Transition")
+EAttackPhase FromPhase = EAttackPhase::None;
 
-**Usage**:
-1. Add to attack montage in Animation Editor
-2. Set Phase property (Windup/Active/Recovery/Hold)
-3. Position at appropriate times in animation
-4. NotifyBegin/End automatically route to CombatComponent
+UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Phase Transition")
+EAttackPhase ToPhase = EAttackPhase::Windup;
+```
+
+**Required Notifies (4 per attack)**:
+1. `FromPhase=None, ToPhase=Windup` - Attack start (0.0s)
+2. `FromPhase=Windup, ToPhase=Active` - Damage frames begin
+3. `FromPhase=Active, ToPhase=Recovery` - Damage frames end
+4. `FromPhase=Recovery, ToPhase=None` - Attack complete
+
+**Hit detection is automatic** during Active phase - no toggle notifies needed.
 
 **Timeline**:
 ```
 [──Windup──][──Active──][──Recovery──]
-    30%         20%          50%
+▲           ▲          ▲             ▲
+1           2          3             4
 ```
+
+### AnimNotifyState_AttackPhase (DEPRECATED)
+
+> ⚠️ **DEPRECATED**: Use `AnimNotify_AttackPhaseTransition` instead.
+
+**Class**: `UAnimNotifyState_AttackPhase : UAnimNotifyState`
+**Header**: `KatanaCombat/Public/Animation/AnimNotifyState_AttackPhase.h`
+
+Legacy state-based phase notify. Kept for backwards compatibility only.
 
 - **Windup**: Telegraphing, can be parried, motion warping active
 - **Active**: Hit detection enabled, damage dealt
 - **Recovery**: Vulnerable, combo input window opens
-- **Hold**: Optional pause for directional input (light attacks)
 
 ### AnimNotifyState_ComboWindow
 
@@ -1728,36 +1741,18 @@ During this window:
 - Heavy attack input → Execute HeavyComboAttack
 - No input → Chain breaks, return to idle
 
-### AnimNotify_ToggleHitDetection
+### AnimNotify_ToggleHitDetection (DEPRECATED)
+
+> ⚠️ **DEPRECATED**: Hit detection is now automatic during Active phase. No toggle notifies needed.
 
 **Class**: `UAnimNotify_ToggleHitDetection : UAnimNotify`
 **Header**: `KatanaCombat/Public/Animation/AnimNotify_ToggleHitDetection.h`
 
-AnimNotify that toggles weapon hit detection on/off. Typically used in pairs: Enable at start of active phase, Disable at end.
+Legacy notify for manual hit detection control. Hit detection is now automatically enabled during Active phase via `AnimNotify_AttackPhaseTransition`.
 
-**Configuration**:
-```cpp
-UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Detection")
-bool bEnable = true;
-```
-Enable or disable hit detection.
-
-**Usage**:
-1. Place two instances in attack montage:
-   - First with bEnable = true at start of Active phase
-   - Second with bEnable = false at end of Active phase
-2. Routes to WeaponComponent via ICombatInterface
-3. WeaponComponent performs swept sphere traces while enabled
-
-**Timeline**:
-```
-[──Windup──][──Active──][──Recovery──]
-              ▼      ▲
-           Enable  Disable
-              ████████  <- Hit Detection Active
-```
-
-**Note**: Using AnimNotifyState_AttackPhase (Active) is preferred as it automatically handles enable/disable. Use this only for fine-tuned control.
+**When to use (rare cases only)**:
+- Fine-tuned hit detection timing that differs from phase boundaries
+- Multiple hit windows within a single Active phase
 
 ---
 

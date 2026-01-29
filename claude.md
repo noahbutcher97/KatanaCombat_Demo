@@ -77,20 +77,28 @@ Combat.Debug.DrawDuration 2.0  // Debug shape persistence (seconds)
 Source/KatanaCombat/Public/
 ├── CombatTypes.h              ← ALL enums, structs, system-wide delegates
 ├── Core/
-│   ├── CombatComponent.h      ← V1 combat (state-based)
-│   ├── CombatComponentV2.h    ← V2 combat (event-driven, FIFO queue)
-│   ├── TargetingComponent.h
-│   ├── WeaponComponent.h
-│   └── HitReactionComponent.h
+│   ├── CombatComponent.h      ← Combat state, attack execution, FIFO queue
+│   ├── TargetingComponent.h   ← Soft-lock targeting, aim assist
+│   ├── WeaponComponent.h      ← Hit detection, weapon state
+│   └── HitReactionComponent.h ← Damage reception, hit reactions, death
 ├── Data/
 │   ├── AttackData.h           ← Attack configuration asset
 │   ├── AttackConfiguration.h  ← Attack moveset package (PDA)
-│   └── CombatSettings.h       ← Global tuning values
+│   ├── CombatSettings.h       ← Global tuning values
+│   └── HitReactionSettings.h  ← Hit reaction configuration
 ├── Animation/
-│   ├── AnimNotify_AttackPhaseTransition.h  ← V2 phase transitions
+│   ├── AnimNotify_AttackPhaseTransition.h  ← Phase transitions
 │   ├── AnimNotifyState_ParryWindow.h
 │   ├── AnimNotifyState_HoldWindow.h
 │   └── AnimNotifyState_ComboWindow.h
+├── Characters/
+│   ├── BaseCombatCharacter.h  ← Base class with 4 combat components
+│   ├── PlayerCharacter.h      ← Player-specific combat
+│   └── EnemyCharacter.h       ← Enemy-specific combat
+├── Interfaces/
+│   ├── DamageableInterface.h  ← Damage/health contract
+│   ├── CombatInterface.h      ← Combat state contract
+│   └── TeamMemberInterface.h  ← Team/faction contract
 └── Utilities/
     └── MontageUtilityLibrary.h  ← 27 montage utility functions
 ```

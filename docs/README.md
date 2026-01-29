@@ -6,7 +6,7 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 
 ---
 
-## Recent Updates (2025-01-28)
+## Recent Updates (2025-01-29)
 
 ### v3.0.0 - Architecture Consolidation & Motion Warping Unification
 
@@ -45,7 +45,7 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 - **Directional Follow-ups**: Hold-and-release mechanics for branching combo paths
 
 ### Technical Highlights
-- **Dual Combat Systems**: V1 (stable) and V2 (next-gen with advanced features) running as independent peers
+- **Unified Combat System**: Event-driven architecture with FIFO input queue and snap/responsive execution modes
 - **Component-Based Architecture**: Four modular components (Combat, Targeting, Weapon, HitReaction) that work on any character
 - **Animation-Driven Timing**: AnimNotifyStates control attack phases, hit detection, and combo windows
 - **Montage Section Reuse**: Multiple attacks share one animation montage via section markers
@@ -101,10 +101,14 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
    - Set `DefaultLightAttack` and `DefaultHeavyAttack`
    - Set `CombatSettings` reference
 
-6. Add AnimNotifyStates to attack montage:
+6. Add AnimNotifies to attack montage:
    - Open attack montage in Animation Editor
-   - Add `AnimNotifyState_AttackPhase` for Windup, Active, Recovery
-   - Add `AnimNotify_ToggleHitDetection` at Active start/end
+   - Add 4x `AnimNotify_AttackPhaseTransition` at phase boundaries:
+     1. None → Windup (attack start)
+     2. Windup → Active (damage frames begin)
+     3. Active → Recovery (damage frames end)
+     4. Recovery → None (attack complete)
+   - Hit detection is automatic during Active phase (no toggle notify needed)
    - (Optional) Add `AnimNotifyState_ComboWindow` during Recovery
 
 7. Bind input events:
@@ -174,7 +178,7 @@ Source/KatanaCombatEditor/              # Editor-only tools
 
 Source/KatanaCombatTest/                # C++ Unit Test Suite
 ├── README.md                            # Test documentation
-└── (9 test files with 70+ assertions)
+└── (14 test suites, 126 tests)
 ```
 
 ---
@@ -351,15 +355,12 @@ KatanaCombat includes a comprehensive **C++ unit test suite** to validate core d
 
 ### Test Suite
 
-The `KatanaCombatTest` module provides **7 test files** with **45+ assertions** covering:
+The `KatanaCombatTest` module provides **14 test suites** with **126 tests** covering:
 
-- **State Machine** - Valid/invalid transitions, edge cases
-- **Input Buffering** - Always-buffered, responsive vs snappy paths
-- **Hold Mechanics** - Button state detection (not duration tracking)
-- **Parry System** - Defender-side detection, contextual blocking
-- **Attack Execution** - ExecuteAttack vs ExecuteComboAttack separation
-- **Memory Safety** - Null handling, graceful fallbacks
-- **Architecture** - Phases vs windows separation validation
+- **Core Combat** - State transitions, input buffering, hold mechanics, parry detection, attack execution, phases vs windows
+- **Components** - Targeting, weapon hit detection, hit reactions (directional, i-frames, stun)
+- **Systems** - Damage application, death system, multi-component integration
+- **Robustness** - Debug visualization, memory safety, null handling
 
 ### Running Tests
 

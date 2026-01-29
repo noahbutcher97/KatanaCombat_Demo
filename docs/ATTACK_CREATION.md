@@ -803,38 +803,35 @@ Visual timeline editor showing:
 
 ---
 
-## V2 System Considerations
+## AnimNotify Setup (Unified System)
 
-### AnimNotify Differences
+### Required Notifies (4 Phase Transitions)
 
-**V1 System** (State-Based):
-- Uses `AnimNotifyState_AttackPhase` for phase tracking
-- Requires `AnimNotify_ToggleHitDetection` pairs for hit detection
-- Manual phase management via state windows
+Add `AnimNotify_AttackPhaseTransition` at each phase boundary:
 
-**V2 System** (Event-Driven):
-- Uses `AnimNotify_AttackPhaseTransition` for phase callbacks
-- Automatic hit detection during Active phase (no toggle notifies)
-- Event-driven phase management
+1. `FromPhase=None, ToPhase=Windup` - Attack start (0.0s)
+2. `FromPhase=Windup, ToPhase=Active` - Damage frames begin (e.g., 0.3s)
+3. `FromPhase=Active, ToPhase=Recovery` - Damage frames end (e.g., 0.6s)
+4. `FromPhase=Recovery, ToPhase=None` - Attack complete (end)
 
-### V2 Montage Setup
+**Hit detection is automatic during Active phase** - no toggle notifies needed.
 
-**Required Notifies (4 Transitions)**:
-1. `AnimNotify_AttackPhaseTransition`: FromPhase=None, ToPhase=Windup (at 0.0s)
-2. `AnimNotify_AttackPhaseTransition`: FromPhase=Windup, ToPhase=Active (e.g., 0.3s)
-3. `AnimNotify_AttackPhaseTransition`: FromPhase=Active, ToPhase=Recovery (e.g., 0.6s)
-4. `AnimNotify_AttackPhaseTransition`: FromPhase=Recovery, ToPhase=None (at end)
+### Optional Window Notifies
 
-**Optional Windows** (Same as V1):
-- `AnimNotifyState_ComboWindow` - Combo input window
-- `AnimNotifyState_ParryWindow` - Parryable frames
-- `AnimNotifyState_HoldWindow` - Hold detection
+- `AnimNotifyState_ComboWindow` - Enable early combo execution (snappy path)
+- `AnimNotifyState_ParryWindow` - Mark parryable frames (on ATTACKER's montage)
+- `AnimNotifyState_HoldWindow` - Enable hold mechanics (button state check)
+- `AnimNotifyState_CancelWindow` - Enable specific cancel inputs
 
-### V2 Blending Features
+### Deprecated Notifies (Do Not Use)
 
-**Per-Attack Blend Configuration**:
+- ~~`AnimNotifyState_AttackPhase`~~ - Replaced by `AnimNotify_AttackPhaseTransition`
+- ~~`AnimNotify_ToggleHitDetection`~~ - Automatic with Active phase
+
+### Blending Configuration
+
+**Per-Attack Blend Settings** (in AttackData):
 ```
-AttackData Properties:
 ├─ ComboBlendOutTime: 0.1s   // Blend OUT when leaving this attack
 ├─ ComboBlendInTime: 0.1s    // Blend IN when entering this attack
 ├─ ChargeLoopBlendTime: 0.3s // Heavy attack charge loop transition
@@ -846,7 +843,7 @@ AttackData Properties:
 - **Weighty/Deliberate** (Sekiro): 0.15-0.25s
 - **Mixed**: Light attacks fast, Heavy attacks slow
 
-### V2 Hold System
+### Hold System
 
 **Light Attacks**:
 - Procedural easing to slowdown (no authored curves needed)
@@ -857,23 +854,6 @@ AttackData Properties:
 - Charge loop with section navigation
 - Configure: `ChargeLoopSection`, `ChargeReleaseSection`
 - Time-based damage scaling: `ChargeTime`, `MaxChargeDamageMultiplier`
-
-### Switching Between V1 and V2
-
-Toggle in CombatSettings: `bUseV2System = true/false`
-
-**Both systems share**:
-- AttackData assets
-- Window notifies (ComboWindow, ParryWindow, HoldWindow)
-- Motion warping setup
-- Combo chain configuration
-
-**Migration Path**:
-1. Test existing attacks with V1
-2. Add V2 transition notifies to montages
-3. Enable V2 in CombatSettings
-4. Compare behavior and tune blend times
-5. Remove V1 notifies once satisfied (optional)
 
 ---
 
@@ -886,8 +866,8 @@ Toggle in CombatSettings: `bUseV2System = true/false`
 
 **2. Montage**:
 - [ ] Created with section(s)
-- [ ] `AnimNotifyState_AttackPhase` (Windup, Active, Recovery)
-- [ ] `AnimNotify_ToggleHitDetection` (Enable/Disable)
+- [ ] 4x `AnimNotify_AttackPhaseTransition` at phase boundaries
+- [ ] Hit detection automatic during Active phase (no toggle needed)
 - [ ] Optional: ComboWindow, ParryWindow, HoldWindow, CancelWindow
 
 **3. AttackData**:

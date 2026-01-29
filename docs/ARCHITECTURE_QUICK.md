@@ -112,17 +112,8 @@ This distinction keeps system-wide events centralized while allowing components 
 ## Component Structure
 
 ```
-Character
-├── CombatComponent (V1) (~1000 lines) - State-based system
-│   ├── State machine
-│   ├── Attack execution
-│   ├── Phase & window tracking
-│   ├── Input buffering
-│   ├── Posture system
-│   ├── Parry detection
-│   └── Combo tracking
-│
-├── CombatComponentV2 (~800 lines) - Event-driven system
+BaseCombatCharacter
+├── CombatComponent (~800 lines) - Core combat system
 │   ├── Timestamped input queue (FIFO)
 │   ├── Action queue with checkpoints
 │   ├── Phase management (via AnimNotify events)
@@ -131,30 +122,30 @@ Character
 │   ├── Hold mechanics (ease-in/ease-out)
 │   └── Comprehensive debug visualization
 │
-├── MontageUtilityLibrary (27 functions)
-│   ├── Timing queries
-│   ├── Section navigation
-│   ├── Procedural easing
-│   ├── Blend operations
-│   └── Window state queries
-│
 ├── TargetingComponent (~300 lines)
 │   ├── Cone-based targeting
+│   ├── Soft-lock aim assist
 │   ├── Direction conversion
 │   └── Motion warp setup
 │
 ├── WeaponComponent (~200 lines)
 │   ├── Socket tracing
-│   └── Hit detection
+│   ├── Hit detection
+│   └── Damage multipliers
 │
-└── HitReactionComponent (~300 lines)
-    ├── Damage application
-    └── Hit reactions
+├── HitReactionComponent (~500 lines)
+│   ├── Damage application
+│   ├── Directional hit reactions
+│   ├── Stun/i-frame management
+│   ├── Death reactions (directional + ragdoll)
+│   └── Pose snapshot for recovery
+│
+└── MotionWarpingComponent (UE5 built-in)
+    └── Animation-driven movement warping
 ```
 
-**V1 vs V2**: Toggle via `CombatSettings->bUseV2System`
-- V1: Production-ready, manual phase tracking
-- V2: Next-gen, event-driven, advanced features
+**Support Libraries**:
+- `MontageUtilityLibrary` (27 functions) - Timing, easing, sections, blending
 
 ---
 
@@ -183,33 +174,24 @@ Windows (Overlapping):
 
 ## AnimNotify Requirements
 
-### V1 System (State-Based)
-**Minimum (Basic Attack)**:
-1. `AnimNotifyState_AttackPhase` (Windup)
-2. `AnimNotifyState_AttackPhase` (Active)
-3. `AnimNotify_ToggleHitDetection` (Enable)
-4. `AnimNotify_ToggleHitDetection` (Disable)
-5. `AnimNotifyState_AttackPhase` (Recovery)
-
-**Optional**:
-- `AnimNotifyState_ComboWindow` - Combo chains
-- `AnimNotifyState_ParryWindow` - Parryable attacks
-- `AnimNotifyState_HoldWindow` - Hold-and-release
-- `AnimNotifyState_CancelWindow` - Cancellable moves
-
-### V2 System (Event-Driven)
-**Minimum (Basic Attack)**:
+### Required (Basic Attack)
+Use **4 transition notifies** to mark phase boundaries:
 1. `AnimNotify_AttackPhaseTransition` (None → Windup)
 2. `AnimNotify_AttackPhaseTransition` (Windup → Active)
 3. `AnimNotify_AttackPhaseTransition` (Active → Recovery)
 4. `AnimNotify_AttackPhaseTransition` (Recovery → None)
 
-**Note**: Hit detection is automatic during Active phase in V2 (no toggle notifies needed)
+**Note**: Hit detection is automatic during Active phase (no toggle notifies needed)
 
-**Optional** (same as V1):
-- `AnimNotifyState_ComboWindow`
-- `AnimNotifyState_ParryWindow`
-- `AnimNotifyState_HoldWindow`
+### Optional Window Notifies
+- `AnimNotifyState_ComboWindow` - Enable early combo execution
+- `AnimNotifyState_ParryWindow` - Mark parry-vulnerable frames (on ATTACKER)
+- `AnimNotifyState_HoldWindow` - Enable hold mechanics
+- `AnimNotifyState_CancelWindow` - Enable attack cancellation
+
+### Deprecated (DO NOT USE)
+- ~~`AnimNotifyState_AttackPhase`~~ - Use `AnimNotify_AttackPhaseTransition` instead
+- ~~`AnimNotify_ToggleHitDetection`~~ - Automatic with Active phase
 
 ---
 
@@ -273,30 +255,33 @@ ParryPostureDamage:           40.0f  // To attacker
 ```
 Source/KatanaCombat/Public/
 ├── CombatTypes.h                    # Enums, structs, DELEGATES
-├── ActionQueueTypes.h               # V2 input/action queue structures
+├── ActionQueueTypes.h               # Input/action queue structures
 ├── Core/
-│   ├── CombatComponent.h            # V1 - State-based combat
-│   ├── CombatComponentV2.h          # V2 - Event-driven combat
-│   ├── TargetingComponent.h
-│   ├── WeaponComponent.h
-│   └── HitReactionComponent.h
+│   ├── CombatComponent.h            # Combat state, attack execution, FIFO queue
+│   ├── TargetingComponent.h         # Soft-lock targeting, aim assist
+│   ├── WeaponComponent.h            # Hit detection, weapon state
+│   └── HitReactionComponent.h       # Damage reception, hit reactions, death
+├── Characters/
+│   ├── BaseCombatCharacter.h        # Base class with 4 combat components
+│   ├── PlayerCharacter.h            # Player-specific combat
+│   └── EnemyCharacter.h             # Enemy-specific combat
 ├── Utilities/
 │   └── MontageUtilityLibrary.h      # 27 utility functions (BP-exposed)
 ├── Data/
 │   ├── AttackData.h                 # Attack configuration
 │   ├── AttackConfiguration.h        # Attack moveset package (PDA)
-│   └── CombatSettings.h             # Global combat tuning
+│   ├── CombatSettings.h             # Global combat tuning
+│   └── HitReactionSettings.h        # Hit reaction configuration
 ├── Animation/
 │   ├── SamuraiAnimInstance.h
-│   ├── AnimNotify_AttackPhaseTransition.h  # V2 event-driven phases
-│   ├── AnimNotifyState_AttackPhase.h       # V1 state-based phases
+│   ├── AnimNotify_AttackPhaseTransition.h  # Phase transitions
 │   ├── AnimNotifyState_ParryWindow.h
 │   ├── AnimNotifyState_HoldWindow.h
-│   ├── AnimNotifyState_ComboWindow.h
-│   └── AnimNotify_ToggleHitDetection.h     # V1 only (V2 is automatic)
+│   └── AnimNotifyState_ComboWindow.h
 └── Interfaces/
-    ├── CombatInterface.h
-    └── DamageableInterface.h
+    ├── CombatInterface.h            # Combat state contract
+    ├── DamageableInterface.h        # Damage/health contract
+    └── TeamMemberInterface.h        # Team/faction contract
 ```
 
 ---
@@ -360,15 +345,27 @@ bool IsVulnerableToFinisher() const;
 
 KatanaCombat includes a comprehensive **C++ unit test suite** (`KatanaCombatTest` module):
 
-### Test Coverage (7 Test Suites, 45+ Assertions)
+### Test Coverage (14 Test Suites, 126 Tests)
 
+**Core Combat**:
 1. **StateTransitionTests** - State machine validation
 2. **InputBufferingTests** - Hybrid responsive + snappy system
 3. **HoldWindowTests** - Button state detection
 4. **ParryDetectionTests** - Defender-side parry
 5. **AttackExecutionTests** - ExecuteAttack vs ExecuteComboAttack
-6. **MemorySafetyTests** - Null handling, edge cases
-7. **PhasesVsWindowsTests** - Architectural separation
+6. **PhasesVsWindowsTests** - Architectural separation
+
+**Components**:
+7. **TargetingComponentTests** - Soft-lock targeting
+8. **WeaponComponentTests** - Hit detection, equip/holster
+9. **HitReactionTests** - Damage, direction, i-frames, stun
+
+**Systems**:
+10. **DamageApplicationTests** - Damage flow, resistance
+11. **DeathSystemTests** - Death flag, blocking, events
+12. **CombatIntegrationTests** - Multi-component integration
+13. **DebugVisualizationTests** - Debug HUD system
+14. **MemorySafetyTests** - Null handling, edge cases
 
 ### Running Tests
 
@@ -377,8 +374,8 @@ KatanaCombat includes a comprehensive **C++ unit test suite** (`KatanaCombatTest
 - Automation tab → Filter: "KatanaCombat"
 
 **Command Line**:
-```bash
-UnrealEditor.exe "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat"
+```powershell
+"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat" -NullRHI -NoSplash
 ```
 
 **See** `Source/KatanaCombatTest/README.md` for complete test documentation.
@@ -387,7 +384,7 @@ UnrealEditor.exe "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCo
 
 ---
 
-## V2 System Quick Reference
+## Combat System Quick Reference
 
 ### Input Queue (FIFO)
 ```cpp

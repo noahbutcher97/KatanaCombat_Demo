@@ -1837,44 +1837,27 @@ KatanaCombat includes a comprehensive **C++ unit test suite** (`KatanaCombatTest
 
 ### Test Coverage
 
-The test suite includes **7 test files** with **45+ assertions** covering:
+The test suite includes **14 test suites** with **126 tests** covering:
 
-1. **StateTransitionTests.cpp** - State machine validation
-   - Valid/invalid state transitions
-   - State machine edge cases
-   - Transition rule enforcement
+**Core Combat (6 suites)**:
+1. **StateTransitionTests** - State machine validation, edge cases
+2. **InputBufferingTests** - Always-buffered input, snappy vs responsive paths
+3. **HoldWindowTests** - Button state detection (not duration tracking)
+4. **ParryDetectionTests** - Defender-side parry on attacker's window
+5. **AttackExecutionTests** - ExecuteAttack vs ExecuteComboAttack
+6. **PhasesVsWindowsTests** - Phases exclusive, windows overlapping
 
-2. **InputBufferingTests.cpp** - Hybrid responsive + snappy system
-   - Always-buffered input validation
-   - Snappy path (combo window open, early cancel)
-   - Responsive path (combo window closed, wait for recovery)
-   - Input priority handling
+**Component Tests (3 suites)**:
+7. **TargetingComponentTests** - Soft-lock targeting, direction conversion
+8. **WeaponComponentTests** - Hit detection, equip/holster, actor tracking
+9. **HitReactionTests** - Directional hits, i-frames, stun, death poses
 
-3. **HoldWindowTests.cpp** - Button state detection
-   - Hold window activation based on button state
-   - Release timing for directional follow-ups
-   - No duration tracking (checks button state at window start)
-
-4. **ParryDetectionTests.cpp** - Defender-side parry
-   - Parry window on attacker's montage
-   - Defender checking `IsInParryWindow()` on nearby enemies
-   - Parry vs block contextual behavior
-
-5. **AttackExecutionTests.cpp** - ExecuteAttack vs ExecuteComboAttack
-   - `ExecuteAttack()` only works from Idle state
-   - `ExecuteComboAttack()` works during Attacking state
-   - State validation before execution
-
-6. **MemorySafetyTests.cpp** - Null handling, edge cases
-   - Null `CurrentAttackData` handling
-   - Mid-combo data clearing doesn't crash
-   - Graceful fallbacks for missing data
-
-7. **PhasesVsWindowsTests.cpp** - Architectural separation
-   - Phases are mutually exclusive (only ONE active)
-   - Windows are independent booleans (MULTIPLE active)
-   - Window states persist through phase transitions
-   - `EAttackPhase` has exactly 4 values (None, Windup, Active, Recovery)
+**System Tests (5 suites)**:
+10. **DamageApplicationTests** - Damage flow, resistance, invulnerability
+11. **DeathSystemTests** - bIsDead lifecycle, damage blocking, death events
+12. **CombatIntegrationTests** - Full damage flow, multi-component coordination
+13. **DebugVisualizationTests** - CVar-based debug system
+14. **MemorySafetyTests** - Null handling, graceful fallbacks
 
 ### Running Tests
 
@@ -1896,13 +1879,20 @@ Source/KatanaCombatTest/
 ├── Public/
 │   └── CombatTestHelpers.h            # Test utility functions
 ├── Private/
-│   ├── StateTransitionTests.cpp
-│   ├── InputBufferingTests.cpp
-│   ├── HoldWindowTests.cpp
-│   ├── ParryDetectionTests.cpp
-│   ├── AttackExecutionTests.cpp
-│   ├── MemorySafetyTests.cpp
-│   └── PhasesVsWindowsTests.cpp
+│   ├── StateTransitionTests.cpp       # Core: State machine
+│   ├── InputBufferingTests.cpp        # Core: Input system
+│   ├── HoldWindowTests.cpp            # Core: Hold mechanics
+│   ├── ParryDetectionTests.cpp        # Core: Parry system
+│   ├── AttackExecutionTests.cpp       # Core: Attack execution
+│   ├── PhasesVsWindowsTests.cpp       # Core: Architecture
+│   ├── TargetingComponentTests.cpp    # Component: Targeting
+│   ├── WeaponComponentTests.cpp       # Component: Weapon
+│   ├── HitReactionTests.cpp           # Component: Hit reactions
+│   ├── DamageApplicationTests.cpp     # System: Damage flow
+│   ├── DeathSystemTests.cpp           # System: Death handling
+│   ├── CombatIntegrationTests.cpp     # System: Integration
+│   ├── DebugVisualizationTests.cpp    # System: Debug
+│   └── MemorySafetyTests.cpp          # System: Memory safety
 └── README.md                          # Complete test documentation
 ```
 

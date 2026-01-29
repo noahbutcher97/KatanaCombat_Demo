@@ -352,25 +352,29 @@ In Character Blueprint:
 2. Name it `AM_LightAttack1`
 3. Create section: `LightAttack1`
 
-### 5.2 Add AnimNotifyStates
+### 5.2 Add AnimNotifies
 
-**Add these in order**:
+**Add 4 phase transition notifies**:
 
-1. **Windup Phase** (0.0s - 0.3s)
-   - Add `AnimNotifyState_AttackPhase`
-   - Set `Phase = Windup`
+1. **Attack Start** (0.0s)
+   - Add `AnimNotify_AttackPhaseTransition`
+   - Set `FromPhase = None`, `ToPhase = Windup`
 
-2. **Active Phase** (0.3s - 0.5s)
-   - Add `AnimNotifyState_AttackPhase`
-   - Set `Phase = Active`
-   - Add `AnimNotify_ToggleHitDetection` at 0.3s, `bEnable = true`
-   - Add `AnimNotify_ToggleHitDetection` at 0.5s, `bEnable = false`
+2. **Windup → Active** (0.3s)
+   - Add `AnimNotify_AttackPhaseTransition`
+   - Set `FromPhase = Windup`, `ToPhase = Active`
+   - (Hit detection enables automatically)
 
-3. **Recovery Phase** (0.5s - 1.0s)
-   - Add `AnimNotifyState_AttackPhase`
-   - Set `Phase = Recovery`
+3. **Active → Recovery** (0.5s)
+   - Add `AnimNotify_AttackPhaseTransition`
+   - Set `FromPhase = Active`, `ToPhase = Recovery`
+   - (Hit detection disables automatically)
 
-4. **Combo Window** (0.4s - 0.9s, overlaps Active+Recovery)
+4. **Attack End** (1.0s)
+   - Add `AnimNotify_AttackPhaseTransition`
+   - Set `FromPhase = Recovery`, `ToPhase = None`
+
+5. **Optional: Combo Window** (0.4s - 0.9s)
    - Add `AnimNotifyState_ComboWindow`
 
 ### 5.3 Create AttackData Asset
