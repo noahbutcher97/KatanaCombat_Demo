@@ -1,14 +1,6 @@
-name = "check-warnings"
-displayName = "🔍 Check Warnings"
 description = "Analyzes IDE diagnostics, filtering false positives based on project rules."
-icon = "🔍"
 
-model = "gemini-2.5-pro"
-temperature = 0.1
-
-tools = ["read_file", "glob", "search_file_content"]
-
-systemPrompt = """
+prompt = """
 You are the **Diagnostics Analyzer** for KatanaCombat.
 
 ### 📚 Configuration
@@ -43,11 +35,7 @@ You are the **Diagnostics Analyzer** for KatanaCombat.
 *   Ignored [N] Blueprint false positives.
 *   Ignored [N] Macro expansions.
 ```
+
+Task: Run diagnostics on: {{args}}
+If no files are specified, default to: Source/KatanaCombat/Private/Core/CombatComponent.cpp
 """
-
-query = "Run diagnostics on: ${target_files}"
-
-[inputs.target_files]
-type = "string"
-description = "Files to check"
-default = "Source/KatanaCombat/Private/Core/CombatComponent.cpp"

@@ -1,8 +1,10 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Debug/DebugUtils.h"
+#include "Debug/DebugConfig.h"
 #include "GameFramework/Character.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "DrawDebugHelpers.h"
 
 // ============================================================================
 // DIRECTION CONVERSION HELPERS
@@ -170,4 +172,125 @@ FRotator UDebugUtils::GetMeshRotationOffset(ACharacter* Character)
 		FMath::Fmod(MeshRotation.Yaw - ActorRotation.Yaw + 180.0f, 360.0f) - 180.0f,
 		FMath::Fmod(MeshRotation.Roll - ActorRotation.Roll + 180.0f, 360.0f) - 180.0f
 	);
+}
+
+// ============================================================================
+// WEAPON TRACE DEBUG VISUALIZATION
+// ============================================================================
+
+void UDebugUtils::DrawWeaponTrace(
+	UWorld* World,
+	const FVector& CurrentStart,
+	const FVector& CurrentEnd,
+	const FVector& PreviousStart,
+	const FVector& PreviousEnd,
+	float TraceRadius,
+	bool bHit,
+	const FHitResult& HitResult)
+{
+	if (!World || !CombatDebug::IsWeaponDebugEnabled())
+	{
+		return;
+	}
+
+	const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+	const FColor TraceColor = bHit ? FColor::Red : FColor::Green;
+	const FColor PreviousColor = FColor(128, 128, 128); // Gray for previous frame
+
+	// Draw current frame weapon capsule
+	DrawDebugCapsule(
+		World,
+		(CurrentStart + CurrentEnd) * 0.5f,  // Center
+		(CurrentEnd - CurrentStart).Size() * 0.5f,  // Half-height
+		TraceRadius,
+		FQuat::FindBetweenNormals(FVector::UpVector, (CurrentEnd - CurrentStart).GetSafeNormal()),
+		TraceColor,
+		false,
+		DrawDuration);
+
+	// Draw previous frame weapon capsule (dimmer)
+	DrawDebugCapsule(
+		World,
+		(PreviousStart + PreviousEnd) * 0.5f,
+		(PreviousEnd - PreviousStart).Size() * 0.5f,
+		TraceRadius,
+		FQuat::FindBetweenNormals(FVector::UpVector, (PreviousEnd - PreviousStart).GetSafeNormal()),
+		PreviousColor,
+		false,
+		DrawDuration);
+
+	// Draw weapon axis lines (blade direction)
+	DrawDebugLine(World, CurrentStart, CurrentEnd, TraceColor, false, DrawDuration, 0, 3.0f);
+	DrawDebugLine(World, PreviousStart, PreviousEnd, PreviousColor, false, DrawDuration, 0, 1.5f);
+
+	// Draw socket markers
+	DrawDebugSphere(World, CurrentStart, 4.0f, 6, FColor::Blue, false, DrawDuration);
+	DrawDebugSphere(World, CurrentEnd, 4.0f, 6, FColor::Red, false, DrawDuration);
+
+	// Draw sweep motion lines (connecting previous to current frame)
+	DrawDebugLine(World, PreviousStart, CurrentStart, FColor::Cyan, false, DrawDuration, 0, 1.0f);
+	DrawDebugLine(World, PreviousEnd, CurrentEnd, FColor::Cyan, false, DrawDuration, 0, 1.0f);
+
+	// Draw hit info if we hit something
+	if (bHit && HitResult.bBlockingHit)
+	{
+		// Impact point - larger and more visible
+		DrawDebugSphere(World, HitResult.ImpactPoint, 8.0f, 8, FColor::Orange, false, DrawDuration);
+
+		// Impact normal
+		DrawDebugLine(
+			World,
+			HitResult.ImpactPoint,
+			HitResult.ImpactPoint + HitResult.ImpactNormal * 40.0f,
+			FColor::Yellow,
+			false,
+			DrawDuration,
+			0,
+			3.0f);
+
+		// Draw hit actor name
+		if (HitResult.GetActor())
+		{
+			DrawDebugString(
+				World,
+				HitResult.ImpactPoint + FVector(0, 0, 25),
+				FString::Printf(TEXT("HIT: %s"), *HitResult.GetActor()->GetName()),
+				nullptr,
+				FColor::White,
+				DrawDuration,
+				false);
+
+			// Verbose logging
+			if (CombatDebug::IsVerboseLogEnabled())
+			{
+				UE_LOG(LogDebug, Log, TEXT("[WeaponTrace] Hit: %s at %s"),
+					*HitResult.GetActor()->GetName(),
+					*HitResult.ImpactPoint.ToString());
+			}
+		}
+	}
+}
+
+void UDebugUtils::DrawWeaponSockets(
+	UWorld* World,
+	const FVector& StartLocation,
+	const FVector& EndLocation)
+{
+	if (!World || !CombatDebug::IsWeaponDebugEnabled())
+	{
+		return;
+	}
+
+	const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+
+	// Draw weapon axis line
+	DrawDebugLine(World, StartLocation, EndLocation, FColor::Cyan, false, DrawDuration, 0, 1.5f);
+
+	// Draw socket positions
+	DrawDebugSphere(World, StartLocation, 3.0f, 8, FColor::Blue, false, DrawDuration);
+	DrawDebugSphere(World, EndLocation, 3.0f, 8, FColor::Red, false, DrawDuration);
+
+	// Labels
+	DrawDebugString(World, StartLocation + FVector(0, 0, 10), TEXT("Start"), nullptr, FColor::Blue, DrawDuration, false);
+	DrawDebugString(World, EndLocation + FVector(0, 0, 10), TEXT("End"), nullptr, FColor::Red, DrawDuration, false);
 }

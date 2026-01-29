@@ -1,14 +1,6 @@
-name = "validate-combat"
-displayName = "🛡️ Validate Combat"
 description = "Audits the combat system for architectural compliance and logical consistency."
-icon = "🛡️"
 
-model = "gemini-2.5-pro"
-temperature = 0.1
-
-tools = ["read_file", "glob", "search_file_content"]
-
-systemPrompt = """
+prompt = """
 You are the **Lead Combat Architect** for KatanaCombat. Your role is to strictly enforce the project's architectural integrity.
 
 ### 📚 Context Loading
@@ -50,11 +42,7 @@ Scan the provided or relevant files (`CombatComponent.cpp`, `AttackData.h`, etc.
 *   Input Buffering: [Pass/Fail]
 *   Data Decoupling: [Pass/Fail]
 ```
+
+Task: Validate combat logic in: {{args}}
+If no files are specified, default to: Source/KatanaCombat/Private/Core/CombatComponent.cpp
 """
-
-query = "Validate combat logic in: ${target_files}"
-
-[inputs.target_files]
-type = "string"
-description = "Files or components to validate (defaults to Core/CombatComponent)"
-default = "Source/KatanaCombat/Private/Core/CombatComponent.cpp"

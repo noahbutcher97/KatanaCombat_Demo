@@ -141,4 +141,44 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Debug")
 	static FRotator GetMeshRotationOffset(ACharacter* Character);
+
+	// ========================================================================
+	// WEAPON TRACE DEBUG VISUALIZATION
+	// ========================================================================
+
+	/**
+	 * Draw weapon trace debug visualization
+	 * Shows capsule sweep from previous to current weapon position along full blade length
+	 *
+	 * @param World - World context
+	 * @param CurrentStart - Current frame weapon start socket position
+	 * @param CurrentEnd - Current frame weapon end socket position
+	 * @param PreviousStart - Previous frame weapon start socket position
+	 * @param PreviousEnd - Previous frame weapon end socket position
+	 * @param TraceRadius - Capsule trace radius
+	 * @param bHit - Whether trace hit something
+	 * @param HitResult - Hit result (only used if bHit is true)
+	 */
+	static void DrawWeaponTrace(
+		UWorld* World,
+		const FVector& CurrentStart,
+		const FVector& CurrentEnd,
+		const FVector& PreviousStart,
+		const FVector& PreviousEnd,
+		float TraceRadius,
+		bool bHit,
+		const FHitResult& HitResult = FHitResult());
+
+	/**
+	 * Draw weapon socket positions for debugging
+	 * Shows start and end socket locations with labels
+	 *
+	 * @param World - World context
+	 * @param StartLocation - Weapon start socket position
+	 * @param EndLocation - Weapon end socket position
+	 */
+	static void DrawWeaponSockets(
+		UWorld* World,
+		const FVector& StartLocation,
+		const FVector& EndLocation);
 };

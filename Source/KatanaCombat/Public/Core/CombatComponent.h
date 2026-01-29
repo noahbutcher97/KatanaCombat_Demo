@@ -602,6 +602,9 @@ protected:
 	/** Is currently in combo blend transition? (prevents premature phase reset) */
 	bool bInComboBlend = false;
 
+	/** World time when current blend transition will complete (for rapid input detection) */
+	float BlendTransitionEndTime = 0.0f;
+
 	/** Was current attack triggered by directional follow-up? (prevents infinite directional loops) */
 	bool bCurrentAttackIsDirectionalFollowUp = false;
 

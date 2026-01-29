@@ -2,6 +2,7 @@
 
 #include "Core/CombatComponent.h"
 #include "Core/WeaponComponent.h"
+#include "Interfaces/CombatInterface.h"
 #include "Data/AttackData.h"
 #include "Data/AttackConfiguration.h"
 #include "Data/CombatSettings.h"
@@ -959,9 +960,32 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	float BlendOutTime = 0.0f;  // Default: instant (first attack or no previous attack)
 	float BlendInTime = AttackData->ComboBlendInTime;  // New attack's blend-in time
 
-	if (CurrentAttackData)
+	// CRITICAL FIX: Detect if we're still in a blend transition (rapid input during blend)
+	// Check both the flag AND the time-based tracker for robustness
+	const float CurrentWorldTime = GetWorld()->GetTimeSeconds();
+	const bool bStillInBlendTransition = bInComboBlend || (CurrentWorldTime < BlendTransitionEndTime);
+
+	if (bStillInBlendTransition)
 	{
-		// We have a previous attack - use its blend-out time for smooth transition
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[BLEND] Rapid input during blend (EndTime=%.2f, Now=%.2f)! Forcing instant cleanup."),
+				BlendTransitionEndTime, CurrentWorldTime);
+		}
+
+		// Force instant stop of ALL montages to clean up the blend mess
+		// This fixes the "half-blended loop" issue when mashing attack during blend-out
+		AnimInstance->StopAllMontages(0.0f);
+		bInComboBlend = false;
+		BlendTransitionEndTime = 0.0f;
+
+		// Use instant blend for this attack since we just force-stopped
+		BlendOutTime = 0.0f;
+		BlendInTime = 0.0f;
+	}
+	else if (CurrentAttackData)
+	{
+		// Normal case: We have a previous attack - use its blend-out time for smooth transition
 		BlendOutTime = CurrentAttackData->ComboBlendOutTime;
 
 		if (GetDebugDraw() && (BlendOutTime > 0.0f || BlendInTime > 0.0f))
@@ -979,11 +1003,17 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		// Mark that we're in combo blend transition - prevents premature phase reset
 		bInComboBlend = true;
 
+		// Track when the blend will complete (max of blend-out and blend-in)
+		// This allows time-based detection of rapid inputs during blend
+		const float BlendDuration = FMath::Max(BlendOutTime, BlendInTime);
+		BlendTransitionEndTime = GetWorld()->GetTimeSeconds() + BlendDuration;
+
 		AnimInstance->Montage_Stop(BlendOutTime, CurrentMontage);
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[BLEND] Combo blend started - bInComboBlend=true (prevents None phase during blend-out)"));
+			UE_LOG(LogCombat, Log, TEXT("[BLEND] Combo blend started - EndTime=%.2f (Duration=%.2fs)"),
+				BlendTransitionEndTime, BlendDuration);
 		}
 	}
 
@@ -1014,14 +1044,17 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		AnimInstance->Montage_Play(AttackData->AttackMontage, PlayRate, EMontagePlayReturnType::MontageLength, StartPosition);
 	}
 
-	// Clear blend flag - new montage has started playing, blend transition is complete
+	// Clear blend flag - new montage has started playing
+	// Note: BlendTransitionEndTime is NOT cleared here - it provides time-based protection
+	// against rapid inputs that may come in before the blend visually completes
 	if (bInComboBlend)
 	{
 		bInComboBlend = false;
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[BLEND] New montage started - bInComboBlend=false (blend transition complete)"));
+			UE_LOG(LogCombat, Log, TEXT("[BLEND] New montage started - bInComboBlend=false (time-based protection until %.2f)"),
+				BlendTransitionEndTime);
 		}
 	}
 
@@ -1765,15 +1798,44 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 	// Handle phase-specific logic
 	switch (NewPhase)
 	{
+		case EAttackPhase::Active:
+			// ENABLE HIT DETECTION when entering Active phase
+			// This is where the weapon can deal damage
+			if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+			{
+				ICombatInterface::Execute_OnEnableHitDetection(Character);
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[PHASE] Active entered - Hit detection ENABLED"));
+				}
+			}
+			break;
+
 		case EAttackPhase::Recovery:
+			// DISABLE HIT DETECTION when entering Recovery phase
+			// Active window is over, no more damage
+			if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+			{
+				ICombatInterface::Execute_OnDisableHitDetection(Character);
+			}
 
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Log, TEXT("[PHASE] Recovery entered - Input state reset"));
+				UE_LOG(LogCombat, Log, TEXT("[PHASE] Recovery entered - Hit detection DISABLED"));
 			}
 			break;
 
 		case EAttackPhase::None:
+			// DISABLE HIT DETECTION if we were in Active phase (handles interrupts)
+			if (OldPhase == EAttackPhase::Active)
+			{
+				if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+				{
+					ICombatInterface::Execute_OnDisableHitDetection(Character);
+				}
+			}
+
 			// Attack finished - reset combo state for next attack
 			CurrentAttackData = nullptr;
 			CurrentAttackInputType = EInputType::None;

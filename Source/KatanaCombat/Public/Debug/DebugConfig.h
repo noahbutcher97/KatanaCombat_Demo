@@ -4,6 +4,12 @@
 
 #include "CoreMinimal.h"
 #include "HAL/IConsoleManager.h"
+#include "Logging/LogMacros.h"
+
+// ============================================================================
+// LOG CATEGORY FOR DEBUG UTILITIES
+// ============================================================================
+DECLARE_LOG_CATEGORY_EXTERN(LogDebug, Log, All);
 
 /**
  * Combat Debug Configuration

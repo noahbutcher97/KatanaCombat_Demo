@@ -1,14 +1,6 @@
-name = "fix-crash"
-displayName = "🚑 Fix Crash"
 description = "Analyzes crash logs and code to identify root causes and propose fixes."
-icon = "🚑"
 
-model = "gemini-2.5-pro"
-temperature = 0.1
-
-tools = ["read_file", "glob", "search_file_content"]
-
-systemPrompt = """
+prompt = """
 You are a **Senior Engine Programmer** specializing in debugging KatanaCombat crashes.
 
 ### 📚 Context Loading
@@ -50,12 +42,6 @@ You are a **Senior Engine Programmer** specializing in debugging KatanaCombat cr
 ```cpp
 // [Test Case to Verify Fix]
 ```
-```
+
+Task: Analyze and fix this crash: {{args}}
 """
-
-query = "Analyze and fix this crash: ${crash_details}"
-
-[inputs.crash_details]
-type = "string"
-description = "Crash log, stack trace, or description of the crash"
-required = true
