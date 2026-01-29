@@ -9,6 +9,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Hybrid combo system (responsive input buffering + snappy animation cancels)
 - Posture-based defense with guard breaks and perfect parries
 - Data-driven attack configuration via AttackData assets
+- Death system with directional animations and ragdoll transitions
+- Comprehensive test suite (14 suites, 126 tests)
 
 ## Build & Development
 
@@ -129,6 +131,7 @@ Source/KatanaCombat/Public/
 | Debugging | `docs/TROUBLESHOOTING.md` |
 | Change history | `docs/CHANGELOG.md` (bug fixes, feature history) |
 | Future plans | `docs/ROADMAP.md` (planned features, system status) |
+| Implementation plans | `docs/plans/` (active and archived feature plans) |
 
 ### AI Infrastructure Docs (`.claude/`)
 
@@ -181,6 +184,42 @@ Source/KatanaCombat/Public/
 - Include rollback checkpoint (previous commit hash) in significant commits
 - Use descriptive commit messages with bullet points for changes
 - Bypass pre-commit hooks with `--no-verify` if they have errors (hooks in `.claude/hooks/` may have issues)
+
+## Active Development
+
+Track ongoing work across sessions. Update this section when starting/completing major tasks.
+
+**Current Focus**:
+- Hit Reaction Polish: Cycled animation arrays with n-2 randomization (prevents flip-flopping)
+
+**Next Up**:
+- Paired Animation System: Synced finisher/counter animations with position constraints
+
+**Recently Completed**:
+- Death System (2025-01-29): Directional death animations, ragdoll transitions, bIsDead flag
+- Documentation Audit (2025-01-29): V1/V2 removal, test count updates, deprecated notify cleanup
+
+**Plans**: See `docs/plans/` for detailed implementation plans and `docs/plans/archive/` for completed plans.
+
+## Test Suite
+
+**Coverage**: 14 test suites, 126 tests (all passing)
+
+**Run Tests**:
+- Editor: `Window → Developer Tools → Session Frontend → Automation tab → Filter: "KatanaCombat"`
+- CLI: See Build & Development section above
+
+**Test Categories**:
+- Core Combat: State transitions, input buffering, hold mechanics, parry detection, attack execution
+- Components: Targeting, weapon, hit reactions (directional, i-frames, stun, death)
+- Systems: Damage flow, death system, integration, debug visualization, memory safety
+
+**Full Documentation**: `Source/KatanaCombatTest/README.md`
+
+## Known Issues
+
+- **Pre-commit hooks have syntax errors**: PowerShell scripts in `.claude/hooks/` have parsing issues. Use `git commit --no-verify` to bypass until fixed.
+- **DX12 crashes with RTX 5090**: See Environment Notes below for workaround.
 
 ## Environment Notes
 
