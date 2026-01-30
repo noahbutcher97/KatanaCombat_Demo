@@ -5,6 +5,7 @@
 #include "Customizations/AttackDataCustomization.h"
 #include "Customizations/HitReactionDataCustomization.h"
 #include "Customizations/HitReactionEntryCustomization.h"
+#include "Customizations/ReactionMontageVariantCustomization.h"
 #include "Data/AttackData.h"
 #include "Data/HitReactionData.h"
 
@@ -42,6 +43,12 @@ void FKatanaCombatEditorModule::RegisterCustomizations()
 		"HitReactionEntry",
 		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FHitReactionEntryCustomization::MakeInstance)
 	);
+
+	// Register custom property type layout for FReactionMontageVariant struct (array element)
+	PropertyModule.RegisterCustomPropertyTypeLayout(
+		"ReactionMontageVariant",
+		FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FReactionMontageVariantCustomization::MakeInstance)
+	);
 }
 
 void FKatanaCombatEditorModule::UnregisterCustomizations()
@@ -54,6 +61,7 @@ void FKatanaCombatEditorModule::UnregisterCustomizations()
 		PropertyModule.UnregisterCustomClassLayout(UAttackData::StaticClass()->GetFName());
 		PropertyModule.UnregisterCustomClassLayout(UHitReactionData::StaticClass()->GetFName());
 		PropertyModule.UnregisterCustomPropertyTypeLayout("HitReactionEntry");
+		PropertyModule.UnregisterCustomPropertyTypeLayout("ReactionMontageVariant");
 	}
 }
 

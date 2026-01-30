@@ -178,6 +178,16 @@ public:
     bool PlayReactionFromEntry(const FHitReactionEntry& ReactionEntry, EAttackDirection Direction, bool bIsHeavy);
 
     /**
+     * Play hit reaction from inline entry with explicit intensity (for variety selection)
+     * @param ReactionEntry - Reaction entry config to play
+     * @param Direction - Direction for event broadcast
+     * @param bIsHeavy - Is this a heavy reaction (for event broadcast)
+     * @param Intensity - Hit intensity for variety selection history
+     * @return True if reaction started successfully
+     */
+    bool PlayReactionFromEntry(const FHitReactionEntry& ReactionEntry, EAttackDirection Direction, bool bIsHeavy, EHitIntensity Intensity);
+
+    /**
      * Play hit reaction from HitReactionData asset (special/paired reactions)
      * Handles section selection, play rate, and i-frame tracking
      * @param ReactionData - Reaction data asset to play
@@ -285,6 +295,16 @@ public:
     UFUNCTION(BlueprintPure, Category = "Hit Reaction")
     EAttackDirection GetHitDirectionRelativeToFacing(const FVector& HitDirection) const;
 
+    // ============================================================================
+    // REACTION VARIETY
+    // ============================================================================
+
+    /**
+     * Clear reaction history (call on death/respawn for fresh variety selection)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction")
+    void ClearReactionHistory();
+
 protected:
     virtual void BeginPlay() override;
 
@@ -337,6 +357,30 @@ private:
 
     /** End current stun */
     void EndStun();
+
+    // ============================================================================
+    // REACTION VARIETY (n-2 randomization)
+    // ============================================================================
+
+    /** History of played reactions: Intensity → Direction → History */
+    TMap<EHitIntensity, TMap<EAttackDirection, FReactionHistory>> ReactionHistoryMap;
+
+    /**
+     * Select montage variant with variety (n-2 for 3+, alternation for 2, direct for 1)
+     * @param Entry - Reaction entry with montage variant(s)
+     * @param Intensity - Hit intensity for history lookup
+     * @param Direction - Hit direction for history lookup
+     * @param OutVariant - Selected variant with montage and section
+     * @return True if a valid variant was selected
+     */
+    bool SelectMontageWithVariety(
+        const FHitReactionEntry& Entry,
+        EHitIntensity Intensity,
+        EAttackDirection Direction,
+        FReactionMontageVariant& OutVariant);
+
+    /** Record that a montage index was played for history */
+    void RecordMontagePlay(int32 MontageIndex, EHitIntensity Intensity, EAttackDirection Direction);
 
     // ============================================================================
     // DEATH/RAGDOLL STATE

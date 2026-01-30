@@ -396,6 +396,27 @@ struct FHitReactionAnimSet
 };
 
 /**
+ * Single montage variant for reaction variety system
+ * Pairs a montage with its optional section for per-animation section selection
+ */
+USTRUCT(BlueprintType)
+struct FReactionMontageVariant
+{
+    GENERATED_BODY()
+
+    /** Animation montage for this variant */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+    TObjectPtr<UAnimMontage> Montage = nullptr;
+
+    /** Which section of this montage to use (NAME_None = use entire montage) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+    FName MontageSection = NAME_None;
+
+    /** Is this variant configured with a valid montage? */
+    bool IsValid() const { return Montage != nullptr; }
+};
+
+/**
  * Single hit reaction entry - inline configuration for one reaction
  * Contains all data needed to play a reaction without requiring a separate asset
  * Used inline in FDirectionalReactionSet for directional reactions
@@ -409,13 +430,17 @@ struct FHitReactionEntry
     // ANIMATION
     // ========================================================================
 
-    /** Animation montage for this reaction */
+    /** Animation montage for this reaction (use ReactionMontages array for variety) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
     TObjectPtr<UAnimMontage> ReactionMontage = nullptr;
 
-    /** Which section of the montage to use (NAME_None = use entire montage) */
+    /** Which section of the single montage to use (NAME_None = use entire montage) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
     FName MontageSection = NAME_None;
+
+    /** Array of montage variants for variety (each with its own section selection) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+    TArray<FReactionMontageVariant> ReactionMontages;
 
     /** If true, only this section plays. If false, montage continues after section */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
@@ -480,7 +505,7 @@ struct FHitReactionEntry
     // ========================================================================
 
     /** Is this entry configured with a valid montage? */
-    bool IsValid() const { return ReactionMontage != nullptr; }
+    bool IsValid() const { return ReactionMontage != nullptr || ReactionMontages.Num() > 0; }
 
     /** Check if currently in i-frame window at given time */
     bool IsInIFrameWindow(float CurrentTime) const
@@ -494,6 +519,86 @@ struct FHitReactionEntry
 
     /** Get section length */
     float GetSectionLength() const;
+
+    // ========================================================================
+    // VARIETY HELPERS
+    // ========================================================================
+
+    /** Get all available montage variants (combines single + array for compatibility) */
+    TArray<FReactionMontageVariant> GetAllVariants() const
+    {
+        TArray<FReactionMontageVariant> Result;
+
+        // Add array variants first (preferred)
+        for (const FReactionMontageVariant& Variant : ReactionMontages)
+        {
+            if (Variant.IsValid())
+            {
+                Result.Add(Variant);
+            }
+        }
+
+        // Add single montage as variant if array is empty (backwards compat)
+        if (Result.Num() == 0 && ReactionMontage)
+        {
+            FReactionMontageVariant SingleVariant;
+            SingleVariant.Montage = ReactionMontage;
+            SingleVariant.MontageSection = MontageSection;
+            Result.Add(SingleVariant);
+        }
+
+        return Result;
+    }
+
+    /** Get count of available montage variants */
+    int32 GetMontageCount() const
+    {
+        int32 Count = 0;
+        for (const FReactionMontageVariant& Variant : ReactionMontages)
+        {
+            if (Variant.IsValid()) Count++;
+        }
+        if (Count == 0 && ReactionMontage)
+        {
+            Count = 1;
+        }
+        return Count;
+    }
+};
+
+/**
+ * History of played reaction indices for n-2 randomization
+ * Tracks last N played montages to exclude from selection
+ */
+USTRUCT()
+struct FReactionHistory
+{
+    GENERATED_BODY()
+
+    /** Recently played montage indices (most recent at end) */
+    TArray<int32> RecentIndices;
+
+    /** Maximum history entries to keep */
+    static constexpr int32 MaxHistory = 2;
+
+    /** Record that a montage index was played */
+    void RecordPlayed(int32 Index)
+    {
+        RecentIndices.Add(Index);
+        while (RecentIndices.Num() > MaxHistory)
+        {
+            RecentIndices.RemoveAt(0);
+        }
+    }
+
+    /** Get the most recently played index (-1 if none) */
+    int32 GetLastPlayed() const
+    {
+        return RecentIndices.Num() > 0 ? RecentIndices.Last() : -1;
+    }
+
+    /** Clear history (e.g., on death/respawn) */
+    void Clear() { RecentIndices.Empty(); }
 };
 
 /**

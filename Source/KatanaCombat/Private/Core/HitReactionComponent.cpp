@@ -228,7 +228,7 @@ void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
         // Get directional reaction entry (inline struct, not asset)
         if (const FHitReactionEntry* ReactionEntry = Settings->GetDirectionalReaction(Intensity, RelativeDir))
         {
-            if (PlayReactionFromEntry(*ReactionEntry, RelativeDir, bIsHeavy))
+            if (PlayReactionFromEntry(*ReactionEntry, RelativeDir, bIsHeavy, Intensity))
             {
                 // Apply stun from reaction entry
                 if (ReactionEntry->StunDuration > 0.0f)
@@ -403,7 +403,27 @@ ACharacter* UHitReactionComponent::GetOwnerCharacterCached() const
 
 bool UHitReactionComponent::PlayReactionFromEntry(const FHitReactionEntry& ReactionEntry, EAttackDirection Direction, bool bIsHeavy)
 {
-    if (!ReactionEntry.ReactionMontage || !AnimInstance)
+    // Delegate to overload with inferred intensity
+    const EHitIntensity Intensity = bIsHeavy ? EHitIntensity::Heavy : EHitIntensity::Light;
+    return PlayReactionFromEntry(ReactionEntry, Direction, bIsHeavy, Intensity);
+}
+
+bool UHitReactionComponent::PlayReactionFromEntry(const FHitReactionEntry& ReactionEntry, EAttackDirection Direction, bool bIsHeavy, EHitIntensity Intensity)
+{
+    if (!AnimInstance)
+    {
+        return false;
+    }
+
+    // Select montage variant with variety (n-2 for 3+, alternation for 2, direct for 1)
+    FReactionMontageVariant SelectedVariant;
+    if (!SelectMontageWithVariety(ReactionEntry, Intensity, Direction, SelectedVariant))
+    {
+        return false;
+    }
+
+    UAnimMontage* SelectedMontage = SelectedVariant.Montage;
+    if (!SelectedMontage)
     {
         return false;
     }
@@ -420,10 +440,8 @@ bool UHitReactionComponent::PlayReactionFromEntry(const FHitReactionEntry& React
         SetComponentTickEnabled(true);
     }
 
-    // Play montage with section selection
-    const float Duration = AnimInstance->Montage_Play(
-        ReactionEntry.ReactionMontage,
-        ReactionEntry.PlayRate);
+    // Play the SELECTED montage (with variety)
+    const float Duration = AnimInstance->Montage_Play(SelectedMontage, ReactionEntry.PlayRate);
 
     if (Duration <= 0.0f)
     {
@@ -431,22 +449,18 @@ bool UHitReactionComponent::PlayReactionFromEntry(const FHitReactionEntry& React
         return false;
     }
 
-    // Handle section selection
-    if (ReactionEntry.MontageSection != NAME_None)
+    // Handle section selection - use the VARIANT's section (per-montage)
+    const FName& SectionToUse = SelectedVariant.MontageSection;
+    if (SectionToUse != NAME_None)
     {
         if (ReactionEntry.bJumpToSectionStart)
         {
-            AnimInstance->Montage_JumpToSection(
-                ReactionEntry.MontageSection,
-                ReactionEntry.ReactionMontage);
+            AnimInstance->Montage_JumpToSection(SectionToUse, SelectedMontage);
         }
 
         if (ReactionEntry.bUseSectionOnly)
         {
-            AnimInstance->Montage_SetNextSection(
-                ReactionEntry.MontageSection,
-                NAME_None,
-                ReactionEntry.ReactionMontage);
+            AnimInstance->Montage_SetNextSection(SectionToUse, NAME_None, SelectedMontage);
         }
     }
 
@@ -566,6 +580,9 @@ bool UHitReactionComponent::PlaySpecialReaction(ESpecialReactionType SpecialType
 
 bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
 {
+    // Clear reaction history on death (fresh start if revived)
+    ClearReactionHistory();
+
     UHitReactionSettings* Settings = GetEffectiveSettings();
     if (!Settings || !AnimInstance)
     {
@@ -766,4 +783,87 @@ void UHitReactionComponent::ClearDeathPoseSnapshot()
     // but the snapshot will be overwritten on next save or ignored if not used
     UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s death pose snapshot cleared (anims resumed)"),
         OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
+}
+
+// ============================================================================
+// REACTION VARIETY (n-2 randomization)
+// ============================================================================
+
+bool UHitReactionComponent::SelectMontageWithVariety(
+    const FHitReactionEntry& Entry,
+    EHitIntensity Intensity,
+    EAttackDirection Direction,
+    FReactionMontageVariant& OutVariant)
+{
+    TArray<FReactionMontageVariant> AllVariants = Entry.GetAllVariants();
+
+    if (AllVariants.Num() == 0)
+    {
+        return false;
+    }
+
+    // === 1 VARIANT: Always play it (no history tracking) ===
+    if (AllVariants.Num() == 1)
+    {
+        OutVariant = AllVariants[0];
+        return true;
+    }
+
+    // Get history for this intensity+direction
+    FReactionHistory& History = ReactionHistoryMap.FindOrAdd(Intensity).FindOrAdd(Direction);
+
+    // === 2 VARIANTS: Simple alternation (back and forth) ===
+    if (AllVariants.Num() == 2)
+    {
+        const int32 LastPlayed = History.GetLastPlayed();
+        // Play the other one (or 0 if no history)
+        const int32 SelectedIndex = (LastPlayed == 0) ? 1 : 0;
+        RecordMontagePlay(SelectedIndex, Intensity, Direction);
+        OutVariant = AllVariants[SelectedIndex];
+        return true;
+    }
+
+    // === 3+ VARIANTS: N-2 randomization ===
+    // Build list of valid indices (exclude last 2 played)
+    TArray<int32> ValidIndices;
+    for (int32 i = 0; i < AllVariants.Num(); ++i)
+    {
+        bool bExcluded = false;
+        for (int32 RecentIdx : History.RecentIndices)
+        {
+            if (RecentIdx == i)
+            {
+                bExcluded = true;
+                break;
+            }
+        }
+        if (!bExcluded)
+        {
+            ValidIndices.Add(i);
+        }
+    }
+
+    // Fallback: if somehow all excluded, pick any (shouldn't happen with 3+)
+    if (ValidIndices.Num() == 0)
+    {
+        ValidIndices.Add(FMath::RandRange(0, AllVariants.Num() - 1));
+    }
+
+    // Random select from valid indices
+    const int32 SelectedIndex = ValidIndices[FMath::RandRange(0, ValidIndices.Num() - 1)];
+    RecordMontagePlay(SelectedIndex, Intensity, Direction);
+    OutVariant = AllVariants[SelectedIndex];
+
+    return true;
+}
+
+void UHitReactionComponent::RecordMontagePlay(int32 MontageIndex, EHitIntensity Intensity, EAttackDirection Direction)
+{
+    FReactionHistory& History = ReactionHistoryMap.FindOrAdd(Intensity).FindOrAdd(Direction);
+    History.RecordPlayed(MontageIndex);
+}
+
+void UHitReactionComponent::ClearReactionHistory()
+{
+    ReactionHistoryMap.Empty();
 }
