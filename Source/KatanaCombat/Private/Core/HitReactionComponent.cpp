@@ -583,6 +583,9 @@ bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
     // Clear reaction history on death (fresh start if revived)
     ClearReactionHistory();
 
+    // Reset ragdoll flag (for respawn scenarios where character was previously ragdolled)
+    bRagdollActivated = false;
+
     UHitReactionSettings* Settings = GetEffectiveSettings();
     if (!Settings || !AnimInstance)
     {
@@ -679,6 +682,14 @@ void UHitReactionComponent::OnAnyMontageBlendingOut(UAnimMontage* Montage, bool 
 
 void UHitReactionComponent::ActivateRagdoll(float BlendTime)
 {
+    // Prevent double activation (notify + blend-out could both try to trigger)
+    if (bRagdollActivated)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s ActivateRagdoll skipped - already activated"),
+            OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
+        return;
+    }
+
     if (!OwnerCharacter)
     {
         return;
@@ -689,6 +700,9 @@ void UHitReactionComponent::ActivateRagdoll(float BlendTime)
     {
         return;
     }
+
+    // Mark as activated to prevent double activation
+    bRagdollActivated = true;
 
     // Save pose snapshot BEFORE ragdoll - enables future recovery from ragdoll
     // (e.g., blend from pre-ragdoll pose to get-up animation)
@@ -726,6 +740,36 @@ void UHitReactionComponent::ActivateRagdoll(float BlendTime)
     UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s activated ragdoll (snapshot saved as '%s')"),
         OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
         *DeathPoseSnapshotName.ToString());
+}
+
+void UHitReactionComponent::TriggerRagdollFromNotify(float BlendTime)
+{
+    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s TriggerRagdollFromNotify called (BlendTime: %.2f)"),
+        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+        BlendTime);
+
+    // Only activate if we're in a pending death state with ragdoll outcome
+    if (!bDeathOutcomePending)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[HitReaction] %s TriggerRagdollFromNotify: No death pending, ignoring"),
+            OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
+        return;
+    }
+
+    if (PendingDeathOutcome != EReactionOutcome::Ragdoll)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[HitReaction] %s TriggerRagdollFromNotify: Outcome is not Ragdoll (%s), ignoring"),
+            OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+            *UEnum::GetValueAsString(PendingDeathOutcome));
+        return;
+    }
+
+    // Clear pending state since we're handling it now (prevents blend-out from re-triggering)
+    bDeathOutcomePending = false;
+    PendingDeathMontage = nullptr;
+
+    // Activate ragdoll with the blend time from the notify
+    ActivateRagdoll(BlendTime);
 }
 
 void UHitReactionComponent::FreezeAtCurrentPose()

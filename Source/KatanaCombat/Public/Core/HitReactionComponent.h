@@ -410,6 +410,19 @@ private:
     /** Activate ragdoll physics on mesh */
     void ActivateRagdoll(float BlendTime);
 
+    /** Has ragdoll already been activated (prevents double activation from notify + blend-out) */
+    bool bRagdollActivated = false;
+
+public:
+    /**
+     * Trigger ragdoll from AnimNotify (mid-animation activation)
+     * Called by AnimNotify_ActivateRagdoll to enable early ragdoll transition
+     * @param BlendTime - Blend time from notify (overrides pending blend time)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction")
+    void TriggerRagdollFromNotify(float BlendTime);
+
+private:
     /**
      * Freeze animation at current pose using pose snapshot
      * Captures current skeletal pose and applies it as a static pose
