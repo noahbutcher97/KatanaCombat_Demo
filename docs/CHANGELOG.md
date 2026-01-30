@@ -8,10 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### In Progress
+- **Phase 5: Paired Animation System** - Synced finisher/counter animations
+  - Phase 5a: Finishers (establish paired warp framework)
+  - Phase 5b: Parry Counters (role reversal mechanics)
+
 ### Planned
 - Phase 6: Parry & Evade Systems
 - Phase 7: Posture Integration
 - Phase 8+: Polish (hit stop, root motion, AI, UI/UX)
+- Future: Predictive terrain analysis, foot IK integration
 
 ---
 

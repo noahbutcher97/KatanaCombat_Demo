@@ -191,14 +191,18 @@ Source/KatanaCombat/Public/
 Track ongoing work across sessions. Update this section when starting/completing major tasks.
 
 **Current Focus**:
-- Hit Reaction Polish: Cycled animation arrays with n-2 randomization (prevents flip-flopping)
+- **Paired Animation System (Phase 5)**: Synced finisher/counter animations with position constraints
+  - Starting with Finishers (5a) to establish paired warp framework
+  - Then Parry Counters (5b) leveraging finisher infrastructure
 
-**Next Up**:
-- Paired Animation System: Synced finisher/counter animations with position constraints
+**Deferred (Post Phase 5)**:
+- Predictive Terrain Analysis: Multi-point forward sampling for smooth slope transitions
+- Foot IK Integration: Uses environmental awareness utilities from DebugUtils
 
 **Recently Completed**:
+- Terrain-Aware Motion Warping (2025-01-30): Ground sampling, warp Z adjustment, floating detection
+- Hit Reaction Variations (2025-01-29): N-2 randomization, cycled animation arrays
 - Death System (2025-01-29): Directional death animations, ragdoll transitions, bIsDead flag
-- Documentation Audit (2025-01-29): V1/V2 removal, test count updates, deprecated notify cleanup
 
 **Plans**: See `docs/plans/` for detailed implementation plans and `docs/plans/archive/` for completed plans.
 

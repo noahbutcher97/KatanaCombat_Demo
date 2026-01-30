@@ -89,6 +89,45 @@ Current implementation status and planned features for the combat system.
 
 ---
 
+## Phase 5: Paired Animation System (IN PROGRESS)
+
+**Priority**: HIGH - Foundation for finishers, counters, and cinematic combat moments
+
+### Core Infrastructure
+
+- [ ] `PairedAnimationData` - Data asset defining synced animation pairs
+- [ ] `PairedAnimationComponent` - Manages sync state between attacker/victim
+- [ ] `PairedAnimationUtilityLibrary` - Static helpers for alignment, timing, validation
+- [ ] Warp target calculation for victim positioning
+- [ ] Sync point system (key frames where positions must align)
+
+### Finisher System (Phase 5a)
+
+- [ ] Finisher trigger conditions (guard break, low health, special state)
+- [ ] Victim warp to attacker's finisher position
+- [ ] Synced montage playback (attacker + victim)
+- [ ] Damage application at sync point
+- [ ] Exit handling (victim death, ragdoll transition)
+- [ ] Cancel/interrupt handling
+
+### Parry Counter System (Phase 5b)
+
+- [ ] Parry detection triggers paired counter opportunity
+- [ ] Attacker becomes victim of counter animation
+- [ ] Role reversal warp (parrier → attacker position)
+- [ ] Counter damage multiplier integration
+- [ ] Counter window timing
+
+### Technical Requirements
+
+- [ ] Terrain-aware victim positioning (use DebugUtils environmental functions)
+- [ ] Network replication consideration (future)
+- [ ] Animation retargeting support
+- [ ] Blend in/out configuration per paired animation
+- [ ] Debug visualization for sync points and warp targets
+
+---
+
 ## Phase 6: Parry & Evade Systems
 
 ### Parry System
@@ -197,6 +236,13 @@ Current implementation status and planned features for the combat system.
 - **Camera System**: Dynamic camera angles during attacks
 - **VFX/SFX Integration**: Niagara particles, audio one-shots
 - **Training Mode**: Frame data display, combo recorder
+
+### Movement & Environment
+
+- **Predictive Terrain Analysis**: Multi-point forward sampling for smooth slope transitions
+- **Foot IK Integration**: Procedural foot placement using environmental awareness utilities
+- **Movement Prediction**: Velocity-based terrain anticipation for locomotion blending
+- **Ground Snap Refinements**: Sub-frame interpolation for seamless terrain following
 
 ---
 
