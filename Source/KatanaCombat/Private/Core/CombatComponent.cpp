@@ -7,6 +7,7 @@
 #include "Data/AttackConfiguration.h"
 #include "Data/CombatSettings.h"
 #include "Data/PairedAnimationData.h"
+#include "Data/TargetingSettings.h"
 #include "Debug/DebugConfig.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -996,6 +997,35 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 	AActor* TargetActor = TargetingComp->GetCurrentTarget();
 	if (!TargetActor)
 	{
+		return false;
+	}
+
+	// ========================================================================
+	// FINISHER DISTANCE VALIDATION (Gap 16.2)
+	// ========================================================================
+	// Verify target is within range before executing finisher.
+	// Prevents finishers on distant targets that would look wrong.
+
+	const float DistanceToTarget = FVector::Dist(
+		AttackerCharacter->GetActorLocation(),
+		TargetActor->GetActorLocation()
+	);
+
+	// Get max finisher range from targeting settings (or use fallback)
+	float MaxFinisherRange = 500.0f;  // Fallback value
+	if (const UTargetingSettings* TargetingSettings = TargetingComp->GetEffectiveSettings())
+	{
+		// Use soft aim range as finisher range (close-range interaction)
+		MaxFinisherRange = TargetingSettings->SoftAimRange;
+	}
+
+	if (DistanceToTarget > MaxFinisherRange)
+	{
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[FINISHER] Target %s too far: %.1f > %.1f (max range)"),
+				*TargetActor->GetName(), DistanceToTarget, MaxFinisherRange);
+		}
 		return false;
 	}
 

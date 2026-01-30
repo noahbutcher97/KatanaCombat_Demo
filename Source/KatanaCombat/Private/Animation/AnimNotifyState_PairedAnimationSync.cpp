@@ -33,13 +33,13 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
         return;
     }
 
-    // Find combat component to broadcast sync point
+    // Find combat component to trigger sync point effects
     UCombatComponent* CombatComp = Owner->FindComponentByClass<UCombatComponent>();
     if (CombatComp)
     {
-        // Broadcast sync point event
-        // CombatComponent can relay this to damage system, effects, etc.
-        CombatComp->OnPairedAnimationSyncPoint.Broadcast(ReactionType, SyncPointName);
+        // Trigger sync point effects (camera shake, etc.) AND broadcast delegate
+        // This centralizes effect handling in CombatComponent while still notifying external listeners
+        CombatComp->TriggerSyncPointEffects(SyncPointName);
     }
 
     // Also check for HitReactionComponent (in case this is on victim's montage)
@@ -47,6 +47,84 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
     if (HitReactionComp)
     {
         HitReactionComp->OnPairedAnimationSyncPoint.Broadcast(ReactionType, SyncPointName);
+    }
+
+    // ========================================================================
+    // ALIGNMENT VALIDATION
+    // ========================================================================
+    // At sync point, verify attacker and victim are properly aligned.
+    // Misalignment indicates animation drift from root motion conflicts or
+    // failed warp tracking. Log for debugging and optionally auto-correct.
+
+    if (bValidateAlignment && bIsPrimarySyncPoint && CombatComp)
+    {
+        // Find the primary paired partner (victim in finisher scenario)
+        AActor* PairedPartner = nullptr;
+        if (CombatComp->PairedAnimationPartners.Num() > 0)
+        {
+            PairedPartner = CombatComp->PairedAnimationPartners[0].Get();
+        }
+
+        if (PairedPartner)
+        {
+            const FVector AttackerLocation = Owner->GetActorLocation();
+            const FVector VictimLocation = PairedPartner->GetActorLocation();
+            const float ActualDistance = FVector::Dist(AttackerLocation, VictimLocation);
+
+            // Check for misalignment
+            if (ActualDistance > MaxContactDistance)
+            {
+                // SEVERE MISALIGNMENT - animation will look wrong
+                if (bLogMisalignment)
+                {
+                    UE_LOG(LogCombat, Warning,
+                        TEXT("[SYNC VALIDATION] MISALIGNED at '%s': Distance %.1f > Max %.1f (Attacker: %s, Victim: %s)"),
+                        *SyncPointName.ToString(),
+                        ActualDistance,
+                        MaxContactDistance,
+                        *Owner->GetName(),
+                        *PairedPartner->GetName());
+                }
+
+                // Still proceed with damage/effects (graceful degradation)
+                // The animation will look off, but gameplay continues
+            }
+            else if (ActualDistance > NudgeThreshold && bLogMisalignment)
+            {
+                // MINOR MISALIGNMENT - within acceptable range but not perfect
+                UE_LOG(LogCombat, Log,
+                    TEXT("[SYNC VALIDATION] Minor drift at '%s': Distance %.1f (Threshold: %.1f, Max: %.1f)"),
+                    *SyncPointName.ToString(),
+                    ActualDistance,
+                    NudgeThreshold,
+                    MaxContactDistance);
+            }
+
+            // Auto-correct minor misalignment if enabled
+            if (bNudgeOnMinorMisalignment && ActualDistance > NudgeThreshold && ActualDistance <= MaxContactDistance)
+            {
+                // Calculate correct victim position (maintain current offset direction, just adjust distance)
+                const FVector DirectionToVictim = (VictimLocation - AttackerLocation).GetSafeNormal();
+                const float DesiredDistance = NudgeThreshold * 0.8f;  // Target 80% of nudge threshold for buffer
+                const FVector CorrectedLocation = AttackerLocation + DirectionToVictim * DesiredDistance;
+
+                // Keep Z the same to avoid terrain issues
+                FVector FinalLocation = CorrectedLocation;
+                FinalLocation.Z = VictimLocation.Z;
+
+                // Teleport victim to corrected position
+                PairedPartner->SetActorLocation(FinalLocation, false, nullptr, ETeleportType::TeleportPhysics);
+
+                if (bLogMisalignment)
+                {
+                    UE_LOG(LogCombat, Log,
+                        TEXT("[SYNC VALIDATION] Nudged victim %s: %.1f -> %.1f units from attacker"),
+                        *PairedPartner->GetName(),
+                        ActualDistance,
+                        FVector::Dist(AttackerLocation, FinalLocation));
+                }
+            }
+        }
     }
 
     // ========================================================================
@@ -81,7 +159,7 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
             ActorToFreeze->CustomTimeDilation = 0.0f;
         }
 
-        UE_LOG(LogTemp, Log, TEXT("[HITSTOP] %s: Freezing %d actors for %.3fs at sync point '%s'"),
+        UE_LOG(LogCombat, Log, TEXT("[HITSTOP] %s: Freezing %d actors for %.3fs at sync point '%s'"),
             *Owner->GetName(), ActorsToFreeze.Num(), HitPauseDuration, *SyncPointName.ToString());
 
         // ====================================================================
@@ -117,12 +195,12 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
                         {
                             Actor->CustomTimeDilation = 1.0f;
 
-                            UE_LOG(LogTemp, Verbose, TEXT("[HITSTOP] Restored time dilation for %s"),
+                            UE_LOG(LogCombat, Verbose, TEXT("[HITSTOP] Restored time dilation for %s"),
                                 *Actor->GetName());
                         }
                     }
 
-                    UE_LOG(LogTemp, Verbose, TEXT("[HITSTOP] Hitstop complete (platform time)"));
+                    UE_LOG(LogCombat, Verbose, TEXT("[HITSTOP] Hitstop complete (platform time)"));
 
                     // Remove ticker - hitstop is complete
                     return false;
@@ -135,7 +213,7 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
     }
 
     // Log sync point for debugging
-    UE_LOG(LogTemp, Verbose, TEXT("PairedAnimationSync: %s reached sync point '%s' (Type: %d, Primary: %d)"),
+    UE_LOG(LogCombat, Verbose, TEXT("PairedAnimationSync: %s reached sync point '%s' (Type: %d, Primary: %d)"),
         *Owner->GetName(),
         *SyncPointName.ToString(),
         static_cast<int32>(ReactionType),

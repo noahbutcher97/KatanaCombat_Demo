@@ -111,6 +111,34 @@ public:
     bool bEndSlowMotion = false;
 
     // ========================================================================
+    // ALIGNMENT VALIDATION
+    // ========================================================================
+
+    /** Enable alignment validation at sync point (checks distance between attacker and victim) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Validation")
+    bool bValidateAlignment = true;
+
+    /** Maximum acceptable distance between attacker and victim at sync point (units) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Validation",
+        meta = (EditCondition = "bValidateAlignment", ClampMin = "50.0", ClampMax = "500.0"))
+    float MaxContactDistance = 150.0f;
+
+    /** Log warning when misalignment detected (for debugging/tuning animations) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Validation",
+        meta = (EditCondition = "bValidateAlignment"))
+    bool bLogMisalignment = true;
+
+    /** Auto-correct minor misalignment by nudging victim position */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Validation",
+        meta = (EditCondition = "bValidateAlignment"))
+    bool bNudgeOnMinorMisalignment = false;
+
+    /** Distance threshold for nudge correction (must be < MaxContactDistance) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Validation",
+        meta = (EditCondition = "bValidateAlignment && bNudgeOnMinorMisalignment", ClampMin = "10.0", ClampMax = "100.0"))
+    float NudgeThreshold = 50.0f;
+
+    // ========================================================================
     // ANIMNOTIFYSTATE INTERFACE
     // ========================================================================
 

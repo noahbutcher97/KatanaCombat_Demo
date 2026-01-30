@@ -7,6 +7,7 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
+#include "KatanaCombat.h"
 
 // ============================================================================
 // TIME DILATION
@@ -27,9 +28,26 @@ bool UCinematicEffectsUtilityLibrary::ApplySlowMotion(UWorld* World, float Scale
 
     // Clamp scale to valid range (never allow zero - use freeze for that)
     const float ClampedScale = FMath::Clamp(Scale, 0.01f, 1.0f);
+
+    // ========================================================================
+    // STACKING PREVENTION (Gap 17.5)
+    // ========================================================================
+    // Prevent time dilation stacking from multiple sources.
+    // If slow-mo is already active at an equal or slower scale, don't override.
+    // This prevents parry slow-mo (0.5) from overriding finisher slow-mo (0.3).
+    const float CurrentDilation = WorldSettings->TimeDilation;
+    if (CurrentDilation < 1.0f && CurrentDilation <= ClampedScale)
+    {
+        // Already in slower or equal slow-mo - don't stack
+        UE_LOG(LogKatanaCombat, Log, TEXT("[CINEMATIC] Slow motion stacking prevented: Current=%.2f, Requested=%.2f"),
+            CurrentDilation, ClampedScale);
+        return false;
+    }
+
     WorldSettings->SetTimeDilation(ClampedScale);
 
-    UE_LOG(LogTemp, Verbose, TEXT("[CINEMATIC] Slow motion applied: Scale=%.2f"), ClampedScale);
+    UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Slow motion applied: Scale=%.2f (was %.2f)"),
+        ClampedScale, CurrentDilation);
     return true;
 }
 
@@ -50,7 +68,7 @@ void UCinematicEffectsUtilityLibrary::RestoreTimeDilation(UWorld* World)
     if (WorldSettings->TimeDilation != 1.0f)
     {
         WorldSettings->SetTimeDilation(1.0f);
-        UE_LOG(LogTemp, Verbose, TEXT("[CINEMATIC] Time dilation restored to 1.0"));
+        UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Time dilation restored to 1.0"));
     }
 }
 
@@ -114,7 +132,7 @@ bool UCinematicEffectsUtilityLibrary::PlayCameraShakeOnActor(
     {
         CameraManager->StartCameraShake(CameraShakeClass, Scale);
 
-        UE_LOG(LogTemp, Verbose, TEXT("[CINEMATIC] Camera shake played: %s (Scale: %.2f)"),
+        UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Camera shake played: %s (Scale: %.2f)"),
             *CameraShakeClass->GetName(), Scale);
         return true;
     }
@@ -162,7 +180,7 @@ void UCinematicEffectsUtilityLibrary::SetActorTimeDilation(AActor* Actor, float 
 
     Actor->CustomTimeDilation = FMath::Max(0.0f, TimeDilation);
 
-    UE_LOG(LogTemp, Verbose, TEXT("[CINEMATIC] Actor %s time dilation set to: %.2f"),
+    UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Actor %s time dilation set to: %.2f"),
         *Actor->GetName(), Actor->CustomTimeDilation);
 }
 
@@ -176,7 +194,7 @@ void UCinematicEffectsUtilityLibrary::RestoreActorTimeDilation(AActor* Actor)
     if (Actor->CustomTimeDilation != 1.0f)
     {
         Actor->CustomTimeDilation = 1.0f;
-        UE_LOG(LogTemp, Verbose, TEXT("[CINEMATIC] Actor %s time dilation restored to 1.0"),
+        UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Actor %s time dilation restored to 1.0"),
             *Actor->GetName());
     }
 }
@@ -191,7 +209,7 @@ void UCinematicEffectsUtilityLibrary::FreezeActors(const TArray<AActor*>& Actors
         }
     }
 
-    UE_LOG(LogTemp, Verbose, TEXT("[CINEMATIC] Froze %d actors"), Actors.Num());
+    UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Froze %d actors"), Actors.Num());
 }
 
 void UCinematicEffectsUtilityLibrary::RestoreActors(const TArray<AActor*>& Actors)
@@ -204,5 +222,5 @@ void UCinematicEffectsUtilityLibrary::RestoreActors(const TArray<AActor*>& Actor
         }
     }
 
-    UE_LOG(LogTemp, Verbose, TEXT("[CINEMATIC] Restored %d actors"), Actors.Num());
+    UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Restored %d actors"), Actors.Num());
 }
