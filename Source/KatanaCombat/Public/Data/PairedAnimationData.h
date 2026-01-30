@@ -55,9 +55,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
     TObjectPtr<UAnimMontage> AttackerMontage;
 
+    /** Section within attacker montage to play (NAME_None = entire montage) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+    FName AttackerMontageSection = NAME_None;
+
     /** Montage played by the victim (receiver) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
     TObjectPtr<UAnimMontage> VictimMontage;
+
+    /** Section within victim montage to play (NAME_None = entire montage) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
+    FName VictimMontageSection = NAME_None;
 
     // ========================================================================
     // SYNC CONFIGURATION

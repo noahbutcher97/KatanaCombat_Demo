@@ -887,8 +887,8 @@ bool FSyncPointValidationPropertiesTest::RunTest(const FString& Parameters)
 	TestTrue("bValidateAlignment should default to true", SyncNotify->bValidateAlignment);
 	TestEqual("MaxContactDistance should default to 150", SyncNotify->MaxContactDistance, 150.0f);
 	TestTrue("bLogMisalignment should default to true", SyncNotify->bLogMisalignment);
-	TestFalse("bNudgeOnMinorMisalignment should default to false", SyncNotify->bNudgeOnMinorMisalignment);
-	TestEqual("NudgeThreshold should default to 50", SyncNotify->NudgeThreshold, 50.0f);
+	TestTrue("bNudgeOnMinorMisalignment should default to true (GAP 20.5 fix)", SyncNotify->bNudgeOnMinorMisalignment);
+	TestEqual("NudgeThreshold should default to 100 (increased for better drift correction)", SyncNotify->NudgeThreshold, 100.0f);
 
 	return true;
 }

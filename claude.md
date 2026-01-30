@@ -114,8 +114,13 @@ Source/KatanaCombat/Public/
 │   ├── DamageableInterface.h  ← Damage/health contract
 │   ├── CombatInterface.h      ← Combat state contract
 │   └── TeamMemberInterface.h  ← Team/faction contract
+├── Math/
+│   ├── CombatMathEnums.h      ← Distance formulas, bone chains, contact types
+│   └── CombatMathTypes.h      ← Skeletal hierarchy, reach, contact predictions
 └── Utilities/
-    └── MontageUtilityLibrary.h  ← 27 montage utility functions
+    ├── MontageUtilityLibrary.h           ← 27 montage utility functions
+    ├── PairedAnimationUtilityLibrary.h   ← Paired animation validation, contact points
+    └── CinematicEffectsUtilityLibrary.h  ← Time dilation, hitstop, camera shake
 ```
 
 ## Key Default Values
@@ -141,6 +146,7 @@ Source/KatanaCombat/Public/
 | Deep dive | `docs/ARCHITECTURE.md` |
 | Add new attack | `docs/ATTACK_CREATION.md` |
 | API reference | `docs/API_REFERENCE.md` |
+| Paired animation spec | `docs/specs/PAIRED_ANIMATION_SPEC.md` |
 | Debugging | `docs/TROUBLESHOOTING.md` |
 | Change history | `docs/CHANGELOG.md` (bug fixes, feature history) |
 | Future plans | `docs/ROADMAP.md` (planned features, system status) |
@@ -156,6 +162,31 @@ Source/KatanaCombat/Public/
 | Context modes | `.claude/context-modes/README.md` |
 | Hooks system | `.claude/hooks/README.md` |
 | Infrastructure changelog | `.claude/CHANGELOG.md` |
+
+### Documentation Hierarchy
+
+This project uses a four-level documentation hierarchy optimized for Claude CLI:
+
+**Level 1 - CLAUDE.md (Working Memory)**
+Essential rules, patterns, and quick references loaded automatically for every interaction. Keep this file focused on actionable knowledge.
+
+**Level 2 - Specification Files (`docs/specs/`)**
+Detailed technical specifications for major systems. Read when working on that specific system.
+
+**Level 3 - Architecture Docs (`docs/`)**
+Deep dives into component design and API details. Read when understanding or modifying architecture.
+
+**Level 4 - Implementation Plans (`.claude/plans/`)**
+Active development plans with gap tracking. Read when continuing phased implementation work.
+
+| Need | Start Here |
+|------|------------|
+| Quick combat system rules | `CLAUDE.md` (this file) |
+| Paired animation spec | `docs/specs/PAIRED_ANIMATION_SPEC.md` |
+| Component architecture | `docs/ARCHITECTURE.md` |
+| API details | `docs/API_REFERENCE.md` |
+| Active plan status | `.claude/plans/synthetic-painting-ritchie.md` |
+| Troubleshooting | `docs/TROUBLESHOOTING.md` |
 
 ## Common Mistakes to Avoid
 
@@ -242,6 +273,29 @@ This applies to ALL `BlueprintNativeEvent` interface methods:
 - Convert `FLinearColor` to `FColor` directly (use `.ToFColor(true)`)
 - Use component tick without explicit permission
 - **Make internal state variables `BlueprintReadOnly`**: If a parameter isn't meaningful to view/edit at runtime in the editor, don't expose it to Blueprint. This adds visual load and confusion. Reserve Blueprint visibility for intentional public API, not internal implementation details.
+
+## Claude CLI Best Practices
+
+### Session Continuity
+- **Plan files persist**: Check `.claude/plans/` for active work from previous sessions
+- **CLAUDE.md is working memory**: This file provides context loaded automatically for every session
+- **Use specs for detail**: Store detailed specifications in `docs/specs/` to keep CLAUDE.md scannable
+
+### Exploration Before Implementation
+- **ALWAYS use Explore agents** before modifying unfamiliar code
+- **Verify actual API signatures** - don't assume method names or parameters exist
+- **Check existing patterns** in similar components before implementing new features
+
+### Code Quality Standards
+- **Thorough solutions over quick fixes** (even at time expense) - see Coding Guidelines
+- **Event-driven over tick-based** where possible for performance
+- **Blueprint exposure only for intentional public API** - not internal state
+- **Null checks on all weak references** and component accesses
+
+### Documentation Updates
+- **Update CLAUDE.md** when design decisions or architecture changes
+- **Update specs** when implementation deviates significantly from spec
+- **Archive completed plans** to `docs/plans/archive/` with date suffix
 
 ## Git Conventions
 
@@ -334,7 +388,10 @@ Player Input → CombatComponent::TryExecuteFinisher()
 | Environmental Finishers | Needs architecture | Standard finishers proven |
 | Network Replication | Major feature | All systems locally verified |
 
-**Plans**: See `.claude/plans/synthetic-painting-ritchie.md` for detailed paired animation plan and gap tracking.
+**Documentation**:
+- **Technical Spec**: `docs/specs/PAIRED_ANIMATION_SPEC.md` - Complete system specification
+- **Active Plan**: `.claude/plans/synthetic-painting-ritchie.md` - Implementation plan with gap tracking
+- **Archived Plans**: `docs/plans/archive/` - Previous plan versions with dates
 
 ## Test Suite
 

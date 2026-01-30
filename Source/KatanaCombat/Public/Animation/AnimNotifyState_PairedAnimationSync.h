@@ -128,15 +128,15 @@ public:
         meta = (EditCondition = "bValidateAlignment"))
     bool bLogMisalignment = true;
 
-    /** Auto-correct minor misalignment by nudging victim position */
+    /** Auto-correct minor misalignment by nudging victim position (GAP 20.5: enabled by default to fix drift) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Validation",
         meta = (EditCondition = "bValidateAlignment"))
-    bool bNudgeOnMinorMisalignment = false;
+    bool bNudgeOnMinorMisalignment = true;
 
-    /** Distance threshold for nudge correction (must be < MaxContactDistance) */
+    /** Distance threshold for nudge correction (must be < MaxContactDistance). Increased to 100 to catch more drift. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Validation",
-        meta = (EditCondition = "bValidateAlignment && bNudgeOnMinorMisalignment", ClampMin = "10.0", ClampMax = "100.0"))
-    float NudgeThreshold = 50.0f;
+        meta = (EditCondition = "bValidateAlignment && bNudgeOnMinorMisalignment", ClampMin = "10.0", ClampMax = "150.0"))
+    float NudgeThreshold = 100.0f;
 
     // ========================================================================
     // ANIMNOTIFYSTATE INTERFACE

@@ -21,6 +21,7 @@
 #include "Utilities/MontageUtilityLibrary.h"
 #include "Utilities/CombatUtils.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
+#include "Utilities/PairedAnimationUtilityLibrary.h"
 #include "Debug/DebugUtils.h"
 
 // ============================================================================
@@ -1101,6 +1102,32 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 		return false;
 	}
 
+	// ========================================================================
+	// GAP 19.6 FIX: Validate path is clear before executing finisher
+	// ========================================================================
+	// Prevents finisher from executing if there's an obstacle between attacker and victim.
+	// Uses sweep trace with clearance radius to detect blocking geometry.
+
+	TArray<AActor*> ActorsToIgnore;
+	ActorsToIgnore.Add(GetOwner());
+	ActorsToIgnore.Add(TargetActor);
+
+	const float PathClearanceRadius = 30.0f;  // Capsule sweep radius
+	if (!UPairedAnimationUtilityLibrary::IsPathClear(
+		GetWorld(),
+		AttackerCharacter->GetActorLocation(),
+		TargetActor->GetActorLocation(),
+		PathClearanceRadius,
+		ActorsToIgnore))
+	{
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[FINISHER] Path to target %s is blocked by obstacle"),
+				*TargetActor->GetName());
+		}
+		return false;
+	}
+
 	// Get target's hit reaction component
 	UHitReactionComponent* TargetHitReaction = TargetActor->FindComponentByClass<UHitReactionComponent>();
 	if (!TargetHitReaction)
@@ -1169,6 +1196,21 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 
 			if (bAttackerMontageSuccess)
 			{
+				// GAP 3.3: Jump to specific section if configured
+				if (!AttackData->FinisherData->AttackerMontageSection.IsNone())
+				{
+					AttackerAnimInstance->Montage_JumpToSection(
+						AttackData->FinisherData->AttackerMontageSection,
+						AttackData->FinisherData->AttackerMontage
+					);
+					// Prevent looping back to earlier sections
+					AttackerAnimInstance->Montage_SetNextSection(
+						AttackData->FinisherData->AttackerMontageSection,
+						NAME_None,
+						AttackData->FinisherData->AttackerMontage
+					);
+				}
+
 				// Set up attacker paired warp (continuous tracking toward victim)
 				// Uses TargetingComponent's paired warp system for:
 				// - Continuous position updates each frame (tracks moving victim)
@@ -1182,8 +1224,11 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[FINISHER] Attacker montage playing: %s"),
-						*AttackData->FinisherData->AttackerMontage->GetName());
+					FString SectionInfo = AttackData->FinisherData->AttackerMontageSection.IsNone()
+						? TEXT("(full)")
+						: *AttackData->FinisherData->AttackerMontageSection.ToString();
+					UE_LOG(LogCombat, Log, TEXT("[FINISHER] Attacker montage playing: %s Section: %s"),
+						*AttackData->FinisherData->AttackerMontage->GetName(), *SectionInfo);
 				}
 			}
 		}
@@ -1211,6 +1256,21 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 
 			if (bVictimMontageSuccess)
 			{
+				// GAP 3.3: Jump to specific section if configured
+				if (!AttackData->FinisherData->VictimMontageSection.IsNone())
+				{
+					VictimAnimInstance->Montage_JumpToSection(
+						AttackData->FinisherData->VictimMontageSection,
+						AttackData->FinisherData->VictimMontage
+					);
+					// Prevent looping back to earlier sections
+					VictimAnimInstance->Montage_SetNextSection(
+						AttackData->FinisherData->VictimMontageSection,
+						NAME_None,
+						AttackData->FinisherData->VictimMontage
+					);
+				}
+
 				// Set up victim warp to attacker
 				if (UTargetingComponent* VictimTargeting = TargetActor->FindComponentByClass<UTargetingComponent>())
 				{
@@ -1247,8 +1307,11 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[FINISHER] Victim montage playing: %s (StartPos: %.2f)"),
-						*AttackData->FinisherData->VictimMontage->GetName(), StartPosition);
+					FString SectionInfo = AttackData->FinisherData->VictimMontageSection.IsNone()
+						? TEXT("(full)")
+						: *AttackData->FinisherData->VictimMontageSection.ToString();
+					UE_LOG(LogCombat, Log, TEXT("[FINISHER] Victim montage playing: %s Section: %s (StartPos: %.2f)"),
+						*AttackData->FinisherData->VictimMontage->GetName(), *SectionInfo, StartPosition);
 				}
 			}
 		}

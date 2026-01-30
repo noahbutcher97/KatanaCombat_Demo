@@ -594,6 +594,23 @@ bool UHitReactionComponent::PlaySpecialReaction(ESpecialReactionType SpecialType
 
 bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
 {
+    // ========================================================================
+    // GUARD: Already dead - death outcome was already applied
+    // ========================================================================
+    // This can happen when:
+    // 1. Victim montage ended first → OnAnyMontageBlendingOut applied outcome
+    // 2. Then damage was applied → HandleDeath() called PlayDeathReaction()
+    // In this case, the character is already dead (bIsDead = true), so skip.
+    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
+    {
+        if (CombatChar->bIsDead)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s PlayDeathReaction: Character already dead (outcome already applied) - skipping"),
+                OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
+            return true;  // Death already handled
+        }
+    }
+
     // Clear reaction history on death (fresh start if revived)
     ClearReactionHistory();
 
@@ -732,9 +749,13 @@ void UHitReactionComponent::OnAnyMontageBlendingOut(UAnimMontage* Montage, bool 
         Montage ? *Montage->GetName() : TEXT("nullptr"),
         bInterrupted ? TEXT("YES") : TEXT("NO"));
 
-    // Clear pending state
+    // Clear ALL death-related flags to prevent double application
+    // This is critical: if PlayDeathReaction is called later (after damage is applied),
+    // it must NOT re-apply the outcome. Clearing bDeathHandledByPairedAnimation ensures
+    // PlayDeathReaction will either skip (if already finalized) or fall through to normal path.
     bDeathOutcomePending = false;
     PendingDeathMontage = nullptr;
+    bDeathHandledByPairedAnimation = false;  // CRITICAL: Prevents double outcome application
 
     UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s Applying death outcome: %s"),
         OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),

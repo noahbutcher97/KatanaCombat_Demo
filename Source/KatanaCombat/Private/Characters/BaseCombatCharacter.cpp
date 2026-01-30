@@ -77,6 +77,28 @@ void ABaseCombatCharacter::SetHealth(float NewHealth, AActor* DamageInstigator)
 void ABaseCombatCharacter::HandleDeath_Implementation(AActor* Killer)
 {
     // ========================================================================
+    // GUARD: Already dead or dying - don't process death twice
+    // ========================================================================
+    // This can happen when:
+    // 1. Finisher victim montage ended → OnAnyMontageBlendingOut applied death outcome
+    // 2. FinalizeDeath() was called → bIsDead = true
+    // 3. CompletePairedAnimation() applies damage → HandleDeath called again
+    // In this case, death was already processed, so skip.
+    if (bIsDead)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[DEATH] %s HandleDeath called but already DEAD - skipping"),
+            *GetName());
+        return;
+    }
+
+    if (bIsDying)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[DEATH] %s HandleDeath called but already DYING - skipping"),
+            *GetName());
+        return;
+    }
+
+    // ========================================================================
     // TWO-STAGE DEATH: Enter DYING state (not DEAD yet)
     // ========================================================================
     // Dying = lethal damage received, death animation playing, combat blocked
