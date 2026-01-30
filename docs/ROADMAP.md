@@ -27,6 +27,7 @@ Current implementation status and planned features for the combat system.
 | **Unified Motion Warping** | **Complete** | SetupAttackWarp() + AnimNotifyState_CombatWarp |
 | **Team System** | **Complete** | ITeamMemberInterface for friend/foe detection |
 | **Hit Reaction System** | **Complete** | Directional reactions, i-frames, stun, data-driven settings |
+| **Hit Reaction Variations** | **Complete** | N-2 randomization, per-variant sections, custom editor UI |
 | **Death System** | **Complete** | Directional death animations, ragdoll transition, bIsDead flag |
 
 ### Architecture Consolidation (v3.0.0)

@@ -15,6 +15,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [3.1.0] - 2025-01-29
+
+### Added: Hit Reaction Variations with N-2 Randomization
+
+Implement animation variety for hit reactions to prevent repetitive flip-flopping between the same 1-2 animations.
+
+**New Data Types** (`CombatTypes.h`):
+- `FReactionMontageVariant`: Pairs montage with optional section selection
+- `FReactionHistory`: Tracks recently played animation indices for variety selection
+
+**Extended FHitReactionEntry**:
+- Added `ReactionMontages` array (`TArray<FReactionMontageVariant>`)
+- New helpers: `GetAllVariants()`, `GetMontageCount()`
+- Backwards compatible: Single `ReactionMontage` field still works
+
+**Selection Algorithm** (`HitReactionComponent`):
+| Array Size | Behavior |
+|------------|----------|
+| 1 montage | Always play it (no exclusion) |
+| 2 montages | Alternate back and forth |
+| 3+ montages | N-2 randomization (exclude last 2, random from remaining) |
+
+**New Functions**:
+- `SelectMontageWithVariety()` - Adaptive selection based on array size
+- `RecordMontagePlay()` - Track played indices per intensity+direction
+- `ClearReactionHistory()` - Reset on death for fresh variety on respawn
+
+**Custom Editor UI** (`KatanaCombatEditor`):
+- `FReactionMontageVariantCustomization` - Compact inline display
+- Each array element shows montage picker + section dropdown
+- Section dropdown auto-populates from selected montage's sections
+- Validates sections and resets if montage changes
+
+**Files Created**:
+- `Source/KatanaCombatEditor/Public/Customizations/ReactionMontageVariantCustomization.h`
+- `Source/KatanaCombatEditor/Private/Customizations/ReactionMontageVariantCustomization.cpp`
+
+**Files Modified**:
+- `Source/KatanaCombat/Public/CombatTypes.h` - New structs
+- `Source/KatanaCombat/Public/Core/HitReactionComponent.h` - Variety selection
+- `Source/KatanaCombat/Private/Core/HitReactionComponent.cpp` - Implementation
+- `Source/KatanaCombatEditor/Private/KatanaCombatEditor.cpp` - Registration
+
+---
+
 ## [3.0.0] - 2025-01-28
 
 ### Major: Architecture Consolidation & Motion Warping Unification
