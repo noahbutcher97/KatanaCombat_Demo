@@ -552,11 +552,21 @@ public:
 	 * Cancel the current paired animation immediately.
 	 * Used when a partner dies or other interrupt conditions occur.
 	 * Stops montage, clears partners, restores state.
+	 * Does NOT apply damage (use CompletePairedAnimation for successful completion).
 	 *
 	 * @param BlendOutTime - How quickly to blend out the current montage (default 0.1s)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void CancelPairedAnimation(float BlendOutTime = 0.1f);
+
+	/**
+	 * Complete the current paired animation successfully.
+	 * Called when finisher montage ends normally (not interrupted).
+	 * Applies damage to victim, handles death if lethal, cleans up all state.
+	 * This is distinct from CancelPairedAnimation which is for interruptions.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
+	void CompletePairedAnimation();
 
 	// ============================================================================
 	// DEBUG / VISUALIZATION
@@ -712,6 +722,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	/**
 	 * Validates that default attacks are assigned (called in BeginPlay in editor builds)
@@ -777,6 +788,12 @@ protected:
 
 	/** Cached reaction type for active paired animation (used by EndPairedAnimation for delegate broadcast) */
 	EPairedReactionType ActivePairedReactionType = EPairedReactionType::None;
+
+	/** Tracked victim during finisher execution (for damage application at completion) */
+	TWeakObjectPtr<AActor> CurrentFinisherVictim;
+
+	/** Guard flag to prevent CompletePairedAnimation from being called multiple times (Gap 20.4) */
+	bool bCompletingPairedAnimation = false;
 
 	/** Is character movement currently disabled? (for procedural sync) */
 	bool bMovementCurrentlyDisabled = false;

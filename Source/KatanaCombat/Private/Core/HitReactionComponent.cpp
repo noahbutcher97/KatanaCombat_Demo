@@ -307,7 +307,21 @@ bool UHitReactionComponent::PlayFinisherVictimAnimation(FName FinisherName)
 
 bool UHitReactionComponent::CanBeDamaged() const
 {
-    return !bIsInvulnerable;
+    if (bIsInvulnerable)
+    {
+        return false;
+    }
+
+    // Can't take damage while dying or dead
+    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
+    {
+        if (CombatChar->IsDeadOrDying())
+        {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 // ============================================================================
@@ -586,6 +600,73 @@ bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
     // Reset ragdoll flag (for respawn scenarios where character was previously ragdolled)
     bRagdollActivated = false;
 
+    // ========================================================================
+    // PAIRED ANIMATION DEATH HANDLING
+    // If death was caused by a paired animation (finisher, lethal counter),
+    // the victim montage IS the death animation. Don't play another one.
+    //
+    // With SetupPendingDeathFromFinisher(), the pending death state is set up
+    // BEFORE damage is applied. The victim montage continues playing as the
+    // death animation, and OnAnyMontageBlendingOut will apply the outcome
+    // when it ends. This uses the SAME pattern as normal death handling.
+    // ========================================================================
+    if (bDeathHandledByPairedAnimation)
+    {
+        // Check if we're using the new pending death pattern (montage still playing)
+        // vs the old immediate pattern (montage already stopped)
+        if (bDeathOutcomePending && PendingDeathMontage)
+        {
+            // New pattern: The victim montage is still playing as the death animation.
+            // Do NOT apply the outcome now - let the montage continue playing.
+            // OnAnyMontageBlendingOut will catch it when it ends and apply the outcome.
+            UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s PlayDeathReaction: Finisher victim montage is playing as death animation - waiting for blend-out (Montage=%s, Outcome=%s)"),
+                OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+                PendingDeathMontage ? *PendingDeathMontage->GetName() : TEXT("nullptr"),
+                *UEnum::GetValueAsString(PairedAnimationDeathOutcome));
+
+            // Clear the flag so we don't re-enter this path
+            bDeathHandledByPairedAnimation = false;
+
+            // Return true - death is being handled, just not immediately
+            return true;
+        }
+        else
+        {
+            // Old pattern fallback: Apply outcome directly (shouldn't happen with new flow)
+            UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s PlayDeathReaction: Death handled by paired animation, applying outcome directly (Outcome=%s, BlendTime=%.2f)"),
+                OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+                *UEnum::GetValueAsString(PairedAnimationDeathOutcome),
+                PairedAnimationRagdollBlendTime);
+
+            // Clear the flag
+            bDeathHandledByPairedAnimation = false;
+
+            // Apply the outcome directly (victim montage is already playing/ending)
+            switch (PairedAnimationDeathOutcome)
+            {
+                case EReactionOutcome::Death:
+                    // Freeze at current pose (end of finisher victim animation)
+                    FreezeAtCurrentPose();
+                    break;
+
+                case EReactionOutcome::Ragdoll:
+                    // Activate ragdoll from current pose
+                    ActivateRagdoll(PairedAnimationRagdollBlendTime);
+                    break;
+
+                case EReactionOutcome::StandardRecovery:
+                default:
+                    // This shouldn't happen for lethal paired animations, but handle gracefully
+                    UE_LOG(LogTemp, Warning, TEXT("[HitReaction] %s StandardRecovery outcome for paired animation death - this is unusual"),
+                        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
+                    ActivateRagdoll(0.2f);
+                    break;
+            }
+
+            return true;
+        }
+    }
+
     UHitReactionSettings* Settings = GetEffectiveSettings();
     if (!Settings || !AnimInstance)
     {
@@ -719,6 +800,11 @@ void UHitReactionComponent::ActivateRagdoll(float BlendTime)
     Mesh->SetSimulatePhysics(true);
     Mesh->SetCollisionEnabled(ECollisionEnabled::PhysicsOnly);
 
+    // CRITICAL: Clear any accumulated velocity to prevent ragdoll "pop"
+    // This stops the ragdoll from launching into the air when physics activates
+    Mesh->SetAllPhysicsLinearVelocity(FVector::ZeroVector);
+    Mesh->SetAllPhysicsAngularVelocityInDegrees(FVector::ZeroVector);
+
     // Set ragdoll collision profile
     Mesh->SetCollisionProfileName(TEXT("Ragdoll"));
 
@@ -740,6 +826,12 @@ void UHitReactionComponent::ActivateRagdoll(float BlendTime)
     UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s activated ragdoll (snapshot saved as '%s')"),
         OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
         *DeathPoseSnapshotName.ToString());
+
+    // Finalize death - transition from Dying to Dead state
+    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
+    {
+        CombatChar->FinalizeDeath();
+    }
 }
 
 void UHitReactionComponent::TriggerRagdollFromNotify(float BlendTime)
@@ -808,6 +900,12 @@ void UHitReactionComponent::FreezeAtCurrentPose()
     UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s frozen at death pose (snapshot: '%s', anims paused)"),
         OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
         *DeathPoseSnapshotName.ToString());
+
+    // 5. Finalize death - transition from Dying to Dead state
+    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
+    {
+        CombatChar->FinalizeDeath();
+    }
 }
 
 void UHitReactionComponent::ClearDeathPoseSnapshot()
@@ -982,4 +1080,69 @@ bool UHitReactionComponent::IsGuardBroken() const
 
     // Use IDamageableInterface for flexibility (returns false until posture implemented)
     return IDamageableInterface::Execute_IsGuardBroken(CombatChar);
+}
+
+void UHitReactionComponent::SetDeathHandledByPairedAnimation(EReactionOutcome Outcome, float RagdollBlendTime)
+{
+    bDeathHandledByPairedAnimation = true;
+    PairedAnimationDeathOutcome = Outcome;
+    PairedAnimationRagdollBlendTime = RagdollBlendTime;
+
+    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s SetDeathHandledByPairedAnimation: Outcome=%s, BlendTime=%.2f"),
+        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+        *UEnum::GetValueAsString(Outcome),
+        RagdollBlendTime);
+}
+
+void UHitReactionComponent::ClearPairedAnimationDeathHandling()
+{
+    if (bDeathHandledByPairedAnimation || bDeathOutcomePending)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s ClearPairedAnimationDeathHandling: Clearing all death flags (PairedFlag=%s, PendingOutcome=%s)"),
+            OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+            bDeathHandledByPairedAnimation ? TEXT("true") : TEXT("false"),
+            bDeathOutcomePending ? TEXT("true") : TEXT("false"));
+    }
+
+    // Clear the old immediate-apply flags
+    bDeathHandledByPairedAnimation = false;
+    PairedAnimationDeathOutcome = EReactionOutcome::Ragdoll;
+    PairedAnimationRagdollBlendTime = 0.2f;
+
+    // Also clear the new pending death state (for finisher cancellation scenarios)
+    // If a finisher is cancelled before the victim montage ends, we need to
+    // prevent OnAnyMontageBlendingOut from applying the death outcome
+    bDeathOutcomePending = false;
+    PendingDeathMontage = nullptr;
+    PendingDeathOutcome = EReactionOutcome::Ragdoll;
+    PendingRagdollBlendTime = 0.2f;
+}
+
+void UHitReactionComponent::SetupPendingDeathFromFinisher(UAnimMontage* FinisherVictimMontage, EReactionOutcome Outcome, float RagdollBlendTime)
+{
+    // Use the SAME pattern as normal death handling:
+    // - Register the finisher victim montage as the "death montage"
+    // - Set up pending outcome
+    // - When the montage ends/blends-out, OnAnyMontageBlendingOut will apply the outcome
+    //
+    // This is called at FINISHER START when the victim montage begins.
+    // The victim is considered "dead" when damage is applied (during finisher),
+    // but the finisher victim montage continues as the death animation.
+    // When it ends, the outcome (ragdoll/freeze) is applied automatically.
+
+    PendingDeathMontage = FinisherVictimMontage;
+    PendingDeathOutcome = Outcome;
+    PendingRagdollBlendTime = RagdollBlendTime;
+    bDeathOutcomePending = true;
+
+    // Also set the paired animation flag so PlayDeathReaction knows to skip playing a new animation
+    bDeathHandledByPairedAnimation = true;
+    PairedAnimationDeathOutcome = Outcome;
+    PairedAnimationRagdollBlendTime = RagdollBlendTime;
+
+    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s SetupPendingDeathFromFinisher: Montage=%s, Outcome=%s, BlendTime=%.2f"),
+        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+        FinisherVictimMontage ? *FinisherVictimMontage->GetName() : TEXT("nullptr"),
+        *UEnum::GetValueAsString(Outcome),
+        RagdollBlendTime);
 }

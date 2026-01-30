@@ -1,0 +1,129 @@
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 bound global OnMontageBlendingOut delegate
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 bound global OnMontageBlendingOut delegate
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 bound global OnMontageBlendingOut delegate
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 bound global OnMontageBlendingOut delegate
+LogTemp: [HitReaction] BP_SamuraiCharacter_C_0 bound global OnMontageBlendingOut delegate
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [DEBUG] Total Checkpoints: 3
+LogTemp: [DEBUG] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DEBUG] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DEBUG] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_3' → 'LightAttack_4'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.667 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=3.001 Duration=0.286 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.287 Duration=0.379 Active=Yes
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_4
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 49.0 -> 24.0 (delta: -25.0, max: 100.0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 SetDeathHandledByPairedAnimation: Outcome=EReactionOutcome::Ragdoll, BlendTime=0.20
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 100.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 24.0 -> 0.0 (delta: -24.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 PlayDeathReaction: Death handled by paired animation, applying outcome directly (Outcome=EReactionOutcome::Ragdoll, BlendTime=0.20)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 activated ragdoll (snapshot saved as 'DeathPose')
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 was killed by BP_SamuraiCharacter_C_0
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_2
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 49.0 -> 24.0 (delta: -25.0, max: 100.0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 SetDeathHandledByPairedAnimation: Outcome=EReactionOutcome::Ragdoll, BlendTime=0.20
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 100.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 24.0 -> 0.0 (delta: -24.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 PlayDeathReaction: Death handled by paired animation, applying outcome directly (Outcome=EReactionOutcome::Ragdoll, BlendTime=0.20)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 activated ragdoll (snapshot saved as 'DeathPose')
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 was killed by BP_SamuraiCharacter_C_0
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 49.0 -> 23.0 (delta: -26.0, max: 100.0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 SetDeathHandledByPairedAnimation: Outcome=EReactionOutcome::Ragdoll, BlendTime=0.20
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 100.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 23.0 -> 0.0 (delta: -23.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 PlayDeathReaction: Death handled by paired animation, applying outcome directly (Outcome=EReactionOutcome::Ragdoll, BlendTime=0.20)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 activated ragdoll (snapshot saved as 'DeathPose')
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 was killed by BP_SamuraiCharacter_C_0

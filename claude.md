@@ -250,25 +250,91 @@ This applies to ALL `BlueprintNativeEvent` interface methods:
 - Use descriptive commit messages with bullet points for changes
 - Bypass pre-commit hooks with `--no-verify` if they have errors (hooks in `.claude/hooks/` may have issues)
 
-## Active Development
+## Active Development & System Status
 
-Track ongoing work across sessions. Update this section when starting/completing major tasks.
+Track ongoing work across sessions. This section provides detailed status of all major systems.
 
-**Current Focus**:
-- **Paired Animation System (Phase 5)**: Synced finisher/counter animations with position constraints
-  - Starting with Finishers (5a) to establish paired warp framework
-  - Then Parry Counters (5b) leveraging finisher infrastructure
+### Paired Animation System (Phase 5) - PRIMARY FOCUS
 
-**Deferred (Post Phase 5)**:
-- Predictive Terrain Analysis: Multi-point forward sampling for smooth slope transitions
-- Foot IK Integration: Uses environmental awareness utilities from DebugUtils
+**Overall Status**: ~95% of Finisher system complete, ready for testing
 
-**Recently Completed**:
-- Terrain-Aware Motion Warping (2025-01-30): Ground sampling, warp Z adjustment, floating detection
-- Hit Reaction Variations (2025-01-29): N-2 randomization, cycled animation arrays
-- Death System (2025-01-29): Directional death animations, ragdoll transitions, bIsDead flag
+#### Fully Implemented (Production Ready)
+| Component | Files | Description |
+|-----------|-------|-------------|
+| Finisher Execution Flow | CombatComponent.cpp | `TryExecuteFinisher()` → `CompletePairedAnimation()` |
+| Finisher Vulnerability | HitReactionComponent.h/.cpp | `IsVulnerableToFinisher()`, `GetFinisherTriggerReason()` |
+| Symmetric Warp Tracking | TargetingComponent.h/.cpp | `SetupVictimWarp()`, `SetupAttackerPairedWarp()` with continuous tracking |
+| Partner Collision Management | CombatComponent.h/.cpp | `PairedAnimationPartners` array + `IgnoreActorWhenMoving()` |
+| Input Blocking | CombatComponent.cpp | `bBlockCombatInput` flag in `CanProcessInput()` |
+| State Transition Safety | CombatComponent.cpp | `OnPairedPartnerDeath()`, `CancelPairedAnimation()`, EndPlay cleanup |
+| Death Animation Handling | HitReactionComponent.h/.cpp | `bDeathHandledByPairedAnimation` flag prevents double death |
+| Damage Application | CombatComponent.cpp | Intelligent calc: `Max(damage, currentHealth + 1)` for lethal |
+| Guard Flags | CombatComponent.cpp | `bCompletingPairedAnimation` prevents double execution |
+| Distance Validation | CombatComponent.cpp | Uses SoftAimRange (intentional - see design decisions) |
+| Sync Point Validation | AnimNotifyState_PairedAnimationSync.cpp | Alignment check with auto-nudge |
+| Cinematic Effects | CinematicEffectsUtilityLibrary.h/.cpp | `ApplySlowMotion()`, `TriggerCameraShake()`, `RestoreTimeDilation()` |
+| Obstacle Validation | PairedAnimationUtilityLibrary.cpp | `ValidatePairedAnimation()`, `IsPathClear()` |
+| Debug Visualization | CombatDebugHUD.cpp, DebugUtils.cpp | CVars for warp targets, partner connections, sync points |
+| Test Suite | PairedAnimationTests.cpp | 34 tests covering core functionality |
 
-**Plans**: See `docs/plans/` for detailed implementation plans and `docs/plans/archive/` for completed plans.
+#### Scaffolded (Property Slots Exist, Not Wired)
+| Component | Files | What Exists | What's Missing |
+|-----------|-------|-------------|----------------|
+| Audio Effects | PairedAnimationData.h | `ImpactSound`, `VictimReactionSound`, `AttackerVoiceLine`, `MusicDuckingDB` | No `PlaySoundAtLocation()` calls at sync points |
+| VFX Effects | PairedAnimationData.h | `ImpactVFX`, `SlowMoPostProcessMaterial`, `ScreenBloodMaterial`, `bSpawnBloodDecals` | No Niagara spawning, no post-process application |
+| Selective Hitstop | CinematicEffectsUtilityLibrary.h | `FreezeActors()`, `RestoreActors()` functions | Not called in finisher flow - uses world slow-mo instead |
+
+#### Planned (Not Yet Started)
+| Component | Priority | Blocker |
+|-----------|----------|---------|
+| Montage Section Support (Gap 3.3) | P1 | Need `AttackerMontageSection`, `VictimMontageSection` fields |
+| Counter-Specific Fields | P2 | Awaiting parry→counter system design |
+| Parry-Specific Fields | P2 | Awaiting parry→counter system design |
+| AI Attack Token System | P2 | Phase 5b-5 - `UCombatTokenSubsystem` |
+
+#### Key Design Decisions
+1. **SoftAimRange for Finisher Distance**: Intentional. Finisher-specific detection wasn't working. SoftAimRange is proven to work.
+2. **Single UPairedAnimationData**: Architecture analysis recommends Option A - single data asset with EditCondition-based field hiding per ReactionType.
+3. **World Slow-Mo Over Selective Hitstop**: Simpler implementation, similar visual effect. Selective freeze available if needed later.
+4. **Death Handled by Paired Animation Flag**: Prevents HitReactionComponent from playing AM_Deaths after finisher - victim montage IS the death animation.
+
+#### Entry Points for Finisher Flow
+```
+Player Input → CombatComponent::TryExecuteFinisher()
+  └→ HitReactionComponent::IsVulnerableToFinisher() (check target)
+  └→ TargetingComponent::SetupAttackerPairedWarp() (attacker positioning)
+  └→ TargetingComponent::SetupVictimWarp() (victim positioning)
+  └→ PlayMontage (both characters)
+  └→ AnimNotifyState_PairedAnimationSync (sync point trigger)
+  └→ OnMontageEnded → CompletePairedAnimation() (damage, cleanup)
+     └→ HitReactionComponent::SetDeathHandledByPairedAnimation()
+     └→ IDamageableInterface::ApplyDamage() → Die() → PlayDeathReaction()
+        └→ Checks flag → Skips AM_Deaths → Applies outcome directly
+```
+
+### Core Combat System - STABLE
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| 4-Component Architecture | ✅ Stable | Combat, Targeting, Weapon, HitReaction |
+| Input Buffering | ✅ Stable | FIFO queue, input always captured |
+| Combo System | ✅ Stable | ComboWindow-based chaining |
+| Posture/Guard | ✅ Stable | Guard break mechanics NOT yet implemented |
+| Hit Detection | ✅ Stable | Socket-based weapon traces |
+| Death System | ✅ Stable | Directional deaths, ragdoll transitions |
+| Terrain Warping | ✅ Stable | Ground sampling, Z-adjustment |
+
+### Deferred Systems (Post Phase 5)
+
+| System | Reason | Dependency |
+|--------|--------|------------|
+| Predictive Terrain Analysis | Polish feature | Core combat complete |
+| Foot IK Integration | Uses DebugUtils terrain awareness | Animation polish pass |
+| Multi-Victim Finishers | Complex design | Single-victim finishers proven |
+| Environmental Finishers | Needs architecture | Standard finishers proven |
+| Network Replication | Major feature | All systems locally verified |
+
+**Plans**: See `.claude/plans/synthetic-painting-ritchie.md` for detailed paired animation plan and gap tracking.
 
 ## Test Suite
 

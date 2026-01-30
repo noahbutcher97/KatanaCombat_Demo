@@ -263,10 +263,10 @@ void UWeaponComponent::ProcessHit(const FHitResult& Hit)
         return;
     }
 
-    // Filter out dead actors at the trace level - they shouldn't count as hits
+    // Filter out dead/dying actors at the trace level - they shouldn't count as hits
     if (const ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(HitActor))
     {
-        if (CombatChar->bIsDead)
+        if (CombatChar->IsDeadOrDying())
         {
             return;
         }

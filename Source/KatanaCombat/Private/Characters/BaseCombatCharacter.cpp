@@ -76,11 +76,25 @@ void ABaseCombatCharacter::SetHealth(float NewHealth, AActor* DamageInstigator)
 
 void ABaseCombatCharacter::HandleDeath_Implementation(AActor* Killer)
 {
-    // Set dead flag first to block any further damage/reactions
-    bIsDead = true;
+    // ========================================================================
+    // TWO-STAGE DEATH: Enter DYING state (not DEAD yet)
+    // ========================================================================
+    // Dying = lethal damage received, death animation playing, combat blocked
+    // Dead  = death animation complete, ragdoll/freeze applied
+    //
+    // This allows the death animation to play through naturally before
+    // the final outcome (ragdoll/freeze) is applied via FinalizeDeath().
+    // ========================================================================
 
-    // Broadcast death event
-    OnCharacterDeath.Broadcast(Killer);
+    // Set DYING flag - blocks combat but allows animation to continue
+    bIsDying = true;
+
+    UE_LOG(LogTemp, Log, TEXT("[DEATH] %s entering DYING state (killed by %s)"),
+        *GetName(),
+        Killer ? *Killer->GetName() : TEXT("Unknown"));
+
+    // Broadcast dying event - systems can react to "dying" state
+    OnCharacterDying.Broadcast(Killer);
 
     // Calculate death direction from killer
     EAttackDirection DeathDirection = EAttackDirection::Forward;
@@ -91,19 +105,55 @@ void ABaseCombatCharacter::HandleDeath_Implementation(AActor* Killer)
         DeathDirection = HitReactionComponent->GetHitDirectionRelativeToFacing(ToKiller);
     }
 
-    // Play death reaction through HitReactionComponent (handles animation + ragdoll)
-    // NOTE: Movement is disabled AFTER the death animation completes (in HitReactionComponent)
-    // to allow root motion to work during the death animation
+    // Play death reaction through HitReactionComponent
+    // This sets up pending death outcome - the outcome will be applied when:
+    // 1. Death animation ends (OnAnyMontageBlendingOut), OR
+    // 2. AnimNotify_ActivateRagdoll fires (early ragdoll)
+    // At that point, HitReactionComponent calls FinalizeDeath() to transition to DEAD state
     if (HitReactionComponent)
     {
         HitReactionComponent->PlayDeathReaction(DeathDirection);
     }
 
-    // Disable combat component
+    // Disable combat component tick (combat is blocked during dying)
     if (CombatComponent)
     {
         CombatComponent->SetComponentTickEnabled(false);
     }
+}
+
+void ABaseCombatCharacter::FinalizeDeath()
+{
+    // ========================================================================
+    // TWO-STAGE DEATH: Transition from DYING to DEAD
+    // ========================================================================
+    // Called by HitReactionComponent when death animation completes
+    // (either via OnAnyMontageBlendingOut or AnimNotify_ActivateRagdoll)
+    // ========================================================================
+
+    if (bIsDead)
+    {
+        // Already dead - prevent double finalization
+        UE_LOG(LogTemp, Warning, TEXT("[DEATH] %s FinalizeDeath called but already DEAD"),
+            *GetName());
+        return;
+    }
+
+    if (!bIsDying)
+    {
+        // Not dying - something is wrong
+        UE_LOG(LogTemp, Warning, TEXT("[DEATH] %s FinalizeDeath called but not DYING"),
+            *GetName());
+    }
+
+    // Transition to DEAD state
+    bIsDead = true;
+
+    UE_LOG(LogTemp, Log, TEXT("[DEATH] %s entering DEAD state (death finalized)"),
+        *GetName());
+
+    // Broadcast death event - character is now truly dead
+    OnCharacterDeath.Broadcast(nullptr);  // Killer not tracked to finalize
 }
 
 // ============================================================================
@@ -203,7 +253,8 @@ float ABaseCombatCharacter::GetMaxHealth_Implementation() const
 
 bool ABaseCombatCharacter::IsAlive_Implementation() const
 {
-    return CurrentHealth > 0.0f;
+    // Alive = not dying AND not dead (health doesn't matter once dying starts)
+    return !IsDeadOrDying();
 }
 
 // ============================================================================
@@ -397,12 +448,12 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         *HitActor->GetName(),
         *AttackData->GetName());
 
-    // Skip dead actors entirely - no damage, no reactions
+    // Skip dead/dying actors entirely - no damage, no reactions
     if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(HitActor))
     {
-        if (CombatChar->bIsDead)
+        if (CombatChar->IsDeadOrDying())
         {
-            UE_LOG(LogTemp, Warning, TEXT("[HIT] %s SKIPPED: Target %s is dead (bIsDead=true)"),
+            UE_LOG(LogTemp, Warning, TEXT("[HIT] %s SKIPPED: Target %s is dead or dying"),
                 *GetName(), *HitActor->GetName());
             return;
         }

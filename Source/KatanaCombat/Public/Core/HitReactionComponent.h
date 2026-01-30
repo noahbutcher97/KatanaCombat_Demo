@@ -295,6 +295,40 @@ public:
     UFUNCTION(BlueprintPure, Category = "Hit Reaction|Finisher")
     bool IsGuardBroken() const;
 
+    /**
+     * Mark that death will be handled by a paired animation (finisher, lethal counter).
+     * When this is set, PlayDeathReaction() will skip playing a new animation and instead
+     * apply the specified outcome directly. The paired animation victim montage IS the death
+     * animation, so we don't want to play another one.
+     *
+     * @param Outcome - What happens after death (Ragdoll or Death/freeze pose)
+     * @param RagdollBlendTime - Blend time for ragdoll transition (only used if Outcome == Ragdoll)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Finisher")
+    void SetDeathHandledByPairedAnimation(EReactionOutcome Outcome, float RagdollBlendTime = 0.2f);
+
+    /**
+     * Clear paired animation death handling (call if paired animation is cancelled before death).
+     */
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Finisher")
+    void ClearPairedAnimationDeathHandling();
+
+    /**
+     * Set up pending death state for a finisher victim montage.
+     * Uses the same pattern as normal death handling - when the montage ends/blends-out,
+     * OnAnyMontageBlendingOut will apply the configured outcome (ragdoll/freeze).
+     *
+     * This is called at finisher START (when victim montage begins playing).
+     * The victim is considered "dead" when damage is applied, but the finisher victim
+     * montage continues playing as the death animation until it ends.
+     *
+     * @param FinisherVictimMontage - The victim's montage to track (becomes PendingDeathMontage)
+     * @param Outcome - What happens when montage ends (Ragdoll or Death/freeze)
+     * @param RagdollBlendTime - Blend time for ragdoll (if Outcome == Ragdoll)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Finisher")
+    void SetupPendingDeathFromFinisher(UAnimMontage* FinisherVictimMontage, EReactionOutcome Outcome, float RagdollBlendTime = 0.2f);
+
     // ============================================================================
     // EVENTS
     // ============================================================================
@@ -462,6 +496,23 @@ private:
 
     /** Is death outcome pending? */
     bool bDeathOutcomePending = false;
+
+    // ============================================================================
+    // PAIRED ANIMATION DEATH HANDLING
+    // ============================================================================
+
+    /**
+     * When true, PlayDeathReaction() will skip playing a new animation and instead
+     * apply the stored outcome directly. This is used when the paired animation
+     * (finisher, lethal counter) IS the death animation.
+     */
+    bool bDeathHandledByPairedAnimation = false;
+
+    /** Outcome to apply when paired animation death is triggered */
+    EReactionOutcome PairedAnimationDeathOutcome = EReactionOutcome::Ragdoll;
+
+    /** Blend time for ragdoll transition from paired animation */
+    float PairedAnimationRagdollBlendTime = 0.2f;
 
     /** Blend time for pending ragdoll transition */
     float PendingRagdollBlendTime = 0.2f;

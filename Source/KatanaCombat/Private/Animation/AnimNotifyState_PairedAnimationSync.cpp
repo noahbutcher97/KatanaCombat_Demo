@@ -125,6 +125,15 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
                 }
             }
         }
+        else if (bLogMisalignment)
+        {
+            // Gap 19.2 fix: Log warning when paired partner is null at primary sync point
+            // This indicates the partner was destroyed/teleported mid-animation
+            UE_LOG(LogCombat, Warning,
+                TEXT("[SYNC VALIDATION] %s at sync point '%s' but PairedPartner is null (destroyed during animation?)"),
+                *Owner->GetName(),
+                *SyncPointName.ToString());
+        }
     }
 
     // ========================================================================

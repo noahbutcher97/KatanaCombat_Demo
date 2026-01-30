@@ -3,6 +3,7 @@
 #include "Core/CombatComponent.h"
 #include "Core/WeaponComponent.h"
 #include "Interfaces/CombatInterface.h"
+#include "Interfaces/DamageableInterface.h"
 #include "Data/AttackData.h"
 #include "Data/AttackConfiguration.h"
 #include "Data/CombatSettings.h"
@@ -30,8 +31,9 @@ DEFINE_LOG_CATEGORY(LogCombat);
 
 UCombatComponent::UCombatComponent()
 {
+	// Tick only needed for debug visualization - disabled by default for performance
 	PrimaryComponentTick.bCanEverTick = true;
-	PrimaryComponentTick.bStartWithTickEnabled = true;
+	PrimaryComponentTick.bStartWithTickEnabled = false;
 }
 
 void UCombatComponent::BeginPlay()
@@ -66,6 +68,53 @@ void UCombatComponent::BeginPlay()
 		ValidateDefaultAttacks();
 		#endif
 	}
+
+	// Only enable tick if debug visualization is active (performance optimization)
+	if (GetDebugDraw())
+	{
+		SetComponentTickEnabled(true);
+	}
+}
+
+void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	// Gap 19.14 fix: Safety cleanup to prevent dangling state during level transitions or destruction
+
+	// Cancel any active paired animation (clears partners, restores time dilation, stops warp tracking)
+	if (IsPairedAnimationActive())
+	{
+		CancelPairedAnimation(0.0f);  // Immediate cancel, no blend
+	}
+
+	// Clear any remaining paired partners
+	ClearPairedPartners();
+
+	// Clear slow-motion restore timer
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(SlowMotionRestoreHandle);
+		GetWorld()->GetTimerManager().ClearTimer(EaseTimerHandle);
+	}
+
+	// Unbind montage delegates to prevent callbacks to destroyed component
+	if (OwnerCharacter && OwnerCharacter->GetMesh())
+	{
+		if (UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance())
+		{
+			AnimInstance->OnMontageBlendingOut.RemoveDynamic(this, &UCombatComponent::OnMontageBlendingOut);
+			AnimInstance->OnMontageEnded.RemoveDynamic(this, &UCombatComponent::OnMontageEnded);
+		}
+	}
+
+	// Reset combat state to prevent any lingering effects
+	CurrentAttackData = nullptr;
+	ActivePairedAnimData = nullptr;
+	CurrentFinisherVictim.Reset();
+	bBlockCombatInput = false;
+	bCompletingPairedAnimation = false;  // Gap 20.4 guard flag
+	CurrentPhase = EAttackPhase::None;
+
+	Super::EndPlay(EndPlayReason);
 }
 
 void UCombatComponent::ValidateDefaultAttacks()
@@ -993,11 +1042,34 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 		return false;
 	}
 
-	// Get current target
+	// Get current target - try hard-lock first, then fall back to soft-aim
 	AActor* TargetActor = TargetingComp->GetCurrentTarget();
 	if (!TargetActor)
 	{
-		return false;
+		// No hard-locked target - try soft-aim to find nearest enemy in facing direction
+		// This matches how normal attacks find targets via SetupAttackWarp()
+		const FVector FacingDirection = AttackerCharacter->GetActorForwardVector();
+		TargetingComp->FindBestTargetForDirection(
+			FacingDirection,
+			TargetActor,  // Out parameter
+			-1.0f,        // Use defaults
+			-1.0f,
+			-1.0f,
+			-1.0f,
+			-1.0f
+		);
+
+		if (!TargetActor)
+		{
+			// Still no target found
+			return false;
+		}
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[FINISHER] No hard-lock, using soft-aim target: %s"),
+				*TargetActor->GetName());
+		}
 	}
 
 	// ========================================================================
@@ -1064,6 +1136,9 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 
 	// Mark target as finisher target (prevents stacking) - will rollback if execution fails
 	TargetHitReaction->SetFinisherTarget(true);
+
+	// Store victim reference for damage application at completion
+	CurrentFinisherVictim = TargetActor;
 
 	// Add each other as paired animation partners
 	AddPairedPartner(TargetActor);
@@ -1142,6 +1217,34 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 					VictimTargeting->SetupVictimWarp(GetOwner(), AttackData->FinisherData->VictimWarpConfig);
 				}
 
+				// ================================================================
+				// SET UP PENDING DEATH FROM FINISHER (Same Pattern as Normal Death)
+				// ================================================================
+				// For lethal finishers, register the victim montage as the "death montage"
+				// using the same pattern as normal death handling. When the montage
+				// ends/blends-out, OnAnyMontageBlendingOut will apply the outcome.
+				//
+				// This ensures consistent behavior:
+				// - Normal death: Death montage plays → blends out → outcome applied
+				// - Finisher death: Victim montage plays → blends out → outcome applied
+				//
+				// The victim is "dead" the moment damage is applied (during finisher),
+				// but the victim montage continues playing as the death animation.
+				if (AttackData->FinisherData->bIsLethal)
+				{
+					TargetHitReaction->SetupPendingDeathFromFinisher(
+						AttackData->FinisherData->VictimMontage,
+						AttackData->FinisherData->VictimDeathOutcome,
+						AttackData->FinisherData->RagdollBlendTime);
+
+					if (GetDebugDraw())
+					{
+						UE_LOG(LogCombat, Log, TEXT("[FINISHER] Set up pending death: Outcome=%s, BlendTime=%.2f"),
+							*UEnum::GetValueAsString(AttackData->FinisherData->VictimDeathOutcome),
+							AttackData->FinisherData->RagdollBlendTime);
+					}
+				}
+
 				if (GetDebugDraw())
 				{
 					UE_LOG(LogCombat, Log, TEXT("[FINISHER] Victim montage playing: %s (StartPos: %.2f)"),
@@ -1162,6 +1265,9 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 
 		// Clear finisher target flag
 		TargetHitReaction->SetFinisherTarget(false);
+
+		// Clear victim reference
+		CurrentFinisherVictim.Reset();
 
 		// Clear partners
 		ClearPairedPartners();
@@ -2273,6 +2379,39 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 					ActionQueue.RemoveAt(i);
 					QueueStats.ActionsCancelled++;
 				}
+			}
+		}
+	}
+
+	// ========================================================================
+	// PAIRED ANIMATION COMPLETION DETECTION
+	// ========================================================================
+	// Check if this was a paired animation montage ending (finisher attacker montage)
+	// If so, complete the paired animation with damage application and cleanup
+	if (IsPairedAnimationActive() && ActivePairedAnimData && Montage)
+	{
+		// Check if this is the attacker's finisher montage
+		if (Montage == ActivePairedAnimData->AttackerMontage)
+		{
+			if (!bInterrupted)
+			{
+				// Normal completion - apply damage and cleanup
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Finisher attacker montage completed normally - calling CompletePairedAnimation"));
+				}
+				CompletePairedAnimation();
+				return;  // CompletePairedAnimation handles phase reset
+			}
+			else
+			{
+				// Interrupted - cancel without damage
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Finisher attacker montage interrupted - calling CancelPairedAnimation"));
+				}
+				CancelPairedAnimation(0.0f);
+				return;  // CancelPairedAnimation handles phase reset
 			}
 		}
 	}
@@ -3522,14 +3661,15 @@ void UCombatComponent::CancelPairedAnimation(float BlendOutTime)
 				}
 			}
 
-			// Clear finisher target flag (prevents permanently blocking re-targeting)
+			// Clear finisher target flag and death handling flag (prevents permanently blocking re-targeting)
 			if (UHitReactionComponent* PartnerHitReaction = Partner->FindComponentByClass<UHitReactionComponent>())
 			{
 				PartnerHitReaction->SetFinisherTarget(false);
+				PartnerHitReaction->ClearPairedAnimationDeathHandling();
 
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] Cleared finisher target flag on %s"),
+					UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] Cleared finisher target flag and death handling on %s"),
 						*Partner->GetName());
 				}
 			}
@@ -3555,6 +3695,12 @@ void UCombatComponent::CancelPairedAnimation(float BlendOutTime)
 		}
 	}
 
+	// Clear victim reference (no damage applied on cancel)
+	CurrentFinisherVictim.Reset();
+
+	// Clear guard flag in case CompletePairedAnimation was in progress (Gap 20.4)
+	bCompletingPairedAnimation = false;
+
 	// Clear all partners
 	ClearPairedPartners();
 
@@ -3570,5 +3716,194 @@ void UCombatComponent::CancelPairedAnimation(float BlendOutTime)
 	if (GetDebugDraw())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] ✓ Paired animation cancelled - state reset"));
+	}
+}
+
+void UCombatComponent::CompletePairedAnimation()
+{
+	// ========================================================================
+	// GUARD: PREVENT DOUBLE EXECUTION (Gap 20.4)
+	// ========================================================================
+	// OnMontageEnded may fire multiple times in edge cases - ensure we only complete once
+	if (bCompletingPairedAnimation)
+	{
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[PAIRED COMPLETE] Already completing - ignoring duplicate call"));
+		}
+		return;
+	}
+	bCompletingPairedAnimation = true;
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] ═══════════════════════════════════════"));
+		UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Completing paired animation successfully"));
+	}
+
+	// ========================================================================
+	// APPLY FINISHER DAMAGE TO VICTIM
+	// ========================================================================
+	AActor* Victim = CurrentFinisherVictim.Get();
+	if (Victim && ActivePairedAnimData)
+	{
+		// Calculate final damage
+		const float FinalDamage = ActivePairedAnimData->BaseDamage * ActivePairedAnimData->DamageMultiplier;
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Applying damage to %s: %.1f (Base: %.1f × Mult: %.2f, Lethal: %s)"),
+				*Victim->GetName(),
+				FinalDamage,
+				ActivePairedAnimData->BaseDamage,
+				ActivePairedAnimData->DamageMultiplier,
+				ActivePairedAnimData->bIsLethal ? TEXT("YES") : TEXT("NO"));
+		}
+
+		// Check if victim implements damageable interface
+		if (Victim->Implements<UDamageableInterface>())
+		{
+			// Build hit reaction info for damage application
+			FHitReactionInfo HitInfo;
+			HitInfo.Attacker = GetOwner();
+			HitInfo.HitDirection = (Victim->GetActorLocation() - GetOwner()->GetActorLocation()).GetSafeNormal();
+			HitInfo.AttackData = nullptr;  // Finisher uses PairedAnimationData, not AttackData
+			HitInfo.ImpactPoint = Victim->GetActorLocation();
+			HitInfo.bWasCounter = false;
+			HitInfo.StunDuration = 0.0f;
+
+			// If lethal finisher, guarantee death by applying at least CurrentHealth + 1 damage
+			// Uses intelligent calculation: Max(FinalDamage, CurrentHealth + 1)
+			// - If FinalDamage is higher, use that (respects damage scaling)
+			// - Otherwise use CurrentHealth + 1 to guarantee kill regardless of health pool
+			if (ActivePairedAnimData->bIsLethal)
+			{
+				const float MaxHealth = IDamageableInterface::Execute_GetMaxHealth(Victim);
+				const float CurrentHealth = IDamageableInterface::Execute_GetCurrentHealth(Victim);
+				HitInfo.Damage = FMath::Max(FinalDamage, CurrentHealth + 1.0f);
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] LETHAL finisher: Applying %.1f damage (victim has %.1f/%.1f health)"),
+						HitInfo.Damage, CurrentHealth, MaxHealth);
+				}
+
+				// ================================================================
+				// DEATH HANDLING: Uses Same Pattern as Normal Death
+				// ================================================================
+				// The pending death state was set up in TryExecuteFinisher() via
+				// SetupPendingDeathFromFinisher(). This registered the victim montage
+				// as the "death montage" using the same pattern as normal death.
+				//
+				// When the victim montage ends/blends-out, OnAnyMontageBlendingOut
+				// will detect it and apply the configured outcome (ragdoll/freeze).
+				//
+				// We do NOT stop the montage here - let it play through naturally.
+				// This ensures consistent behavior with normal deaths and prevents
+				// the AnimBP state machine from ever reaching idle.
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Death will be handled when victim montage ends (via OnAnyMontageBlendingOut)"));
+				}
+			}
+			else
+			{
+				HitInfo.Damage = FinalDamage;
+			}
+
+			// Apply the damage
+			const float ActualDamage = IDamageableInterface::Execute_ApplyDamage(Victim, HitInfo);
+
+			if (GetDebugDraw())
+			{
+				UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Damage applied: %.1f actual (%.1f requested)"),
+					ActualDamage, HitInfo.Damage);
+			}
+		}
+		else
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[PAIRED COMPLETE] Victim %s does not implement IDamageableInterface - no damage applied"),
+				*Victim->GetName());
+		}
+	}
+	else if (GetDebugDraw())
+	{
+		if (!Victim)
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[PAIRED COMPLETE] No victim tracked - cannot apply damage"));
+		}
+		if (!ActivePairedAnimData)
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[PAIRED COMPLETE] No ActivePairedAnimData - cannot apply damage"));
+		}
+	}
+
+	// ========================================================================
+	// CLEANUP STATE (similar to CancelPairedAnimation but for successful completion)
+	// ========================================================================
+
+	// Clear victim's finisher target flag and warp tracking
+	for (const TWeakObjectPtr<AActor>& PartnerRef : PairedAnimationPartners)
+	{
+		if (AActor* Partner = PartnerRef.Get())
+		{
+			// Clear warp tracking
+			if (UTargetingComponent* PartnerTargeting = Partner->FindComponentByClass<UTargetingComponent>())
+			{
+				PartnerTargeting->ClearVictimWarp();
+				PartnerTargeting->ClearAttackerPairedWarp();
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Cleared warp tracking on partner %s"),
+						*Partner->GetName());
+				}
+			}
+
+			// Clear finisher target flag
+			if (UHitReactionComponent* PartnerHitReaction = Partner->FindComponentByClass<UHitReactionComponent>())
+			{
+				PartnerHitReaction->SetFinisherTarget(false);
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Cleared finisher target flag on %s"),
+						*Partner->GetName());
+				}
+			}
+		}
+	}
+
+	// Clear our own warp tracking
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		if (UTargetingComponent* TargetingComp = Character->GetTargetingComponent())
+		{
+			TargetingComp->ClearAttackerPairedWarp();
+		}
+	}
+
+	// Clear victim reference
+	CurrentFinisherVictim.Reset();
+
+	// Clear all partners
+	ClearPairedPartners();
+
+	// End the paired animation effects (restores time dilation, broadcasts delegate)
+	EndPairedAnimation();
+
+	// Reset to idle phase
+	SetPhase(EAttackPhase::None);
+
+	// Clear any queued actions
+	ClearQueue(false);
+
+	// Clear guard flag now that completion is finished
+	bCompletingPairedAnimation = false;
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] ✓ Paired animation completed - state reset"));
+		UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] ═══════════════════════════════════════"));
 	}
 }

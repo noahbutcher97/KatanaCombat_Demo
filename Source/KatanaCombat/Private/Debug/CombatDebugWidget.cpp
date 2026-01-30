@@ -11,8 +11,9 @@
 
 UCombatDebugWidget::UCombatDebugWidget()
 {
+	// Tick only needed when widget is visible - disabled by default for performance
 	PrimaryComponentTick.bCanEverTick = true;
-	PrimaryComponentTick.bStartWithTickEnabled = true;
+	PrimaryComponentTick.bStartWithTickEnabled = false;
 
 	bIsVisible = false;
 	CurrentTime = 0.0f;
@@ -85,6 +86,7 @@ void UCombatDebugWidget::ShowDebugOverlay()
 
 	CreateWidget();
 	bIsVisible = true;
+	SetComponentTickEnabled(true);  // Enable tick for UI updates
 
 	UE_LOG(LogTemp, Log, TEXT("[CombatDebugWidget] Debug overlay shown"));
 }
@@ -98,6 +100,7 @@ void UCombatDebugWidget::HideDebugOverlay()
 
 	RemoveWidget();
 	bIsVisible = false;
+	SetComponentTickEnabled(false);  // Disable tick when not visible
 
 	UE_LOG(LogTemp, Log, TEXT("[CombatDebugWidget] Debug overlay hidden"));
 }

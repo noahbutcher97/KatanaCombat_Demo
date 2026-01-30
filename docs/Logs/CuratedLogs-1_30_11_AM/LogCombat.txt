@@ -1,0 +1,1266 @@
+LogCombat: [INIT] Montage event delegates bound (BlendingOut, Ended)
+LogCombat: [VALIDATION] ✓ Default attacks validated successfully
+LogCombat: [INIT] Montage event delegates bound (BlendingOut, Ended)
+LogCombat: [VALIDATION] ✓ Default attacks validated successfully
+LogCombat: [INIT] Montage event delegates bound (BlendingOut, Ended)
+LogCombat: [VALIDATION] ✓ Default attacks validated successfully
+LogCombat: [INIT] Montage event delegates bound (BlendingOut, Ended)
+LogCombat: [VALIDATION] ✓ Default attacks validated successfully
+LogCombat: [INIT] Montage event delegates bound (BlendingOut, Ended)
+LogCombat: [VALIDATION] ✓ Default attacks validated successfully
+LogCombat: [INPUT] EInputType::Block PRESSED at 0.51 (Combo: NO, Direction: None)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=Inactive, bShouldCombo=FALSE
+LogCombat: [RESOLVE] Input=Other, Direction=0, HoldCompleted=No, ComboWindow=Inactive, CurrentAttack=nullptr
+LogCombat: Error: [RESOLVE] CRITICAL: Default Heavy attack is nullptr! Check CombatSettings setup.
+LogCombat: Error: [RESOLVE] Cannot resolve attack: No default AND no current attack. Check CombatSettings assignment on character.
+LogCombat: Warning: [QUEUE] Cannot queue action: No attack resolved. Check that CombatSettings is assigned to the character.
+LogCombat: [INPUT] Pair processed: EInputType::Block held for 0.15s
+LogCombat: [INPUT] EInputType::Block RELEASED at 0.66
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 2.68 (Combo: NO, Direction: EInputDirection::ForwardRight)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=Inactive, bShouldCombo=FALSE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=Inactive, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::ForwardRight, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145, Rotation=126.6°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=103.0°, Character=78.6°
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.10s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 2.78
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=103.1°, Character=88.9°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 3.39 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_1, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_1
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'LightAttack_2'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_2' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_1 (out=0.10s) → LightAttack_2 (in=0.10s)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [BLEND] Combo blend started - EndTime=3.49 (Duration=0.10s)
+LogCombat: [BLEND] New montage started - bInComboBlend=false (time-based protection until 3.49)
+LogCombat: [MONTAGE] Section-only mode: Attack_2 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_2 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145, Rotation=138.6°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_2
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_2
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=102.8°, Character=123.5°
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 3.54
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=102.2°, Character=129.8°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 4.49 (Combo: YES, Direction: EInputDirection::ForwardLeft)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_2, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_2
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'LightAttack_3'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_3' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_2 (out=0.10s) → LightAttack_3 (in=0.10s)
+LogCombat: [MONTAGE] Section-only mode: Attack_3 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_3 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::ForwardLeft, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145, Rotation=79.5°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_3
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_3
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=102.2°, Character=134.6°
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 4.65
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=101.8°, Character=108.3°
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 6.21 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145, Rotation=85.0°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=96.6°, Character=96.1°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 6.36
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=94.8°, Character=91.2°
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 8.18 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogCombat: [FINISHER] ═══════════════════════════════════════
+LogCombat: [FINISHER] Executing finisher: Finisher_1
+LogCombat: [FINISHER] Target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogCombat: [FINISHER] Trigger Reason: EFinisherTriggerReason::LowHealth
+LogCombat: [PAIRED] Added partner: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 (Total: 1)
+LogCombat: [PAIRED] Added partner: BP_SamuraiCharacter_C_0 (Total: 1)
+LogCombat: [PAIRED EFFECTS] Slow motion applied: Scale=0.30, Duration=0.50s
+LogCombat: [PAIRED EFFECTS] Started paired animation: Finisher_1 (Type: 2, Critical: 1, SlowMo: 1)
+LogCombat: [PHASE] Phase transition: 0 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [FINISHER] Attacker montage playing: Finisher_1_Attacker
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [FINISHER] Victim montage playing: Finisher_1_Victim (StartPos: 0.00)
+LogCombat: [FINISHER] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=88.2°, Character=80.4°
+LogCombat: Warning: [INPUT] Input REJECTED - Cannot process in current combat state
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=88.0°, Character=80.4°
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [PAIRED EFFECTS] Sync point triggered: Impact (Type: 0, CameraShake: No)
+LogCombat: Warning: [SYNC VALIDATION] MISALIGNED at 'Impact': Distance 156.1 > Max 150.0 (Attacker: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145, Victim: BP_SamuraiCharacter_C_0)
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [PAIRED EFFECTS] Camera shake played: BP_CameraShake_Hit_Player_C
+LogCombat: [PAIRED EFFECTS] Sync point triggered: Impact (Type: 2, CameraShake: Yes)
+LogCombat: Warning: [SYNC VALIDATION] MISALIGNED at 'Impact': Distance 156.1 > Max 150.0 (Attacker: BP_SamuraiCharacter_C_0, Victim: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145)
+LogCombat: [HITSTOP] BP_SamuraiCharacter_C_0: Freezing 2 actors for 0.050s at sync point 'Impact'
+LogCombat: [PAIRED EFFECTS] Slow motion timer expired - time dilation restored
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: Finisher_1_Victim | Interrupted: NO
+LogCombat: [MONTAGE] Montage blending out: Finisher_1_Attacker | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: Finisher_1_Victim | Interrupted: NO
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [MONTAGE] Montage ended: Finisher_1_Attacker | Interrupted: NO
+LogCombat: [MONTAGE] Finisher attacker montage completed normally - calling CompletePairedAnimation
+LogCombat: [PAIRED COMPLETE] ═══════════════════════════════════════
+LogCombat: [PAIRED COMPLETE] Completing paired animation successfully
+LogCombat: [PAIRED COMPLETE] Applying damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 100.0 (Base: 100.0 × Mult: 1.00, Lethal: YES)
+LogCombat: [PAIRED COMPLETE] LETHAL finisher: Applying 100.0 damage (victim has 23.0/100.0 health)
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_B | Interrupted: YES
+LogCombat: [PAIRED COMPLETE] Damage applied: 100.0 actual (100.0 requested)
+LogCombat: [PAIRED] Removed partner: BP_SamuraiCharacter_C_0 (Remaining: 0)
+LogCombat: [PAIRED COMPLETE] Cleared warp tracking on partner BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogCombat: [PAIRED COMPLETE] Cleared finisher target flag on BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogCombat: [PAIRED] Removed partner: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 (Remaining: 0)
+LogCombat: [PAIRED EFFECTS] Ended paired animation (Type: 2)
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [QUEUE] Cleared (CancelCurrent=NO) - Combo state and directional buffer reset
+LogCombat: [PAIRED COMPLETE] ✓ Paired animation completed - state reset
+LogCombat: [PAIRED COMPLETE] ═══════════════════════════════════════
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_B | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [MONTAGE] Montage blending out: AM_Deaths | Interrupted: YES
+LogCombat: [MONTAGE] Montage ended: AM_Deaths | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 15.45 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144, Rotation=-29.5°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=331.4°, Character=-28.6°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 15.60
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=331.4°, Character=-29.2°
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 16.41 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_1, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_1
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'LightAttack_2'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_2' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_1 (out=0.10s) → LightAttack_2 (in=0.10s)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [BLEND] Combo blend started - EndTime=16.51 (Duration=0.10s)
+LogCombat: [BLEND] New montage started - bInComboBlend=false (time-based protection until 16.51)
+LogCombat: [MONTAGE] Section-only mode: Attack_2 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_2 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144, Rotation=-13.9°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_2
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_2
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=331.4°, Character=-33.6°
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 16.56
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=331.4°, Character=-24.0°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 17.88 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144, Rotation=-15.8°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=331.4°, Character=-7.6°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 18.03
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=331.4°, Character=-11.4°
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 19.54 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144, Rotation=3.9°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=342.1°, Character=-19.4°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 19.69
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=343.7°, Character=-10.0°
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 21.21 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogCombat: [FINISHER] ═══════════════════════════════════════
+LogCombat: [FINISHER] Executing finisher: Finisher_1
+LogCombat: [FINISHER] Target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogCombat: [FINISHER] Trigger Reason: EFinisherTriggerReason::LowHealth
+LogCombat: [PAIRED] Added partner: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 (Total: 1)
+LogCombat: [PAIRED] Added partner: BP_SamuraiCharacter_C_0 (Total: 1)
+LogCombat: [PAIRED EFFECTS] Slow motion applied: Scale=0.30, Duration=0.50s
+LogCombat: [PAIRED EFFECTS] Started paired animation: Finisher_1 (Type: 2, Critical: 1, SlowMo: 1)
+LogCombat: [PHASE] Phase transition: 0 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [FINISHER] Attacker montage playing: Finisher_1_Attacker
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [FINISHER] Victim montage playing: Finisher_1_Victim (StartPos: 0.00)
+LogCombat: [FINISHER] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=347.0°, Character=-2.0°
+LogCombat: Warning: [INPUT] Input REJECTED - Cannot process in current combat state
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=347.8°, Character=-2.0°
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [PAIRED EFFECTS] Sync point triggered: Impact (Type: 0, CameraShake: No)
+LogCombat: Warning: [SYNC VALIDATION] MISALIGNED at 'Impact': Distance 170.7 > Max 150.0 (Attacker: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144, Victim: BP_SamuraiCharacter_C_0)
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [PAIRED EFFECTS] Camera shake played: BP_CameraShake_Hit_Player_C
+LogCombat: [PAIRED EFFECTS] Sync point triggered: Impact (Type: 2, CameraShake: Yes)
+LogCombat: Warning: [SYNC VALIDATION] MISALIGNED at 'Impact': Distance 170.7 > Max 150.0 (Attacker: BP_SamuraiCharacter_C_0, Victim: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144)
+LogCombat: [HITSTOP] BP_SamuraiCharacter_C_0: Freezing 2 actors for 0.050s at sync point 'Impact'
+LogCombat: [PAIRED EFFECTS] Slow motion timer expired - time dilation restored
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: Finisher_1_Attacker | Interrupted: NO
+LogCombat: [MONTAGE] Montage blending out: Finisher_1_Victim | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: Finisher_1_Victim | Interrupted: NO
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [MONTAGE] Montage ended: Finisher_1_Attacker | Interrupted: NO
+LogCombat: [MONTAGE] Finisher attacker montage completed normally - calling CompletePairedAnimation
+LogCombat: [PAIRED COMPLETE] ═══════════════════════════════════════
+LogCombat: [PAIRED COMPLETE] Completing paired animation successfully
+LogCombat: [PAIRED COMPLETE] Applying damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 100.0 (Base: 100.0 × Mult: 1.00, Lethal: YES)
+LogCombat: [PAIRED COMPLETE] LETHAL finisher: Applying 100.0 damage (victim has 22.0/100.0 health)
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_B | Interrupted: YES
+LogCombat: [PAIRED COMPLETE] Damage applied: 100.0 actual (100.0 requested)
+LogCombat: [PAIRED] Removed partner: BP_SamuraiCharacter_C_0 (Remaining: 0)
+LogCombat: [PAIRED COMPLETE] Cleared warp tracking on partner BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogCombat: [PAIRED COMPLETE] Cleared finisher target flag on BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogCombat: [PAIRED] Removed partner: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 (Remaining: 0)
+LogCombat: [PAIRED EFFECTS] Ended paired animation (Type: 2)
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [QUEUE] Cleared (CancelCurrent=NO) - Combo state and directional buffer reset
+LogCombat: [PAIRED COMPLETE] ✓ Paired animation completed - state reset
+LogCombat: [PAIRED COMPLETE] ═══════════════════════════════════════
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_B | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 25.59 (Combo: YES, Direction: EInputDirection::ForwardLeft)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::ForwardLeft, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143, Rotation=-134.9°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=216.6°, Character=-116.9°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 25.75
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=215.7°, Character=-125.2°
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 26.15 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_1, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_1
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'LightAttack_2'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_2' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_1 (out=0.10s) → LightAttack_2 (in=0.10s)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [BLEND] Combo blend started - EndTime=26.25 (Duration=0.10s)
+LogCombat: [BLEND] New montage started - bInComboBlend=false (time-based protection until 26.25)
+LogCombat: [MONTAGE] Section-only mode: Attack_2 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_2 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143, Rotation=-131.5°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_2
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_2
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=215.7°, Character=-141.8°
+LogCombat: [MONTAGE] Montage blending out: AM_Deaths | Interrupted: YES
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [MONTAGE] Montage ended: AM_Deaths | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 26.30
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=215.6°, Character=-137.1°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 28.02 (Combo: YES, Direction: EInputDirection::ForwardLeft)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::ForwardLeft, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143, Rotation=-167.2°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=183.7°, Character=-130.1°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 28.17
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=183.7°, Character=-146.6°
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_L | Interrupted: YES
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_L | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 30.49 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143, Rotation=-179.3°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=181.1°, Character=-175.7°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.20s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 30.69
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=181.1°, Character=-178.2°
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_L | Interrupted: YES
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_L | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 31.45 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_1, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_1
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'LightAttack_2'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_2' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_1 (out=0.10s) → LightAttack_2 (in=0.10s)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [BLEND] Combo blend started - EndTime=31.55 (Duration=0.10s)
+LogCombat: [BLEND] New montage started - bInComboBlend=false (time-based protection until 31.55)
+LogCombat: [MONTAGE] Section-only mode: Attack_2 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_2 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143, Rotation=-150.5°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_2
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_2
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=180.4°, Character=177.6°
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 31.60
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=180.6°, Character=-169.4°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_L | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_L | Interrupted: NO
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 35.08 (Combo: YES, Direction: EInputDirection::Left)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Left, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143, Rotation=38.8°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=88.8°, Character=168.5°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 35.23
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=86.5°, Character=112.2°
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_R | Interrupted: YES
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_R | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [MONTAGE] Montage blending out: AM_Deaths | Interrupted: YES
+LogCombat: [MONTAGE] Montage ended: AM_Deaths | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 38.67 (Combo: YES, Direction: EInputDirection::ForwardLeft)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::ForwardLeft, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479, Rotation=16.0°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=356.5°, Character=50.9°
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.10s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 38.77
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=356.4°, Character=43.4°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 39.52 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_1, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_1
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'LightAttack_2'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_2' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_1 (out=0.10s) → LightAttack_2 (in=0.10s)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [BLEND] Combo blend started - EndTime=39.62 (Duration=0.10s)
+LogCombat: [BLEND] New montage started - bInComboBlend=false (time-based protection until 39.62)
+LogCombat: [MONTAGE] Section-only mode: Attack_2 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_2 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479, Rotation=18.4°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_2
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_2
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=356.3°, Character=12.0°
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 39.68
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=355.9°, Character=15.3°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 40.43 (Combo: YES, Direction: EInputDirection::ForwardLeft)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_2, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_2
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'LightAttack_3'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_3' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_2 (out=0.10s) → LightAttack_3 (in=0.10s)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [BLEND] Combo blend started - EndTime=40.53 (Duration=0.10s)
+LogCombat: [BLEND] New montage started - bInComboBlend=false (time-based protection until 40.53)
+LogCombat: [MONTAGE] Section-only mode: Attack_3 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_3 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::ForwardLeft, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479, Rotation=-10.2°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_3
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_3
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=354.2°, Character=22.3°
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 40.58
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=352.7°, Character=5.9°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_B | Interrupted: YES
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_B | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 42.95 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up TARGET warp: Direction=EInputDirection::Forward, Source=LiveInput, Target=BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479, Rotation=-23.4°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=336.2°, Character=-21.8°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 43.11
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=336.2°, Character=-23.1°
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_B | Interrupted: YES
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_B | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 45.68 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [FINISHER] No hard-lock, using soft-aim target: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogCombat: [FINISHER] ═══════════════════════════════════════
+LogCombat: [FINISHER] Executing finisher: Finisher_1
+LogCombat: [FINISHER] Target: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogCombat: [FINISHER] Trigger Reason: EFinisherTriggerReason::LowHealth
+LogCombat: [PAIRED] Added partner: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 (Total: 1)
+LogCombat: [PAIRED] Added partner: BP_SamuraiCharacter_C_0 (Total: 1)
+LogCombat: [PAIRED EFFECTS] Slow motion applied: Scale=0.30, Duration=0.50s
+LogCombat: [PAIRED EFFECTS] Started paired animation: Finisher_1 (Type: 2, Critical: 1, SlowMo: 1)
+LogCombat: [PHASE] Phase transition: 0 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [FINISHER] Attacker montage playing: Finisher_1_Attacker
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_B | Interrupted: YES
+LogCombat: [FINISHER] Victim montage playing: Finisher_1_Victim (StartPos: 0.00)
+LogCombat: [FINISHER] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=347.7°, Character=-15.8°
+LogCombat: Warning: [INPUT] Input REJECTED - Cannot process in current combat state
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=347.7°, Character=-15.8°
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_B | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [PAIRED EFFECTS] Sync point triggered: Impact (Type: 0, CameraShake: No)
+LogCombat: Warning: [SYNC VALIDATION] MISALIGNED at 'Impact': Distance 173.7 > Max 150.0 (Attacker: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479, Victim: BP_SamuraiCharacter_C_0)
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [PAIRED EFFECTS] Camera shake played: BP_CameraShake_Hit_Player_C
+LogCombat: [PAIRED EFFECTS] Sync point triggered: Impact (Type: 2, CameraShake: Yes)
+LogCombat: Warning: [SYNC VALIDATION] MISALIGNED at 'Impact': Distance 173.7 > Max 150.0 (Attacker: BP_SamuraiCharacter_C_0, Victim: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479)
+LogCombat: [HITSTOP] BP_SamuraiCharacter_C_0: Freezing 2 actors for 0.050s at sync point 'Impact'
+LogCombat: [PAIRED EFFECTS] Slow motion timer expired - time dilation restored
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: Finisher_1_Attacker | Interrupted: NO
+LogCombat: [MONTAGE] Montage blending out: Finisher_1_Victim | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: Finisher_1_Attacker | Interrupted: NO
+LogCombat: [MONTAGE] Finisher attacker montage completed normally - calling CompletePairedAnimation
+LogCombat: [PAIRED COMPLETE] ═══════════════════════════════════════
+LogCombat: [PAIRED COMPLETE] Completing paired animation successfully
+LogCombat: [PAIRED COMPLETE] Applying damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 100.0 (Base: 100.0 × Mult: 1.00, Lethal: YES)
+LogCombat: [PAIRED COMPLETE] LETHAL finisher: Applying 100.0 damage (victim has 23.0/100.0 health)
+LogCombat: [PAIRED COMPLETE] Damage applied: 100.0 actual (100.0 requested)
+LogCombat: [PAIRED] Removed partner: BP_SamuraiCharacter_C_0 (Remaining: 0)
+LogCombat: [PAIRED COMPLETE] Cleared warp tracking on partner BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogCombat: [PAIRED COMPLETE] Cleared finisher target flag on BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogCombat: [PAIRED] Removed partner: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 (Remaining: 0)
+LogCombat: [PAIRED EFFECTS] Ended paired animation (Type: 2)
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [QUEUE] Cleared (CancelCurrent=NO) - Combo state and directional buffer reset
+LogCombat: [PAIRED COMPLETE] ✓ Paired animation completed - state reset
+LogCombat: [PAIRED COMPLETE] ═══════════════════════════════════════
+LogCombat: [MONTAGE] Montage blending out: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [MONTAGE] Montage ended: Finisher_1_Victim | Interrupted: NO
+LogCombat: [MONTAGE] Montage ended: AM_HitReactions_Heavy_F | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [MONTAGE] Montage blending out: AM_Deaths | Interrupted: YES
+LogCombat: [MONTAGE] Montage ended: AM_Deaths | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 54.36 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::None, CurrentAttack=nullptr, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=nullptr
+LogCombat: [RESOLVE] Resolved to Default: 'LightAttack_1'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_1' (Path=Default, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 0 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_1
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=347.1°, Character=-15.8°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 54.51
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=355.0°, Character=-15.7°
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 54.82 (Combo: YES, Direction: EInputDirection::ForwardRight)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_1, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_1
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'LightAttack_2'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_2' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_1 (out=0.10s) → LightAttack_2 (in=0.10s)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [BLEND] Combo blend started - EndTime=54.92 (Duration=0.10s)
+LogCombat: [BLEND] New montage started - bInComboBlend=false (time-based protection until 54.92)
+LogCombat: [MONTAGE] Section-only mode: Attack_2 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_2 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [ATTACK WARP] Set up ROTATION warp: Direction=EInputDirection::ForwardRight, Source=LiveInput, Target=None, Rotation=29.5°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_2
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_2
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=10.1°, Character=-15.5°
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.10s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 54.92
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=10.1°, Character=-5.8°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 55.42 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_2, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_2
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'LightAttack_3'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_3' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_2 (out=0.10s) → LightAttack_3 (in=0.10s)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [BLEND] Combo blend started - EndTime=55.52 (Duration=0.10s)
+LogCombat: [BLEND] New montage started - bInComboBlend=false (time-based protection until 55.52)
+LogCombat: [MONTAGE] Section-only mode: Attack_3 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_1 | Section: Attack_3 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.682s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.256s - 3.682s
+LogCombat: [CHECKPOINT] + Parry window: 2.840s - 3.256s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_1'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_3
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_1
+LogCombat: [EXECUTE] Section: Attack_3
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=9.1°, Character=29.5°
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.15s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 55.57
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=7.1°, Character=29.5°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [INPUT] EInputType::LightAttack PRESSED at 56.08 (Combo: YES, Direction: EInputDirection::ForwardLeft)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_3, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Light, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_3
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'LightAttack_4'
+LogCombat: [RESOLVE] ✓ Resolved to: 'LightAttack_4' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::LightAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_3 (out=0.10s) → LightAttack_4 (in=0.10s)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [BLEND] Combo blend started - EndTime=56.18 (Duration=0.10s)
+LogCombat: [BLEND] New montage started - bInComboBlend=false (time-based protection until 56.18)
+LogCombat: [MONTAGE] Section-only mode: Attack_1 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Light_Combo_2 | Section: Attack_1 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 3.667s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 3.287s - 3.667s
+LogCombat: [CHECKPOINT] + Parry window: 3.001s - 3.287s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Light_Combo_2'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Light_Combo_2
+LogCombat: [ATTACK WARP] Set up ROTATION warp: Direction=EInputDirection::ForwardLeft, Source=LiveInput, Target=None, Rotation=-15.5°
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: LightAttack_4
+LogCombat: [EXECUTE] Montage: AM_Light_Combo_2
+LogCombat: [EXECUTE] Section: Attack_1
+LogCombat: [EXECUTE] Input Type: EInputType::LightAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=5.2°, Character=29.5°
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_1 | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [INPUT] Pair processed: EInputType::LightAttack held for 0.10s
+LogCombat: [INPUT] EInputType::LightAttack RELEASED at 56.18
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=4.7°, Character=29.5°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [HOLD] Window start, but button not held: EInputType::LightAttack
+LogCombat: [INPUT] EInputType::HeavyAttack PRESSED at 56.93 (Combo: YES, Direction: EInputDirection::Forward)
+LogCombat: Warning: [COMBO DEBUG] GetAttackForInput: Phase=EAttackPhase::Recovery, CurrentAttack=LightAttack_4, ComboWindow=ACTIVE, bShouldCombo=TRUE
+LogCombat: [RESOLVE] Input=Heavy, Direction=0, HoldCompleted=No, ComboWindow=ACTIVE, CurrentAttack=LightAttack_4
+LogCombat: [RESOLVE] Checking combo chain (ComboWindow active)...
+LogCombat: [RESOLVE] Resolved to NormalCombo: 'HeavyAttack_3'
+LogCombat: [RESOLVE] ✓ Resolved to: 'HeavyAttack_3' (Path=NormalCombo, ClearInput=NO)
+LogCombat: [QUEUE] Executing IMMEDIATE action: Type=EInputType::HeavyAttack
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [BLEND] Combo transition: LightAttack_4 (out=0.10s) → HeavyAttack_3 (in=0.10s)
+LogCombat: [MONTAGE] Montage blending out: AM_Light_Combo_2 | Interrupted: YES
+LogCombat: [BLEND] Combo blend started - EndTime=57.03 (Duration=0.10s)
+LogCombat: [BLEND] New montage started - bInComboBlend=false (time-based protection until 57.03)
+LogCombat: [MONTAGE] Section-only mode: HeavyAttack_3 (no auto-advance)
+LogCombat: [MONTAGE] Playing: AM_Heavy_Katana_Event | Section: HeavyAttack_3 | Delegate bound
+LogCombat: [PHASE] Phase transition: 3 → 1
+LogCombat: [CHECKPOINT] + Combo window: 0.0s - 10.567s (full montage)
+LogCombat: [CHECKPOINT] + Recovery (snap point): 10.403s - 10.567s
+LogCombat: [CHECKPOINT] + Parry window: 9.920s - 10.403s (Active phase)
+LogCombat: [CHECKPOINT] Discovered 3 checkpoints in 'AM_Heavy_Katana_Event'
+LogCombat: [CHECKPOINTS] Discovered 3 checkpoints from montage: AM_Heavy_Katana_Event
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [EXECUTE] Attack Data: HeavyAttack_3
+LogCombat: [EXECUTE] Montage: AM_Heavy_Katana_Event
+LogCombat: [EXECUTE] Section: HeavyAttack_3
+LogCombat: [EXECUTE] Input Type: EInputType::HeavyAttack
+LogCombat: [EXECUTE] Is Combo: NO
+LogCombat: [EXECUTE] Checkpoints Discovered: 3
+LogCombat: [EXECUTE] ═══════════════════════════════════════
+LogCombat: [QUEUE] Immediate execution SUCCESS
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=3.4°, Character=-15.5°
+LogCombat: [MONTAGE] Montage ended: AM_Light_Combo_2 | Interrupted: YES
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: Warning: [MONTAGE] Interrupted - input state reset
+LogCombat: [HOLD] Button held at window start: EInputType::HeavyAttack, activating hold
+LogCombat: [INPUT CONTEXT] EInputContext::Movement → EInputContext::DirectionalInput
+LogCombat: [HOLD] Directional input window OPENED (awaiting release)
+LogCombat: [HOLD] Activated: Input=EInputType::HeavyAttack, PlayRate=1.00
+LogCombat: [HOLD] Heavy attack charge loop started and marked completed: jumped to 'Loop_Heavy' and looping
+LogCombat: [DIRECTIONAL] Direction captured at RELEASE: Forward (time=57.79) → HoldEvent.Direction=Forward
+LogCombat: [INPUT] Pair processed: EInputType::HeavyAttack held for 0.86s
+LogCombat: [INPUT] EInputType::HeavyAttack RELEASED at 57.79
+LogCombat: [HOLD] Heavy attack released: jumping to release section 'Release_Heavy'
+LogCombat: [INPUT AUTO] Mode=Character-Relative, Camera=1.6°, Character=-15.5°
+LogCombat: [PHASE] Phase transition: 1 → 2
+LogCombat: [PHASE] Active entered - Hit detection ENABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Active (queue processed event-driven)
+LogCombat: [MONTAGE] Montage blending out: AM_Heavy_Katana_Event | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 2 → 3
+LogCombat: [PHASE] Recovery entered - Hit detection DISABLED
+LogCombat: [PHASE] Phase transition complete: EAttackPhase::Recovery (queue processed event-driven)
+LogCombat: [MONTAGE] Montage ended: AM_Heavy_Katana_Event | Interrupted: NO
+LogCombat: [PHASE] Phase transition: 3 → 0
+LogCombat: [INPUT CONTEXT] EInputContext::DirectionalInput → EInputContext::Movement
+LogCombat: [HOLD] Directional input window CLOSED
+LogCombat: [PHASE] Attack finished - Combo state, hold state, and input context cleared
+LogCombat: [SLOPE FIX] Character snapped to ground after attack montage

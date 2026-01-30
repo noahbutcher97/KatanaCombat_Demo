@@ -1,0 +1,14 @@
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: TARGET mode (AttackTarget) - Translation=ON
+LogCombatWarp: [BP_SamuraiCharacter_C_0] Combat Warp: ROTATION mode (RotationTarget) - Translation=OFF

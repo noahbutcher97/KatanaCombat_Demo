@@ -1,0 +1,140 @@
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Initialized weapon: Katana (Equipped: Yes)
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Initialized weapon: Katana (Equipped: Yes)
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Initialized weapon: Katana (Equipped: Yes)
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Initialized weapon: Katana (Equipped: Yes)
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Initialized weapon: Katana (Equipped: Yes)
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=122.162 Y=174.188 Z=342.129
+LogWeaponComponent:   - End socket: weapon_end -> X=157.120 Y=152.189 Z=408.612
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=74.854 Y=382.067 Z=337.974
+LogWeaponComponent:   - End socket: weapon_end -> X=57.858 Y=305.669 Z=337.310
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-44.873 Y=408.689 Z=370.129
+LogWeaponComponent:   - End socket: weapon_end -> X=-46.566 Y=473.606 Z=413.819
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-23.385 Y=326.836 Z=336.266
+LogWeaponComponent:   - End socket: weapon_end -> X=8.710 Y=303.451 Z=403.712
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-57.418 Y=563.187 Z=261.221
+LogWeaponComponent:   - End socket: weapon_end -> X=-80.220 Y=634.140 Z=237.311
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=113.711 Y=113.020 Z=341.763
+LogWeaponComponent:   - End socket: weapon_end -> X=74.422 Y=99.927 Z=408.177
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=329.016 Y=-47.328 Z=347.542
+LogWeaponComponent:   - End socket: weapon_end -> X=309.531 Y=28.423 Z=350.394
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=321.786 Y=-3.660 Z=330.631
+LogWeaponComponent:   - End socket: weapon_end -> X=287.368 Y=-28.336 Z=396.453
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=393.874 Y=-10.998 Z=340.387
+LogWeaponComponent:   - End socket: weapon_end -> X=368.074 Y=-37.471 Z=409.376
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=528.220 Y=15.664 Z=271.786
+LogWeaponComponent:   - End socket: weapon_end -> X=595.509 Y=47.436 Z=247.525
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=83.090 Y=-252.501 Z=343.207
+LogWeaponComponent:   - End socket: weapon_end -> X=72.889 Y=-212.754 Z=409.855
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-7.558 Y=-306.129 Z=350.393
+LogWeaponComponent:   - End socket: weapon_end -> X=69.404 Y=-319.907 Z=353.991
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=26.798 Y=-351.922 Z=330.585
+LogWeaponComponent:   - End socket: weapon_end -> X=34.189 Y=-310.392 Z=396.513
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-72.307 Y=-419.981 Z=330.678
+LogWeaponComponent:   - End socket: weapon_end -> X=-44.924 Y=-387.795 Z=396.559
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-429.717 Y=-445.141 Z=346.089
+LogWeaponComponent:   - End socket: weapon_end -> X=-372.880 Y=-494.564 Z=367.370
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-504.269 Y=-585.953 Z=130.686
+LogWeaponComponent:   - End socket: weapon_end -> X=-463.770 Y=-599.853 Z=196.204
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-659.870 Y=-60.503 Z=278.197
+LogWeaponComponent:   - End socket: weapon_end -> X=-672.054 Y=-105.878 Z=340.796
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-499.427 Y=-18.129 Z=336.804
+LogWeaponComponent:   - End socket: weapon_end -> X=-560.032 Y=31.341 Z=334.400
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-393.731 Y=81.117 Z=368.076
+LogWeaponComponent:   - End socket: weapon_end -> X=-332.698 Y=76.680 Z=416.874
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-403.974 Y=118.414 Z=340.336
+LogWeaponComponent:   - End socket: weapon_end -> X=-442.685 Y=101.272 Z=406.165
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-152.693 Y=57.128 Z=287.466
+LogWeaponComponent:   - End socket: weapon_end -> X=-79.919 Y=72.191 Z=262.909
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-245.872 Y=46.796 Z=340.460
+LogWeaponComponent:   - End socket: weapon_end -> X=-281.954 Y=24.518 Z=406.246
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-70.243 Y=-43.736 Z=347.016
+LogWeaponComponent:   - End socket: weapon_end -> X=-127.074 Y=10.055 Z=345.365
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=25.076 Y=85.176 Z=380.111
+LogWeaponComponent:   - End socket: weapon_end -> X=77.934 Y=123.215 Z=423.528
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=171.909 Y=74.577 Z=396.497
+LogWeaponComponent:   - End socket: weapon_end -> X=126.350 Y=12.633 Z=411.098
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=380.076 Y=-13.791 Z=288.269
+LogWeaponComponent:   - End socket: weapon_end -> X=381.545 Y=53.137 Z=328.820
+LogWeaponComponent:   - Trace radius: 15.0

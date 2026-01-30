@@ -20,6 +20,7 @@ class UCombatSettings;
 class UAttackData;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHealthChanged, float, NewHealth, float, MaxHealth);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDying, AActor*, Killer);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDeath, AActor*, Killer);
 
 /**
@@ -100,13 +101,57 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
     FOnHealthChanged OnHealthChanged;
 
-    /** Called when character dies */
+    /** Called when character receives lethal damage (enters Dying state) */
+    UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
+    FOnCharacterDying OnCharacterDying;
+
+    /** Called when character's death animation completes (enters Dead state) */
     UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
     FOnCharacterDeath OnCharacterDeath;
 
-    /** Is this character dead? Set when health reaches 0, blocks further damage/reactions */
+    // ========================================================================
+    // TWO-STAGE DEATH SYSTEM
+    // ========================================================================
+    // Dying: Lethal damage received, death animation playing, combat blocked
+    // Dead:  Death animation complete, ragdoll/freeze applied
+    //
+    // This separation allows death animations to play through naturally
+    // before the final outcome (ragdoll/freeze) is applied.
+    // ========================================================================
+
+    /**
+     * Is this character dying? (Lethal damage received, death animation playing)
+     * When true: Combat blocked, can't be targeted, animation continues
+     * Transitions to bIsDead when death animation completes
+     */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Health")
+    bool bIsDying = false;
+
+    /**
+     * Is this character dead? (Death animation complete, ragdoll/freeze applied)
+     * Final state - character is truly finished
+     */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Health")
     bool bIsDead = false;
+
+    /** Check if character is in dying state (lethal damage, animation playing) */
+    UFUNCTION(BlueprintPure, Category = "Combat|Health")
+    bool IsDying() const { return bIsDying && !bIsDead; }
+
+    /** Check if character is fully dead (animation complete, outcome applied) */
+    UFUNCTION(BlueprintPure, Category = "Combat|Health")
+    bool IsDead() const { return bIsDead; }
+
+    /** Check if character should not be interacted with (dying OR dead) */
+    UFUNCTION(BlueprintPure, Category = "Combat|Health")
+    bool IsDeadOrDying() const { return bIsDying || bIsDead; }
+
+    /**
+     * Called by HitReactionComponent when death animation completes.
+     * Transitions from Dying to Dead state.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Combat|Health")
+    void FinalizeDeath();
 
     // ========================================================================
     // COMPONENT ACCESSORS

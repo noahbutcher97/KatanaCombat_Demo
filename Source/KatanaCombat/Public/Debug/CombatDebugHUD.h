@@ -121,6 +121,7 @@ struct FCombatDebugData
 	float TargetCurrentHealth = 0.0f;
 	float TargetMaxHealth = 0.0f;
 	bool bTargetIsAlive = true;
+	bool bTargetIsDying = false;
 	bool bTargetIsDead = false;
 };
 
@@ -193,6 +194,12 @@ struct FPairedAnimDebugData
 	// ========================================================================
 	// VULNERABILITY INFO (for target)
 	// ========================================================================
+
+	/** Name of currently tracked target (for debug display) */
+	FString TrackedTargetName;
+
+	/** Is this a soft-aim target (vs hard-locked)? */
+	bool bUsingSoftAimTarget = false;
 
 	/** Is current target vulnerable to finisher? */
 	bool bTargetVulnerable = false;

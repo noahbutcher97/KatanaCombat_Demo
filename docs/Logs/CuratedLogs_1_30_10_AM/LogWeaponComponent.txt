@@ -1,0 +1,54 @@
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Initialized weapon: Katana (Equipped: Yes)
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Initialized weapon: Katana (Equipped: Yes)
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Initialized weapon: Katana (Equipped: Yes)
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Initialized weapon: Katana (Equipped: Yes)
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Initialized weapon: Katana (Equipped: Yes)
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-62.073 Y=-73.138 Z=133.560
+LogWeaponComponent:   - End socket: weapon_end -> X=-33.174 Y=-103.495 Z=199.661
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-404.109 Y=71.691 Z=136.957
+LogWeaponComponent:   - End socket: weapon_end -> X=-360.794 Y=6.552 Z=134.374
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-475.483 Y=14.295 Z=170.092
+LogWeaponComponent:   - End socket: weapon_end -> X=-432.813 Y=-34.925 Z=213.482
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-405.941 Y=-124.605 Z=138.301
+LogWeaponComponent:   - End socket: weapon_end -> X=-430.444 Y=-181.329 Z=90.261
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-114.792 Y=-376.367 Z=113.257
+LogWeaponComponent:   - End socket: weapon_end -> X=-118.918 Y=-326.334 Z=173.304
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-66.771 Y=-343.638 Z=140.991
+LogWeaponComponent:   - End socket: weapon_end -> X=0.946 Y=-304.424 Z=142.655
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-230.784 Y=-221.189 Z=133.578
+LogWeaponComponent:   - End socket: weapon_end -> X=-204.613 Y=-254.682 Z=199.299
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-515.850 Y=85.542 Z=78.687
+LogWeaponComponent:   - End socket: weapon_end -> X=-587.503 Y=105.596 Z=54.405
+LogWeaponComponent:   - Trace radius: 15.0
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Playing holster animation: AM_Unequip (Duration: 1.08)
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Weapon holstered to socket: weapon_back
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Playing equip animation: AM_Equip (Duration: 1.08)
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Weapon equipped to socket: weapon_r

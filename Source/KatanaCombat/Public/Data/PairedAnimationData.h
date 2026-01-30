@@ -259,6 +259,25 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Damage")
     bool bIsLethal = true;
 
+    /**
+     * What happens to the victim after the finisher animation completes.
+     * - Ragdoll: Transition to physics ragdoll from current pose
+     * - Death: Hold the final animation pose permanently
+     * - StandardRecovery: NOT RECOMMENDED for lethal finishers (will look wrong)
+     *
+     * IMPORTANT: The finisher victim montage IS the death animation.
+     * This controls what happens when that montage ends, NOT a separate death animation.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Damage",
+        meta = (EditCondition = "bIsLethal"))
+    EReactionOutcome VictimDeathOutcome = EReactionOutcome::Ragdoll;
+
+    /** Blend time from final pose to ragdoll (only used when VictimDeathOutcome == Ragdoll) */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Damage",
+        meta = (EditCondition = "bIsLethal && VictimDeathOutcome == EReactionOutcome::Ragdoll",
+                ClampMin = "0.0", ClampMax = "1.0"))
+    float RagdollBlendTime = 0.2f;
+
     // ========================================================================
     // VALIDATION
     // ========================================================================

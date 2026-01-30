@@ -306,9 +306,10 @@ FCombatDebugData ACombatDebugHUD::GenerateDebugData(ABaseCombatCharacter* Charac
 				Data.bTargetIsAlive = IDamageableInterface::Execute_IsAlive(Target);
 			}
 
-			// Get dead flag from combat character
+			// Get death state flags from combat character
 			if (ABaseCombatCharacter* TargetCombat = Cast<ABaseCombatCharacter>(Target))
 			{
+				Data.bTargetIsDying = TargetCombat->bIsDying;
 				Data.bTargetIsDead = TargetCombat->bIsDead;
 			}
 		}
@@ -467,10 +468,26 @@ void ACombatDebugHUD::DrawStatusPanel(const FCombatDebugData& Data)
 		Canvas->DrawText(GEngine->GetSmallFont(), HealthText, X, Y, StatusFontScale, StatusFontScale);
 		Y += LineHeight;
 
-		// Alive/Dead state
-		const FString AliveText = FString::Printf(TEXT("  State: %s"),
-			Data.bTargetIsDead ? TEXT("DEAD") : (Data.bTargetIsAlive ? TEXT("Alive") : TEXT("Dying")));
-		Canvas->SetDrawColor(Data.bTargetIsDead ? FColor::Red : FColor::Green);
+		// Death state (two-stage: Dying → Dead)
+		FString StateText;
+		FColor StateColor;
+		if (Data.bTargetIsDead)
+		{
+			StateText = TEXT("DEAD");
+			StateColor = FColor::Red;
+		}
+		else if (Data.bTargetIsDying)
+		{
+			StateText = TEXT("DYING");
+			StateColor = FColor::Orange;
+		}
+		else
+		{
+			StateText = TEXT("Alive");
+			StateColor = FColor::Green;
+		}
+		const FString AliveText = FString::Printf(TEXT("  State: %s"), *StateText);
+		Canvas->SetDrawColor(StateColor);
 		Canvas->DrawText(GEngine->GetSmallFont(), AliveText, X, Y, StatusFontScale, StatusFontScale);
 	}
 }
@@ -672,12 +689,33 @@ FPairedAnimDebugData ACombatDebugHUD::GeneratePairedAnimDebugData(ABaseCombatCha
 	}
 
 	// ========================================================================
-	// VULNERABILITY INFO (check current target)
+	// VULNERABILITY INFO (check current target - hard-lock or soft-aim fallback)
 	// ========================================================================
 	if (TargetComp)
 	{
-		if (AActor* Target = TargetComp->GetCurrentTarget())
+		// Try hard-locked target first
+		AActor* Target = TargetComp->GetCurrentTarget();
+
+		// Fallback to soft-aim target if no hard-lock
+		if (!Target)
 		{
+			const FVector FacingDirection = Character->GetActorForwardVector();
+			TargetComp->FindBestTargetForDirection(
+				FacingDirection,
+				Target,  // Out parameter
+				-1.0f,   // Use defaults
+				-1.0f,
+				-1.0f,
+				-1.0f,
+				-1.0f
+			);
+			Data.bUsingSoftAimTarget = Target != nullptr;
+		}
+
+		if (Target)
+		{
+			Data.TrackedTargetName = Target->GetName();
+
 			if (UHitReactionComponent* TargetHitReaction = Target->FindComponentByClass<UHitReactionComponent>())
 			{
 				Data.bTargetVulnerable = TargetHitReaction->IsVulnerableToFinisher();
@@ -694,6 +732,9 @@ FPairedAnimDebugData ACombatDebugHUD::GeneratePairedAnimDebugData(ABaseCombatCha
 					Data.TargetHealthPercent = MaxHealth > 0.0f ? CurrentHealth / MaxHealth : 0.0f;
 				}
 			}
+
+			// Calculate distance to target
+			Data.CurrentPartnerDistance = FVector::Dist(Character->GetActorLocation(), Target->GetActorLocation());
 		}
 	}
 
@@ -920,6 +961,23 @@ void ACombatDebugHUD::DrawPairedAnimPanel(const FPairedAnimDebugData& Data)
 	Canvas->SetDrawColor(FColor::Cyan);
 	Canvas->DrawText(GEngine->GetSmallFont(), TEXT("--- Target Vulnerability ---"), X, Y, StatusFontScale, StatusFontScale);
 	Y += LineHeight;
+
+	// Show tracked target name
+	if (!Data.TrackedTargetName.IsEmpty())
+	{
+		FString TargetText = FString::Printf(TEXT("  Target: %s%s"),
+			*Data.TrackedTargetName,
+			Data.bUsingSoftAimTarget ? TEXT(" (soft-aim)") : TEXT(" (locked)"));
+		Canvas->SetDrawColor(FColor::Yellow);
+		Canvas->DrawText(GEngine->GetSmallFont(), TargetText, X, Y, StatusFontScale, StatusFontScale);
+		Y += LineHeight;
+	}
+	else
+	{
+		Canvas->SetDrawColor(FColor(128, 128, 128));  // Gray
+		Canvas->DrawText(GEngine->GetSmallFont(), TEXT("  Target: (none in range)"), X, Y, StatusFontScale, StatusFontScale);
+		Y += LineHeight;
+	}
 
 	// Vulnerable status
 	FString VulnText = FString::Printf(TEXT("  Vulnerable: %s"),

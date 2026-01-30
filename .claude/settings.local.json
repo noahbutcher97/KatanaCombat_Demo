@@ -37,7 +37,9 @@
       "Bash(powershell.exe:*)",
       "Bash(Select-String -Pattern \"(Total Tests|Passed|Failed|Success Rate|All integration tests passed|Multiple tests failed)\" -Context 0,1)",
       "Bash(Select-String -Pattern \"(Open CombatComponent|ERROR|Exception|mode)\" -Context 0,2)",
-      "Bash(Select-String -Pattern \"(Total Tests|Passed|Failed|Success Rate|All integration tests passed)\")"
+      "Bash(Select-String -Pattern \"(Total Tests|Passed|Failed|Success Rate|All integration tests passed)\")",
+      "Bash(\"C:\\\\Program Files\\\\Epic Games\\\\UE_5.6\\\\Engine\\\\Build\\\\BatchFiles\\\\Build.bat\" KatanaCombatEditor Win64 Development -Project=\"D:\\\\UnrealProjects\\\\5.6\\\\KatanaCombat\\\\KatanaCombat.uproject\" -WaitMutex -FromMsBuild)",
+      "Bash(\"C:\\\\Program Files\\\\Epic Games\\\\UE_5.6\\\\Engine\\\\Build\\\\BatchFiles\\\\Build.bat\" KatanaCombatEditor Win64 Development -Project=\"D:\\\\UnrealProjects\\\\5.6\\\\KatanaCombat\\\\KatanaCombat.uproject\" -WaitMutex)"
     ],
     "deny": [],
     "ask": []

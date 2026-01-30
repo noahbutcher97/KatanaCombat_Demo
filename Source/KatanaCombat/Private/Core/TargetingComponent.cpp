@@ -523,8 +523,23 @@ void UTargetingComponent::ClearMotionWarp(FName WarpTargetName)
 bool UTargetingComponent::SetupVictimWarp(AActor* Attacker, const FPairedWarpConfig& Config)
 {
     ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
-    if (!MotionWarpingComponent || !Owner || !Attacker)
+
+    // Gap 19.1 fix: Log warnings for specific failure conditions instead of silent failure
+    if (!MotionWarpingComponent)
     {
+        UE_LOG(LogTargeting, Warning, TEXT("[VICTIM WARP] %s has no MotionWarpingComponent - warp tracking disabled. Add MotionWarpingComponent to character."),
+            Owner ? *Owner->GetName() : TEXT("Unknown"));
+        return false;
+    }
+    if (!Owner)
+    {
+        UE_LOG(LogTargeting, Warning, TEXT("[VICTIM WARP] Owner character is null - cannot setup victim warp"));
+        return false;
+    }
+    if (!Attacker)
+    {
+        UE_LOG(LogTargeting, Warning, TEXT("[VICTIM WARP] %s - Attacker is null, cannot setup victim warp"),
+            *Owner->GetName());
         return false;
     }
 
@@ -598,6 +613,14 @@ void UTargetingComponent::OnVictimMotionWarpingPreUpdate(UMotionWarpingComponent
     // Skip if not actively tracking as victim
     if (!bIsTrackingAsVictim)
     {
+        return;
+    }
+
+    // Gap 19.3 fix: Bidirectional validity check - verify world is valid (not tearing down)
+    UWorld* World = GetWorld();
+    if (!World || World->bIsTearingDown)
+    {
+        StopVictimWarpTracking();
         return;
     }
 
@@ -683,8 +706,23 @@ void UTargetingComponent::StopVictimWarpTracking()
 bool UTargetingComponent::SetupAttackerPairedWarp(AActor* Victim, const FPairedWarpConfig& Config)
 {
     ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
-    if (!MotionWarpingComponent || !Owner || !Victim)
+
+    // Gap 19.1 fix: Log warnings for specific failure conditions instead of silent failure
+    if (!MotionWarpingComponent)
     {
+        UE_LOG(LogTargeting, Warning, TEXT("[ATTACKER WARP] %s has no MotionWarpingComponent - warp tracking disabled. Add MotionWarpingComponent to character."),
+            Owner ? *Owner->GetName() : TEXT("Unknown"));
+        return false;
+    }
+    if (!Owner)
+    {
+        UE_LOG(LogTargeting, Warning, TEXT("[ATTACKER WARP] Owner character is null - cannot setup attacker warp"));
+        return false;
+    }
+    if (!Victim)
+    {
+        UE_LOG(LogTargeting, Warning, TEXT("[ATTACKER WARP] %s - Victim is null, cannot setup attacker warp"),
+            *Owner->GetName());
         return false;
     }
 
@@ -770,6 +808,14 @@ void UTargetingComponent::OnAttackerPairedWarpPreUpdate(UMotionWarpingComponent*
     // Skip if not actively tracking as attacker
     if (!bIsTrackingAsAttacker)
     {
+        return;
+    }
+
+    // Gap 19.3 fix: Bidirectional validity check - verify world is valid (not tearing down)
+    UWorld* World = GetWorld();
+    if (!World || World->bIsTearingDown)
+    {
+        StopAttackerPairedWarpTracking();
         return;
     }
 
