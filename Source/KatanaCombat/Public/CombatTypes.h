@@ -161,6 +161,7 @@ enum class EPairedReactionType : uint8
     Throw           UMETA(DisplayName = "Throw Victim")
 };
 
+
 /**
  * Special hit reaction categories (non-directional)
  * Directional reactions use EHitIntensity × EAttackDirection lookup instead

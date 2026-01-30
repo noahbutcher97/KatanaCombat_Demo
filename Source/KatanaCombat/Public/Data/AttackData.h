@@ -11,6 +11,7 @@
 #include "AttackData.generated.h"
 
 class UAnimMontage;
+class UPairedAnimationData;
 
 /**
  * Defines a single attack's properties and behavior
@@ -228,6 +229,55 @@ public:
     /** Motion warping configuration (handles both target and rotation-only scenarios) */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Motion Warp")
     FAttackWarpConfig WarpConfig;
+
+    // ============================================================================
+    // PAIRED ANIMATIONS (Finishers, Counters)
+    // ============================================================================
+
+    /**
+     * Paired animation data for this attack's finisher (if any)
+     * When this attack triggers a finisher on a vulnerable enemy, this data defines
+     * the synced animation sequence between attacker and victim.
+     * Null = no finisher version of this attack
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paired Animation")
+    TObjectPtr<UPairedAnimationData> FinisherData = nullptr;
+
+    /**
+     * Paired animation data for this attack's counter version
+     * Used when this attack is performed as a parry counter.
+     * Null = use standard attack animation for counters
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paired Animation")
+    TObjectPtr<UPairedAnimationData> CounterData = nullptr;
+
+    /**
+     * Which hand performs this attack (for procedural IK and animation selection)
+     * Used by paired animation system for contact point calculation
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paired Animation|Context")
+    FName AttackHand = "RightHand";
+
+    /**
+     * Default victim bone for contact (chest, head, etc.)
+     * Used for IK adjustment and effect placement during paired animations
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paired Animation|Context")
+    FName DefaultContactBone = "spine_03";
+
+    /**
+     * Whether this attack can trigger finishers on vulnerable enemies
+     * Only checked when enemy is in finisher-eligible state (low health, guard broken, stunned)
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paired Animation|Triggers")
+    bool bCanTriggerFinisher = false;
+
+    /**
+     * Whether this attack has a counter variant (used after parry)
+     * When true and CounterData is set, uses paired counter animation
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paired Animation|Triggers")
+    bool bHasCounterVariant = false;
 
     // ============================================================================
     // CONTEXT & TAGS

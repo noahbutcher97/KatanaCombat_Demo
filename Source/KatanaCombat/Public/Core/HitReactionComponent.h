@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "CombatTypes.h"
+#include "Data/PairedAnimationTypes.h"
 #include "HitReactionComponent.generated.h"
 
 class UAnimMontage;
@@ -273,6 +274,22 @@ public:
 
     UPROPERTY(BlueprintAssignable, Category = "Hit Reaction")
     FOnRagdollActivated OnRagdollActivated;
+
+    // ============================================================================
+    // PAIRED ANIMATION EVENTS
+    // ============================================================================
+
+    /** Fires when a paired animation (finisher, counter) starts on this character */
+    UPROPERTY(BlueprintAssignable, Category = "Paired Animation")
+    FOnPairedAnimationStarted OnPairedAnimationStarted;
+
+    /** Fires at sync points during paired animations (impact, damage application) */
+    UPROPERTY(BlueprintAssignable, Category = "Paired Animation")
+    FOnPairedAnimationSyncPoint OnPairedAnimationSyncPoint;
+
+    /** Fires when paired animation ends */
+    UPROPERTY(BlueprintAssignable, Category = "Paired Animation")
+    FOnPairedAnimationEnded OnPairedAnimationEnded;
 
     // ============================================================================
     // DEATH REACTION

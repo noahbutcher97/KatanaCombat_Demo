@@ -7,6 +7,7 @@
 #include "GameplayTagContainer.h"
 #include "ActionQueueTypes.h"
 #include "CombatTypes.h"
+#include "Data/PairedAnimationTypes.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "CombatComponent.generated.h"
 
@@ -381,6 +382,22 @@ public:
 	/** Fires on montage events (started, blending out, ended) */
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
 	FOnMontageEvent OnMontageEvent;
+
+	// ============================================================================
+	// PAIRED ANIMATION EVENTS
+	// ============================================================================
+
+	/** Fires when a paired animation (finisher, counter) starts */
+	UPROPERTY(BlueprintAssignable, Category = "Combat|Paired Animation")
+	FOnPairedAnimationStarted OnPairedAnimationStarted;
+
+	/** Fires at sync points during paired animations (impact, damage application) */
+	UPROPERTY(BlueprintAssignable, Category = "Combat|Paired Animation")
+	FOnPairedAnimationSyncPoint OnPairedAnimationSyncPoint;
+
+	/** Fires when paired animation ends */
+	UPROPERTY(BlueprintAssignable, Category = "Combat|Paired Animation")
+	FOnPairedAnimationEnded OnPairedAnimationEnded;
 
 	// ============================================================================
 	// DEBUG / VISUALIZATION
