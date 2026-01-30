@@ -45,6 +45,15 @@ struct KATANACOMBAT_API FPairedWarpConfig
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paired Animation")
     FName WarpTargetName = "PairedTarget";
 
+    /**
+     * Position offset relative to partner (in partner's local space)
+     * X = Forward/Back, Y = Right/Left, Z = Up/Down
+     * For victims: offset from attacker (positive X = in front of attacker)
+     * For attackers: offset from victim (usually small or zero)
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paired Animation")
+    FVector RelativeOffset = FVector(100.0f, 0.0f, 0.0f);
+
     /** Maximum distance to warp (prevents warping through walls) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paired Animation",
         meta = (ClampMin = "0.0", ClampMax = "500.0"))

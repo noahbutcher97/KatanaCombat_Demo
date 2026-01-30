@@ -554,8 +554,9 @@ bool UTargetingComponent::SetupVictimWarp(AActor* Attacker, const FPairedWarpCon
     const FRotator AttackerRotation = Attacker->GetActorRotation();
 
     // Victim starts at offset from attacker's position
-    // VictimOffset is in attacker-local space (X = forward, Y = right)
-    FVector WarpLocation = AttackerLocation + AttackerRotation.RotateVector(FVector(100.f, 0.f, 0.f));
+    // RelativeOffset is in attacker-local space (X = forward, Y = right)
+    // Uses configurable offset instead of hardcoded value (Gap 18.2 fix)
+    FVector WarpLocation = AttackerLocation + AttackerRotation.RotateVector(Config.RelativeOffset);
 
     // Terrain adjustment to prevent floating
     if (Config.bAdjustToTerrain)
@@ -624,7 +625,8 @@ void UTargetingComponent::OnVictimMotionWarpingPreUpdate(UMotionWarpingComponent
 
     // Calculate victim's position relative to attacker's CURRENT location
     // This is the key difference from initial setup - tracks attacker's movement
-    FVector WarpLocation = AttackerLocation + AttackerRotation.RotateVector(FVector(100.f, 0.f, 0.f));
+    // Uses stored config's RelativeOffset instead of hardcoded value (Gap 18.2 fix)
+    FVector WarpLocation = AttackerLocation + AttackerRotation.RotateVector(VictimWarpConfig.RelativeOffset);
 
     // Terrain adjustment
     if (VictimWarpConfig.bAdjustToTerrain)
@@ -708,17 +710,24 @@ bool UTargetingComponent::SetupAttackerPairedWarp(AActor* Victim, const FPairedW
         CombatComp->AddPairedPartner(Victim);
     }
 
-    // Calculate initial warp position (toward victim, respecting max distance)
+    // Calculate initial warp position (toward victim with offset, respecting max distance)
     const FVector OwnerLocation = Owner->GetActorLocation();
     const FVector VictimLocation = Victim->GetActorLocation();
-    const float Distance = FVector::Dist(OwnerLocation, VictimLocation);
+    const FRotator VictimRotation = Victim->GetActorRotation();
 
-    // Attacker warps TOWARD victim (unlike victim warp which maintains offset)
-    FVector WarpLocation = VictimLocation;
+    // Attacker warps to offset from victim (Gap 18.3 fix)
+    // RelativeOffset is in victim's local space
+    // Default (0,0,0) = warp directly to victim location
+    // Typical use: small negative X to stay in front of victim
+    FVector TargetLocation = VictimLocation + VictimRotation.RotateVector(Config.RelativeOffset);
+    const float Distance = FVector::Dist(OwnerLocation, TargetLocation);
+
+    // Clamp to max warp distance
+    FVector WarpLocation = TargetLocation;
     if (Config.MaxWarpDistance > 0.0f && Distance > Config.MaxWarpDistance)
     {
-        const FVector ToVictim = (VictimLocation - OwnerLocation).GetSafeNormal();
-        WarpLocation = OwnerLocation + (ToVictim * Config.MaxWarpDistance);
+        const FVector ToTarget = (TargetLocation - OwnerLocation).GetSafeNormal();
+        WarpLocation = OwnerLocation + (ToTarget * Config.MaxWarpDistance);
     }
 
     // Terrain adjustment to prevent floating
@@ -785,14 +794,19 @@ void UTargetingComponent::OnAttackerPairedWarpPreUpdate(UMotionWarpingComponent*
     AActor* Victim = TrackedVictim.Get();
     const FVector OwnerLocation = Owner->GetActorLocation();
     const FVector VictimLocation = Victim->GetActorLocation();
-    const float Distance = FVector::Dist(OwnerLocation, VictimLocation);
+    const FRotator VictimRotation = Victim->GetActorRotation();
 
-    // Calculate warp location TOWARD victim (clamped to max distance)
-    FVector WarpLocation = VictimLocation;
+    // Calculate warp location with offset from victim (Gap 18.3 fix)
+    // Uses stored config's RelativeOffset instead of warping directly to victim
+    FVector TargetLocation = VictimLocation + VictimRotation.RotateVector(AttackerPairedWarpConfig.RelativeOffset);
+    const float Distance = FVector::Dist(OwnerLocation, TargetLocation);
+
+    // Clamp to max distance
+    FVector WarpLocation = TargetLocation;
     if (AttackerPairedWarpConfig.MaxWarpDistance > 0.0f && Distance > AttackerPairedWarpConfig.MaxWarpDistance)
     {
-        const FVector ToVictim = (VictimLocation - OwnerLocation).GetSafeNormal();
-        WarpLocation = OwnerLocation + (ToVictim * AttackerPairedWarpConfig.MaxWarpDistance);
+        const FVector ToTarget = (TargetLocation - OwnerLocation).GetSafeNormal();
+        WarpLocation = OwnerLocation + (ToTarget * AttackerPairedWarpConfig.MaxWarpDistance);
     }
 
     // Terrain adjustment

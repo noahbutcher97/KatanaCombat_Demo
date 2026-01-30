@@ -1053,11 +1053,17 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 		UE_LOG(LogCombat, Log, TEXT("[FINISHER] Trigger Reason: %s"), *UEnum::GetValueAsString(TriggerReason));
 	}
 
-	// Mark target as finisher target (prevents stacking)
-	TargetHitReaction->SetFinisherTarget(true);
+	// ========================================================================
+	// GAP 18.1 FIX: Track execution success and rollback on failure
+	// ========================================================================
+	bool bAttackerMontageSuccess = false;
+	bool bVictimMontageSuccess = false;
 
 	// Get target's combat component for partner tracking
 	UCombatComponent* TargetCombatComp = TargetActor->FindComponentByClass<UCombatComponent>();
+
+	// Mark target as finisher target (prevents stacking) - will rollback if execution fails
+	TargetHitReaction->SetFinisherTarget(true);
 
 	// Add each other as paired animation partners
 	AddPairedPartner(TargetActor);
@@ -1073,10 +1079,10 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 	ACharacter* AttackerChar = Cast<ACharacter>(AttackerCharacter);
 	if (AttackerChar && AttackData->FinisherData->AttackerMontage)
 	{
-		UAnimInstance* AttackerAnimInstance = AttackerChar->GetMesh()->GetAnimInstance();
+		UAnimInstance* AttackerAnimInstance = AttackerChar->GetMesh() ? AttackerChar->GetMesh()->GetAnimInstance() : nullptr;
 		if (AttackerAnimInstance)
 		{
-			AttackerAnimInstance->Montage_Play(
+			const float MontageLength = AttackerAnimInstance->Montage_Play(
 				AttackData->FinisherData->AttackerMontage,
 				1.0f,
 				EMontagePlayReturnType::MontageLength,
@@ -1084,21 +1090,26 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 				true
 			);
 
-			// Set up attacker paired warp (continuous tracking toward victim)
-			// Uses TargetingComponent's paired warp system for:
-			// - Continuous position updates each frame (tracks moving victim)
-			// - Automatic terrain adjustment
-			// - Partner registration for collision ignore
-			// - Symmetric with victim's SetupVictimWarp
-			TargetingComp->SetupAttackerPairedWarp(TargetActor, AttackData->FinisherData->AttackerWarpConfig);
+			bAttackerMontageSuccess = (MontageLength > 0.0f);
 
-			// Set combat state to Finishing
-			SetPhase(EAttackPhase::Active);
-
-			if (GetDebugDraw())
+			if (bAttackerMontageSuccess)
 			{
-				UE_LOG(LogCombat, Log, TEXT("[FINISHER] Attacker montage playing: %s"),
-					*AttackData->FinisherData->AttackerMontage->GetName());
+				// Set up attacker paired warp (continuous tracking toward victim)
+				// Uses TargetingComponent's paired warp system for:
+				// - Continuous position updates each frame (tracks moving victim)
+				// - Automatic terrain adjustment
+				// - Partner registration for collision ignore
+				// - Symmetric with victim's SetupVictimWarp
+				TargetingComp->SetupAttackerPairedWarp(TargetActor, AttackData->FinisherData->AttackerWarpConfig);
+
+				// Set combat state to Finishing
+				SetPhase(EAttackPhase::Active);
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[FINISHER] Attacker montage playing: %s"),
+						*AttackData->FinisherData->AttackerMontage->GetName());
+				}
 			}
 		}
 	}
@@ -1107,13 +1118,13 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 	ACharacter* VictimChar = Cast<ACharacter>(TargetActor);
 	if (VictimChar && AttackData->FinisherData->VictimMontage)
 	{
-		UAnimInstance* VictimAnimInstance = VictimChar->GetMesh()->GetAnimInstance();
+		UAnimInstance* VictimAnimInstance = VictimChar->GetMesh() ? VictimChar->GetMesh()->GetAnimInstance() : nullptr;
 		if (VictimAnimInstance)
 		{
 			// Calculate victim start delay
 			float StartPosition = FMath::Max(0.0f, -AttackData->FinisherData->VictimStartOffset);
 
-			VictimAnimInstance->Montage_Play(
+			const float MontageLength = VictimAnimInstance->Montage_Play(
 				AttackData->FinisherData->VictimMontage,
 				1.0f,
 				EMontagePlayReturnType::MontageLength,
@@ -1121,18 +1132,71 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 				true
 			);
 
-			// Set up victim warp to attacker
-			if (UTargetingComponent* VictimTargeting = TargetActor->FindComponentByClass<UTargetingComponent>())
-			{
-				VictimTargeting->SetupVictimWarp(GetOwner(), AttackData->FinisherData->VictimWarpConfig);
-			}
+			bVictimMontageSuccess = (MontageLength > 0.0f);
 
-			if (GetDebugDraw())
+			if (bVictimMontageSuccess)
 			{
-				UE_LOG(LogCombat, Log, TEXT("[FINISHER] Victim montage playing: %s (StartPos: %.2f)"),
-					*AttackData->FinisherData->VictimMontage->GetName(), StartPosition);
+				// Set up victim warp to attacker
+				if (UTargetingComponent* VictimTargeting = TargetActor->FindComponentByClass<UTargetingComponent>())
+				{
+					VictimTargeting->SetupVictimWarp(GetOwner(), AttackData->FinisherData->VictimWarpConfig);
+				}
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[FINISHER] Victim montage playing: %s (StartPos: %.2f)"),
+						*AttackData->FinisherData->VictimMontage->GetName(), StartPosition);
+				}
 			}
 		}
+	}
+
+	// ========================================================================
+	// GAP 18.1 FIX: Rollback state if either montage failed
+	// ========================================================================
+	if (!bAttackerMontageSuccess || !bVictimMontageSuccess)
+	{
+		UE_LOG(LogCombat, Warning, TEXT("[FINISHER] Execution failed - rolling back (Attacker: %s, Victim: %s)"),
+			bAttackerMontageSuccess ? TEXT("OK") : TEXT("FAILED"),
+			bVictimMontageSuccess ? TEXT("OK") : TEXT("FAILED"));
+
+		// Clear finisher target flag
+		TargetHitReaction->SetFinisherTarget(false);
+
+		// Clear partners
+		ClearPairedPartners();
+		if (TargetCombatComp)
+		{
+			TargetCombatComp->ClearPairedPartners();
+		}
+
+		// End effects (restores time dilation)
+		EndPairedAnimation();
+
+		// Stop any partial montages
+		if (bAttackerMontageSuccess && AttackerChar)
+		{
+			if (UAnimInstance* AnimInst = AttackerChar->GetMesh()->GetAnimInstance())
+			{
+				AnimInst->Montage_Stop(0.1f);
+			}
+		}
+		if (bVictimMontageSuccess && VictimChar)
+		{
+			if (UAnimInstance* AnimInst = VictimChar->GetMesh()->GetAnimInstance())
+			{
+				AnimInst->Montage_Stop(0.1f);
+			}
+		}
+
+		// Clear warp tracking
+		TargetingComp->ClearAttackerPairedWarp();
+		if (UTargetingComponent* VictimTargeting = TargetActor->FindComponentByClass<UTargetingComponent>())
+		{
+			VictimTargeting->ClearVictimWarp();
+		}
+
+		return false;
 	}
 
 	if (GetDebugDraw())
@@ -3435,6 +3499,41 @@ void UCombatComponent::CancelPairedAnimation(float BlendOutTime)
 	{
 		UE_LOG(LogCombat, Warning, TEXT("[PAIRED INTERRUPT] Cancelling paired animation (BlendOutTime: %.2fs)"),
 			BlendOutTime);
+	}
+
+	// ========================================================================
+	// GAP 18.10 FIX: Clear victim warp tracking on all partners BEFORE clearing partners
+	// GAP 18.7 FIX: Clear bIsFinisherTarget flag on all partners
+	// ========================================================================
+	for (const TWeakObjectPtr<AActor>& PartnerRef : PairedAnimationPartners)
+	{
+		if (AActor* Partner = PartnerRef.Get())
+		{
+			// Clear victim's warp tracking (stops them from continuing to warp toward us)
+			if (UTargetingComponent* PartnerTargeting = Partner->FindComponentByClass<UTargetingComponent>())
+			{
+				PartnerTargeting->ClearVictimWarp();
+				PartnerTargeting->ClearAttackerPairedWarp();
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] Cleared warp tracking on partner %s"),
+						*Partner->GetName());
+				}
+			}
+
+			// Clear finisher target flag (prevents permanently blocking re-targeting)
+			if (UHitReactionComponent* PartnerHitReaction = Partner->FindComponentByClass<UHitReactionComponent>())
+			{
+				PartnerHitReaction->SetFinisherTarget(false);
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] Cleared finisher target flag on %s"),
+						*Partner->GetName());
+				}
+			}
+		}
 	}
 
 	// Stop any playing montage on the owner
