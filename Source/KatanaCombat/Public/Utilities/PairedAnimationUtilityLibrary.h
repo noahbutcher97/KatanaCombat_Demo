@@ -336,4 +336,42 @@ public:
         const FVector& VictimLocation,
         const FTransform& AttackerTransform,
         const FPairedWarpConfig& WarpConfig);
+
+    // ========================================================================
+    // OBSTRUCTION DETECTION
+    // ========================================================================
+
+    /**
+     * Find actors that could obstruct a paired animation.
+     * Scans a radius around the specified location for pawns that aren't in the ignore list.
+     *
+     * @param World - World context
+     * @param Location - Center point to scan around
+     * @param Radius - Scan radius
+     * @param IgnoreActors - Actors to exclude from results (typically paired animation participants)
+     * @return Array of potentially obstructing actors
+     */
+    UFUNCTION(BlueprintCallable, Category = "Paired Animation|Collision")
+    static TArray<AActor*> FindObstructingActorsInRadius(
+        UWorld* World,
+        const FVector& Location,
+        float Radius,
+        const TArray<AActor*>& IgnoreActors);
+
+    /**
+     * Check if an actor is obstructing a paired animation zone.
+     * Useful for determining if an actor needs to be pushed/ignored.
+     *
+     * @param Actor - Actor to check
+     * @param ZoneCenter - Center of the paired animation zone
+     * @param ZoneRadius - Radius of the danger zone
+     * @param ParticipantActors - Actors participating in the animation (excluded from obstruction)
+     * @return True if actor is obstructing the zone
+     */
+    UFUNCTION(BlueprintPure, Category = "Paired Animation|Collision")
+    static bool IsActorObstructingZone(
+        AActor* Actor,
+        const FVector& ZoneCenter,
+        float ZoneRadius,
+        const TArray<AActor*>& ParticipantActors);
 };

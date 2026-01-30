@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "CombatTypes.h"
+#include "Data/PairedAnimationTypes.h"
 #include "TargetingComponent.generated.h"
 
 class ACharacter;
@@ -231,6 +232,69 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping")
     void ClearMotionWarp(FName WarpTargetName = NAME_None);
 
+    // ========================================================================
+    // VICTIM WARP (for paired animations - victim warps to attacker)
+    // ========================================================================
+
+    /**
+     * Set up continuous warp tracking as the ATTACKER of a paired animation.
+     * Attacker warps toward victim's position during finisher/counter execution.
+     * Symmetric with SetupVictimWarp - both characters track each other.
+     *
+     * Call this when initiating a paired animation where this character is the attacker.
+     * Automatically registers victim as paired partner for collision ignore.
+     *
+     * Unlike standard SetupAttackWarp (which uses FAttackWarpConfig for regular attacks),
+     * this uses FPairedWarpConfig for consistency with paired animation infrastructure.
+     *
+     * @param Victim - Target of the paired animation (we warp toward their position)
+     * @param Config - Paired warp configuration (terrain adjustment, max distance, etc.)
+     * @return True if warp tracking was set up successfully
+     */
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Paired Animation")
+    bool SetupAttackerPairedWarp(AActor* Victim, const FPairedWarpConfig& Config);
+
+    /**
+     * Clear attacker paired warp tracking.
+     * Call when paired animation ends or is interrupted.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Paired Animation")
+    void ClearAttackerPairedWarp();
+
+    /**
+     * Check if this component is currently tracking as a paired animation attacker.
+     */
+    UFUNCTION(BlueprintPure, Category = "Targeting|Paired Animation")
+    bool IsTrackingAsAttacker() const { return bIsTrackingAsAttacker; }
+
+    /**
+     * Set up continuous warp tracking as the VICTIM of a paired animation.
+     * Victim warps to maintain position relative to attacker's ACTUAL location.
+     * Mirror of SetupAttackerPairedWarp - attacker tracks victim, victim tracks attacker.
+     *
+     * Call this when initiating a paired animation where this character is the victim.
+     * Automatically registers attacker as paired partner for collision ignore.
+     *
+     * @param Attacker - Actor performing the attack (we warp relative to their position)
+     * @param Config - Warp configuration (offset, terrain adjustment, etc.)
+     * @return True if warp tracking was set up successfully
+     */
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Paired Animation")
+    bool SetupVictimWarp(AActor* Attacker, const FPairedWarpConfig& Config);
+
+    /**
+     * Clear victim warp tracking.
+     * Call when paired animation ends or is interrupted.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Paired Animation")
+    void ClearVictimWarp();
+
+    /**
+     * Check if this component is currently tracking as a paired animation victim.
+     */
+    UFUNCTION(BlueprintPure, Category = "Targeting|Paired Animation")
+    bool IsTrackingAsVictim() const { return bIsTrackingAsVictim; }
+
     // Legacy functions - kept for backwards compatibility, prefer SetupAttackWarp
     UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping", meta = (DeprecatedFunction, DeprecationMessage = "Use SetupAttackWarp instead"))
     bool SetupMotionWarp(AActor* Target, FName WarpTargetName = "AttackTarget", float MaxDistance = -1.0f);
@@ -252,7 +316,7 @@ private:
     TObjectPtr<AActor> CurrentTarget = nullptr;
 
     // ============================================================================
-    // CONTINUOUS WARP TRACKING STATE
+    // CONTINUOUS WARP TRACKING STATE (ATTACKER MODE)
     // ============================================================================
 
     /** Target being tracked for continuous warp updates (weak to handle destruction) */
@@ -270,6 +334,46 @@ private:
 
     /** Stop tracking and unbind from updates */
     void StopWarpTracking();
+
+    // ============================================================================
+    // ATTACKER PAIRED WARP TRACKING STATE (PAIRED ANIMATION ATTACKER MODE)
+    // ============================================================================
+
+    /** Victim being tracked for attacker paired warp updates (we warp toward them) */
+    TWeakObjectPtr<AActor> TrackedVictim;
+
+    /** Attacker paired warp configuration for continuous updates */
+    FPairedWarpConfig AttackerPairedWarpConfig;
+
+    /** Whether we're actively tracking as a paired animation attacker */
+    bool bIsTrackingAsAttacker = false;
+
+    /** Callback for attacker paired warp updates - called each frame by MotionWarpingComponent */
+    UFUNCTION()
+    void OnAttackerPairedWarpPreUpdate(UMotionWarpingComponent* MotionWarpingComp);
+
+    /** Stop attacker paired tracking and unbind from updates */
+    void StopAttackerPairedWarpTracking();
+
+    // ============================================================================
+    // VICTIM WARP TRACKING STATE (PAIRED ANIMATION VICTIM MODE)
+    // ============================================================================
+
+    /** Attacker being tracked for victim warp updates (we position relative to them) */
+    TWeakObjectPtr<AActor> TrackedAttacker;
+
+    /** Victim warp configuration for continuous updates */
+    FPairedWarpConfig VictimWarpConfig;
+
+    /** Whether we're actively tracking as a paired animation victim */
+    bool bIsTrackingAsVictim = false;
+
+    /** Callback for victim warp updates - called each frame by MotionWarpingComponent */
+    UFUNCTION()
+    void OnVictimMotionWarpingPreUpdate(UMotionWarpingComponent* MotionWarpingComp);
+
+    /** Stop victim tracking and unbind from updates */
+    void StopVictimWarpTracking();
 
     // ============================================================================
     // CACHED REFERENCES

@@ -166,10 +166,19 @@ Source/KatanaCombat/Public/
 
 ## Coding Guidelines
 
+**CRITICAL: THOROUGH SOLUTIONS OVER QUICK FIXES — EVEN AT THE EXPENSE OF TIME**
+
+ALWAYS prefer the more complete, well-architected implementation over shortcuts. This is a firm user preference: the thorough solution is always preferred, even when it takes significantly longer to implement.
+
+- **Philosophy**: Time spent on proper implementation now saves exponentially more time debugging mysterious side effects later. Quick fixes tend to compound into technical debt that becomes increasingly painful to unravel.
+- **Example (Collision)**: Use a tracked partner array with `IgnoreActorWhenMoving()` (supports multi-partner kills, easier debugging) over global pawn collision disable (`ECR_Ignore` on `ECC_Pawn`).
+- **Example (Timing)**: Use `FPlatformTime::Seconds()` with `FTSTicker` for accurate real-time tracking instead of `GetTimerManager().SetTimer()` which is affected by time dilation.
+- **When in doubt**: Choose the approach that handles more edge cases, provides clearer debugging information, and doesn't rely on approximations when accurate solutions exist.
+
 **DO**:
 - Use timers over tick (minimize tick overhead)
 - Maintain 4-component separation (intentional architecture)
-- Preserve Blueprint exposure (`UFUNCTION(BlueprintCallable)`)
+- Preserve Blueprint exposure (`UFUNCTION(BlueprintCallable)`) for PUBLIC API functions
 - Update existing files (don't create "_V2" variants)
 
 **DON'T**:
@@ -178,6 +187,7 @@ Source/KatanaCombat/Public/
 - Assume `FGeometry::GetRenderTransform()` exists (UE 5.6 removed it)
 - Convert `FLinearColor` to `FColor` directly (use `.ToFColor(true)`)
 - Use component tick without explicit permission
+- **Make internal state variables `BlueprintReadOnly`**: If a parameter isn't meaningful to view/edit at runtime in the editor, don't expose it to Blueprint. This adds visual load and confusion. Reserve Blueprint visibility for intentional public API, not internal implementation details.
 
 ## Git Conventions
 

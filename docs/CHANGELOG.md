@@ -10,14 +10,124 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### In Progress
 - **Phase 5: Paired Animation System** - Synced finisher/counter animations
-  - Phase 5a: Finishers (establish paired warp framework)
-  - Phase 5b: Parry Counters (role reversal mechanics)
+  - Phase 5a: Finishers (establish paired warp framework) ✅ COMPLETE
+  - Phase 5b-1: Collision & Warp Infrastructure ✅ COMPLETE
+  - Phase 5b-2: Delegate Wiring & Effects ✅ COMPLETE
+  - Phase 5b-3: State & Safety ✅ COMPLETE
+  - Phase 5b-4: Validation & Polish (IN PROGRESS)
+  - Phase 5b-5: AI Coordination (PENDING)
 
 ### Planned
-- Phase 6: Parry & Evade Systems
-- Phase 7: Posture Integration
-- Phase 8+: Polish (hit stop, root motion, AI, UI/UX)
+- Phase 6: IK & Context Enhancement (Contact Point IK, Tag-Based Selection)
+- Phase 7: VFX Implementation
+- Phase 8+: Polish (AI tokens, UI/UX)
 - Future: Predictive terrain analysis, foot IK integration
+
+---
+
+## [3.4.0] - 2026-01-30
+
+### Added: Phase 5b-2/5b-3 - Finisher Execution, State Safety & Symmetric Warp Tracking
+
+Complete finisher execution flow with comprehensive safety systems and symmetric motion warp tracking for paired animations.
+
+**New Components & Systems**:
+
+#### Finisher Execution Flow (`CombatComponent`)
+- `TryExecuteFinisher()` - Attempts finisher on vulnerable target before normal attack
+- Automatic finisher detection: low health (≤25%), guard broken, or stunned targets
+- Seamless integration with `ExecuteAction()` - checks finisher before normal attack
+
+#### Finisher Vulnerability System (`HitReactionComponent`)
+- `IsVulnerableToFinisher()` - Query if target can receive finisher
+- `GetFinisherTriggerReason()` - Returns why target is vulnerable (LowHealth/GuardBroken/Stunned)
+- `bIsFinisherTarget` flag - Prevents stacked finisher exploitation (victim mutex)
+- Priority system: GuardBroken > Stunned > LowHealth
+
+#### Symmetric Attacker Paired Warp (`TargetingComponent`)
+- `SetupAttackerPairedWarp()` - Continuous tracking TOWARD victim (closes distance)
+- `OnAttackerPairedWarpPreUpdate()` - Frame-by-frame position updates
+- `ClearAttackerPairedWarp()` / `StopAttackerPairedWarpTracking()` - Cleanup
+- Symmetric with existing `SetupVictimWarp()` (victim stays at offset FROM attacker)
+- Automatic partner registration for collision ignore
+- Terrain adjustment support
+
+#### State Transition Safety (`CombatComponent`)
+- `OnPairedPartnerDeath()` - Called when paired partner dies mid-animation
+- `CancelPairedAnimation()` - Safely cancels victim animation, restores state
+- `OnCharacterDeath()` updated to notify all paired partners
+- Prevents soft-locks from attacker death during finishers
+
+#### Input Blocking During Paired Animations
+- `bBlockCombatInput` flag - Prevents accidental input during cinematics
+- `CanProcessInput()` updated to check block flag
+- Auto-set in `BeginPairedAnimation()`, cleared in `EndPairedAnimation()`
+- Safety reset in `OnCharacterDeath()`
+
+**Architecture Benefits**:
+
+| Quick Fix (Avoided) | Thorough Solution (Implemented) |
+|---------------------|--------------------------------|
+| Single position snapshot | Continuous tracking every frame |
+| No terrain adjustment | Automatic terrain adjustment |
+| Manual partner registration | Automatic partner management |
+| Direct component coupling | Clean API through TargetingComponent |
+| No cleanup on interruption | Proper delegate cleanup |
+
+**Files Modified**:
+- `CombatComponent.h/.cpp` - Finisher execution, interrupt handling, input blocking
+- `HitReactionComponent.h/.cpp` - Finisher vulnerability queries
+- `TargetingComponent.h/.cpp` - Symmetric attacker paired warp tracking
+
+**Design Philosophy Note**: This implementation follows the "thorough solutions over quick fixes" principle documented in CLAUDE.md. The symmetric warp tracking system (both attacker and victim continuously track each other) ensures proper positioning even with root motion or external forces.
+
+---
+
+## [3.3.0] - 2026-01-30
+
+### Added: Phase 5b-1 - Core Paired Animation Infrastructure
+
+Foundation infrastructure for paired animations including collision handling, hitstop, camera effects, and dynamic obstruction detection.
+
+**New Files Created**:
+- `AnimNotifyState_PairedAnimationCollision.h/.cpp` - Disable collision during paired animations
+- `CinematicEffectsUtilityLibrary.h/.cpp` - Slow-motion & camera shake utilities
+
+**AnimNotifyState_PairedAnimationCollision**:
+- Disables collision with paired animation partners (not all pawns)
+- Uses `MoveIgnoreActors` API for targeted collision ignore
+- Disables CharacterMovement during paired animation
+- Dynamic obstruction detection during paired animations
+- Graceful handling with state restoration on interrupt
+
+**CinematicEffectsUtilityLibrary**:
+- `ApplySlowMotion()` / `RestoreTimeDilation()` - Safe time dilation with safeguards
+- `TriggerCameraShake()` - Camera shake at impact points
+- `ApplyHitstop()` - Sakurai-style hitstop (freeze both participants)
+- Support for `CustomTimeDilation` per-actor freeze
+
+**Sakurai-Style Hitstop System**:
+- Both attacker AND victim freeze at sync point
+- Mesh vibration during hitstop (optional)
+- Background/particles continue (selective freeze)
+- Damage-proportional duration support
+
+**Delegate Wiring**:
+- `OnPairedAnimationStarted` → slow-motion triggering
+- `OnPairedAnimationSyncPoint` → camera shake + hitstop + damage
+- `OnPairedAnimationEnded` → time dilation restore
+
+**Audio/VFX Scaffolding** (`PairedAnimationData`):
+- `ImpactSound` / `VictimReactionSound` slots
+- `ImpactVFX` (UNiagaraSystem*) slot
+- `SlowMoPostProcess` (UMaterialInterface*) slot
+- Implementation deferred to Phase 7
+
+**Files Modified**:
+- `AnimNotifyState_PairedAnimationSync.cpp` - Hitstop implementation
+- `PairedAnimationData.h` - Audio/VFX property slots
+- `PairedAnimationUtilityLibrary.h/.cpp` - Obstruction scanning
+- `KatanaCombat.Build.cs` - Niagara module dependency
 
 ---
 

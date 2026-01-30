@@ -17,6 +17,7 @@
 #include "Data/TargetingSettings.h"
 #include "Data/MotionWarpingSettings.h"
 #include "Characters/BaseCombatCharacter.h"
+#include "Core/CombatComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTargeting, Log, All);
 
@@ -68,6 +69,8 @@ void UTargetingComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
     // Clean up tracking to avoid dangling delegate bindings
     StopWarpTracking();
+    StopAttackerPairedWarpTracking();
+    StopVictimWarpTracking();
 
     Super::EndPlay(EndPlayReason);
 }
@@ -493,8 +496,10 @@ void UTargetingComponent::StopWarpTracking()
 
 void UTargetingComponent::ClearMotionWarp(FName WarpTargetName)
 {
-    // Stop continuous tracking
+    // Stop continuous tracking (all modes)
     StopWarpTracking();
+    StopAttackerPairedWarpTracking();
+    StopVictimWarpTracking();
 
     if (!MotionWarpingComponent)
     {
@@ -509,6 +514,342 @@ void UTargetingComponent::ClearMotionWarp(FName WarpTargetName)
     {
         MotionWarpingComponent->RemoveWarpTarget(WarpTargetName);
     }
+}
+
+// ============================================================================
+// VICTIM WARP (PAIRED ANIMATION VICTIM MODE)
+// ============================================================================
+
+bool UTargetingComponent::SetupVictimWarp(AActor* Attacker, const FPairedWarpConfig& Config)
+{
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!MotionWarpingComponent || !Owner || !Attacker)
+    {
+        return false;
+    }
+
+    // Stop any previous tracking (both modes)
+    StopWarpTracking();
+    StopVictimWarpTracking();
+
+    // Clear previous warp target
+    MotionWarpingComponent->RemoveWarpTarget(Config.WarpTargetName);
+
+    // Store tracking state for continuous updates
+    TrackedAttacker = Attacker;
+    VictimWarpConfig = Config;
+    bIsTrackingAsVictim = true;
+
+    // Bind to OnPreUpdate for continuous tracking
+    MotionWarpingComponent->OnPreUpdate.AddDynamic(this, &UTargetingComponent::OnVictimMotionWarpingPreUpdate);
+
+    // Register attacker as paired partner for collision ignore
+    if (UCombatComponent* CombatComp = Owner->FindComponentByClass<UCombatComponent>())
+    {
+        CombatComp->AddPairedPartner(Attacker);
+    }
+
+    // Calculate initial victim position (will be updated each frame)
+    const FVector AttackerLocation = Attacker->GetActorLocation();
+    const FRotator AttackerRotation = Attacker->GetActorRotation();
+
+    // Victim starts at offset from attacker's position
+    // VictimOffset is in attacker-local space (X = forward, Y = right)
+    FVector WarpLocation = AttackerLocation + AttackerRotation.RotateVector(FVector(100.f, 0.f, 0.f));
+
+    // Terrain adjustment to prevent floating
+    if (Config.bAdjustToTerrain)
+    {
+        const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+        WarpLocation = UDebugUtils::AdjustLocationToGround(GetWorld(), WarpLocation, CapsuleHalfHeight, Owner, false);
+    }
+
+    // Calculate rotation (face the attacker)
+    FRotator WarpRotation = FRotator::ZeroRotator;
+    if (Config.bWarpRotation)
+    {
+        WarpRotation = (AttackerLocation - WarpLocation).Rotation();
+    }
+
+    // Set initial warp target
+    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
+        Config.WarpTargetName,
+        Config.bWarpTranslation ? WarpLocation : Owner->GetActorLocation(),
+        WarpRotation
+    );
+
+    if (CombatDebug::IsTargetingDebugEnabled())
+    {
+        UE_LOG(LogTargeting, Log, TEXT("[VICTIM WARP] %s tracking attacker %s, WarpTarget=%s"),
+            *Owner->GetName(), *Attacker->GetName(), *Config.WarpTargetName.ToString());
+    }
+
+    return true;
+}
+
+void UTargetingComponent::ClearVictimWarp()
+{
+    StopVictimWarpTracking();
+}
+
+void UTargetingComponent::OnVictimMotionWarpingPreUpdate(UMotionWarpingComponent* MotionWarpingComp)
+{
+    // Skip if not actively tracking as victim
+    if (!bIsTrackingAsVictim)
+    {
+        return;
+    }
+
+    // Validate attacker still exists
+    if (!TrackedAttacker.IsValid())
+    {
+        if (CombatDebug::IsTargetingDebugEnabled())
+        {
+            UE_LOG(LogTargeting, Warning, TEXT("[VICTIM WARP] Tracked attacker destroyed, stopping tracking"));
+        }
+        StopVictimWarpTracking();
+        return;
+    }
+
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        StopVictimWarpTracking();
+        return;
+    }
+
+    AActor* Attacker = TrackedAttacker.Get();
+    const FVector AttackerLocation = Attacker->GetActorLocation();
+    const FRotator AttackerRotation = Attacker->GetActorRotation();
+
+    // Calculate victim's position relative to attacker's CURRENT location
+    // This is the key difference from initial setup - tracks attacker's movement
+    FVector WarpLocation = AttackerLocation + AttackerRotation.RotateVector(FVector(100.f, 0.f, 0.f));
+
+    // Terrain adjustment
+    if (VictimWarpConfig.bAdjustToTerrain)
+    {
+        const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+        WarpLocation = UDebugUtils::AdjustLocationToGround(GetWorld(), WarpLocation, CapsuleHalfHeight, Owner, false);
+    }
+
+    // Rotation (face the attacker)
+    FRotator WarpRotation = Owner->GetActorRotation();
+    if (VictimWarpConfig.bWarpRotation)
+    {
+        WarpRotation = (AttackerLocation - WarpLocation).Rotation();
+    }
+
+    // Update warp target with attacker's current position
+    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
+        VictimWarpConfig.WarpTargetName,
+        VictimWarpConfig.bWarpTranslation ? WarpLocation : Owner->GetActorLocation(),
+        WarpRotation
+    );
+}
+
+void UTargetingComponent::StopVictimWarpTracking()
+{
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+
+    if (bIsTrackingAsVictim && MotionWarpingComponent)
+    {
+        MotionWarpingComponent->OnPreUpdate.RemoveDynamic(this, &UTargetingComponent::OnVictimMotionWarpingPreUpdate);
+
+        // Remove paired partner registration
+        if (Owner)
+        {
+            if (UCombatComponent* CombatComp = Owner->FindComponentByClass<UCombatComponent>())
+            {
+                if (TrackedAttacker.IsValid())
+                {
+                    CombatComp->RemovePairedPartner(TrackedAttacker.Get());
+                }
+            }
+        }
+    }
+
+    TrackedAttacker.Reset();
+    bIsTrackingAsVictim = false;
+    VictimWarpConfig = FPairedWarpConfig();
+}
+
+// ============================================================================
+// ATTACKER PAIRED WARP (PAIRED ANIMATION ATTACKER MODE)
+// ============================================================================
+
+bool UTargetingComponent::SetupAttackerPairedWarp(AActor* Victim, const FPairedWarpConfig& Config)
+{
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!MotionWarpingComponent || !Owner || !Victim)
+    {
+        return false;
+    }
+
+    // Stop any previous tracking (all modes)
+    StopWarpTracking();
+    StopAttackerPairedWarpTracking();
+    StopVictimWarpTracking();
+
+    // Clear previous warp target
+    MotionWarpingComponent->RemoveWarpTarget(Config.WarpTargetName);
+
+    // Store tracking state for continuous updates
+    TrackedVictim = Victim;
+    AttackerPairedWarpConfig = Config;
+    bIsTrackingAsAttacker = true;
+
+    // Bind to OnPreUpdate for continuous tracking
+    MotionWarpingComponent->OnPreUpdate.AddDynamic(this, &UTargetingComponent::OnAttackerPairedWarpPreUpdate);
+
+    // Register victim as paired partner for collision ignore
+    if (UCombatComponent* CombatComp = Owner->FindComponentByClass<UCombatComponent>())
+    {
+        CombatComp->AddPairedPartner(Victim);
+    }
+
+    // Calculate initial warp position (toward victim, respecting max distance)
+    const FVector OwnerLocation = Owner->GetActorLocation();
+    const FVector VictimLocation = Victim->GetActorLocation();
+    const float Distance = FVector::Dist(OwnerLocation, VictimLocation);
+
+    // Attacker warps TOWARD victim (unlike victim warp which maintains offset)
+    FVector WarpLocation = VictimLocation;
+    if (Config.MaxWarpDistance > 0.0f && Distance > Config.MaxWarpDistance)
+    {
+        const FVector ToVictim = (VictimLocation - OwnerLocation).GetSafeNormal();
+        WarpLocation = OwnerLocation + (ToVictim * Config.MaxWarpDistance);
+    }
+
+    // Terrain adjustment to prevent floating
+    if (Config.bAdjustToTerrain)
+    {
+        const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+        WarpLocation = UDebugUtils::AdjustLocationToGround(GetWorld(), WarpLocation, CapsuleHalfHeight, Owner, false);
+    }
+
+    // Calculate rotation (face the victim)
+    FRotator WarpRotation = Owner->GetActorRotation();
+    if (Config.bWarpRotation)
+    {
+        WarpRotation = (VictimLocation - OwnerLocation).Rotation();
+    }
+
+    // Set initial warp target
+    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
+        Config.WarpTargetName,
+        Config.bWarpTranslation ? WarpLocation : OwnerLocation,
+        WarpRotation
+    );
+
+    if (CombatDebug::IsTargetingDebugEnabled())
+    {
+        UE_LOG(LogTargeting, Log, TEXT("[ATTACKER PAIRED WARP] %s tracking victim %s, WarpTarget=%s, Distance=%.1f"),
+            *Owner->GetName(), *Victim->GetName(), *Config.WarpTargetName.ToString(), Distance);
+    }
+
+    return true;
+}
+
+void UTargetingComponent::ClearAttackerPairedWarp()
+{
+    StopAttackerPairedWarpTracking();
+}
+
+void UTargetingComponent::OnAttackerPairedWarpPreUpdate(UMotionWarpingComponent* MotionWarpingComp)
+{
+    // Skip if not actively tracking as attacker
+    if (!bIsTrackingAsAttacker)
+    {
+        return;
+    }
+
+    // Validate victim still exists
+    if (!TrackedVictim.IsValid())
+    {
+        if (CombatDebug::IsTargetingDebugEnabled())
+        {
+            UE_LOG(LogTargeting, Warning, TEXT("[ATTACKER PAIRED WARP] Tracked victim destroyed, stopping tracking"));
+        }
+        StopAttackerPairedWarpTracking();
+        return;
+    }
+
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (!Owner)
+    {
+        StopAttackerPairedWarpTracking();
+        return;
+    }
+
+    AActor* Victim = TrackedVictim.Get();
+    const FVector OwnerLocation = Owner->GetActorLocation();
+    const FVector VictimLocation = Victim->GetActorLocation();
+    const float Distance = FVector::Dist(OwnerLocation, VictimLocation);
+
+    // Calculate warp location TOWARD victim (clamped to max distance)
+    FVector WarpLocation = VictimLocation;
+    if (AttackerPairedWarpConfig.MaxWarpDistance > 0.0f && Distance > AttackerPairedWarpConfig.MaxWarpDistance)
+    {
+        const FVector ToVictim = (VictimLocation - OwnerLocation).GetSafeNormal();
+        WarpLocation = OwnerLocation + (ToVictim * AttackerPairedWarpConfig.MaxWarpDistance);
+    }
+
+    // Terrain adjustment
+    if (AttackerPairedWarpConfig.bAdjustToTerrain)
+    {
+        const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+        WarpLocation = UDebugUtils::AdjustLocationToGround(GetWorld(), WarpLocation, CapsuleHalfHeight, Owner, false);
+    }
+
+    // Rotation (face the victim)
+    FRotator WarpRotation = Owner->GetActorRotation();
+    if (AttackerPairedWarpConfig.bWarpRotation)
+    {
+        WarpRotation = (VictimLocation - OwnerLocation).Rotation();
+    }
+
+    // Update warp target with victim's current position
+    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
+        AttackerPairedWarpConfig.WarpTargetName,
+        AttackerPairedWarpConfig.bWarpTranslation ? WarpLocation : OwnerLocation,
+        WarpRotation
+    );
+
+    // Debug visualization
+    if (CombatDebug::IsTargetingDebugEnabled())
+    {
+        DrawDebugLine(GetWorld(), OwnerLocation, WarpLocation, FColor::Magenta, false, 0.0f, 0, 2.0f);
+        DrawDebugSphere(GetWorld(), WarpLocation, 25.0f, 8, FColor::Magenta, false, 0.0f);
+        DrawDebugDirectionalArrow(GetWorld(), OwnerLocation,
+            OwnerLocation + (WarpRotation.Vector() * 150.0f), 30.0f, FColor::Purple, false, 0.0f, 0, 2.0f);
+    }
+}
+
+void UTargetingComponent::StopAttackerPairedWarpTracking()
+{
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+
+    if (bIsTrackingAsAttacker && MotionWarpingComponent)
+    {
+        MotionWarpingComponent->OnPreUpdate.RemoveDynamic(this, &UTargetingComponent::OnAttackerPairedWarpPreUpdate);
+
+        // Remove paired partner registration
+        if (Owner)
+        {
+            if (UCombatComponent* CombatComp = Owner->FindComponentByClass<UCombatComponent>())
+            {
+                if (TrackedVictim.IsValid())
+                {
+                    CombatComp->RemovePairedPartner(TrackedVictim.Get());
+                }
+            }
+        }
+    }
+
+    TrackedVictim.Reset();
+    bIsTrackingAsAttacker = false;
+    AttackerPairedWarpConfig = FPairedWarpConfig();
 }
 
 // Legacy function - forwards to SetupAttackWarp

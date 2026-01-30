@@ -9,6 +9,9 @@
 #include "PairedAnimationData.generated.h"
 
 class UAnimMontage;
+class USoundBase;
+class UNiagaraSystem;
+class UMaterialInterface;
 
 /**
  * Data asset defining a paired animation sequence (finisher, counter, throw, etc.)
@@ -164,6 +167,79 @@ public:
     /** Camera shake to play during sync point */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effects")
     TSubclassOf<UCameraShakeBase> ImpactCameraShake;
+
+    // ========================================================================
+    // AUDIO (Scaffolding - Implementation Phase 7)
+    // ========================================================================
+
+    /**
+     * Sound to play at impact sync point.
+     * Plays at contact point location for spatial audio.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+    TObjectPtr<USoundBase> ImpactSound;
+
+    /**
+     * Victim reaction sound (grunt, scream, etc).
+     * Plays at victim's location at sync point.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+    TObjectPtr<USoundBase> VictimReactionSound;
+
+    /**
+     * Attacker voice line (combat bark, taunt).
+     * Plays at animation start or configurable time.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+    TObjectPtr<USoundBase> AttackerVoiceLine;
+
+    /**
+     * Amount to duck music during finisher (decibels).
+     * Negative values reduce music volume. 0 = no ducking.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
+        meta = (ClampMin = "-20.0", ClampMax = "0.0"))
+    float MusicDuckingDB = 0.0f;
+
+    // ========================================================================
+    // VISUAL EFFECTS (Scaffolding - Implementation Phase 7)
+    // ========================================================================
+
+    /**
+     * Niagara system to spawn at impact sync point.
+     * Spawns at contact point between attacker weapon and victim.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
+    TObjectPtr<UNiagaraSystem> ImpactVFX;
+
+    /**
+     * Post-process material to apply during slow motion.
+     * Blended in at slow-mo start, blended out at end.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
+    TObjectPtr<UMaterialInterface> SlowMoPostProcessMaterial;
+
+    /**
+     * Weight of slow-mo post process blend (0-1).
+     * Higher = stronger effect.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX",
+        meta = (EditCondition = "SlowMoPostProcessMaterial != nullptr", ClampMin = "0.0", ClampMax = "1.0"))
+    float SlowMoPostProcessWeight = 0.5f;
+
+    /**
+     * Screen blood splatter material for high-damage finishers.
+     * Applied as screen overlay at sync point.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
+    TObjectPtr<UMaterialInterface> ScreenBloodMaterial;
+
+    /**
+     * Whether to spawn blood decals on victim mesh at impact.
+     * Uses victim's contact bone as spawn location.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
+    bool bSpawnBloodDecals = false;
 
     // ========================================================================
     // DAMAGE

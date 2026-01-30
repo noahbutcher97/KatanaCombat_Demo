@@ -48,6 +48,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogCombat, Log, All);
 class UAttackData;
 class UCombatSettings;
 class UAnimInstance;
+class UPairedAnimationData;
 
 // ============================================================================
 // DEBUG VISUALIZATION TESTING SUPPORT
@@ -189,6 +190,17 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Queue")
 	bool ExecuteAction(FActionQueueEntry& Action);
+
+	/**
+	 * Try to execute a finisher on the current target.
+	 * Checks if target is vulnerable and attack has FinisherData.
+	 * If successful, plays paired finisher animation instead of normal attack.
+	 *
+	 * @param AttackData - Attack being executed (must have FinisherData)
+	 * @return True if finisher was executed (caller should skip normal attack)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Finisher")
+	bool TryExecuteFinisher(UAttackData* AttackData);
 
 	/**
 	 * Play attack montage (independent implementation)
@@ -398,6 +410,147 @@ public:
 	/** Fires when paired animation ends */
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Paired Animation")
 	FOnPairedAnimationEnded OnPairedAnimationEnded;
+
+	// ============================================================================
+	// PAIRED ANIMATION PARTNER TRACKING
+	// ============================================================================
+
+	/**
+	 * Actors currently participating in paired animation with this character.
+	 * Used for targeted collision disabling (only ignore tracked partners, not all pawns).
+	 * Supports multi-partner scenarios like double takedowns or group finishers.
+	 *
+	 * Managed via AddPairedPartner/RemovePairedPartner/ClearPairedPartners API.
+	 * AnimNotifyState_PairedAnimationCollision reads this to know which actors to ignore.
+	 */
+	UPROPERTY()
+	TArray<TWeakObjectPtr<AActor>> PairedAnimationPartners;
+
+	/**
+	 * Add actor as paired animation partner.
+	 * Partner's collision will be ignored during paired animations via IgnoreActorWhenMoving().
+	 * Safe to call multiple times with same actor (idempotent).
+	 *
+	 * @param Partner - Actor to track as paired animation partner
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
+	void AddPairedPartner(AActor* Partner);
+
+	/**
+	 * Remove actor from paired animation partners.
+	 * Collision with this actor will be restored.
+	 * Safe to call if actor is not currently tracked (no-op).
+	 *
+	 * @param Partner - Actor to remove from partner tracking
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
+	void RemovePairedPartner(AActor* Partner);
+
+	/**
+	 * Clear all paired animation partners.
+	 * Called when paired animation ends or is interrupted.
+	 * Does NOT restore collision - that's handled by AnimNotifyState_PairedAnimationCollision.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
+	void ClearPairedPartners();
+
+	/**
+	 * Check if actor is currently a paired animation partner.
+	 *
+	 * @param Actor - Actor to check
+	 * @return True if actor is tracked as partner
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
+	bool IsPairedPartner(AActor* Actor) const;
+
+	/**
+	 * Get count of current paired animation partners.
+	 * Useful for debugging and multi-partner finisher logic.
+	 *
+	 * @return Number of tracked partners
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
+	int32 GetPairedPartnerCount() const { return PairedAnimationPartners.Num(); }
+
+	// ========================================================================
+	// PAIRED ANIMATION EFFECT HANDLING
+	// ========================================================================
+
+	/**
+	 * Currently active paired animation data.
+	 * Set when a paired animation starts, cleared when it ends.
+	 * Used by effect handlers to access slow-motion and camera shake settings.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Paired Animation")
+	TObjectPtr<UPairedAnimationData> ActivePairedAnimData;
+
+	/**
+	 * Whether combat input (attacks, evades) should be blocked.
+	 * Set true during paired animations/finishers to prevent unintended input.
+	 * Camera input is still allowed.
+	 */
+	UPROPERTY(BlueprintReadOnly, Category = "Combat|Paired Animation")
+	bool bBlockCombatInput = false;
+
+	/**
+	 * Begin a paired animation sequence with effect handling.
+	 * Stores paired animation data, applies slow motion if configured, broadcasts delegates.
+	 *
+	 * @param PairedAnimData - The paired animation configuration (slow-mo, camera shake, etc.)
+	 * @param ReactionType - Type of paired reaction (Finisher, Counter, etc.)
+	 * @param bIsCriticalMoment - Whether this is a dramatic moment (triggers additional effects)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
+	void BeginPairedAnimation(UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType, bool bIsCriticalMoment = true);
+
+	/**
+	 * End the current paired animation sequence.
+	 * Restores time dilation, clears active paired animation data, broadcasts delegates.
+	 * Safe to call even if no paired animation is active.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
+	void EndPairedAnimation();
+
+	/**
+	 * Trigger sync point effects (camera shake, damage).
+	 * Called at impact moment during paired animation.
+	 * Uses ActivePairedAnimData for camera shake configuration.
+	 *
+	 * @param SyncPointName - Name of the sync point (for logging/identification)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
+	void TriggerSyncPointEffects(FName SyncPointName);
+
+	/**
+	 * Check if a paired animation is currently active.
+	 *
+	 * @return True if ActivePairedAnimData is set
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
+	bool IsPairedAnimationActive() const { return ActivePairedAnimData != nullptr; }
+
+	// ========================================================================
+	// PAIRED ANIMATION INTERRUPT HANDLING
+	// ========================================================================
+
+	/**
+	 * Called when a paired animation partner dies during an active paired animation.
+	 * Cancels any ongoing paired animation montage and cleans up state.
+	 *
+	 * @param DeadPartner - The partner actor that just died
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
+	void OnPairedPartnerDeath(AActor* DeadPartner);
+
+	/**
+	 * Cancel the current paired animation immediately.
+	 * Used when a partner dies or other interrupt conditions occur.
+	 * Stops montage, clears partners, restores state.
+	 *
+	 * @param BlendOutTime - How quickly to blend out the current montage (default 0.1s)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
+	void CancelPairedAnimation(float BlendOutTime = 0.1f);
 
 	// ============================================================================
 	// DEBUG / VISUALIZATION
@@ -613,6 +766,12 @@ protected:
 	/** Timer handle for light attack ease transition (timer-based, NOT tick-based) */
 	FTimerHandle EaseTimerHandle;
 
+	/** Timer handle for slow-motion restoration (safeguard against permanent slow-mo on interrupt) */
+	FTimerHandle SlowMotionRestoreHandle;
+
+	/** Cached reaction type for active paired animation (used by EndPairedAnimation for delegate broadcast) */
+	EPairedReactionType ActivePairedReactionType = EPairedReactionType::None;
+
 	/** Is character movement currently disabled? (for procedural sync) */
 	bool bMovementCurrentlyDisabled = false;
 
@@ -681,4 +840,10 @@ protected:
 
 	/** Check if can accept new input (prevents double-queueing same input) */
 	bool CanAcceptNewInput(EInputType InputType) const;
+
+	/**
+	 * Callback for slow-motion restoration timer.
+	 * Called after SlowMotionDuration expires (safeguard against permanent slow-mo).
+	 */
+	void OnSlowMotionTimerExpired();
 };

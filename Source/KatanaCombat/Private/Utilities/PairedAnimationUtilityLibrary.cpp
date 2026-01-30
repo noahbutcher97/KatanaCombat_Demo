@@ -8,6 +8,10 @@
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
+#include "GameFramework/WorldSettings.h"
+#include "Camera/PlayerCameraManager.h"
 
 // ============================================================================
 // POSITION CALCULATION
@@ -417,4 +421,79 @@ FTransform UPairedAnimationUtilityLibrary::CalculateAttackerWarpTarget(
     }
 
     return Result;
+}
+
+// ============================================================================
+// OBSTRUCTION DETECTION
+// ============================================================================
+
+TArray<AActor*> UPairedAnimationUtilityLibrary::FindObstructingActorsInRadius(
+    UWorld* World,
+    const FVector& Location,
+    float Radius,
+    const TArray<AActor*>& IgnoreActors)
+{
+    TArray<AActor*> Result;
+
+    if (!World || Radius <= 0.0f)
+    {
+        return Result;
+    }
+
+    // Perform sphere overlap to find nearby pawns
+    TArray<FOverlapResult> OverlapResults;
+    FCollisionQueryParams QueryParams;
+    QueryParams.AddIgnoredActors(IgnoreActors);
+
+    // Query for pawns
+    FCollisionObjectQueryParams ObjectParams;
+    ObjectParams.AddObjectTypesToQuery(ECC_Pawn);
+
+    World->OverlapMultiByObjectType(
+        OverlapResults,
+        Location,
+        FQuat::Identity,
+        ObjectParams,
+        FCollisionShape::MakeSphere(Radius),
+        QueryParams
+    );
+
+    // Extract unique actors from results
+    TSet<AActor*> UniqueActors;
+    for (const FOverlapResult& Overlap : OverlapResults)
+    {
+        if (AActor* Actor = Overlap.GetActor())
+        {
+            // Only include characters/pawns
+            if (Actor->IsA(APawn::StaticClass()))
+            {
+                UniqueActors.Add(Actor);
+            }
+        }
+    }
+
+    Result = UniqueActors.Array();
+    return Result;
+}
+
+bool UPairedAnimationUtilityLibrary::IsActorObstructingZone(
+    AActor* Actor,
+    const FVector& ZoneCenter,
+    float ZoneRadius,
+    const TArray<AActor*>& ParticipantActors)
+{
+    if (!Actor)
+    {
+        return false;
+    }
+
+    // Check if actor is a participant (not an obstruction)
+    if (ParticipantActors.Contains(Actor))
+    {
+        return false;
+    }
+
+    // Check if actor is within the danger zone
+    const float Distance = FVector::Dist(Actor->GetActorLocation(), ZoneCenter);
+    return Distance <= ZoneRadius;
 }

@@ -911,3 +911,59 @@ void UHitReactionComponent::ClearReactionHistory()
 {
     ReactionHistoryMap.Empty();
 }
+
+// ============================================================================
+// FINISHER VULNERABILITY
+// ============================================================================
+
+bool UHitReactionComponent::IsVulnerableToFinisher() const
+{
+    // Already a finisher target - can't be targeted again
+    if (bIsFinisherTarget)
+    {
+        return false;
+    }
+
+    // Check all trigger conditions
+    return GetFinisherTriggerReason() != EFinisherTriggerReason::None;
+}
+
+EFinisherTriggerReason UHitReactionComponent::GetFinisherTriggerReason() const
+{
+    // Already a finisher target - return None to prevent stacking
+    if (bIsFinisherTarget)
+    {
+        return EFinisherTriggerReason::None;
+    }
+
+    // Get owner as combat character for health/posture checks
+    ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(GetOwner());
+    if (!CombatChar)
+    {
+        return EFinisherTriggerReason::None;
+    }
+
+    // Priority 1: Guard Broken (posture depleted)
+    // Uses IDamageableInterface for flexibility
+    if (IDamageableInterface::Execute_IsGuardBroken(CombatChar))
+    {
+        return EFinisherTriggerReason::GuardBroken;
+    }
+
+    // Priority 2: Stunned (from heavy attacks)
+    if (IsStunned())
+    {
+        return EFinisherTriggerReason::Stunned;
+    }
+
+    // Priority 3: Low Health
+    // Default threshold is 25% health
+    const float HealthThreshold = 0.25f;
+    const float HealthPercent = CombatChar->CurrentHealth / FMath::Max(CombatChar->MaxHealth, 1.0f);
+    if (HealthPercent <= HealthThreshold && HealthPercent > 0.0f)
+    {
+        return EFinisherTriggerReason::LowHealth;
+    }
+
+    return EFinisherTriggerReason::None;
+}

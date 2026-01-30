@@ -1,0 +1,147 @@
+// Copyright Epic Games, Inc. All Rights Reserved.
+
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Kismet/BlueprintFunctionLibrary.h"
+#include "CinematicEffectsUtilityLibrary.generated.h"
+
+class UCameraShakeBase;
+
+/**
+ * Cinematic Effects Utility Library
+ *
+ * Static utility functions for cinematic effects during combat:
+ * - Time dilation (slow motion, hit pause)
+ * - Camera shake triggering
+ * - Future: VFX spawning, post-process effects, screen effects
+ *
+ * Design: Separated from PairedAnimationUtilityLibrary to allow reuse
+ * across various combat scenarios (not just paired animations).
+ */
+UCLASS()
+class KATANACOMBAT_API UCinematicEffectsUtilityLibrary : public UBlueprintFunctionLibrary
+{
+    GENERATED_BODY()
+
+public:
+    // ========================================================================
+    // TIME DILATION
+    // ========================================================================
+
+    /**
+     * Apply slow motion to world time dilation.
+     * Does NOT handle restoration - caller must manage duration/restore.
+     *
+     * @param World - World context
+     * @param Scale - Time dilation scale (0.01-1.0, clamped)
+     * @return True if successfully applied
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Time")
+    static bool ApplySlowMotion(UWorld* World, float Scale);
+
+    /**
+     * Restore world time dilation to normal (1.0).
+     * Safe to call multiple times - idempotent operation.
+     *
+     * @param World - World context
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Time")
+    static void RestoreTimeDilation(UWorld* World);
+
+    /**
+     * Get current world time dilation.
+     *
+     * @param World - World context
+     * @return Current time dilation (1.0 = normal)
+     */
+    UFUNCTION(BlueprintPure, Category = "Cinematic Effects|Time")
+    static float GetTimeDilation(UWorld* World);
+
+    /**
+     * Check if slow motion is currently active.
+     *
+     * @param World - World context
+     * @return True if time dilation is less than 1.0
+     */
+    UFUNCTION(BlueprintPure, Category = "Cinematic Effects|Time")
+    static bool IsSlowMotionActive(UWorld* World);
+
+    // ========================================================================
+    // CAMERA SHAKE
+    // ========================================================================
+
+    /**
+     * Play camera shake on actor's controlling player.
+     * Only affects local player controllers.
+     *
+     * @param Actor - Actor whose controller should receive camera shake
+     * @param CameraShakeClass - Camera shake class to play
+     * @param Scale - Shake intensity scale (default 1.0)
+     * @return True if camera shake was played
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Camera")
+    static bool PlayCameraShakeOnActor(
+        AActor* Actor,
+        TSubclassOf<UCameraShakeBase> CameraShakeClass,
+        float Scale = 1.0f);
+
+    /**
+     * Play camera shake at world location for nearby players.
+     * Shake intensity falls off with distance from location.
+     *
+     * @param World - World context
+     * @param Location - World location to center shake on
+     * @param CameraShakeClass - Camera shake class to play
+     * @param InnerRadius - Radius at full shake intensity
+     * @param OuterRadius - Radius at zero shake intensity
+     * @param Falloff - Falloff curve exponent (1.0 = linear)
+     * @return Number of players affected
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Camera")
+    static int32 PlayCameraShakeAtLocation(
+        UWorld* World,
+        const FVector& Location,
+        TSubclassOf<UCameraShakeBase> CameraShakeClass,
+        float InnerRadius = 0.0f,
+        float OuterRadius = 1000.0f,
+        float Falloff = 1.0f);
+
+    // ========================================================================
+    // ACTOR TIME DILATION (Per-Actor Effects)
+    // ========================================================================
+
+    /**
+     * Set time dilation on specific actor (for Sakurai-style selective hitstop).
+     * Allows freezing specific actors while world continues.
+     *
+     * @param Actor - Actor to affect
+     * @param TimeDilation - Time scale (0.0 = frozen, 1.0 = normal)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Time")
+    static void SetActorTimeDilation(AActor* Actor, float TimeDilation);
+
+    /**
+     * Restore actor time dilation to normal (1.0).
+     *
+     * @param Actor - Actor to restore
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Time")
+    static void RestoreActorTimeDilation(AActor* Actor);
+
+    /**
+     * Freeze multiple actors simultaneously (for paired animation hitstop).
+     *
+     * @param Actors - Array of actors to freeze
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Time")
+    static void FreezeActors(const TArray<AActor*>& Actors);
+
+    /**
+     * Restore multiple actors simultaneously.
+     *
+     * @param Actors - Array of actors to restore
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Time")
+    static void RestoreActors(const TArray<AActor*>& Actors);
+};

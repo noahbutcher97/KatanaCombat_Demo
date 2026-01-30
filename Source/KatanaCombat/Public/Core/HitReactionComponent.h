@@ -242,6 +242,46 @@ public:
     bool CanBeDamaged() const;
 
     // ============================================================================
+    // FINISHER VULNERABILITY
+    // ============================================================================
+
+    /**
+     * Check if this character is currently vulnerable to a finisher execution.
+     * Returns true if ANY finisher trigger condition is met:
+     * - Low health (below configured threshold)
+     * - Guard broken (posture depleted)
+     * - Stunned (from heavy attacks)
+     *
+     * @return True if vulnerable to finisher
+     */
+    UFUNCTION(BlueprintPure, Category = "Hit Reaction|Finisher")
+    bool IsVulnerableToFinisher() const;
+
+    /**
+     * Get the reason why this character is vulnerable to a finisher.
+     * Returns the HIGHEST priority trigger reason (or None if not vulnerable).
+     * Priority: GuardBroken > Stunned > LowHealth
+     *
+     * @return The trigger reason, or None if not vulnerable
+     */
+    UFUNCTION(BlueprintPure, Category = "Hit Reaction|Finisher")
+    EFinisherTriggerReason GetFinisherTriggerReason() const;
+
+    /**
+     * Whether this character is currently the target of an active finisher.
+     * Prevents multiple finishers from targeting the same victim.
+     */
+    UPROPERTY(BlueprintReadOnly, Category = "Hit Reaction|Finisher")
+    bool bIsFinisherTarget = false;
+
+    /**
+     * Mark this character as a finisher target (prevents stacking).
+     * Called when finisher begins, cleared when finisher ends.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Finisher")
+    void SetFinisherTarget(bool bIsTarget) { bIsFinisherTarget = bIsTarget; }
+
+    // ============================================================================
     // EVENTS
     // ============================================================================
 

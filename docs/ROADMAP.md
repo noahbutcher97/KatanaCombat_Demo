@@ -89,42 +89,79 @@ Current implementation status and planned features for the combat system.
 
 ---
 
-## Phase 5: Paired Animation System (IN PROGRESS)
+## Phase 5: Paired Animation System (IN PROGRESS - 80% Complete)
 
 **Priority**: HIGH - Foundation for finishers, counters, and cinematic combat moments
+**Last Updated**: 2026-01-30
 
-### Core Infrastructure
+### Phase 5a: Core Infrastructure ✅ COMPLETE
 
-- [ ] `PairedAnimationData` - Data asset defining synced animation pairs
-- [ ] `PairedAnimationComponent` - Manages sync state between attacker/victim
-- [ ] `PairedAnimationUtilityLibrary` - Static helpers for alignment, timing, validation
-- [ ] Warp target calculation for victim positioning
-- [ ] Sync point system (key frames where positions must align)
+- [x] `PairedAnimationData` - Data asset defining synced animation pairs
+- [x] `PairedAnimationUtilityLibrary` - Static helpers for alignment, timing, validation
+- [x] `FPairedWarpConfig` / `FFinisherTriggerConfig` structs
+- [x] `AnimNotifyState_PairedAnimationSync` - Sync point notify with delegates
+- [x] Victim warp target calculation (`SetupVictimWarp`)
+- [x] Attacker paired warp tracking (`SetupAttackerPairedWarp`)
+- [x] Sync point system (key frames where positions must align)
+- [x] Paired animation delegates in CombatTypes.h
 
-### Finisher System (Phase 5a)
+### Phase 5b-1: Collision & Warp Infrastructure ✅ COMPLETE
 
-- [ ] Finisher trigger conditions (guard break, low health, special state)
-- [ ] Victim warp to attacker's finisher position
-- [ ] Synced montage playback (attacker + victim)
-- [ ] Damage application at sync point
-- [ ] Exit handling (victim death, ragdoll transition)
-- [ ] Cancel/interrupt handling
+- [x] `AnimNotifyState_PairedAnimationCollision` - Disable collision during paired anims
+- [x] `PairedAnimationPartners` array in CombatComponent
+- [x] Movement disabling during paired animations
+- [x] Dynamic obstruction detection
+- [x] Terrain-aware victim positioning
 
-### Parry Counter System (Phase 5b)
+### Phase 5b-2: Delegate Wiring & Effects ✅ COMPLETE
 
-- [ ] Parry detection triggers paired counter opportunity
-- [ ] Attacker becomes victim of counter animation
-- [ ] Role reversal warp (parrier → attacker position)
-- [ ] Counter damage multiplier integration
-- [ ] Counter window timing
+- [x] `CinematicEffectsUtilityLibrary` - Slow-motion & camera shake utilities
+- [x] Sakurai-style hitstop system (freeze both attacker + victim)
+- [x] Slow-motion triggering via `OnPairedAnimationStarted`
+- [x] Camera shake at sync points
+- [x] Time dilation restore safeguards
 
-### Technical Requirements
+### Phase 5b-3: State & Safety ✅ COMPLETE
 
-- [ ] Terrain-aware victim positioning (use DebugUtils environmental functions)
-- [ ] Network replication consideration (future)
-- [ ] Animation retargeting support
-- [ ] Blend in/out configuration per paired animation
-- [ ] Debug visualization for sync points and warp targets
+- [x] Finisher trigger conditions (guard break, low health, stunned)
+- [x] `IsVulnerableToFinisher()` / `GetFinisherTriggerReason()` queries
+- [x] Finisher execution flow (`TryExecuteFinisher`)
+- [x] Victim mutex (`bIsFinisherTarget`) - prevents stacking
+- [x] Input blocking during paired animations (`bBlockCombatInput`)
+- [x] Interrupt handler for attacker death (`OnPairedPartnerDeath`)
+- [x] `CancelPairedAnimation()` for graceful state restoration
+
+### Phase 5b-4: Validation & Polish 🔄 IN PROGRESS
+
+- [ ] Sync point alignment validation (distance check at impact)
+- [ ] Comprehensive paired animation test suite
+- [ ] Manual testing: flat ground → slopes → obstacles
+- [ ] Document API usage in ATTACK_CREATION.md
+
+### Phase 5b-5: AI Coordination ⏳ PENDING
+
+- [ ] `UCombatTokenSubsystem` for attack token management
+- [ ] Per-target token pools (max 3 attackers)
+- [ ] StateTree condition node `IsTargetInFinisherState`
+- [ ] Finisher state → lock tokens to 1
+
+### Audio/VFX Scaffolding ✅ COMPLETE (Implementation Phase 7)
+
+- [x] `ImpactSound` / `VictimReactionSound` property slots
+- [x] `ImpactVFX` (UNiagaraSystem*) slot
+- [x] `SlowMoPostProcess` (UMaterialInterface*) slot
+
+### Technical Status
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Symmetric Warp Tracking | ✅ Complete | Both attacker and victim track each other |
+| Collision Handling | ✅ Complete | Targeted ignore (not global pawn disable) |
+| Hitstop System | ✅ Complete | Sakurai-style freeze at sync points |
+| Finisher Execution | ✅ Complete | Integrated with normal attack flow |
+| State Safety | ✅ Complete | Interrupt handling, input blocking |
+| AI Coordination | ⏳ Pending | Token subsystem |
+| Test Coverage | 🔄 In Progress | Need test suite |
 
 ---
 
