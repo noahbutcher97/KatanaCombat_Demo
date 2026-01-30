@@ -32,30 +32,42 @@ dotnet "..\..\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll" Katana
 
 **Run Tests** (Command Line):
 ```powershell
-# Full command with absolute paths
+# Run tests in background (don't wait for completion callback - it hangs)
 "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
+**IMPORTANT**: The test command doesn't return a clean exit. Run it in background, wait ~5 minutes, then kill the process and check the log manually. This is the standard workflow.
+
 **Test Results**: Check the log file at `D:\UnrealProjects\5.6\KatanaCombat\Saved\Logs\KatanaCombat.log`
 ```powershell
-# View test results summary
-grep -E "Test Completed" D:/UnrealProjects/5.6/KatanaCombat/Saved/Logs/KatanaCombat.log | grep -E "(Success|Fail)" | sed 's/.*Result={\([^}]*\)}.*/\1/' | sort | uniq -c
+# View test results summary (pass/fail counts)
+grep -E "Test Completed.*Result=" D:/UnrealProjects/5.6/KatanaCombat/Saved/Logs/KatanaCombat.log | sed 's/.*Result={\([^}]*\)}.*/\1/' | sort | uniq -c
 
-# View failing tests with errors
+# View failing tests with error messages
+grep -E "Error:" D:/UnrealProjects/5.6/KatanaCombat/Saved/Logs/KatanaCombat.log | grep -i "automation\|test" | head -20
+
+# View specific test failures
 grep -E "Test Completed.*Fail" D:/UnrealProjects/5.6/KatanaCombat/Saved/Logs/KatanaCombat.log
 ```
 
 **Debug Visualization** (CVar-controlled, use console commands):
 ```
-Combat.Debug.All 1         // Enable all debug visualization
-Combat.Debug.Direction 1   // Direction transformation arrows
-Combat.Debug.Targeting 1   // Targeting cones and targets
-Combat.Debug.Weapon 1      // Weapon trace visualization
-Combat.Debug.Phase 1       // Attack phase indicators
-Combat.Debug.Environment 1 // Terrain/slope visualization
-Combat.Debug.Queue 1       // Action queue state
-Combat.Debug.Hold 1        // Hold state visualization
-Combat.Debug.DrawDuration 2.0  // Debug shape persistence (seconds)
+Combat.Debug.All 1              // Enable all debug visualization
+Combat.Debug.Direction 1        // Direction transformation arrows
+Combat.Debug.Targeting 1        // Targeting cones and targets
+Combat.Debug.Weapon 1           // Weapon trace visualization
+Combat.Debug.Phase 1            // Attack phase indicators
+Combat.Debug.Environment 1      // Terrain/slope visualization
+Combat.Debug.Queue 1            // Action queue state
+Combat.Debug.Hold 1             // Hold state visualization
+Combat.Debug.DrawDuration 2.0   // Debug shape persistence (seconds)
+
+// Paired Animation Debug (finishers, counters)
+Combat.Debug.PairedAnim 1             // Enable all paired animation debug
+Combat.Debug.PairedAnim.Warp 1        // Warp targets (cyan crosshairs)
+Combat.Debug.PairedAnim.Partners 1    // Partner connections (yellow lines)
+Combat.Debug.PairedAnim.Sync 1        // Sync points (magenta spheres)
+Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 ```
 
 ## Core Architecture Principles
@@ -153,6 +165,11 @@ Source/KatanaCombat/Public/
 - ParryWindow on defender animation (goes on attacker's montage)
 - Declaring delegates in component headers (use CombatTypes.h)
 - Using TArray for cancel inputs (use bitmask)
+- Calling `BlueprintNativeEvent` interface methods directly (use `Execute_` pattern):
+  ```cpp
+  // WRONG (crashes): Character->GetCombatState();
+  // CORRECT: ICombatInterface::Execute_GetCombatState(Character);
+  ```
 
 ## Troubleshooting
 
@@ -174,6 +191,43 @@ ALWAYS prefer the more complete, well-architected implementation over shortcuts.
 - **Example (Collision)**: Use a tracked partner array with `IgnoreActorWhenMoving()` (supports multi-partner kills, easier debugging) over global pawn collision disable (`ECR_Ignore` on `ECC_Pawn`).
 - **Example (Timing)**: Use `FPlatformTime::Seconds()` with `FTSTicker` for accurate real-time tracking instead of `GetTimerManager().SetTimer()` which is affected by time dilation.
 - **When in doubt**: Choose the approach that handles more edge cases, provides clearer debugging information, and doesn't rely on approximations when accurate solutions exist.
+
+**CRITICAL: EXPLORE BEFORE IMPLEMENTING**
+
+Before implementing code that interacts with existing systems, ALWAYS launch an exploratory agent to gather full context about:
+- The actual APIs available on components (method names, parameters, return types)
+- How existing patterns work in similar code
+- What properties/members exist vs. what you assume exists
+
+This prevents implementation errors from incorrect API assumptions. Examples:
+- `TargetingSettings` member doesn't exist - use `GetEffectiveSettings()` instead
+- Combat state is queried via interface, not component
+
+When touching unfamiliar code: **Explore first, implement second**.
+
+**UE5 INTERFACE CALL PATTERN (BlueprintNativeEvent)**
+
+When calling interface methods marked as `BlueprintNativeEvent`, you MUST use the `Execute_` static pattern, NOT direct method calls. Direct calls will crash at runtime.
+
+```cpp
+// INTERFACE DEFINITION (CombatInterface.h):
+UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
+ECombatState GetCombatState() const;
+
+// WRONG - Will compile but CRASHES at runtime:
+ECombatState State = Character->GetCombatState();
+
+// CORRECT - Use Execute_ static method:
+ECombatState State = ICombatInterface::Execute_GetCombatState(Character);
+```
+
+This applies to ALL `BlueprintNativeEvent` interface methods:
+- `ICombatInterface::Execute_GetCombatState(Actor)`
+- `ICombatInterface::Execute_CanPerformAttack(Actor)`
+- `IDamageableInterface::Execute_GetHealth(Actor)`
+- etc.
+
+**Why**: `BlueprintNativeEvent` creates a virtual thunk that routes to either C++ `_Implementation()` or Blueprint override. Direct calls bypass this routing and crash.
 
 **DO**:
 - Use timers over tick (minimize tick overhead)

@@ -99,4 +99,49 @@ namespace CombatDebug
         TEXT("  0: Disabled (default)\n")
         TEXT("  1: Enabled"),
         ECVF_Default);
+
+    TAutoConsoleVariable<int32> CVarDebugPairedAnim(
+        TEXT("Combat.Debug.PairedAnim"),
+        0,
+        TEXT("Enable paired animation debug visualization (finishers, counters)\n")
+        TEXT("Shows: Warp targets, partner connections, sync points, vulnerability\n")
+        TEXT("  0: Disabled (default)\n")
+        TEXT("  1: Enabled"),
+        ECVF_Default);
+
+    TAutoConsoleVariable<int32> CVarDebugPairedAnimWarp(
+        TEXT("Combat.Debug.PairedAnim.Warp"),
+        0,
+        TEXT("Paired animation warp target visualization\n")
+        TEXT("Shows: Attacker/victim warp positions, offset arrows, distance\n")
+        TEXT("  0: Disabled (default)\n")
+        TEXT("  1: Enabled"),
+        ECVF_Default);
+
+    TAutoConsoleVariable<int32> CVarDebugPairedAnimPartners(
+        TEXT("Combat.Debug.PairedAnim.Partners"),
+        0,
+        TEXT("Paired animation partner connection visualization\n")
+        TEXT("Shows: Dashed lines between attacker and paired partners\n")
+        TEXT("  0: Disabled (default)\n")
+        TEXT("  1: Enabled"),
+        ECVF_Default);
+
+    TAutoConsoleVariable<int32> CVarDebugPairedAnimSync(
+        TEXT("Combat.Debug.PairedAnim.Sync"),
+        0,
+        TEXT("Paired animation sync point visualization\n")
+        TEXT("Shows: Sync point spheres, timing progress, alignment validation\n")
+        TEXT("  0: Disabled (default)\n")
+        TEXT("  1: Enabled"),
+        ECVF_Default);
+
+    TAutoConsoleVariable<int32> CVarDebugPairedAnimVulnerability(
+        TEXT("Combat.Debug.PairedAnim.Vulnerability"),
+        0,
+        TEXT("Paired animation vulnerability indicator visualization\n")
+        TEXT("Shows: Finisher-eligible targets with reason (health, guard break, stun)\n")
+        TEXT("  0: Disabled (default)\n")
+        TEXT("  1: Enabled"),
+        ECVF_Default);
 }

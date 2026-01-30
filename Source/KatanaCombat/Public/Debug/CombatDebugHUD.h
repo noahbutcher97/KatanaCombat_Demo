@@ -5,10 +5,12 @@
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
 #include "CombatTypes.h"
+#include "Data/PairedAnimationTypes.h"
 #include "CombatDebugHUD.generated.h"
 
 class UCombatComponent;
 class ABaseCombatCharacter;
+class UHitReactionComponent;
 
 /**
  * Debug arrow data for coordinated 3D/2D rendering
@@ -123,6 +125,159 @@ struct FCombatDebugData
 };
 
 /**
+ * Debug data for paired animation visualization
+ * Captures full state of paired animation system for debug rendering
+ */
+USTRUCT()
+struct FPairedAnimDebugData
+{
+	GENERATED_BODY()
+
+	// ========================================================================
+	// STATE INFO
+	// ========================================================================
+
+	/** Is character currently in a paired animation? */
+	bool bInPairedAnimation = false;
+
+	/** Role in paired animation (Attacker or Victim) */
+	FString Role;  // "ATTACKER", "VICTIM", "NONE"
+
+	/** Current paired animation state description */
+	FString StateDescription;  // "IDLE", "EXECUTING_FINISHER", "RECEIVING_FINISHER", etc.
+
+	/** Type of paired animation (Finisher, Counter, Parry) */
+	EPairedReactionType PairedAnimationType = EPairedReactionType::Counter;
+
+	// ========================================================================
+	// PARTNER INFO
+	// ========================================================================
+
+	/** Primary paired partner (victim for attacker, attacker for victim) */
+	TWeakObjectPtr<AActor> PrimaryPartner;
+
+	/** All paired partners (for multi-target scenarios) */
+	TArray<TWeakObjectPtr<AActor>> AllPartners;
+
+	/** Partner display names */
+	TArray<FString> PartnerNames;
+
+	// ========================================================================
+	// WARP TRACKING
+	// ========================================================================
+
+	/** Is attacker warp tracking active? */
+	bool bAttackerWarpActive = false;
+
+	/** Is victim warp tracking active? */
+	bool bVictimWarpActive = false;
+
+	/** Attacker warp target location */
+	FVector AttackerWarpTarget = FVector::ZeroVector;
+
+	/** Victim warp target location */
+	FVector VictimWarpTarget = FVector::ZeroVector;
+
+	/** Current warp config offset being used */
+	FVector WarpOffset = FVector::ZeroVector;
+
+	/** Distance to warp target */
+	float DistanceToWarpTarget = 0.0f;
+
+	/** Max allowed warp distance */
+	float MaxWarpDistance = 300.0f;
+
+	/** Current distance between characters */
+	float CurrentPartnerDistance = 0.0f;
+
+	// ========================================================================
+	// VULNERABILITY INFO (for target)
+	// ========================================================================
+
+	/** Is current target vulnerable to finisher? */
+	bool bTargetVulnerable = false;
+
+	/** Reason for vulnerability */
+	EFinisherTriggerReason VulnerabilityReason = EFinisherTriggerReason::None;
+
+	/** Target health percentage (0-1) */
+	float TargetHealthPercent = 1.0f;
+
+	/** Health threshold for finisher eligibility */
+	float HealthThreshold = 0.25f;
+
+	/** Is target guard broken? */
+	bool bTargetGuardBroken = false;
+
+	/** Is target stunned? */
+	bool bTargetStunned = false;
+
+	/** Is target already a finisher target (mutex)? */
+	bool bTargetIsFinisherTarget = false;
+
+	// ========================================================================
+	// SYNC POINT INFO
+	// ========================================================================
+
+	/** Current sync point name (if active) */
+	FName CurrentSyncPointName = NAME_None;
+
+	/** Time into current montage */
+	float MontagePosition = 0.0f;
+
+	/** Expected sync point time */
+	float SyncPointTime = 0.0f;
+
+	/** Sync point progress (0-1) */
+	float SyncPointProgress = 0.0f;
+
+	/** Alignment distance at sync point */
+	float AlignmentDistance = 0.0f;
+
+	/** Max allowed alignment distance */
+	float MaxAlignmentDistance = 150.0f;
+
+	/** Was last sync alignment OK? */
+	bool bAlignmentOK = true;
+
+	// ========================================================================
+	// EFFECTS INFO
+	// ========================================================================
+
+	/** Is slow motion currently active? */
+	bool bSlowMotionActive = false;
+
+	/** Current time dilation scale */
+	float TimeDilationScale = 1.0f;
+
+	/** Slow motion time remaining */
+	float SlowMotionRemaining = 0.0f;
+
+	/** Is hitstop currently active? */
+	bool bHitstopActive = false;
+
+	/** Hitstop time remaining */
+	float HitstopRemaining = 0.0f;
+
+	/** Is camera shake queued/active? */
+	bool bCameraShakeQueued = false;
+
+	// ========================================================================
+	// INPUT BLOCKING
+	// ========================================================================
+
+	/** Is combat input currently blocked? */
+	bool bInputBlocked = false;
+
+	// ========================================================================
+	// VALIDATION
+	// ========================================================================
+
+	/** Is data valid this frame? */
+	bool bIsValid = false;
+};
+
+/**
  * Combat Debug HUD
  *
  * Renders debug visualization in screen-space for readability.
@@ -150,8 +305,14 @@ public:
 	/** Generate debug data for a character (call once per frame) */
 	static FCombatDebugData GenerateDebugData(ABaseCombatCharacter* Character);
 
+	/** Generate paired animation debug data for a character */
+	static FPairedAnimDebugData GeneratePairedAnimDebugData(ABaseCombatCharacter* Character);
+
 	/** Draw 3D arrows using DrawDebug functions */
 	static void Draw3DArrows(UWorld* World, const FCombatDebugData& Data);
+
+	/** Draw 3D paired animation visualization */
+	static void Draw3DPairedAnimVisualization(UWorld* World, ABaseCombatCharacter* Character, const FPairedAnimDebugData& Data);
 
 protected:
 	// ========================================================================
@@ -160,6 +321,9 @@ protected:
 
 	/** Draw the status panel (fixed screen position) */
 	void DrawStatusPanel(const FCombatDebugData& Data);
+
+	/** Draw paired animation debug panel (fixed screen position) */
+	void DrawPairedAnimPanel(const FPairedAnimDebugData& Data);
 
 	/** Draw labels at projected arrow positions */
 	void DrawArrowLabels(const FCombatDebugData& Data);
@@ -203,6 +367,9 @@ protected:
 private:
 	/** Cached debug data for current frame */
 	FCombatDebugData CachedDebugData;
+
+	/** Cached paired animation debug data for current frame */
+	FPairedAnimDebugData CachedPairedAnimData;
 
 	/** Find the player's combat character */
 	ABaseCombatCharacter* GetPlayerCombatCharacter() const;

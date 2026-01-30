@@ -7,13 +7,18 @@
 #include "Core/CombatComponent.h"
 #include "Core/WeaponComponent.h"
 #include "Core/TargetingComponent.h"
+#include "Core/HitReactionComponent.h"
 #include "Data/AttackData.h"
+#include "Data/TargetingSettings.h"
 #include "Data/WeaponData.h"
+#include "Data/PairedAnimationTypes.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Interfaces/DamageableInterface.h"
+#include "Interfaces/CombatInterface.h"
 #include "Engine/Canvas.h"
 #include "Engine/Engine.h"
 #include "GameFramework/PlayerController.h"
+#include "GameFramework/WorldSettings.h"
 #include "DrawDebugHelpers.h"
 
 ACombatDebugHUD::ACombatDebugHUD()
@@ -31,7 +36,11 @@ void ACombatDebugHUD::DrawHUD()
 	Super::DrawHUD();
 
 	// Check if any debug is enabled
-	if (!CombatDebug::IsDebugEnabled() && !CombatDebug::IsDirectionDebugEnabled())
+	const bool bAnyDebugEnabled = CombatDebug::IsDebugEnabled() ||
+		CombatDebug::IsDirectionDebugEnabled() ||
+		CombatDebug::IsPairedAnimDebugEnabled();
+
+	if (!bAnyDebugEnabled)
 	{
 		return;
 	}
@@ -66,6 +75,24 @@ void ACombatDebugHUD::DrawHUD()
 	{
 		DrawArrowLabels(CachedDebugData);
 		DrawArcLabel(CachedDebugData);
+	}
+
+	// ========================================================================
+	// PAIRED ANIMATION DEBUG
+	// ========================================================================
+	if (CombatDebug::IsPairedAnimDebugEnabled())
+	{
+		// Generate paired animation debug data
+		CachedPairedAnimData = GeneratePairedAnimDebugData(Character);
+
+		// Draw 3D visualization
+		if (CachedPairedAnimData.bIsValid)
+		{
+			Draw3DPairedAnimVisualization(GetWorld(), Character, CachedPairedAnimData);
+		}
+
+		// Draw HUD panel (always show if paired anim debug is enabled)
+		DrawPairedAnimPanel(CachedPairedAnimData);
 	}
 }
 
@@ -535,4 +562,438 @@ ABaseCombatCharacter* ACombatDebugHUD::GetPlayerCombatCharacter() const
 	}
 
 	return Cast<ABaseCombatCharacter>(PlayerOwner->GetPawn());
+}
+
+// ============================================================================
+// PAIRED ANIMATION DEBUG
+// ============================================================================
+
+FPairedAnimDebugData ACombatDebugHUD::GeneratePairedAnimDebugData(ABaseCombatCharacter* Character)
+{
+	FPairedAnimDebugData Data;
+	Data.bIsValid = false;
+
+	if (!Character)
+	{
+		return Data;
+	}
+
+	UCombatComponent* CombatComp = Character->GetCombatComponent();
+	UTargetingComponent* TargetComp = Character->TargetingComponent;
+	UHitReactionComponent* HitReactionComp = Character->HitReactionComponent;
+
+	if (!CombatComp)
+	{
+		return Data;
+	}
+
+	Data.bIsValid = true;
+
+	// ========================================================================
+	// STATE INFO
+	// ========================================================================
+	// Use Execute_ pattern for BlueprintNativeEvent interface calls
+	const ECombatState CombatState = ICombatInterface::Execute_GetCombatState(Character);
+	Data.bInPairedAnimation = (CombatState == ECombatState::Finishing);
+
+	// Determine role
+	if (CombatComp->PairedAnimationPartners.Num() > 0)
+	{
+		Data.Role = TEXT("ATTACKER");
+		Data.StateDescription = TEXT("EXECUTING_FINISHER");
+	}
+	else if (HitReactionComp && HitReactionComp->IsFinisherTarget())
+	{
+		Data.Role = TEXT("VICTIM");
+		Data.StateDescription = TEXT("RECEIVING_FINISHER");
+		Data.bInPairedAnimation = true;
+	}
+	else if (Data.bInPairedAnimation)
+	{
+		Data.Role = TEXT("ATTACKER");
+		Data.StateDescription = TEXT("FINISHING");
+	}
+	else
+	{
+		Data.Role = TEXT("NONE");
+		Data.StateDescription = TEXT("IDLE");
+	}
+
+	// ========================================================================
+	// PARTNER INFO
+	// ========================================================================
+	for (const TWeakObjectPtr<AActor>& PartnerRef : CombatComp->PairedAnimationPartners)
+	{
+		if (AActor* Partner = PartnerRef.Get())
+		{
+			Data.AllPartners.Add(Partner);
+			Data.PartnerNames.Add(Partner->GetName());
+
+			if (!Data.PrimaryPartner.IsValid())
+			{
+				Data.PrimaryPartner = Partner;
+			}
+		}
+	}
+
+	// ========================================================================
+	// WARP TRACKING (from TargetingComponent)
+	// ========================================================================
+	if (TargetComp)
+	{
+		Data.bAttackerWarpActive = TargetComp->IsTrackingAsAttacker();
+		Data.bVictimWarpActive = TargetComp->IsTrackingAsVictim();
+
+		// Get warp targets if active
+		if (Data.bAttackerWarpActive && Data.PrimaryPartner.IsValid())
+		{
+			Data.AttackerWarpTarget = Data.PrimaryPartner->GetActorLocation();
+			Data.DistanceToWarpTarget = FVector::Dist(Character->GetActorLocation(), Data.AttackerWarpTarget);
+		}
+
+		if (Data.bVictimWarpActive)
+		{
+			// Victim warp target is calculated relative to attacker
+			// For now, show current position as warp is continuous
+			Data.VictimWarpTarget = Character->GetActorLocation();
+		}
+
+		// Get max warp distance from targeting settings
+		if (UTargetingSettings* TargetingSettings = TargetComp->GetEffectiveSettings())
+		{
+			Data.MaxWarpDistance = TargetingSettings->SoftAimRange;
+		}
+	}
+
+	// Calculate partner distance
+	if (Data.PrimaryPartner.IsValid())
+	{
+		Data.CurrentPartnerDistance = FVector::Dist(Character->GetActorLocation(), Data.PrimaryPartner->GetActorLocation());
+	}
+
+	// ========================================================================
+	// VULNERABILITY INFO (check current target)
+	// ========================================================================
+	if (TargetComp)
+	{
+		if (AActor* Target = TargetComp->GetCurrentTarget())
+		{
+			if (UHitReactionComponent* TargetHitReaction = Target->FindComponentByClass<UHitReactionComponent>())
+			{
+				Data.bTargetVulnerable = TargetHitReaction->IsVulnerableToFinisher();
+				Data.VulnerabilityReason = TargetHitReaction->GetFinisherTriggerReason();
+				Data.bTargetGuardBroken = TargetHitReaction->IsGuardBroken();
+				Data.bTargetStunned = TargetHitReaction->IsStunned();
+				Data.bTargetIsFinisherTarget = TargetHitReaction->IsFinisherTarget();
+
+				// Get health info
+				if (Target->Implements<UDamageableInterface>())
+				{
+					const float CurrentHealth = IDamageableInterface::Execute_GetCurrentHealth(Target);
+					const float MaxHealth = IDamageableInterface::Execute_GetMaxHealth(Target);
+					Data.TargetHealthPercent = MaxHealth > 0.0f ? CurrentHealth / MaxHealth : 0.0f;
+				}
+			}
+		}
+	}
+
+	// ========================================================================
+	// EFFECTS INFO
+	// ========================================================================
+	if (UWorld* World = Character->GetWorld())
+	{
+		if (AWorldSettings* WorldSettings = World->GetWorldSettings())
+		{
+			Data.TimeDilationScale = WorldSettings->TimeDilation;
+			Data.bSlowMotionActive = Data.TimeDilationScale < 1.0f;
+		}
+	}
+
+	// Hitstop (check actor custom time dilation)
+	Data.bHitstopActive = Character->CustomTimeDilation < 0.01f;
+
+	// ========================================================================
+	// INPUT BLOCKING
+	// ========================================================================
+	Data.bInputBlocked = CombatComp->IsInputBlocked();
+
+	return Data;
+}
+
+void ACombatDebugHUD::Draw3DPairedAnimVisualization(UWorld* World, ABaseCombatCharacter* Character, const FPairedAnimDebugData& Data)
+{
+	if (!World || !Character)
+	{
+		return;
+	}
+
+	const FVector CharLocation = Character->GetActorLocation();
+
+	// ========================================================================
+	// WARP TARGET VISUALIZATION
+	// ========================================================================
+	if (CombatDebug::IsPairedAnimWarpDebugEnabled())
+	{
+		if (Data.bAttackerWarpActive && Data.PrimaryPartner.IsValid())
+		{
+			UDebugUtils::DrawWarpTargetCrosshair(World, Data.AttackerWarpTarget, CharLocation, true, TEXT("ATK Warp"));
+		}
+
+		if (Data.bVictimWarpActive)
+		{
+			UDebugUtils::DrawWarpTargetCrosshair(World, Data.VictimWarpTarget, CharLocation, false, TEXT("VIC Warp"));
+		}
+
+		// Draw finisher range circle
+		if (Data.MaxWarpDistance > 0.0f)
+		{
+			UDebugUtils::DrawFinisherRangeCircle(World, CharLocation, Data.MaxWarpDistance, Data.CurrentPartnerDistance);
+		}
+	}
+
+	// ========================================================================
+	// PARTNER CONNECTION VISUALIZATION
+	// ========================================================================
+	if (CombatDebug::IsPairedAnimPartnerDebugEnabled())
+	{
+		for (const TWeakObjectPtr<AActor>& PartnerRef : Data.AllPartners)
+		{
+			if (AActor* Partner = PartnerRef.Get())
+			{
+				const FVector PartnerLocation = Partner->GetActorLocation();
+				const float Distance = FVector::Dist(CharLocation, PartnerLocation);
+				UDebugUtils::DrawPartnerConnection(World, CharLocation, PartnerLocation, Distance, Data.MaxWarpDistance);
+			}
+		}
+	}
+
+	// ========================================================================
+	// SYNC POINT VISUALIZATION
+	// ========================================================================
+	if (CombatDebug::IsPairedAnimSyncDebugEnabled() && Data.bInPairedAnimation)
+	{
+		if (Data.PrimaryPartner.IsValid())
+		{
+			// Sync point is at midpoint between characters
+			const FVector PartnerLoc = Data.PrimaryPartner->GetActorLocation();
+			const FVector SyncLocation = (CharLocation + PartnerLoc) * 0.5f + FVector(0, 0, 50);
+
+			// Calculate progress based on montage position (if available)
+			const float Progress = Data.SyncPointTime > 0.0f ? FMath::Clamp(Data.MontagePosition / Data.SyncPointTime, 0.0f, 1.0f) : 0.5f;
+			const bool bAtSync = Progress >= 0.95f;
+
+			UDebugUtils::DrawSyncPoint(World, SyncLocation, Progress, bAtSync, Data.CurrentSyncPointName);
+
+			// Draw alignment validation
+			UDebugUtils::DrawAlignmentValidation(World, CharLocation, PartnerLoc,
+				Data.AlignmentDistance > 0.0f ? Data.AlignmentDistance : Data.CurrentPartnerDistance,
+				Data.MaxAlignmentDistance,
+				Data.bAlignmentOK);
+		}
+	}
+
+	// ========================================================================
+	// VULNERABILITY INDICATOR
+	// ========================================================================
+	if (CombatDebug::IsPairedAnimVulnerabilityDebugEnabled())
+	{
+		// Check all potential targets for vulnerability
+		if (UTargetingComponent* TargetComp = Character->TargetingComponent)
+		{
+			if (AActor* Target = TargetComp->GetCurrentTarget())
+			{
+				if (UHitReactionComponent* TargetHitReaction = Target->FindComponentByClass<UHitReactionComponent>())
+				{
+					if (TargetHitReaction->IsVulnerableToFinisher())
+					{
+						FString ReasonStr;
+						switch (TargetHitReaction->GetFinisherTriggerReason())
+						{
+							case EFinisherTriggerReason::LowHealth: ReasonStr = TEXT("LOW HEALTH"); break;
+							case EFinisherTriggerReason::GuardBroken: ReasonStr = TEXT("GUARD BROKEN"); break;
+							case EFinisherTriggerReason::Stunned: ReasonStr = TEXT("STUNNED"); break;
+							default: ReasonStr = TEXT("VULNERABLE"); break;
+						}
+
+						float HealthPercent = 1.0f;
+						if (Target->Implements<UDamageableInterface>())
+						{
+							const float CurrentHealth = IDamageableInterface::Execute_GetCurrentHealth(Target);
+							const float MaxHealth = IDamageableInterface::Execute_GetMaxHealth(Target);
+							HealthPercent = MaxHealth > 0.0f ? CurrentHealth / MaxHealth : 0.0f;
+						}
+
+						UDebugUtils::DrawVulnerabilityIndicator(World, Target->GetActorLocation(), ReasonStr, HealthPercent);
+					}
+				}
+			}
+		}
+	}
+}
+
+void ACombatDebugHUD::DrawPairedAnimPanel(const FPairedAnimDebugData& Data)
+{
+	if (!Canvas)
+	{
+		return;
+	}
+
+	// Position in top-right corner
+	const float PanelWidth = 320.0f;
+	float X = Canvas->SizeX - PanelWidth - ScreenMargin;
+	float Y = ScreenMargin;
+
+	// Panel background (semi-transparent)
+	const FLinearColor PanelBgColor(0.0f, 0.0f, 0.0f, 0.7f);
+	Canvas->SetDrawColor(FColor::Black);
+
+	// ========================================================================
+	// HEADER
+	// ========================================================================
+	Canvas->SetDrawColor(FColor::Cyan);
+	Canvas->DrawText(GEngine->GetSmallFont(), TEXT("=== PAIRED ANIMATION DEBUG ==="), X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight * 1.5f;
+
+	// ========================================================================
+	// STATE INFO
+	// ========================================================================
+	// State
+	FColor StateColor = Data.bInPairedAnimation ? FColor::Green : FColor::White;
+	FString StateText = FString::Printf(TEXT("State: %s"), *Data.StateDescription);
+	Canvas->SetDrawColor(StateColor);
+	Canvas->DrawText(GEngine->GetSmallFont(), StateText, X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Role
+	FColor RoleColor = Data.Role == TEXT("ATTACKER") ? FColor::Green :
+					   (Data.Role == TEXT("VICTIM") ? FColor::Red : FColor::White);
+	FString RoleText = FString::Printf(TEXT("Role: %s"), *Data.Role);
+	Canvas->SetDrawColor(RoleColor);
+	Canvas->DrawText(GEngine->GetSmallFont(), RoleText, X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Partner info
+	if (Data.PartnerNames.Num() > 0)
+	{
+		FString PartnerText = FString::Printf(TEXT("Partner: %s"), *Data.PartnerNames[0]);
+		Canvas->SetDrawColor(FColor::Yellow);
+		Canvas->DrawText(GEngine->GetSmallFont(), PartnerText, X, Y, StatusFontScale, StatusFontScale);
+		Y += LineHeight;
+	}
+
+	Y += LineHeight * 0.5f; // Spacer
+
+	// ========================================================================
+	// WARP TRACKING
+	// ========================================================================
+	Canvas->SetDrawColor(FColor::Cyan);
+	Canvas->DrawText(GEngine->GetSmallFont(), TEXT("--- Warp Tracking ---"), X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Attacker warp
+	FString AttackerWarpText = FString::Printf(TEXT("  Attacker Warp: %s"),
+		Data.bAttackerWarpActive ? TEXT("ACTIVE") : TEXT("---"));
+	Canvas->SetDrawColor(Data.bAttackerWarpActive ? FColor::Green : FColor::White);
+	Canvas->DrawText(GEngine->GetSmallFont(), AttackerWarpText, X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Victim warp
+	FString VictimWarpText = FString::Printf(TEXT("  Victim Warp: %s"),
+		Data.bVictimWarpActive ? TEXT("ACTIVE") : TEXT("---"));
+	Canvas->SetDrawColor(Data.bVictimWarpActive ? FColor::Magenta : FColor::White);
+	Canvas->DrawText(GEngine->GetSmallFont(), VictimWarpText, X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Distance
+	FColor DistColor = Data.CurrentPartnerDistance <= Data.MaxWarpDistance ? FColor::Green : FColor::Red;
+	FString DistText = FString::Printf(TEXT("  Distance: %.0f / %.0fu"),
+		Data.CurrentPartnerDistance, Data.MaxWarpDistance);
+	Canvas->SetDrawColor(DistColor);
+	Canvas->DrawText(GEngine->GetSmallFont(), DistText, X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	Y += LineHeight * 0.5f; // Spacer
+
+	// ========================================================================
+	// VULNERABILITY
+	// ========================================================================
+	Canvas->SetDrawColor(FColor::Cyan);
+	Canvas->DrawText(GEngine->GetSmallFont(), TEXT("--- Target Vulnerability ---"), X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Vulnerable status
+	FString VulnText = FString::Printf(TEXT("  Vulnerable: %s"),
+		Data.bTargetVulnerable ? TEXT("YES") : TEXT("NO"));
+	Canvas->SetDrawColor(Data.bTargetVulnerable ? FColor::Red : FColor::White);
+	Canvas->DrawText(GEngine->GetSmallFont(), VulnText, X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Vulnerability reason
+	if (Data.bTargetVulnerable)
+	{
+		FString ReasonStr;
+		switch (Data.VulnerabilityReason)
+		{
+			case EFinisherTriggerReason::LowHealth: ReasonStr = TEXT("Low Health"); break;
+			case EFinisherTriggerReason::GuardBroken: ReasonStr = TEXT("Guard Broken (N/I)"); break;  // Not Implemented
+			case EFinisherTriggerReason::Stunned: ReasonStr = TEXT("Stunned (N/I)"); break;  // Not Implemented
+			default: ReasonStr = TEXT("Unknown"); break;
+		}
+		FString ReasonText = FString::Printf(TEXT("  Reason: %s"), *ReasonStr);
+		Canvas->SetDrawColor(FColor::Orange);
+		Canvas->DrawText(GEngine->GetSmallFont(), ReasonText, X, Y, StatusFontScale, StatusFontScale);
+		Y += LineHeight;
+	}
+	else
+	{
+		// Show available trigger - only Low Health works currently
+		Canvas->SetDrawColor(FColor(128, 128, 128)); // Gray
+		Canvas->DrawText(GEngine->GetSmallFont(), TEXT("  (Only LowHealth trigger active)"), X, Y, LabelFontScale, LabelFontScale);
+		Y += LineHeight;
+	}
+
+	// Health
+	FString HealthText = FString::Printf(TEXT("  Health: %.0f%% (Threshold: %.0f%%)"),
+		Data.TargetHealthPercent * 100.0f, Data.HealthThreshold * 100.0f);
+	Canvas->SetDrawColor(Data.TargetHealthPercent <= Data.HealthThreshold ? FColor::Red : FColor::Green);
+	Canvas->DrawText(GEngine->GetSmallFont(), HealthText, X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Finisher target mutex
+	if (Data.bTargetIsFinisherTarget)
+	{
+		Canvas->SetDrawColor(FColor::Yellow);
+		Canvas->DrawText(GEngine->GetSmallFont(), TEXT("  [ALREADY FINISHER TARGET]"), X, Y, StatusFontScale, StatusFontScale);
+		Y += LineHeight;
+	}
+
+	Y += LineHeight * 0.5f; // Spacer
+
+	// ========================================================================
+	// EFFECTS
+	// ========================================================================
+	Canvas->SetDrawColor(FColor::Cyan);
+	Canvas->DrawText(GEngine->GetSmallFont(), TEXT("--- Effects Active ---"), X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Slow motion
+	FString SlowMoText = FString::Printf(TEXT("  SlowMo: %s (%.2fx)"),
+		Data.bSlowMotionActive ? TEXT("ACTIVE") : TEXT("---"),
+		Data.TimeDilationScale);
+	Canvas->SetDrawColor(Data.bSlowMotionActive ? FColor::Yellow : FColor::White);
+	Canvas->DrawText(GEngine->GetSmallFont(), SlowMoText, X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Hitstop
+	FString HitstopText = FString::Printf(TEXT("  Hitstop: %s"),
+		Data.bHitstopActive ? TEXT("FROZEN") : TEXT("---"));
+	Canvas->SetDrawColor(Data.bHitstopActive ? FColor::Red : FColor::White);
+	Canvas->DrawText(GEngine->GetSmallFont(), HitstopText, X, Y, StatusFontScale, StatusFontScale);
+	Y += LineHeight;
+
+	// Input blocked
+	FString InputText = FString::Printf(TEXT("  Input: %s"),
+		Data.bInputBlocked ? TEXT("BLOCKED") : TEXT("Enabled"));
+	Canvas->SetDrawColor(Data.bInputBlocked ? FColor::Orange : FColor::Green);
+	Canvas->DrawText(GEngine->GetSmallFont(), InputText, X, Y, StatusFontScale, StatusFontScale);
 }

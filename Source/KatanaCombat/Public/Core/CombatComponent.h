@@ -493,6 +493,12 @@ public:
 	bool bBlockCombatInput = false;
 
 	/**
+	 * Check if combat input is currently blocked (during paired animations/finishers).
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
+	bool IsInputBlocked() const { return bBlockCombatInput; }
+
+	/**
 	 * Begin a paired animation sequence with effect handling.
 	 * Stores paired animation data, applies slow motion if configured, broadcasts delegates.
 	 *

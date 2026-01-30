@@ -371,4 +371,123 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Environment")
 	static bool SnapCharacterToGround(ACharacter* Character, float FloatThreshold = 5.0f, bool bDrawDebug = false);
+
+	// ========================================================================
+	// PAIRED ANIMATION DEBUG VISUALIZATION
+	// ========================================================================
+
+	/**
+	 * Draw warp target crosshair visualization
+	 * Shows target location with directional arrows and distance
+	 *
+	 * @param World - World context
+	 * @param WarpTarget - Target location for warp
+	 * @param CharacterLocation - Current character location
+	 * @param bIsAttacker - True for attacker warp, false for victim warp
+	 * @param Label - Optional label (e.g., "Attacker Warp", "Victim Warp")
+	 */
+	static void DrawWarpTargetCrosshair(
+		UWorld* World,
+		const FVector& WarpTarget,
+		const FVector& CharacterLocation,
+		bool bIsAttacker,
+		const FString& Label = TEXT(""));
+
+	/**
+	 * Draw partner connection line
+	 * Shows dashed line between paired animation partners
+	 *
+	 * @param World - World context
+	 * @param AttackerLocation - Attacker position
+	 * @param PartnerLocation - Partner (victim) position
+	 * @param Distance - Current distance between partners
+	 * @param MaxDistance - Maximum allowed distance
+	 */
+	static void DrawPartnerConnection(
+		UWorld* World,
+		const FVector& AttackerLocation,
+		const FVector& PartnerLocation,
+		float Distance,
+		float MaxDistance);
+
+	/**
+	 * Draw sync point visualization
+	 * Shows pulsing sphere at sync point location with timing info
+	 *
+	 * @param World - World context
+	 * @param SyncLocation - Location of sync point (midpoint between partners)
+	 * @param Progress - Sync point progress (0-1, 1 = at sync point)
+	 * @param bAtSyncPoint - True if currently at sync point
+	 * @param SyncPointName - Name of sync point for label
+	 */
+	static void DrawSyncPoint(
+		UWorld* World,
+		const FVector& SyncLocation,
+		float Progress,
+		bool bAtSyncPoint,
+		const FName& SyncPointName);
+
+	/**
+	 * Draw finisher vulnerability indicator above target
+	 * Shows reason for vulnerability (health, guard break, stun)
+	 *
+	 * @param World - World context
+	 * @param TargetLocation - Location of vulnerable target
+	 * @param VulnerabilityReason - Why target is vulnerable
+	 * @param HealthPercent - Current health percentage
+	 */
+	static void DrawVulnerabilityIndicator(
+		UWorld* World,
+		const FVector& TargetLocation,
+		const FString& VulnerabilityReason,
+		float HealthPercent);
+
+	/**
+	 * Draw finisher range circle around attacker
+	 * Shows maximum distance for finisher initiation
+	 *
+	 * @param World - World context
+	 * @param CenterLocation - Attacker location (center of circle)
+	 * @param MaxRange - Maximum finisher range
+	 * @param CurrentDistance - Current distance to target (for color coding)
+	 */
+	static void DrawFinisherRangeCircle(
+		UWorld* World,
+		const FVector& CenterLocation,
+		float MaxRange,
+		float CurrentDistance);
+
+	/**
+	 * Draw warp offset arrow
+	 * Shows the configured offset direction and magnitude
+	 *
+	 * @param World - World context
+	 * @param FromLocation - Start location (character position)
+	 * @param Offset - Offset vector in world space
+	 * @param Label - Label for the offset
+	 */
+	static void DrawWarpOffsetArrow(
+		UWorld* World,
+		const FVector& FromLocation,
+		const FVector& Offset,
+		const FString& Label = TEXT("Offset"));
+
+	/**
+	 * Draw alignment validation indicator
+	 * Shows whether sync point alignment is within tolerance
+	 *
+	 * @param World - World context
+	 * @param AttackerLocation - Attacker position
+	 * @param VictimLocation - Victim position
+	 * @param ActualDistance - Current distance between them
+	 * @param MaxDistance - Maximum allowed distance
+	 * @param bIsAligned - Whether alignment is acceptable
+	 */
+	static void DrawAlignmentValidation(
+		UWorld* World,
+		const FVector& AttackerLocation,
+		const FVector& VictimLocation,
+		float ActualDistance,
+		float MaxDistance,
+		bool bIsAligned);
 };

@@ -69,6 +69,21 @@ namespace CombatDebug
     /** Environment/terrain visualization (slopes, ground detection, alignment) */
     extern TAutoConsoleVariable<int32> CVarDebugEnvironment;
 
+    /** Paired animation debug (finishers, counters, warp tracking) */
+    extern TAutoConsoleVariable<int32> CVarDebugPairedAnim;
+
+    /** Paired animation sub-toggle: Warp target visualization */
+    extern TAutoConsoleVariable<int32> CVarDebugPairedAnimWarp;
+
+    /** Paired animation sub-toggle: Partner connection lines */
+    extern TAutoConsoleVariable<int32> CVarDebugPairedAnimPartners;
+
+    /** Paired animation sub-toggle: Sync point visualization */
+    extern TAutoConsoleVariable<int32> CVarDebugPairedAnimSync;
+
+    /** Paired animation sub-toggle: Vulnerability indicators */
+    extern TAutoConsoleVariable<int32> CVarDebugPairedAnimVulnerability;
+
     // ========================================================================
     // HELPER FUNCTIONS
     // ========================================================================
@@ -131,5 +146,35 @@ namespace CombatDebug
     FORCEINLINE bool IsEnvironmentDebugEnabled()
     {
         return IsDebugEnabled() || CVarDebugEnvironment.GetValueOnGameThread() != 0;
+    }
+
+    /** Check if paired animation debug is enabled (standalone or via master toggle) */
+    FORCEINLINE bool IsPairedAnimDebugEnabled()
+    {
+        return IsDebugEnabled() || CVarDebugPairedAnim.GetValueOnGameThread() != 0;
+    }
+
+    /** Check if paired animation warp debug is enabled */
+    FORCEINLINE bool IsPairedAnimWarpDebugEnabled()
+    {
+        return IsPairedAnimDebugEnabled() || CVarDebugPairedAnimWarp.GetValueOnGameThread() != 0;
+    }
+
+    /** Check if paired animation partner connection debug is enabled */
+    FORCEINLINE bool IsPairedAnimPartnerDebugEnabled()
+    {
+        return IsPairedAnimDebugEnabled() || CVarDebugPairedAnimPartners.GetValueOnGameThread() != 0;
+    }
+
+    /** Check if paired animation sync point debug is enabled */
+    FORCEINLINE bool IsPairedAnimSyncDebugEnabled()
+    {
+        return IsPairedAnimDebugEnabled() || CVarDebugPairedAnimSync.GetValueOnGameThread() != 0;
+    }
+
+    /** Check if paired animation vulnerability debug is enabled */
+    FORCEINLINE bool IsPairedAnimVulnerabilityDebugEnabled()
+    {
+        return IsPairedAnimDebugEnabled() || CVarDebugPairedAnimVulnerability.GetValueOnGameThread() != 0;
     }
 }

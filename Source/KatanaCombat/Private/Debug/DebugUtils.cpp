@@ -657,3 +657,331 @@ bool UDebugUtils::SnapCharacterToGround(ACharacter* Character, float FloatThresh
 
 	return true;
 }
+
+// ============================================================================
+// PAIRED ANIMATION DEBUG VISUALIZATION
+// ============================================================================
+
+void UDebugUtils::DrawWarpTargetCrosshair(
+	UWorld* World,
+	const FVector& WarpTarget,
+	const FVector& CharacterLocation,
+	bool bIsAttacker,
+	const FString& Label)
+{
+	if (!World || !CombatDebug::IsPairedAnimWarpDebugEnabled())
+	{
+		return;
+	}
+
+	const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+
+	// Color: Cyan for attacker warp, Magenta for victim warp
+	const FColor WarpColor = bIsAttacker ? FColor::Cyan : FColor::Magenta;
+	const FColor DimColor = FColor(WarpColor.R / 2, WarpColor.G / 2, WarpColor.B / 2);
+
+	// Draw crosshair at warp target
+	const float CrosshairSize = 30.0f;
+	DrawDebugLine(World, WarpTarget - FVector(CrosshairSize, 0, 0), WarpTarget + FVector(CrosshairSize, 0, 0),
+		WarpColor, false, DrawDuration, 0, 3.0f);
+	DrawDebugLine(World, WarpTarget - FVector(0, CrosshairSize, 0), WarpTarget + FVector(0, CrosshairSize, 0),
+		WarpColor, false, DrawDuration, 0, 3.0f);
+	DrawDebugLine(World, WarpTarget - FVector(0, 0, CrosshairSize), WarpTarget + FVector(0, 0, CrosshairSize),
+		WarpColor, false, DrawDuration, 0, 3.0f);
+
+	// Draw outer circle
+	DrawDebugCircle(World, WarpTarget, CrosshairSize * 1.5f, 16, WarpColor, false, DrawDuration, 0, 2.0f,
+		FVector::ForwardVector, FVector::RightVector);
+
+	// Draw inner sphere (solid feel)
+	DrawDebugSphere(World, WarpTarget, 8.0f, 8, WarpColor, false, DrawDuration);
+
+	// Draw arrow from character to warp target
+	DrawDebugDirectionalArrow(World, CharacterLocation, WarpTarget, 25.0f, DimColor, false, DrawDuration, 0, 2.0f);
+
+	// Distance calculation
+	const float Distance = FVector::Dist(CharacterLocation, WarpTarget);
+
+	// Label with distance
+	FString FullLabel = FString::Printf(TEXT("%s (%.0fu)"),
+		Label.IsEmpty() ? (bIsAttacker ? TEXT("ATK Warp") : TEXT("VIC Warp")) : *Label,
+		Distance);
+	DrawDebugString(World, WarpTarget + FVector(0, 0, 40), FullLabel, nullptr, WarpColor, DrawDuration, false);
+}
+
+void UDebugUtils::DrawPartnerConnection(
+	UWorld* World,
+	const FVector& AttackerLocation,
+	const FVector& PartnerLocation,
+	float Distance,
+	float MaxDistance)
+{
+	if (!World || !CombatDebug::IsPairedAnimPartnerDebugEnabled())
+	{
+		return;
+	}
+
+	const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+
+	// Color based on distance validity: Yellow = OK, Orange = warning, Red = too far
+	const float DistanceRatio = Distance / FMath::Max(MaxDistance, 1.0f);
+	FColor LineColor;
+	if (DistanceRatio <= 0.75f)
+	{
+		LineColor = FColor::Yellow;
+	}
+	else if (DistanceRatio <= 1.0f)
+	{
+		LineColor = FColor::Orange;
+	}
+	else
+	{
+		LineColor = FColor::Red;
+	}
+
+	// Draw dashed line between partners
+	const float DashLength = 20.0f;
+	const FVector Direction = (PartnerLocation - AttackerLocation).GetSafeNormal();
+	FVector CurrentPos = AttackerLocation;
+	bool bDrawSegment = true;
+	int32 SegmentCount = 0;
+	const int32 MaxSegments = 100; // Safety limit
+
+	while (FVector::Dist(CurrentPos, AttackerLocation) < Distance && SegmentCount < MaxSegments)
+	{
+		FVector NextPos = CurrentPos + Direction * DashLength;
+		if (FVector::Dist(NextPos, AttackerLocation) > Distance)
+		{
+			NextPos = PartnerLocation;
+		}
+
+		if (bDrawSegment)
+		{
+			DrawDebugLine(World, CurrentPos, NextPos, LineColor, false, DrawDuration, 0, 2.5f);
+		}
+
+		CurrentPos = NextPos;
+		bDrawSegment = !bDrawSegment;
+		SegmentCount++;
+	}
+
+	// Draw partner markers
+	DrawDebugSphere(World, AttackerLocation + FVector(0, 0, 90), 12.0f, 8, FColor::Green, false, DrawDuration);
+	DrawDebugSphere(World, PartnerLocation + FVector(0, 0, 90), 12.0f, 8, FColor::Red, false, DrawDuration);
+
+	// Draw distance label at midpoint
+	const FVector Midpoint = (AttackerLocation + PartnerLocation) * 0.5f + FVector(0, 0, 20);
+	FString DistanceLabel = FString::Printf(TEXT("%.0f / %.0fu"), Distance, MaxDistance);
+	DrawDebugString(World, Midpoint, DistanceLabel, nullptr, LineColor, DrawDuration, false);
+}
+
+void UDebugUtils::DrawSyncPoint(
+	UWorld* World,
+	const FVector& SyncLocation,
+	float Progress,
+	bool bAtSyncPoint,
+	const FName& SyncPointName)
+{
+	if (!World || !CombatDebug::IsPairedAnimSyncDebugEnabled())
+	{
+		return;
+	}
+
+	const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+
+	// Color: Magenta base, brighter when closer to sync, pulsing white at sync point
+	FColor SyncColor;
+	if (bAtSyncPoint)
+	{
+		// Pulsing effect at sync point (simulate with alternating based on time)
+		const float PulseValue = FMath::Abs(FMath::Sin(World->GetTimeSeconds() * 8.0f));
+		const uint8 Brightness = static_cast<uint8>(200 + PulseValue * 55);
+		SyncColor = FColor(Brightness, Brightness, Brightness);
+	}
+	else
+	{
+		// Progress-based color (darker magenta -> bright magenta)
+		const uint8 Brightness = static_cast<uint8>(100 + Progress * 155);
+		SyncColor = FColor(Brightness, 0, Brightness);
+	}
+
+	// Draw sync point sphere with size based on progress
+	const float BaseRadius = 15.0f;
+	const float MaxRadius = 35.0f;
+	const float CurrentRadius = FMath::Lerp(BaseRadius, MaxRadius, Progress);
+	DrawDebugSphere(World, SyncLocation, CurrentRadius, 12, SyncColor, false, DrawDuration);
+
+	// Draw inner core
+	DrawDebugSphere(World, SyncLocation, 8.0f, 8, FColor::White, false, DrawDuration);
+
+	// Draw progress ring
+	if (Progress > 0.0f && Progress < 1.0f)
+	{
+		// Arc showing progress toward sync point
+		const int32 NumSegments = FMath::Max(3, static_cast<int32>(Progress * 16));
+		for (int32 i = 0; i < NumSegments; ++i)
+		{
+			const float Angle1 = (static_cast<float>(i) / 16.0f) * 2.0f * PI;
+			const float Angle2 = (static_cast<float>(i + 1) / 16.0f) * 2.0f * PI;
+			const FVector Point1 = SyncLocation + FVector(FMath::Cos(Angle1), FMath::Sin(Angle1), 0) * (CurrentRadius + 10.0f);
+			const FVector Point2 = SyncLocation + FVector(FMath::Cos(Angle2), FMath::Sin(Angle2), 0) * (CurrentRadius + 10.0f);
+			DrawDebugLine(World, Point1, Point2, FColor::Cyan, false, DrawDuration, 0, 3.0f);
+		}
+	}
+
+	// Label
+	FString SyncLabel = FString::Printf(TEXT("%s: %.0f%%"),
+		SyncPointName.IsNone() ? TEXT("Sync") : *SyncPointName.ToString(),
+		Progress * 100.0f);
+	if (bAtSyncPoint)
+	{
+		SyncLabel += TEXT(" [SYNC!]");
+	}
+	DrawDebugString(World, SyncLocation + FVector(0, 0, CurrentRadius + 25), SyncLabel, nullptr, SyncColor, DrawDuration, false);
+}
+
+void UDebugUtils::DrawVulnerabilityIndicator(
+	UWorld* World,
+	const FVector& TargetLocation,
+	const FString& VulnerabilityReason,
+	float HealthPercent)
+{
+	if (!World || !CombatDebug::IsPairedAnimVulnerabilityDebugEnabled())
+	{
+		return;
+	}
+
+	const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+
+	// Position above target head
+	const FVector IndicatorPos = TargetLocation + FVector(0, 0, 200);
+
+	// Draw exclamation-style indicator
+	const FColor VulnColor = FColor::Red;
+
+	// Draw diamond shape
+	const float DiamondSize = 20.0f;
+	DrawDebugLine(World, IndicatorPos + FVector(0, 0, DiamondSize), IndicatorPos + FVector(DiamondSize, 0, 0), VulnColor, false, DrawDuration, 0, 4.0f);
+	DrawDebugLine(World, IndicatorPos + FVector(DiamondSize, 0, 0), IndicatorPos + FVector(0, 0, -DiamondSize), VulnColor, false, DrawDuration, 0, 4.0f);
+	DrawDebugLine(World, IndicatorPos + FVector(0, 0, -DiamondSize), IndicatorPos + FVector(-DiamondSize, 0, 0), VulnColor, false, DrawDuration, 0, 4.0f);
+	DrawDebugLine(World, IndicatorPos + FVector(-DiamondSize, 0, 0), IndicatorPos + FVector(0, 0, DiamondSize), VulnColor, false, DrawDuration, 0, 4.0f);
+
+	// Inner exclamation point
+	DrawDebugLine(World, IndicatorPos + FVector(0, 0, 10), IndicatorPos + FVector(0, 0, -5), FColor::White, false, DrawDuration, 0, 3.0f);
+	DrawDebugPoint(World, IndicatorPos + FVector(0, 0, -12), 8.0f, FColor::White, false, DrawDuration);
+
+	// Reason and health label
+	FString Label = FString::Printf(TEXT("FINISHER: %s (%.0f%% HP)"), *VulnerabilityReason, HealthPercent * 100.0f);
+	DrawDebugString(World, IndicatorPos + FVector(0, 0, 35), Label, nullptr, VulnColor, DrawDuration, false);
+
+	// Pulsing circle around target
+	const float PulseScale = 1.0f + 0.2f * FMath::Sin(World->GetTimeSeconds() * 6.0f);
+	DrawDebugCircle(World, TargetLocation + FVector(0, 0, 50), 60.0f * PulseScale, 16, VulnColor, false, DrawDuration, 0, 2.0f,
+		FVector::ForwardVector, FVector::RightVector);
+}
+
+void UDebugUtils::DrawFinisherRangeCircle(
+	UWorld* World,
+	const FVector& CenterLocation,
+	float MaxRange,
+	float CurrentDistance)
+{
+	if (!World || !CombatDebug::IsPairedAnimWarpDebugEnabled())
+	{
+		return;
+	}
+
+	const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+
+	// Color based on whether target is in range
+	const bool bInRange = CurrentDistance <= MaxRange;
+	const FColor RangeColor = bInRange ? FColor(0, 200, 0, 128) : FColor(200, 100, 0, 128);
+
+	// Draw range circle on ground
+	DrawDebugCircle(World, CenterLocation, MaxRange, 32, RangeColor, false, DrawDuration, 0, 2.0f,
+		FVector::ForwardVector, FVector::RightVector);
+
+	// Draw current distance arc if target exists
+	if (CurrentDistance > 0.0f)
+	{
+		DrawDebugCircle(World, CenterLocation, CurrentDistance, 24, FColor::White, false, DrawDuration, 0, 1.5f,
+			FVector::ForwardVector, FVector::RightVector);
+	}
+
+	// Label
+	FString RangeLabel = FString::Printf(TEXT("Range: %.0f / %.0fu %s"),
+		CurrentDistance, MaxRange, bInRange ? TEXT("[OK]") : TEXT("[OUT]"));
+	DrawDebugString(World, CenterLocation + FVector(MaxRange + 20, 0, 30), RangeLabel, nullptr, RangeColor, DrawDuration, false);
+}
+
+void UDebugUtils::DrawWarpOffsetArrow(
+	UWorld* World,
+	const FVector& FromLocation,
+	const FVector& Offset,
+	const FString& Label)
+{
+	if (!World || !CombatDebug::IsPairedAnimWarpDebugEnabled())
+	{
+		return;
+	}
+
+	const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+	const FVector ToLocation = FromLocation + Offset;
+
+	// Draw offset arrow
+	DrawDebugDirectionalArrow(World, FromLocation, ToLocation, 15.0f, FColor::Orange, false, DrawDuration, 0, 2.5f);
+
+	// Label with offset values
+	FString OffsetLabel = FString::Printf(TEXT("%s: (%.0f, %.0f, %.0f)"),
+		*Label, Offset.X, Offset.Y, Offset.Z);
+	DrawDebugString(World, (FromLocation + ToLocation) * 0.5f + FVector(0, 0, 20), OffsetLabel, nullptr, FColor::Orange, DrawDuration, false);
+}
+
+void UDebugUtils::DrawAlignmentValidation(
+	UWorld* World,
+	const FVector& AttackerLocation,
+	const FVector& VictimLocation,
+	float ActualDistance,
+	float MaxDistance,
+	bool bIsAligned)
+{
+	if (!World || !CombatDebug::IsPairedAnimSyncDebugEnabled())
+	{
+		return;
+	}
+
+	const float DrawDuration = CombatDebug::GetDebugDrawDuration();
+
+	// Color: Green = aligned, Yellow = marginal, Red = misaligned
+	FColor AlignColor;
+	FString AlignStatus;
+	if (bIsAligned && ActualDistance < MaxDistance * 0.5f)
+	{
+		AlignColor = FColor::Green;
+		AlignStatus = TEXT("ALIGNED");
+	}
+	else if (bIsAligned)
+	{
+		AlignColor = FColor::Yellow;
+		AlignStatus = TEXT("MARGINAL");
+	}
+	else
+	{
+		AlignColor = FColor::Red;
+		AlignStatus = TEXT("MISALIGNED");
+	}
+
+	// Draw line between attacker and victim with thickness based on alignment
+	const float Thickness = bIsAligned ? 3.0f : 5.0f;
+	DrawDebugLine(World, AttackerLocation, VictimLocation, AlignColor, false, DrawDuration, 0, Thickness);
+
+	// Draw validation spheres at both ends
+	DrawDebugSphere(World, AttackerLocation, 10.0f, 8, AlignColor, false, DrawDuration);
+	DrawDebugSphere(World, VictimLocation, 10.0f, 8, AlignColor, false, DrawDuration);
+
+	// Midpoint label
+	const FVector Midpoint = (AttackerLocation + VictimLocation) * 0.5f;
+	FString AlignLabel = FString::Printf(TEXT("%s: %.0f / %.0fu"),
+		*AlignStatus, ActualDistance, MaxDistance);
+	DrawDebugString(World, Midpoint + FVector(0, 0, 40), AlignLabel, nullptr, AlignColor, DrawDuration, false);
+}

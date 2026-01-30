@@ -281,6 +281,20 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Finisher")
     void SetFinisherTarget(bool bIsTarget) { bIsFinisherTarget = bIsTarget; }
 
+    /**
+     * Check if this character is currently a finisher target.
+     * Used for mutex prevention (only one finisher can target at a time).
+     */
+    UFUNCTION(BlueprintPure, Category = "Hit Reaction|Finisher")
+    bool IsFinisherTarget() const { return bIsFinisherTarget; }
+
+    /**
+     * Check if this character's guard/posture is broken.
+     * Guard break makes enemy vulnerable to finishers.
+     */
+    UFUNCTION(BlueprintPure, Category = "Hit Reaction|Finisher")
+    bool IsGuardBroken() const;
+
     // ============================================================================
     // EVENTS
     // ============================================================================

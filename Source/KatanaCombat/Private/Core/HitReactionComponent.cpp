@@ -967,3 +967,19 @@ EFinisherTriggerReason UHitReactionComponent::GetFinisherTriggerReason() const
 
     return EFinisherTriggerReason::None;
 }
+
+bool UHitReactionComponent::IsGuardBroken() const
+{
+    // NOTE: Posture/Guard Break system not yet implemented
+    // This will return false until the posture system is added
+    // TODO: Implement posture system with guard break state
+
+    ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(GetOwner());
+    if (!CombatChar)
+    {
+        return false;
+    }
+
+    // Use IDamageableInterface for flexibility (returns false until posture implemented)
+    return IDamageableInterface::Execute_IsGuardBroken(CombatChar);
+}
