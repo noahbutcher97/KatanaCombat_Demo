@@ -708,7 +708,6 @@ TArray<FProceduralContactPoint> SPairedAnimationPreview::ComputeContactPoints(fl
 			FProceduralContactPoint Contact;
 			Contact.WorldLocation = SamplePoint;
 			Contact.Distance = ClosestDist;
-			Contact.Confidence = 1.0f - (ClosestDist / ContactThreshold);
 			Contact.AttackerBone = (i == 0) ? AttackerConfig.WeaponStartSocket :
 								   (i == SampleCount) ? AttackerConfig.WeaponEndSocket : TEXT("WeaponMid");
 			Contact.VictimBone = ClosestVictimBone;
@@ -733,6 +732,11 @@ TArray<FProceduralContactPoint> SPairedAnimationPreview::ComputeContactPoints(fl
 			FVector VictimCenter = VictimMeshComponent->GetComponentLocation();
 			float DistFromCenter = FVector::Dist(SamplePoint, VictimCenter);
 			Contact.PositionQuality = FMath::Clamp(1.0f - (DistFromCenter / 200.0f), 0.0f, 1.0f);
+
+			// FIX: Confidence now includes distance AND angle quality for better scoring
+			float DistanceQuality = FMath::Max(0.0f, 1.0f - (ClosestDist / ContactThreshold));
+			// Weighted blend: 60% distance proximity + 40% impact angle quality
+			Contact.Confidence = (DistanceQuality * 0.6f) + (Contact.AngleQuality * 0.4f);
 
 			ContactPoints.Add(Contact);
 		}
@@ -1017,14 +1021,15 @@ float SPairedAnimationPreview::EvaluateConfiguration(float Distance, FRotator At
 	VictimConfig.RotationOffset = VictimRot;
 	ApplyCharacterConfigs();
 
-	// Evaluate over entire animation
+	// Evaluate over entire animation using integer steps for guaranteed boundary coverage
 	float TotalScore = 0.0f;
 	int32 SampleCount = 0;
 	float BestContactConfidence = 0.0f;
 
-	float TimeStep = MaxDuration / 30.0f;  // Quick sampling
-	for (float t = 0.0f; t <= MaxDuration; t += TimeStep)
+	const int32 NumSamples = 30;
+	for (int32 i = 0; i <= NumSamples; ++i)
 	{
+		float t = (NumSamples > 0) ? (i * MaxDuration / NumSamples) : 0.0f;
 		FPairedFrameAnalysis Frame = AnalyzeFrame(t);
 		if (Frame.PrimaryContact.Confidence > BestContactConfidence)
 		{
@@ -1040,18 +1045,22 @@ float SPairedAnimationPreview::EvaluateConfiguration(float Distance, FRotator At
 	VictimConfig.RotationOffset = OriginalVictimRot;
 	ApplyCharacterConfigs();
 
-	return (SampleCount > 0) ? (TotalScore / SampleCount + BestContactConfidence) * 0.5f : 0.0f;
+	// FIX: Use weighted blend instead of (avg + max) * 0.5 which double-counts the max
+	// Weight: 60% peak quality + 40% consistency (average)
+	float AverageConfidence = (SampleCount > 0) ? (TotalScore / SampleCount) : 0.0f;
+	return (BestContactConfidence * 0.6f) + (AverageConfidence * 0.4f);
 }
 
 float SPairedAnimationPreview::FindOptimalDistance(float MinDist, float MaxDist, int32 Steps)
 {
 	float BestDistance = LockedDistance;
-	float BestScore = 0.0f;
+	float BestScore = -1.0f;  // Use -1 to distinguish "no valid config found" from 0 score
 
-	float StepSize = (MaxDist - MinDist) / Steps;
-	for (float d = MinDist; d <= MaxDist; d += StepSize)
+	// FIX: Use integer loop to guarantee boundary evaluation (MinDist and MaxDist both tested)
+	for (int32 i = 0; i <= Steps; ++i)
 	{
-		float Score = EvaluateConfiguration(d, AttackerConfig.RotationOffset, VictimConfig.RotationOffset);
+		float d = MinDist + (i * (MaxDist - MinDist) / Steps);
+		float Score = EvaluateConfigurationWithMultiContact(d, AttackerConfig.RotationOffset, VictimConfig.RotationOffset);
 		if (Score > BestScore)
 		{
 			BestScore = Score;
@@ -1065,13 +1074,15 @@ float SPairedAnimationPreview::FindOptimalDistance(float MinDist, float MaxDist,
 FRotator SPairedAnimationPreview::FindOptimalAttackerRotation(int32 Steps)
 {
 	FRotator BestRotation = AttackerConfig.RotationOffset;
-	float BestScore = 0.0f;
+	float BestScore = -1.0f;  // Use -1 to distinguish "no valid config" from 0 score
 
-	float AngleStep = 360.0f / Steps;
-	for (float Yaw = 0.0f; Yaw < 360.0f; Yaw += AngleStep)
+	// FIX: Use integer loop for uniform angular coverage
+	// With Steps=36, evaluates 0, 10, 20, ..., 350 degrees (36 unique values)
+	for (int32 i = 0; i < Steps; ++i)
 	{
+		float Yaw = (i * 360.0f) / Steps;
 		FRotator TestRot(0.0f, Yaw, 0.0f);
-		float Score = EvaluateConfiguration(LockedDistance, TestRot, VictimConfig.RotationOffset);
+		float Score = EvaluateConfigurationWithMultiContact(LockedDistance, TestRot, VictimConfig.RotationOffset);
 		if (Score > BestScore)
 		{
 			BestScore = Score;
@@ -1085,13 +1096,14 @@ FRotator SPairedAnimationPreview::FindOptimalAttackerRotation(int32 Steps)
 FRotator SPairedAnimationPreview::FindOptimalVictimRotation(int32 Steps)
 {
 	FRotator BestRotation = VictimConfig.RotationOffset;
-	float BestScore = 0.0f;
+	float BestScore = -1.0f;  // Use -1 to distinguish "no valid config" from 0 score
 
-	float AngleStep = 360.0f / Steps;
-	for (float Yaw = 0.0f; Yaw < 360.0f; Yaw += AngleStep)
+	// FIX: Use integer loop for uniform angular coverage
+	for (int32 i = 0; i < Steps; ++i)
 	{
+		float Yaw = (i * 360.0f) / Steps;
 		FRotator TestRot(0.0f, Yaw, 0.0f);
-		float Score = EvaluateConfiguration(LockedDistance, AttackerConfig.RotationOffset, TestRot);
+		float Score = EvaluateConfigurationWithMultiContact(LockedDistance, AttackerConfig.RotationOffset, TestRot);
 		if (Score > BestScore)
 		{
 			BestScore = Score;
@@ -1263,6 +1275,312 @@ void SPairedAnimationPreview::OnFindOptimalSyncClicked()
 }
 
 // ============================================================================
+// MULTI-CONTACT POINT ANALYSIS
+// ============================================================================
+
+void SPairedAnimationPreview::InitializeContactTypeWeights()
+{
+	// Weight contact types by importance for finisher quality
+	ContactTypeWeights.Empty();
+	ContactTypeWeights.Add(EContactPointType::Head, 1.0f);       // Head contact = most important (kill shots)
+	ContactTypeWeights.Add(EContactPointType::RightHand, 0.9f);  // Weapon hand (attacker)
+	ContactTypeWeights.Add(EContactPointType::LeftHand, 0.6f);   // Support hand
+	ContactTypeWeights.Add(EContactPointType::Pelvis, 0.5f);     // Body stability
+	ContactTypeWeights.Add(EContactPointType::RightFoot, 0.3f);  // Positioning
+	ContactTypeWeights.Add(EContactPointType::LeftFoot, 0.3f);   // Positioning
+}
+
+float SPairedAnimationPreview::GetPenetrationThreshold(EContactPointType Type) const
+{
+	// Return capsule/bone radius estimate for penetration detection
+	switch (Type)
+	{
+		case EContactPointType::Head: return 12.0f;
+		case EContactPointType::Pelvis: return 15.0f;
+		case EContactPointType::LeftHand:
+		case EContactPointType::RightHand: return 8.0f;
+		case EContactPointType::LeftFoot:
+		case EContactPointType::RightFoot: return 10.0f;
+		default: return 10.0f;
+	}
+}
+
+float SPairedAnimationPreview::ComputePairwiseDistance(EContactPointType AttackerContact, EContactPointType VictimContact) const
+{
+	if (!AttackerMeshComponent || !VictimMeshComponent) return FLT_MAX;
+
+	FName AttackerBone = AttackerBoneConfig.GetBoneForType(AttackerContact);
+	FName VictimBone = VictimBoneConfig.GetBoneForType(VictimContact);
+
+	FVector AttackerPos = GetBoneWorldLocation(AttackerMeshComponent, AttackerBone);
+	FVector VictimPos = GetBoneWorldLocation(VictimMeshComponent, VictimBone);
+
+	return FVector::Dist(AttackerPos, VictimPos);
+}
+
+bool SPairedAnimationPreview::DetectPenetration(float Distance, EContactPointType AttackerType, EContactPointType VictimType, float& OutPenetrationDepth) const
+{
+	float AttackerRadius = GetPenetrationThreshold(AttackerType);
+	float VictimRadius = GetPenetrationThreshold(VictimType);
+	float CombinedRadius = AttackerRadius + VictimRadius;
+
+	if (Distance < CombinedRadius)
+	{
+		OutPenetrationDepth = CombinedRadius - Distance;
+		return true;
+	}
+
+	OutPenetrationDepth = 0.0f;
+	return false;
+}
+
+FMultiContactAnalysis SPairedAnimationPreview::ComputeMultiContactPoints(float Time)
+{
+	FMultiContactAnalysis Result;
+	Result.Time = Time;
+
+	if (!AttackerMeshComponent || !VictimMeshComponent) return Result;
+
+	// Update animations to this time
+	UpdateAnimations(Time);
+
+	// Initialize weights if not done
+	if (ContactTypeWeights.Num() == 0)
+	{
+		InitializeContactTypeWeights();
+	}
+
+	float BestQuality = 0.0f;
+
+	// Compute all contact point positions
+	for (int32 TypeIdx = 0; TypeIdx < static_cast<int32>(EContactPointType::COUNT); ++TypeIdx)
+	{
+		EContactPointType ContactType = static_cast<EContactPointType>(TypeIdx);
+
+		// Get attacker bone position
+		FName AttackerBone = AttackerBoneConfig.GetBoneForType(ContactType);
+		FVector AttackerPos = GetBoneWorldLocation(AttackerMeshComponent, AttackerBone);
+		Result.AttackerContactPositions.Add(ContactType, AttackerPos);
+
+		// Get victim bone position
+		FName VictimBone = VictimBoneConfig.GetBoneForType(ContactType);
+		FVector VictimPos = GetBoneWorldLocation(VictimMeshComponent, VictimBone);
+		Result.VictimContactPositions.Add(ContactType, VictimPos);
+	}
+
+	// Compute pairwise distances and detect penetrations
+	for (int32 AType = 0; AType < static_cast<int32>(EContactPointType::COUNT); ++AType)
+	{
+		EContactPointType AttackerType = static_cast<EContactPointType>(AType);
+		FVector AttackerPos = Result.AttackerContactPositions[AttackerType];
+
+		for (int32 VType = 0; VType < static_cast<int32>(EContactPointType::COUNT); ++VType)
+		{
+			EContactPointType VictimType = static_cast<EContactPointType>(VType);
+			FVector VictimPos = Result.VictimContactPositions[VictimType];
+
+			float Distance = FVector::Dist(AttackerPos, VictimPos);
+			Result.PairwiseDistances.Add(TPair<EContactPointType, EContactPointType>(AttackerType, VictimType), Distance);
+
+			// Check penetration
+			float PenetrationDepth = 0.0f;
+			if (DetectPenetration(Distance, AttackerType, VictimType, PenetrationDepth))
+			{
+				Result.PenetrationPairs.Add(TPair<EContactPointType, EContactPointType>(AttackerType, VictimType));
+				Result.bHasPenetration = true;
+				if (PenetrationDepth > Result.MaxPenetrationDepth)
+				{
+					Result.MaxPenetrationDepth = PenetrationDepth;
+					Result.MostPenetratingAttacker = AttackerType;
+					Result.MostPenetratingVictim = VictimType;
+				}
+			}
+
+			// Check contact quality (within threshold)
+			if (Distance < ContactThreshold)
+			{
+				float DistanceQuality = FMath::Max(0.0f, 1.0f - (Distance / ContactThreshold));
+
+				// Store quality for this contact type (keep best)
+				float* ExistingAttackerQuality = Result.AttackerContactQualities.Find(AttackerType);
+				if (!ExistingAttackerQuality || DistanceQuality > *ExistingAttackerQuality)
+				{
+					Result.AttackerContactQualities.Add(AttackerType, DistanceQuality);
+				}
+
+				float* ExistingVictimQuality = Result.VictimContactQualities.Find(VictimType);
+				if (!ExistingVictimQuality || DistanceQuality > *ExistingVictimQuality)
+				{
+					Result.VictimContactQualities.Add(VictimType, DistanceQuality);
+				}
+
+				// Track best contact pair
+				float Weight = ContactTypeWeights.Contains(AttackerType) ? ContactTypeWeights[AttackerType] : 0.5f;
+				float WeightedQuality = DistanceQuality * Weight;
+				if (WeightedQuality > BestQuality)
+				{
+					BestQuality = WeightedQuality;
+					Result.BestAttackerContact = AttackerType;
+					Result.BestVictimContact = VictimType;
+					Result.BestContactDistance = Distance;
+					Result.BestContactQuality = DistanceQuality;
+				}
+
+				Result.TotalActiveContacts++;
+			}
+		}
+	}
+
+	// Compute weighted quality score
+	Result.WeightedContactQuality = EvaluateMultiContactQuality(Result);
+
+	return Result;
+}
+
+float SPairedAnimationPreview::EvaluateMultiContactQuality(const FMultiContactAnalysis& Analysis) const
+{
+	if (ContactTypeWeights.Num() == 0)
+	{
+		return Analysis.BestContactQuality;
+	}
+
+	float WeightedSum = 0.0f;
+	float WeightSum = 0.0f;
+
+	// Sum up weighted contact qualities
+	for (const auto& Pair : Analysis.AttackerContactQualities)
+	{
+		float Weight = ContactTypeWeights.Contains(Pair.Key) ? ContactTypeWeights[Pair.Key] : 0.5f;
+		WeightedSum += Pair.Value * Weight;
+		WeightSum += Weight;
+	}
+
+	// Penalize penetrations (overlapping meshes look bad)
+	float PenetrationPenalty = FMath::Clamp(Analysis.MaxPenetrationDepth / 20.0f, 0.0f, 0.5f);
+
+	float BaseQuality = (WeightSum > 0.0f) ? (WeightedSum / WeightSum) : 0.0f;
+	return BaseQuality * (1.0f - PenetrationPenalty);
+}
+
+float SPairedAnimationPreview::EvaluateConfigurationWithMultiContact(float Distance, FRotator AttackerRot, FRotator VictimRot)
+{
+	// Temporarily apply configuration
+	float OriginalDistance = LockedDistance;
+	FRotator OriginalAttackerRot = AttackerConfig.RotationOffset;
+	FRotator OriginalVictimRot = VictimConfig.RotationOffset;
+
+	LockedDistance = Distance;
+	AttackerConfig.RotationOffset = AttackerRot;
+	VictimConfig.RotationOffset = VictimRot;
+	ApplyCharacterConfigs();
+
+	// Evaluate using multi-contact analysis
+	float TotalScore = 0.0f;
+	int32 SampleCount = 0;
+	float BestMultiContactQuality = 0.0f;
+	float TotalPenetrationPenalty = 0.0f;
+
+	const int32 NumSamples = 30;
+	for (int32 i = 0; i <= NumSamples; ++i)
+	{
+		float t = (NumSamples > 0) ? (i * MaxDuration / NumSamples) : 0.0f;
+		FMultiContactAnalysis MultiAnalysis = ComputeMultiContactPoints(t);
+
+		TotalScore += MultiAnalysis.WeightedContactQuality;
+		if (MultiAnalysis.WeightedContactQuality > BestMultiContactQuality)
+		{
+			BestMultiContactQuality = MultiAnalysis.WeightedContactQuality;
+		}
+		if (MultiAnalysis.bHasPenetration)
+		{
+			TotalPenetrationPenalty += MultiAnalysis.MaxPenetrationDepth;
+		}
+		SampleCount++;
+	}
+
+	// Restore original configuration
+	LockedDistance = OriginalDistance;
+	AttackerConfig.RotationOffset = OriginalAttackerRot;
+	VictimConfig.RotationOffset = OriginalVictimRot;
+	ApplyCharacterConfigs();
+
+	// Score: 60% peak quality + 40% average quality - penetration penalty
+	float AverageQuality = (SampleCount > 0) ? (TotalScore / SampleCount) : 0.0f;
+	float AveragePenetration = (SampleCount > 0) ? (TotalPenetrationPenalty / SampleCount) : 0.0f;
+	float PenetrationPenalty = FMath::Clamp(AveragePenetration / 30.0f, 0.0f, 0.3f);
+
+	return (BestMultiContactQuality * 0.6f) + (AverageQuality * 0.4f) - PenetrationPenalty;
+}
+
+void SPairedAnimationPreview::DrawMultiContactPoints()
+{
+	if (!SharedPreviewScene) return;
+	UWorld* World = SharedPreviewScene->GetWorld();
+	if (!World) return;
+
+	FMultiContactAnalysis Analysis = ComputeMultiContactPoints(CurrentTime);
+
+	// Color coding for quality
+	auto GetQualityColor = [](float Quality) -> FColor
+	{
+		// Red (bad) -> Yellow (mediocre) -> Green (good)
+		if (Quality < 0.33f)
+		{
+			return FColor::Red;
+		}
+		else if (Quality < 0.66f)
+		{
+			return FColor::Yellow;
+		}
+		return FColor::Green;
+	};
+
+	// Draw attacker contact points
+	for (const auto& Pair : Analysis.AttackerContactPositions)
+	{
+		FVector Pos = Pair.Value;
+		float* QualityPtr = Analysis.AttackerContactQualities.Find(Pair.Key);
+		float Quality = QualityPtr ? *QualityPtr : 0.0f;
+
+		FColor Color = GetQualityColor(Quality);
+		float Radius = 5.0f + (Quality * 8.0f);  // Larger = better quality
+
+		DrawDebugSphere(World, Pos, Radius, 8, Color, false, -1.0f, 0, 1.5f);
+	}
+
+	// Draw victim contact points
+	for (const auto& Pair : Analysis.VictimContactPositions)
+	{
+		FVector Pos = Pair.Value;
+		float* QualityPtr = Analysis.VictimContactQualities.Find(Pair.Key);
+		float Quality = QualityPtr ? *QualityPtr : 0.0f;
+
+		FColor Color = GetQualityColor(Quality);
+		float Radius = 5.0f + (Quality * 8.0f);
+
+		DrawDebugSphere(World, Pos, Radius, 8, Color, false, -1.0f, 0, 1.5f);
+	}
+
+	// Draw lines between penetrating pairs (red = bad overlap)
+	for (const auto& PenPair : Analysis.PenetrationPairs)
+	{
+		FVector AttackerPos = Analysis.AttackerContactPositions[PenPair.Key];
+		FVector VictimPos = Analysis.VictimContactPositions[PenPair.Value];
+
+		DrawDebugLine(World, AttackerPos, VictimPos, FColor::Red, false, -1.0f, 0, 3.0f);
+	}
+
+	// Draw line to best contact pair (cyan)
+	if (Analysis.BestContactQuality > 0.0f)
+	{
+		FVector BestAttackerPos = Analysis.AttackerContactPositions[Analysis.BestAttackerContact];
+		FVector BestVictimPos = Analysis.VictimContactPositions[Analysis.BestVictimContact];
+
+		DrawDebugLine(World, BestAttackerPos, BestVictimPos, FColor::Cyan, false, -1.0f, 0, 2.5f);
+	}
+}
+
+// ============================================================================
 // VISUALIZATION
 // ============================================================================
 
@@ -1297,6 +1615,7 @@ void SPairedAnimationPreview::DrawDebugVisualization()
 	if (IsVisualizationActive(EVisualizationLayer::DistanceLines)) DrawDistanceLines();
 	if (IsVisualizationActive(EVisualizationLayer::CenterOfMass)) DrawCenterOfMass();
 	if (IsVisualizationActive(EVisualizationLayer::VelocityVectors)) DrawVelocityVectors();
+	if (IsVisualizationActive(EVisualizationLayer::MultiContact)) DrawMultiContactPoints();
 }
 
 void SPairedAnimationPreview::DrawSkeletons()

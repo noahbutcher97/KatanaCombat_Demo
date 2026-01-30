@@ -45,9 +45,99 @@ enum class EVisualizationLayer : uint32
 	ReachEnvelopes		= 1 << 8,
 	CenterOfMass		= 1 << 9,
 	CollisionBounds		= 1 << 10,
+	MultiContact		= 1 << 11,  // Multi-contact point visualization
 	All					= 0xFFFF
 };
 ENUM_CLASS_FLAGS(EVisualizationLayer);
+
+/** Contact point types for multi-contact analysis */
+UENUM()
+enum class EContactPointType : uint8
+{
+	Head,
+	LeftHand,
+	RightHand,
+	LeftFoot,
+	RightFoot,
+	Pelvis,
+	COUNT
+};
+
+/** Bone configuration for multi-contact tracking */
+struct FMultiContactBoneConfig
+{
+	FName HeadBone = TEXT("head");
+	FName LeftHandBone = TEXT("hand_l");
+	FName RightHandBone = TEXT("hand_r");
+	FName LeftFootBone = TEXT("foot_l");
+	FName RightFootBone = TEXT("foot_r");
+	FName PelvisBone = TEXT("pelvis");
+
+	/** Get bone name for contact type */
+	FName GetBoneForType(EContactPointType Type) const
+	{
+		switch (Type)
+		{
+			case EContactPointType::Head: return HeadBone;
+			case EContactPointType::LeftHand: return LeftHandBone;
+			case EContactPointType::RightHand: return RightHandBone;
+			case EContactPointType::LeftFoot: return LeftFootBone;
+			case EContactPointType::RightFoot: return RightFootBone;
+			case EContactPointType::Pelvis: return PelvisBone;
+			default: return NAME_None;
+		}
+	}
+
+	/** Get display name for contact type */
+	static FString GetTypeName(EContactPointType Type)
+	{
+		switch (Type)
+		{
+			case EContactPointType::Head: return TEXT("Head");
+			case EContactPointType::LeftHand: return TEXT("L.Hand");
+			case EContactPointType::RightHand: return TEXT("R.Hand");
+			case EContactPointType::LeftFoot: return TEXT("L.Foot");
+			case EContactPointType::RightFoot: return TEXT("R.Foot");
+			case EContactPointType::Pelvis: return TEXT("Pelvis");
+			default: return TEXT("Unknown");
+		}
+	}
+};
+
+/** Multi-contact analysis result for a single frame */
+struct FMultiContactAnalysis
+{
+	float Time = 0.0f;
+
+	// Per contact point positions and quality
+	TMap<EContactPointType, FVector> AttackerContactPositions;
+	TMap<EContactPointType, FVector> VictimContactPositions;
+
+	// Pairwise distances between contact points
+	// Key: (AttackerType, VictimType), Value: distance
+	TMap<TPair<EContactPointType, EContactPointType>, float> PairwiseDistances;
+
+	// Penetration detection (distance < threshold)
+	TArray<TPair<EContactPointType, EContactPointType>> PenetrationPairs;
+	float MaxPenetrationDepth = 0.0f;
+	EContactPointType MostPenetratingAttacker = EContactPointType::RightHand;
+	EContactPointType MostPenetratingVictim = EContactPointType::Head;
+
+	// Contact quality per type (only if within threshold)
+	TMap<EContactPointType, float> AttackerContactQualities;
+	TMap<EContactPointType, float> VictimContactQualities;
+
+	// Best contact pair found this frame
+	EContactPointType BestAttackerContact = EContactPointType::RightHand;
+	EContactPointType BestVictimContact = EContactPointType::Head;
+	float BestContactDistance = FLT_MAX;
+	float BestContactQuality = 0.0f;
+
+	// Overall metrics
+	int32 TotalActiveContacts = 0;
+	float WeightedContactQuality = 0.0f;  // Quality weighted by contact type importance
+	bool bHasPenetration = false;
+};
 
 // ============================================================================
 // DATA STRUCTURES
@@ -399,6 +489,31 @@ private:
 	TArray<FString> GetActiveNotifies(UAnimMontage* Montage, float Time) const;
 
 	// ========================================================================
+	// MULTI-CONTACT POINT ANALYSIS
+	// ========================================================================
+
+	// Bone configurations for multi-contact tracking
+	FMultiContactBoneConfig AttackerBoneConfig;
+	FMultiContactBoneConfig VictimBoneConfig;
+
+	// Contact type importance weights for optimization scoring
+	TMap<EContactPointType, float> ContactTypeWeights;
+	void InitializeContactTypeWeights();
+
+	// Multi-contact analysis functions
+	FMultiContactAnalysis ComputeMultiContactPoints(float Time);
+	float ComputePairwiseDistance(EContactPointType AttackerContact, EContactPointType VictimContact) const;
+	bool DetectPenetration(float Distance, EContactPointType AttackerType, EContactPointType VictimType, float& OutPenetrationDepth) const;
+	float EvaluateMultiContactQuality(const FMultiContactAnalysis& Analysis) const;
+	float GetPenetrationThreshold(EContactPointType Type) const;
+
+	// Multi-contact aware optimization
+	float EvaluateConfigurationWithMultiContact(float Distance, FRotator AttackerRot, FRotator VictimRot);
+
+	// Multi-contact visualization
+	void DrawMultiContactPoints();
+
+	// ========================================================================
 	// OPTIMIZATION ENGINE
 	// ========================================================================
 
@@ -421,7 +536,8 @@ private:
 
 	EVisualizationLayer ActiveVisualizationLayers = EVisualizationLayer::ContactPoints |
 													EVisualizationLayer::WeaponTrace |
-													EVisualizationLayer::DistanceLines;
+													EVisualizationLayer::DistanceLines |
+													EVisualizationLayer::MultiContact;
 
 	// Colors
 	FLinearColor AttackerColor = FLinearColor(0.2f, 0.6f, 1.0f);      // Blue
