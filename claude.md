@@ -52,6 +52,7 @@ Combat.Debug.Direction 1   // Direction transformation arrows
 Combat.Debug.Targeting 1   // Targeting cones and targets
 Combat.Debug.Weapon 1      // Weapon trace visualization
 Combat.Debug.Phase 1       // Attack phase indicators
+Combat.Debug.Environment 1 // Terrain/slope visualization
 Combat.Debug.Queue 1       // Action queue state
 Combat.Debug.Hold 1        // Hold state visualization
 Combat.Debug.DrawDuration 2.0  // Debug shape persistence (seconds)

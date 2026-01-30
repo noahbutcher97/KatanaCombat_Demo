@@ -66,6 +66,9 @@ namespace CombatDebug
     /** Enable verbose logging to output log */
     extern TAutoConsoleVariable<int32> CVarDebugLogVerbose;
 
+    /** Environment/terrain visualization (slopes, ground detection, alignment) */
+    extern TAutoConsoleVariable<int32> CVarDebugEnvironment;
+
     // ========================================================================
     // HELPER FUNCTIONS
     // ========================================================================
@@ -122,5 +125,11 @@ namespace CombatDebug
     FORCEINLINE float GetDebugDrawDuration()
     {
         return CVarDebugDrawDuration.GetValueOnGameThread();
+    }
+
+    /** Check if environment/terrain debug is enabled (standalone or via master toggle) */
+    FORCEINLINE bool IsEnvironmentDebugEnabled()
+    {
+        return IsDebugEnabled() || CVarDebugEnvironment.GetValueOnGameThread() != 0;
     }
 }

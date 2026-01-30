@@ -2,7 +2,10 @@
 
 #include "Core/TargetingComponent.h"
 #include "Debug/DebugConfig.h"
+#include "Debug/DebugUtils.h"
 #include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "MotionWarpingComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "DrawDebugHelpers.h"
@@ -14,6 +17,8 @@
 #include "Data/TargetingSettings.h"
 #include "Data/MotionWarpingSettings.h"
 #include "Characters/BaseCombatCharacter.h"
+
+DEFINE_LOG_CATEGORY_STATIC(LogTargeting, Log, All);
 
 UTargetingComponent::UTargetingComponent()
 {
@@ -333,7 +338,7 @@ bool UTargetingComponent::SetupAttackWarp(AActor* Target, const FRotator& Target
 
             if (CombatDebug::IsTargetingDebugEnabled())
             {
-                UE_LOG(LogTemp, Log, TEXT("[ATTACK WARP] Target too close (%.1f < %.1f), using ROTATION-ONLY toward target"),
+                UE_LOG(LogTargeting, Log, TEXT("[ATTACK WARP] Target too close (%.1f < %.1f), using ROTATION-ONLY toward target"),
                     Distance, Config.MinWarpDistance);
             }
             return true;
@@ -355,6 +360,16 @@ bool UTargetingComponent::SetupAttackWarp(AActor* Target, const FRotator& Target
             WarpLocation = OwnerLocation + (ToTarget * Config.MaxWarpDistance);
         }
 
+        // SLOPE FIX: Adjust warp location Z to match terrain height
+        const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+        const FVector OriginalWarpLocation = WarpLocation;
+        WarpLocation = UDebugUtils::AdjustLocationToGround(
+            GetWorld(),
+            WarpLocation,
+            CapsuleHalfHeight,
+            Owner,
+            CombatDebug::IsEnvironmentDebugEnabled());
+
         const FRotator LookAtRotation = (TargetLocation - OwnerLocation).Rotation();
         MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
             Config.TargetWarpName,
@@ -364,8 +379,8 @@ bool UTargetingComponent::SetupAttackWarp(AActor* Target, const FRotator& Target
 
         if (CombatDebug::IsTargetingDebugEnabled())
         {
-            UE_LOG(LogTemp, Log, TEXT("[ATTACK WARP] TARGET mode: Tracking %s with continuous updates (Distance: %.1f, Max: %.1f)"),
-                *Target->GetName(), Distance, Config.MaxWarpDistance);
+            UE_LOG(LogTargeting, Log, TEXT("[ATTACK WARP] TARGET mode: Tracking %s (Distance: %.1f, Max: %.1f, Z Adj: %+.1f)"),
+                *Target->GetName(), Distance, Config.MaxWarpDistance, WarpLocation.Z - OriginalWarpLocation.Z);
         }
 
         return true;
@@ -381,7 +396,7 @@ bool UTargetingComponent::SetupAttackWarp(AActor* Target, const FRotator& Target
 
     if (CombatDebug::IsTargetingDebugEnabled())
     {
-        UE_LOG(LogTemp, Log, TEXT("[ATTACK WARP] ROTATION-ONLY mode: Facing %.1f°"), TargetRotation.Yaw);
+        UE_LOG(LogTargeting, Log, TEXT("[ATTACK WARP] ROTATION-ONLY mode: Facing %.1f°"), TargetRotation.Yaw);
 
         // Draw debug visualization - direction arrow
         const FVector ForwardDir = TargetRotation.Vector() * 200.0f;
@@ -405,7 +420,7 @@ void UTargetingComponent::OnMotionWarpingPreUpdate(UMotionWarpingComponent* Moti
     {
         if (CombatDebug::IsTargetingDebugEnabled())
         {
-            UE_LOG(LogTemp, Warning, TEXT("[ATTACK WARP] Tracked target destroyed, stopping tracking"));
+            UE_LOG(LogTargeting, Warning, TEXT("[ATTACK WARP] Tracked target destroyed, stopping tracking"));
         }
         StopWarpTracking();
         return;
@@ -434,6 +449,15 @@ void UTargetingComponent::OnMotionWarpingPreUpdate(UMotionWarpingComponent* Moti
         const FVector ToTarget = (TargetLocation - OwnerLocation).GetSafeNormal();
         WarpLocation = OwnerLocation + (ToTarget * ActiveWarpConfig.MaxWarpDistance);
     }
+
+    // SLOPE FIX: Adjust warp location Z to match terrain height
+    const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+    WarpLocation = UDebugUtils::AdjustLocationToGround(
+        GetWorld(),
+        WarpLocation,
+        CapsuleHalfHeight,
+        Owner,
+        false); // Don't spam debug every frame during tracking
 
     // Calculate look-at rotation (face toward target)
     const FRotator LookAtRotation = (TargetLocation - OwnerLocation).Rotation();
@@ -612,7 +636,7 @@ FRotator UTargetingComponent::FindBestTargetForDirection(
 
         if (bDebugEnabled)
         {
-            UE_LOG(LogTemp, Verbose, TEXT("[SOFT AIM] %s: Angle=%.1f° (Score=%.2f), Dist=%.1f (Score=%.2f), Total=%.3f"),
+            UE_LOG(LogTargeting, Verbose, TEXT("[SOFT AIM] %s: Angle=%.1f° (Score=%.2f), Dist=%.1f (Score=%.2f), Total=%.3f"),
                 *Target->GetName(), AngleToTarget, AngleScore, Distance, DistanceScore, TotalScore);
         }
 
@@ -629,10 +653,10 @@ FRotator UTargetingComponent::FindBestTargetForDirection(
         const float DrawDuration = CombatDebug::GetDebugDrawDuration();
 
         // Log summary
-        UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] ═══════════════════════════════════════"));
-        UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] Candidates: %d, MaxRange: %.1f, GradientAngle: %.1f°, OppositeAngle: %.1f°"),
+        UE_LOG(LogTargeting, Log, TEXT("[SOFT AIM] ═══════════════════════════════════════"));
+        UE_LOG(LogTargeting, Log, TEXT("[SOFT AIM] Candidates: %d, MaxRange: %.1f, GradientAngle: %.1f°, OppositeAngle: %.1f°"),
             PotentialTargets.Num(), UseMaxRange, UseGradientAngle, UseOppositeAngle);
-        UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] Weights: Angle=%.2f, Distance=%.2f"), UseAngleWeight, UseDistanceWeight);
+        UE_LOG(LogTargeting, Log, TEXT("[SOFT AIM] Weights: Angle=%.2f, Distance=%.2f"), UseAngleWeight, UseDistanceWeight);
 
         // Draw input direction
         const FVector InputEnd = OwnerLocation + (NormalizedInput * 300.0f);
@@ -665,7 +689,7 @@ FRotator UTargetingComponent::FindBestTargetForDirection(
                 DrawDebugSphere(GetWorld(), TargetLoc, 40.0f, 8, FColor::Red, false, DrawDuration);
                 DrawDebugLine(GetWorld(), OwnerLocation, TargetLoc, FColor::Red, false, DrawDuration, 0, 1.0f);
                 DrawDebugString(GetWorld(), TargetLoc + FVector(0, 0, 80), Pair.Value, nullptr, FColor::Red, DrawDuration, true);
-                UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] REJECTED %s: %s"), *Pair.Key->GetName(), *Pair.Value);
+                UE_LOG(LogTargeting, Log, TEXT("[SOFT AIM] REJECTED %s: %s"), *Pair.Key->GetName(), *Pair.Value);
             }
         }
 
@@ -686,15 +710,15 @@ FRotator UTargetingComponent::FindBestTargetForDirection(
             {
                 DrawDebugString(GetWorld(), TargetLoc + FVector(0, 0, 100),
                     FString::Printf(TEXT("BEST (Score: %.3f)"), BestScore), nullptr, FColor::Green, DrawDuration, true);
-                UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] SELECTED: %s (Score: %.3f)"), *Target->GetName(), BestScore);
+                UE_LOG(LogTargeting, Log, TEXT("[SOFT AIM] SELECTED: %s (Score: %.3f)"), *Target->GetName(), BestScore);
             }
         }
 
         if (!BestTarget)
         {
-            UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] NO TARGET SELECTED"));
+            UE_LOG(LogTargeting, Log, TEXT("[SOFT AIM] NO TARGET SELECTED"));
         }
-        UE_LOG(LogTemp, Log, TEXT("[SOFT AIM] ═══════════════════════════════════════"));
+        UE_LOG(LogTargeting, Log, TEXT("[SOFT AIM] ═══════════════════════════════════════"));
     }
 
     OutBestTarget = BestTarget;

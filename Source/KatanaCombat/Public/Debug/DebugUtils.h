@@ -8,6 +8,36 @@
 #include "DebugUtils.generated.h"
 
 /**
+ * Result of a ground sampling operation
+ * Contains floor position, normal, and validity info
+ */
+USTRUCT(BlueprintType)
+struct KATANACOMBAT_API FGroundSampleResult
+{
+	GENERATED_BODY()
+
+	/** Was valid ground found? */
+	UPROPERTY(BlueprintReadOnly, Category = "Environment")
+	bool bFoundGround = false;
+
+	/** World location of ground surface */
+	UPROPERTY(BlueprintReadOnly, Category = "Environment")
+	FVector GroundLocation = FVector::ZeroVector;
+
+	/** Normal of the ground surface */
+	UPROPERTY(BlueprintReadOnly, Category = "Environment")
+	FVector GroundNormal = FVector::UpVector;
+
+	/** Slope angle in degrees (0 = flat, 90 = vertical wall) */
+	UPROPERTY(BlueprintReadOnly, Category = "Environment")
+	float SlopeAngle = 0.0f;
+
+	/** Is the slope walkable by standard character movement? */
+	UPROPERTY(BlueprintReadOnly, Category = "Environment")
+	bool bIsWalkable = true;
+};
+
+/**
  * Debug Utilities
  *
  * Static utility functions for debugging the combat system.
@@ -181,4 +211,164 @@ public:
 		UWorld* World,
 		const FVector& StartLocation,
 		const FVector& EndLocation);
+
+	// ========================================================================
+	// ENVIRONMENT/SLOPE DEBUG VISUALIZATION
+	// ========================================================================
+
+	/**
+	 * Draw floor normal and slope angle at character location
+	 * Shows the surface normal and angle from vertical
+	 *
+	 * @param World - World context
+	 * @param Location - Location to visualize floor at
+	 * @param FloorNormal - Normal of the floor surface
+	 * @param Label - Optional label to display (e.g., "Player", "Target")
+	 */
+	static void DrawFloorNormal(
+		UWorld* World,
+		const FVector& Location,
+		const FVector& FloorNormal,
+		const FString& Label = TEXT(""));
+
+	/**
+	 * Draw ground trace visualization
+	 * Shows trace from start to ground hit, useful for debugging ground detection
+	 *
+	 * @param World - World context
+	 * @param TraceStart - Start location of trace
+	 * @param GroundHitLocation - Where ground was found
+	 * @param bHitGround - Whether ground was found
+	 * @param AdjustedLocation - Final adjusted location (ground + offset)
+	 */
+	static void DrawGroundTrace(
+		UWorld* World,
+		const FVector& TraceStart,
+		const FVector& GroundHitLocation,
+		bool bHitGround,
+		const FVector& AdjustedLocation);
+
+	/**
+	 * Draw warp location Z adjustment
+	 * Visualizes when warp target is adjusted for terrain height
+	 *
+	 * @param World - World context
+	 * @param OriginalLocation - Original warp target (before adjustment)
+	 * @param AdjustedLocation - Adjusted warp target (after terrain sampling)
+	 */
+	static void DrawWarpZAdjustment(
+		UWorld* World,
+		const FVector& OriginalLocation,
+		const FVector& AdjustedLocation);
+
+	/**
+	 * Draw slope transition visualization
+	 * Shows when character is transitioning between slopes of different angles
+	 *
+	 * @param World - World context
+	 * @param CharacterLocation - Current character location
+	 * @param CurrentFloorNormal - Floor normal at current position
+	 * @param TargetFloorNormal - Floor normal at target position
+	 * @param TargetLocation - Target position being moved toward
+	 */
+	static void DrawSlopeTransition(
+		UWorld* World,
+		const FVector& CharacterLocation,
+		const FVector& CurrentFloorNormal,
+		const FVector& TargetFloorNormal,
+		const FVector& TargetLocation);
+
+	// ========================================================================
+	// ENVIRONMENTAL AWARENESS HELPERS
+	// ========================================================================
+
+	/**
+	 * Sample ground at a world location
+	 * Performs downward trace to find floor and calculate slope info
+	 *
+	 * @param World - World context
+	 * @param Location - XY position to sample ground at
+	 * @param TraceStartOffset - How far above Location to start trace (default 100)
+	 * @param TraceDistance - How far down to trace (default 500)
+	 * @param ActorToIgnore - Actor to exclude from trace (typically the character)
+	 * @return Ground sample result with floor info
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Environment")
+	static FGroundSampleResult SampleGroundAtLocation(
+		UWorld* World,
+		const FVector& Location,
+		float TraceStartOffset = 100.0f,
+		float TraceDistance = 500.0f,
+		AActor* ActorToIgnore = nullptr);
+
+	/**
+	 * Adjust a location's Z to match ground height
+	 * Returns the location with Z adjusted to be on the ground + offset
+	 *
+	 * @param World - World context
+	 * @param Location - Location to adjust
+	 * @param HeightOffset - Offset above ground (typically capsule half-height)
+	 * @param ActorToIgnore - Actor to exclude from trace
+	 * @param bDrawDebug - Whether to draw debug visualization
+	 * @return Adjusted location, or original if no ground found
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Environment")
+	static FVector AdjustLocationToGround(
+		UWorld* World,
+		const FVector& Location,
+		float HeightOffset,
+		AActor* ActorToIgnore = nullptr,
+		bool bDrawDebug = false);
+
+	/**
+	 * Calculate slope angle from floor normal
+	 *
+	 * @param FloorNormal - Normal of the floor surface
+	 * @return Slope angle in degrees (0 = flat, 90 = vertical)
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Environment")
+	static float CalculateSlopeAngle(const FVector& FloorNormal);
+
+	/**
+	 * Check if a slope is walkable (within walkable floor angle)
+	 *
+	 * @param FloorNormal - Normal of the floor surface
+	 * @param WalkableFloorAngle - Maximum walkable angle (default 45 degrees)
+	 * @return True if slope is walkable
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Environment")
+	static bool IsSlopeWalkable(const FVector& FloorNormal, float WalkableFloorAngle = 45.0f);
+
+	/**
+	 * Get the floor normal at an actor's location using CharacterMovementComponent
+	 * More accurate than manual traces for grounded characters
+	 *
+	 * @param Character - Character to query floor for
+	 * @return Floor normal, or UpVector if not on ground
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Environment")
+	static FVector GetCharacterFloorNormal(ACharacter* Character);
+
+	/**
+	 * Check if character is currently floating (capsule above walkable floor)
+	 * Useful for detecting when character needs ground snap after motion warp
+	 *
+	 * @param Character - Character to check
+	 * @param FloatThreshold - Distance above ground to consider "floating" (default 10 units)
+	 * @return True if character is floating above ground
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Environment")
+	static bool IsCharacterFloating(ACharacter* Character, float FloatThreshold = 10.0f);
+
+	/**
+	 * Snap character to ground if floating
+	 * Performs ground trace and adjusts character Z position if needed
+	 *
+	 * @param Character - Character to snap
+	 * @param FloatThreshold - Distance above ground to trigger snap (default 5 units)
+	 * @param bDrawDebug - Whether to draw debug visualization
+	 * @return True if character was snapped, false if already grounded or no ground found
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Environment")
+	static bool SnapCharacterToGround(ACharacter* Character, float FloatThreshold = 5.0f, bool bDrawDebug = false);
 };

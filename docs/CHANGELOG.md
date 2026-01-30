@@ -15,6 +15,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [3.2.0] - 2025-01-30
+
+### Added: Terrain-Aware Motion Warping & Environment Debug Infrastructure
+
+Fix for characters floating above ground after motion warping across slopes. Added comprehensive environmental awareness utilities for future IK and paired animation systems.
+
+**New Console Command**:
+- `Combat.Debug.Environment 1` - Enable terrain/slope visualization
+
+**New Debug Utilities** (`DebugUtils.h`):
+- `FGroundSampleResult` - USTRUCT for ground sampling results
+- `SampleGroundAtLocation()` - Sample ground at any world location
+- `AdjustLocationToGround()` - Adjust location Z to match terrain
+- `CalculateSlopeAngle()` / `IsSlopeWalkable()` - Slope analysis
+- `GetCharacterFloorNormal()` - Query CMC floor normal
+- `IsCharacterFloating()` / `SnapCharacterToGround()` - Float detection & correction
+
+**Slope Visualization Functions**:
+- `DrawFloorNormal()` - Visualize floor normal and slope angle
+- `DrawGroundTrace()` - Visualize ground trace operations
+- `DrawWarpZAdjustment()` - Visualize Z adjustment for warps
+- `DrawSlopeTransition()` - Visualize slope transitions
+
+**Motion Warping Slope Fix** (`TargetingComponent.cpp`):
+- `SetupAttackWarp()` now adjusts warp Z to match terrain height
+- `OnMotionWarpingPreUpdate()` uses terrain-aware tracking
+- Added proper `LogTargeting` log category (replaced LogTemp)
+
+**Safety Net** (`CombatComponent.cpp`):
+- `OnMontageEnded()` now snaps character to ground if floating after attack
+
+**Foundation For**:
+- IK foot placement systems
+- Paired animation alignment
+- General terrain-aware character placement
+
+---
+
 ## [3.1.0] - 2025-01-29
 
 ### Added: Hit Reaction Variations with N-2 Randomization

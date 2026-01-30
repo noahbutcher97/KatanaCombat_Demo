@@ -90,4 +90,13 @@ namespace CombatDebug
         TEXT("  0: Disabled (default)\n")
         TEXT("  1: Enabled - logs state transitions, action execution, etc."),
         ECVF_Default);
+
+    TAutoConsoleVariable<int32> CVarDebugEnvironment(
+        TEXT("Combat.Debug.Environment"),
+        0,
+        TEXT("Enable environment/terrain debug visualization\n")
+        TEXT("Shows: Floor normals, slope angles, ground traces, warp Z adjustments\n")
+        TEXT("  0: Disabled (default)\n")
+        TEXT("  1: Enabled"),
+        ECVF_Default);
 }

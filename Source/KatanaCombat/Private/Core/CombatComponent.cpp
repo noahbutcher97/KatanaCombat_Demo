@@ -1992,6 +1992,21 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		SetPhase(EAttackPhase::None);
 	}
 
+	// SLOPE FIX: Safety net - snap character to ground if floating after attack
+	// This catches cases where terrain-aware warp target wasn't enough (e.g., pure root motion without warp)
+	if (!bInComboBlend)
+	{
+		ABaseCombatCharacter* Character = GetOwnerCharacter();
+		if (Character && UDebugUtils::IsCharacterFloating(Character, 5.0f))
+		{
+			const bool bSnapped = UDebugUtils::SnapCharacterToGround(Character, 5.0f, GetDebugDraw());
+			if (bSnapped && GetDebugDraw())
+			{
+				UE_LOG(LogCombat, Log, TEXT("[SLOPE FIX] Character snapped to ground after attack montage"));
+			}
+		}
+	}
+
 	// Clear checkpoints for finished montage (new montage will have its own)
 	Checkpoints.Empty();
 }
