@@ -139,6 +139,30 @@ Automated GitHub Actions pipeline with dual-runner support:
 - ✅ **Mobile-Friendly** workflow dispatch
 - ✅ **Artifact Management** (logs, tests, binaries)
 
+### Fallback Mechanism
+
+The pipeline automatically falls back to GitHub-hosted runners when self-hosted runners are unavailable:
+
+**How it works**:
+1. **Self-hosted attempt** (60-minute timeout)
+   - Runs first when `runner-type` is `auto` (default)
+   - Timeout prevents indefinite stalling on unavailable runners
+   - Uses `continue-on-error: true` to allow workflow to proceed
+
+2. **Automatic fallback to GitHub-hosted**
+   - Triggers when self-hosted job fails, times out, or is skipped
+   - Provides cloud-based build capability with no local infrastructure
+   - Longer timeout (180 minutes) for initial setup and builds
+
+3. **Result aggregation**
+   - Success if either runner completes successfully
+   - Build results posted to PR comments
+   - Artifacts uploaded from whichever runner succeeded
+
+**Timeout Configuration**:
+- Self-hosted: 60 minutes (faster failure detection for fallback)
+- GitHub-hosted: 180 minutes (includes automated setup time)
+
 ### Quick Setup
 ```powershell
 # Self-hosted runner (recommended)

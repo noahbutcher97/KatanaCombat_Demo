@@ -76,6 +76,27 @@ See [SETUP_GUIDE.md](SETUP_GUIDE.md) for detailed instructions.
 3. **Build & Test (GitHub-Hosted)**: Fallback to GitHub-hosted runners
 4. **Report Results**: Aggregates results and posts PR comments
 
+**Fallback Mechanism**:
+
+The pipeline implements intelligent fallback to prevent workflow stalling:
+
+- **Self-hosted job** (`timeout-minutes: 60`):
+  - Attempts to run first when `runner-type` is `auto` (default)
+  - 60-minute timeout prevents indefinite waiting on unavailable runners
+  - `continue-on-error: true` allows workflow to proceed even on failure
+  - If runner is unavailable, times out, or fails → triggers GitHub-hosted
+
+- **GitHub-hosted job** (`timeout-minutes: 180`):
+  - Runs conditionally: `if self-hosted.result in ['skipped', 'failure', 'timeout']`
+  - Longer timeout accommodates automated VS2022 and UE5.6 setup
+  - Provides cloud-based builds without local infrastructure dependency
+  - Falls back gracefully when self-hosted infrastructure is down
+
+- **Success criteria**:
+  - Workflow succeeds if **either** runner completes successfully
+  - Both runners can run in parallel when forced via workflow inputs
+  - Results aggregated and posted to PR comments
+
 **Stages**:
 - 📥 Checkout with Git LFS
 - 💾 Restore build cache
@@ -88,10 +109,12 @@ See [SETUP_GUIDE.md](SETUP_GUIDE.md) for detailed instructions.
 - 🧪 Automation tests (headless, NullRHI)
 - 📤 Upload artifacts (logs, tests, binaries)
 
-**Build Times**:
-- Self-Hosted (cached): 3-5 minutes
-- Self-Hosted (cold): 15-25 minutes
-- GitHub-Hosted: Not yet supported (requires UE5.6 setup)
+**Build Times & Timeouts**:
+- Self-Hosted (cached): 3-5 minutes (timeout: 60 minutes)
+- Self-Hosted (cold): 15-25 minutes (timeout: 60 minutes)
+- GitHub-Hosted: 40-60 minutes initial setup (timeout: 180 minutes)
+
+**Note**: Self-hosted timeout set to 60 minutes for faster failure detection and fallback to GitHub-hosted when runners are unavailable.
 
 ## 🎮 Using from GitHub Mobile
 
