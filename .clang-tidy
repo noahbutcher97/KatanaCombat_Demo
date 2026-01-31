@@ -1,0 +1,117 @@
+# clang-tidy Configuration for KatanaCombat
+#
+# This configuration file defines the static analysis checks for the project.
+# It's optimized for Unreal Engine C++ projects.
+#
+# See: https://clang.llvm.org/extra/clang-tidy/checks/list.html
+
+---
+# Checks to enable
+# Format: 'category-*' enables all checks in that category
+# Format: '-category-check' disables a specific check
+Checks: >
+  readability-*,
+  performance-*,
+  bugprone-*,
+  modernize-*,
+  cppcoreguidelines-*,
+  -readability-identifier-length,
+  -readability-magic-numbers,
+  -readability-function-cognitive-complexity,
+  -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-pro-type-reinterpret-cast,
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-type-static-cast-downcast,
+  -cppcoreguidelines-special-member-functions,
+  -bugprone-easily-swappable-parameters
+
+# Treat warnings as errors (set to false for CI)
+WarningsAsErrors: false
+
+# Header filter regex
+# Include only headers from this project
+HeaderFilterRegex: '.*KatanaCombat/Source/.*'
+
+# Analysis timeout (milliseconds)
+AnalyzeTemporaryDtors: false
+
+# Check options
+CheckOptions:
+  # Naming conventions (adjusted for Unreal Engine)
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
+  - key: readability-identifier-naming.ClassPrefix
+    value: ''
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+  - key: readability-identifier-naming.StructPrefix
+    value: F
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+  - key: readability-identifier-naming.EnumPrefix
+    value: E
+  - key: readability-identifier-naming.FunctionCase
+    value: CamelCase
+  - key: readability-identifier-naming.VariableCase
+    value: camelBack
+  - key: readability-identifier-naming.ParameterCase
+    value: CamelCase
+  - key: readability-identifier-naming.MemberCase
+    value: camelBack
+  - key: readability-identifier-naming.MemberPrefix
+    value: ''
+  - key: readability-identifier-naming.ConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.ConstantPrefix
+    value: ''
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: CamelCase
+  - key: readability-identifier-naming.GlobalConstantPrefix
+    value: ''
+  
+  # Performance tuning
+  - key: performance-unnecessary-value-param.AllowedTypes
+    value: 'FString;FName;FText'
+  
+  # Readability
+  - key: readability-function-size.LineThreshold
+    value: '200'
+  - key: readability-function-size.StatementThreshold
+    value: '100'
+  - key: readability-braces-around-statements.ShortStatementLines
+    value: '2'
+
+# Exclude certain files or patterns
+# Use this to skip generated code or third-party libraries
+ExcludeHeaderFilterRegex: ''
+
+# Additional compiler flags (added to compilation database)
+# These help clang-tidy understand Unreal Engine macros
+ExtraArgs:
+  - '-std=c++20'
+  - '-DPLATFORM_WINDOWS=1'
+  - '-DWITH_EDITOR=1'
+
+# Inline suppressions
+# Developers can suppress warnings inline with:
+# // NOLINT(check-name)
+# or for the next line:
+# // NOLINTNEXTLINE(check-name)
+AllowInlineSuppressions: true
+
+---
+# Usage:
+#
+# Run clang-tidy manually:
+#   clang-tidy Source/KatanaCombat/**/*.cpp -checks=* -- -std=c++20
+#
+# Run with this config:
+#   clang-tidy Source/KatanaCombat/**/*.cpp --config-file=.clang-tidy
+#
+# Generate compile_commands.json (required for clang-tidy):
+#   cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+#
+# For Unreal Engine projects, use UnrealBuildTool with -Mode=GenerateClangDatabase

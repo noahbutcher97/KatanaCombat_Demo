@@ -1,5 +1,10 @@
 # KatanaCombat
 
+[![UE5 CI](https://github.com/noahbutcher97/KatanaCombat_Demo/actions/workflows/ue5-ci.yml/badge.svg)](https://github.com/noahbutcher97/KatanaCombat_Demo/actions/workflows/ue5-ci.yml)
+![UE Version](https://img.shields.io/badge/Unreal%20Engine-5.6-blueviolet)
+![Platform](https://img.shields.io/badge/Platform-Win64-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+
 **Ghost of Tsushima-inspired melee combat system for Unreal Engine 5.6**
 
 A deep, technical combat framework emphasizing responsive attack chains, precision timing, and posture-based defense. Built with C++ for performance and designer-friendly data assets for flexibility.
