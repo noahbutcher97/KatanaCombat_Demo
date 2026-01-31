@@ -266,6 +266,10 @@ Combo chains or return to Idle
 - **[ROADMAP.md](ROADMAP.md)** - Planned features and system status
 - **[Source/KatanaCombatTest/README.md](../Source/KatanaCombatTest/README.md)** - C++ unit test suite documentation
 
+### For AI/Copilot Agents
+- **[copilot-instructions.md](../copilot-instructions.md)** - Comprehensive guide for GitHub Copilot agents
+- **[copilot-setup-steps.yaml](../copilot-setup-steps.yaml)** - Build, test, and validation procedures
+
 ---
 
 ## System Requirements
