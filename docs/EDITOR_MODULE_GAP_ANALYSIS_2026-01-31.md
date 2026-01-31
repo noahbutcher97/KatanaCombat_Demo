@@ -124,17 +124,17 @@ if (!AttackerMesh)
 
 ---
 
-#### Gap E.3: Array Bounds Checking in Contact Point Prediction
+#### Gap E.3: Handling Empty Contact Bone Sets in Contact Point Prediction
 
 **File**: `PairedMontageAnalyzer.cpp:78-87`
 
-**Issue**: No validation that contact bone arrays are non-empty before access
+**Issue**: No explicit handling or diagnostics when contact bone arrays are empty (analysis simply produces zero contacts without feedback)
 
-**Risk**: Medium - Out of bounds access if default bone arrays empty
+**Risk**: Low-Medium - Silent "no contacts" result can be misinterpreted as a tool failure or logic bug
 
-**Impact**: Editor crash during contact point analysis
+**Impact**: Difficult for users to diagnose misconfigured assets (e.g., missing or incorrect contact bone names), leading to confusion and wasted debugging time
 
-**Recommended Fix**: Add array size validation before accessing elements
+**Recommended Fix**: Emit a warning/info analysis message when no valid contact bones are found for a montage pair, and clearly treat "no contacts" as a valid but diagnosable outcome
 
 ---
 
