@@ -62,7 +62,7 @@ This document describes the consolidated CI/CD pipeline that merges functionalit
 
 ### Consolidation Strategy
 
-The consolidated workflow采用以下整合策略:
+The consolidated workflow uses the following consolidation strategy:
 
 1. **Workflow Structure**: Based on PR #8's comprehensive structure with enhancements
    - Job 1: Environment Detection (PR #7 + PR #8)

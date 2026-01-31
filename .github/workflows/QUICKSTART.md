@@ -230,4 +230,4 @@ gh pr create --title "New Attack" --body "Adds spinning attack"
 
 **That's it!** You're ready to use the CI pipeline. For advanced configuration, see the full README.
 
-*Version: 1.0.0 | Last Updated: 2024-01-XX*
+*Version: 1.0.0 | Last Updated: 2026-01-31*

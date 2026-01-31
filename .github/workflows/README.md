@@ -612,7 +612,7 @@ Add Software Bill of Materials:
 
 ## Changelog
 
-### v1.0.0 (2024-01-XX)
+### v1.0.0 (2026-01-31)
 - Initial release
 - Dual runner support (self-hosted + GitHub-hosted)
 - Automated VS 2022 Build Tools installation
@@ -626,5 +626,5 @@ Add Software Bill of Materials:
 
 ---
 
-*Last Updated: 2024-01-XX*
+*Last Updated: 2026-01-31*
 *Maintained by: KatanaCombat Team*
