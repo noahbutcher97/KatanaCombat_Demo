@@ -255,6 +255,7 @@ Combo chains or return to Idle
 
 ## Documentation
 
+### Core Documentation
 - **[README.md](README.md)** (this file) - Project overview
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete technical deep dive
 - **[ARCHITECTURE_QUICK.md](ARCHITECTURE_QUICK.md)** - Quick reference for developers
@@ -266,9 +267,17 @@ Combo chains or return to Idle
 - **[ROADMAP.md](ROADMAP.md)** - Planned features and system status
 - **[Source/KatanaCombatTest/README.md](../Source/KatanaCombatTest/README.md)** - C++ unit test suite documentation
 
-### For AI/Copilot Agents
-- **[copilot-instructions.md](../copilot-instructions.md)** - Comprehensive guide for GitHub Copilot agents
-- **[copilot-setup-steps.yaml](../copilot-setup-steps.yaml)** - Build, test, and validation procedures
+### Quality Assurance & Audits
+- **[GAP_AUDIT_EXECUTIVE_SUMMARY.md](GAP_AUDIT_EXECUTIVE_SUMMARY.md)** - ⭐ **START HERE** - Quick overview of all gaps and fixes
+- **[EXPANDED_GAP_AUDIT_2026-01-31.md](EXPANDED_GAP_AUDIT_2026-01-31.md)** - Full detailed audit (178 gaps analyzed)
+- **[EDITOR_MODULE_GAP_ANALYSIS_2026-01-31.md](EDITOR_MODULE_GAP_ANALYSIS_2026-01-31.md)** - Editor module second-pass (12 gaps)
+- **[COMPREHENSIVE_GAP_AUDIT_2026-01-31.md](COMPREHENSIVE_GAP_AUDIT_2026-01-31.md)** - Initial audit scope (36 gaps)
+- **[CRITICAL_FIXES_ACTION_CARD.md](CRITICAL_FIXES_ACTION_CARD.md)** - Immediate action items (3 critical fixes)
+- **[Notes/V2_SYSTEM_AUDIT_2025-11-11.md](Notes/V2_SYSTEM_AUDIT_2025-11-11.md)** - Combat system architectural audit
+- **[plans/AUDIT_SYNTHESIS_2026-01-30.md](plans/AUDIT_SYNTHESIS_2026-01-30.md)** - Documentation completeness audit
+- **[plans/LOG_ANALYSIS_2026-01-30.md](plans/LOG_ANALYSIS_2026-01-30.md)** - Bug pattern analysis
+
+**Note**: References to "V2" in audit documents refer to document versions or historical context, not current code naming. All components use standard naming (`CombatComponent`).
 
 ---
 
@@ -465,48 +474,6 @@ slomo 0.3            // Slow motion for timing verification
 - **Devil May Cry**: Snappy cancels, long combo chains
 - **Sifu**: Responsive attack strings, hold-and-release mechanics
 - **God of War**: Heavy/light attack paradigm, directional attacks
-
----
-
-## CI/CD & Automation
-
-### GitHub Actions Pipeline
-
-[![UE5 CI](https://github.com/noahbutcher97/KatanaCombat_Demo/actions/workflows/ue5-ci.yml/badge.svg)](https://github.com/noahbutcher97/KatanaCombat_Demo/actions/workflows/ue5-ci.yml)
-
-Automated build, test, and validation pipeline with comprehensive CI/CD support:
-
-- ✅ **Dual-Runner Support**: Self-hosted and GitHub-hosted runners with automatic fallback
-- ✅ **Automated Building**: Win64 Development Editor compilation via UnrealBuildTool
-- ✅ **Static Analysis**: clang-tidy integration with UE5-optimized rules
-- ✅ **Automation Tests**: Headless test execution with NullRHI
-- ✅ **Asset Validation**: ResavePackages commandlet for asset integrity
-- ✅ **Smart Caching**: Optimized caching strategies for fast incremental builds
-- ✅ **Mobile-Friendly**: Trigger builds from GitHub Mobile app
-- ✅ **Artifact Management**: Build logs (14d), test results (30d), binaries (7d)
-
-**Quick Links**:
-- [**CI/CD Guide**](CI_CD_GUIDE.md) - Comprehensive setup and usage guide
-- [**Quick Reference**](CI_CD_QUICK_REFERENCE.md) - Common operations
-- [**Deployment Examples**](DEPLOYMENT_EXAMPLES.md) - Platform-specific deployment
-
-**Getting Started**:
-```powershell
-# For self-hosted runners (recommended)
-# 1. Install UE5.6 and VS2022
-# 2. Configure runner with labels: [self-hosted, Windows, ue5]
-# 3. Push to main/develop or create a PR
-
-# For GitHub-hosted runners
-# Requires UE_DOWNLOAD_URL secret or custom setup
-# See .github/SETUP_GUIDE.md for details
-```
-
-**Pipeline Features**:
-- Build times: 3-5 min (cached) | 15-25 min (cold)
-- Parallel execution with fallback logic
-- PR comments with build status
-- Comprehensive error handling and logging
 
 ---
 
