@@ -727,7 +727,7 @@ jobs:
             
             # === PERFORMANCE ISSUES ===
             # Pass by value for large UE types
-            if ($content -match '\b(FString|FName|FText|FVector|FTransform|TArray)\s+\w+\s*\)' -and $content -notmatch 'const\s+(FString|FName)&') {
+            if ($content -match '\b(FString|FName|FText|FVector|FTransform|TArray)\s+\w+\s*\)' -and $content -notmatch 'const\s+(FString|FName|FText|FVector|FTransform|TArray)\s*&') {
               Write-Warning "  ⚠️  $fileName: Large UE type passed by value (should use const ref)"
               $issues['Performance']++
             }
