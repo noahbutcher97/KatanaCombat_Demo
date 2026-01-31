@@ -1,0 +1,435 @@
+name: UE5 CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      runner_type:
+        description: 'Runner type to use'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - self-hosted
+          - github-hosted
+
+env:
+  PROJECT_NAME: KatanaCombat
+  UE_VERSION: "5.6"
+  BUILD_CONFIGURATION: Development Editor
+  
+jobs:
+  detect-runner:
+    name: Detect Runner Type
+    runs-on: ubuntu-latest
+    outputs:
+      runner-type: ${{ steps.detect.outputs.runner-type }}
+      use-self-hosted: ${{ steps.detect.outputs.use-self-hosted }}
+      use-github-hosted: ${{ steps.detect.outputs.use-github-hosted }}
+    steps:
+      - name: Detect Runner Type
+        id: detect
+        run: |
+          RUNNER_TYPE="${{ github.event.inputs.runner_type }}"
+          
+          if [ "$RUNNER_TYPE" = "self-hosted" ]; then
+            echo "runner-type=self-hosted" >> $GITHUB_OUTPUT
+            echo "use-self-hosted=true" >> $GITHUB_OUTPUT
+            echo "use-github-hosted=false" >> $GITHUB_OUTPUT
+          elif [ "$RUNNER_TYPE" = "github-hosted" ]; then
+            echo "runner-type=github-hosted" >> $GITHUB_OUTPUT
+            echo "use-self-hosted=false" >> $GITHUB_OUTPUT
+            echo "use-github-hosted=true" >> $GITHUB_OUTPUT
+          else
+            # Auto-detect: Try self-hosted first, fallback to GitHub-hosted
+            echo "runner-type=auto" >> $GITHUB_OUTPUT
+            echo "use-self-hosted=true" >> $GITHUB_OUTPUT
+            echo "use-github-hosted=true" >> $GITHUB_OUTPUT
+          fi
+
+  build-self-hosted:
+    name: Build (Self-Hosted)
+    needs: detect-runner
+    if: needs.detect-runner.outputs.use-self-hosted == 'true'
+    runs-on: [self-hosted, Windows, ue5]
+    timeout-minutes: 120
+    continue-on-error: true
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+
+      - name: Detect UE5 Installation
+        id: detect-ue5
+        shell: pwsh
+        run: |
+          $UE5Paths = @(
+            "C:\Program Files\Epic Games\UE_${{ env.UE_VERSION }}",
+            "C:\Program Files\Epic Games\UE_5.6",
+            "C:\UE5\UE_${{ env.UE_VERSION }}",
+            "D:\Program Files\Epic Games\UE_${{ env.UE_VERSION }}"
+          )
+          
+          $UE5Path = $null
+          foreach ($path in $UE5Paths) {
+            if (Test-Path $path) {
+              $UE5Path = $path
+              Write-Host "Found UE5 at: $path"
+              break
+            }
+          }
+          
+          if (-not $UE5Path) {
+            Write-Error "UE5 installation not found in standard locations"
+            exit 1
+          }
+          
+          echo "ue5-path=$UE5Path" >> $env:GITHUB_OUTPUT
+          echo "ue5-build-bat=$UE5Path\Engine\Build\BatchFiles\Build.bat" >> $env:GITHUB_OUTPUT
+          echo "ue5-runuat=$UE5Path\Engine\Build\BatchFiles\RunUAT.bat" >> $env:GITHUB_OUTPUT
+          echo "ue5-editor=$UE5Path\Engine\Binaries\Win64\UnrealEditor.exe" >> $env:GITHUB_OUTPUT
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Cache Intermediate Files
+        uses: actions/cache@v4
+        with:
+          path: |
+            Intermediate/
+            DerivedDataCache/
+            .vs/
+          key: ue5-self-hosted-${{ runner.os }}-${{ hashFiles('**/*.uproject', '**/*.Build.cs') }}
+          restore-keys: |
+            ue5-self-hosted-${{ runner.os }}-
+
+      - name: Generate Project Files
+        shell: cmd
+        run: |
+          "${{ steps.detect-ue5.outputs.ue5-build-bat }}" -projectfiles -project="%CD%\${{ env.PROJECT_NAME }}.uproject" -game -rocket -progress
+
+      - name: Build Project
+        shell: cmd
+        run: |
+          "${{ steps.detect-ue5.outputs.ue5-build-bat }}" ${{ env.PROJECT_NAME }}Editor Win64 Development -Project="%CD%\${{ env.PROJECT_NAME }}.uproject" -WaitMutex -FromMsBuild
+
+      - name: Run Automation Tests
+        shell: cmd
+        continue-on-error: true
+        run: |
+          "${{ steps.detect-ue5.outputs.ue5-editor }}" "%CD%\${{ env.PROJECT_NAME }}.uproject" -ExecCmds="Automation RunTests ${{ env.PROJECT_NAME }};Quit" -unattended -nopause -NullRHI -log -ReportExportPath="%CD%\Saved\Automation\Reports"
+
+      - name: Asset Validation
+        shell: cmd
+        continue-on-error: true
+        run: |
+          "${{ steps.detect-ue5.outputs.ue5-editor }}" "%CD%\${{ env.PROJECT_NAME }}.uproject" -run=ResavePackages -unattended -nopause -log
+
+      - name: Collect Build Statistics
+        shell: pwsh
+        if: always()
+        run: |
+          $stats = @{
+            Runner = "self-hosted"
+            BuildTime = (Get-Date).ToString()
+            Success = $?
+          }
+          $stats | ConvertTo-Json | Out-File -FilePath "build-stats-self-hosted.json"
+
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-self-hosted
+          path: |
+            Saved/Logs/
+            *.log
+          retention-days: 14
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-self-hosted
+          path: Saved/Automation/Reports/
+          retention-days: 30
+
+      - name: Upload Binaries
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-self-hosted
+          path: |
+            Binaries/Win64/
+            !Binaries/Win64/*.pdb
+          retention-days: 7
+
+      - name: Upload Build Statistics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-stats-self-hosted
+          path: build-stats-*.json
+          retention-days: 30
+
+  build-github-hosted:
+    name: Build (GitHub-Hosted)
+    needs: detect-runner
+    if: needs.detect-runner.outputs.use-github-hosted == 'true' && (needs.build-self-hosted.result == 'failure' || needs.build-self-hosted.result == 'skipped' || needs.detect-runner.outputs.runner-type == 'github-hosted')
+    runs-on: windows-latest
+    timeout-minutes: 180
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+          submodules: recursive
+
+      - name: Free Disk Space
+        shell: pwsh
+        run: |
+          # Remove unnecessary Windows components to free up space
+          Write-Host "Freeing disk space..."
+          Get-PSDrive
+          
+          # Clean temp folders
+          Remove-Item -Path "$env:TEMP\*" -Recurse -Force -ErrorAction SilentlyContinue
+          Remove-Item -Path "C:\Windows\Temp\*" -Recurse -Force -ErrorAction SilentlyContinue
+
+      - name: Install Visual Studio 2022 Components
+        shell: pwsh
+        run: |
+          Write-Host "Installing Visual Studio 2022 Build Tools..."
+          
+          # Download VS installer
+          $installerUrl = "https://aka.ms/vs/17/release/vs_BuildTools.exe"
+          $installerPath = "$env:TEMP\vs_buildtools.exe"
+          
+          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+          
+          # Install required workloads
+          $arguments = @(
+            '--quiet',
+            '--wait',
+            '--norestart',
+            '--nocache',
+            '--add', 'Microsoft.VisualStudio.Workload.NativeDesktop',
+            '--add', 'Microsoft.VisualStudio.Workload.NativeGame',
+            '--add', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+            '--add', 'Microsoft.VisualStudio.Component.Windows11SDK.22621',
+            '--add', 'Microsoft.VisualStudio.Component.VC.14.38.17.8.x86.x64',
+            '--add', 'Microsoft.Net.Component.4.6.2.TargetingPack'
+          )
+          
+          Start-Process -FilePath $installerPath -ArgumentList $arguments -Wait -NoNewWindow
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Cache UE5 Installation
+        id: cache-ue5
+        uses: actions/cache@v4
+        with:
+          path: C:\UE5
+          key: ue5-${{ env.UE_VERSION }}-win64-${{ hashFiles('.github/workflows/ue5-ci.yml') }}
+          restore-keys: |
+            ue5-${{ env.UE_VERSION }}-win64-
+
+      - name: Install Unreal Engine 5.6
+        if: steps.cache-ue5.outputs.cache-hit != 'true'
+        shell: pwsh
+        env:
+          EPIC_API_KEY: ${{ secrets.EPIC_API_KEY }}
+        run: |
+          Write-Host "Installing Unreal Engine 5.6..."
+          
+          # Create installation directory
+          $UE5InstallPath = "C:\UE5\UE_${{ env.UE_VERSION }}"
+          New-Item -Path $UE5InstallPath -ItemType Directory -Force
+          
+          # Option 1: Use Epic Games Launcher automation (if API key provided)
+          if ($env:EPIC_API_KEY) {
+            Write-Host "Attempting installation via Epic Games Launcher..."
+            # Implementation would use Epic's API/CLI tools
+            # This is a placeholder - actual implementation depends on Epic's tooling
+          }
+          
+          # Option 2: Download from pre-built source (recommended for CI)
+          # Note: This requires either:
+          # 1. Pre-cached UE5 build artifacts in your organization's storage
+          # 2. Building from Epic's GitHub source (requires GitHub PAT with Epic access)
+          # 3. Using a pre-built Docker image or VM snapshot
+          
+          # For this demo, we'll document the requirement
+          Write-Host "UE5 installation requires one of the following:"
+          Write-Host "1. Pre-cached build artifacts (recommended)"
+          Write-Host "2. Epic Games Launcher credentials"
+          Write-Host "3. Custom UE5 build from source"
+          Write-Host ""
+          Write-Host "Please configure EPIC_API_KEY secret or provide cached UE5 build."
+          
+          # Check if we have a cached or pre-installed version
+          if (-not (Test-Path "$UE5InstallPath\Engine\Build\BatchFiles\Build.bat")) {
+            Write-Warning "UE5 installation not available. Build will fail."
+            Write-Host "To enable GitHub-hosted builds, please:"
+            Write-Host "1. Set up EPIC_API_KEY secret, OR"
+            Write-Host "2. Pre-cache UE5 installation in GitHub Actions cache, OR"
+            Write-Host "3. Use self-hosted runners with UE5 pre-installed"
+            exit 1
+          }
+
+      - name: Setup UE5 Environment
+        shell: pwsh
+        run: |
+          $UE5Path = "C:\UE5\UE_${{ env.UE_VERSION }}"
+          
+          echo "UE5_PATH=$UE5Path" >> $env:GITHUB_ENV
+          echo "UE5_BUILD_BAT=$UE5Path\Engine\Build\BatchFiles\Build.bat" >> $env:GITHUB_ENV
+          echo "UE5_RUNUAT=$UE5Path\Engine\Build\BatchFiles\RunUAT.bat" >> $env:GITHUB_ENV
+          echo "UE5_EDITOR=$UE5Path\Engine\Binaries\Win64\UnrealEditor.exe" >> $env:GITHUB_ENV
+          
+          # Add to PATH
+          echo "$UE5Path\Engine\Binaries\Win64" >> $env:GITHUB_PATH
+
+      - name: Cache Project Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            Intermediate/
+            DerivedDataCache/
+            Saved/Cooked/
+          key: ue5-github-hosted-${{ runner.os }}-${{ hashFiles('**/*.uproject', '**/*.Build.cs') }}
+          restore-keys: |
+            ue5-github-hosted-${{ runner.os }}-
+
+      - name: Generate Project Files
+        shell: cmd
+        run: |
+          "%UE5_BUILD_BAT%" -projectfiles -project="%CD%\${{ env.PROJECT_NAME }}.uproject" -game -rocket -progress
+
+      - name: Build Project
+        shell: cmd
+        run: |
+          "%UE5_BUILD_BAT%" ${{ env.PROJECT_NAME }}Editor Win64 Development -Project="%CD%\${{ env.PROJECT_NAME }}.uproject" -WaitMutex -FromMsBuild
+
+      - name: Run Automation Tests
+        shell: cmd
+        continue-on-error: true
+        run: |
+          "%UE5_EDITOR%" "%CD%\${{ env.PROJECT_NAME }}.uproject" -ExecCmds="Automation RunTests ${{ env.PROJECT_NAME }};Quit" -unattended -nopause -NullRHI -log -ReportExportPath="%CD%\Saved\Automation\Reports"
+
+      - name: Asset Validation
+        shell: cmd
+        continue-on-error: true
+        run: |
+          "%UE5_EDITOR%" "%CD%\${{ env.PROJECT_NAME }}.uproject" -run=ResavePackages -unattended -nopause -log
+
+      - name: Collect Build Statistics
+        shell: pwsh
+        if: always()
+        run: |
+          $stats = @{
+            Runner = "github-hosted"
+            BuildTime = (Get-Date).ToString()
+            Success = $?
+            DiskSpace = (Get-PSDrive C).Free / 1GB
+          }
+          $stats | ConvertTo-Json | Out-File -FilePath "build-stats-github-hosted.json"
+
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-github-hosted
+          path: |
+            Saved/Logs/
+            *.log
+          retention-days: 14
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-github-hosted
+          path: Saved/Automation/Reports/
+          retention-days: 30
+
+      - name: Upload Binaries
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-github-hosted
+          path: |
+            Binaries/Win64/
+            !Binaries/Win64/*.pdb
+          retention-days: 7
+
+      - name: Upload Build Statistics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-stats-github-hosted
+          path: build-stats-*.json
+          retention-days: 30
+
+  finalize:
+    name: Finalize Build
+    needs: [detect-runner, build-self-hosted, build-github-hosted]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check Build Results
+        run: |
+          echo "Build Results:"
+          echo "Runner Type: ${{ needs.detect-runner.outputs.runner-type }}"
+          echo "Self-Hosted Result: ${{ needs.build-self-hosted.result }}"
+          echo "GitHub-Hosted Result: ${{ needs.build-github-hosted.result }}"
+          
+          SELF_HOSTED="${{ needs.build-self-hosted.result }}"
+          GITHUB_HOSTED="${{ needs.build-github-hosted.result }}"
+          
+          if [[ "$SELF_HOSTED" == "success" ]] || [[ "$GITHUB_HOSTED" == "success" ]]; then
+            echo "✅ Build successful on at least one runner type"
+            exit 0
+          elif [[ "$SELF_HOSTED" == "skipped" ]] && [[ "$GITHUB_HOSTED" == "skipped" ]]; then
+            echo "⚠️ Both builds were skipped"
+            exit 1
+          else
+            echo "❌ All attempted builds failed"
+            exit 1
+          fi
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Generate Build Report
+        run: |
+          echo "# Build Report" > build-report.md
+          echo "" >> build-report.md
+          echo "**Date:** $(date)" >> build-report.md
+          echo "**Workflow:** ${{ github.workflow }}" >> build-report.md
+          echo "**Run:** ${{ github.run_number }}" >> build-report.md
+          echo "" >> build-report.md
+          echo "## Results" >> build-report.md
+          echo "- Self-Hosted: ${{ needs.build-self-hosted.result }}" >> build-report.md
+          echo "- GitHub-Hosted: ${{ needs.build-github-hosted.result }}" >> build-report.md
+          
+          cat build-report.md
+
+      - name: Upload Build Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-report
+          path: build-report.md
+          retention-days: 90

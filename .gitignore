@@ -70,6 +70,10 @@ nul
 git lfs track "*.uasset"
 git lfs track "*.umap"
 
+# CI/CD build artifacts
+build-stats-*.json
+build-report.md
+
 
 #Source/KatanaCombat/Variant_Combat/
 
