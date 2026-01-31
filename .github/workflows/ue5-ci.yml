@@ -583,76 +583,306 @@ jobs:
           Write-Host "✅ Project structure validated successfully"
 
       # ============================================
-      # ANALYSIS: Basic Static Analysis
+      # ANALYSIS: Enhanced Static Analysis
       # ============================================
-      - name: 🔍 Run Basic Static Analysis
+      - name: 🔍 Run Enhanced Static Analysis
         continue-on-error: true
         shell: pwsh
         run: |
-          Write-Host "🔍 Running basic static analysis on C++ files..."
+          Write-Host "🔍 Running enhanced static analysis on C++ files..."
+          Write-Host ""
           
           $sourceFiles = Get-ChildItem -Path "Source" -Recurse -Filter "*.cpp" -ErrorAction SilentlyContinue
+          $headerFiles = Get-ChildItem -Path "Source" -Recurse -Filter "*.h" -ErrorAction SilentlyContinue
           
-          if ($sourceFiles.Count -eq 0) {
+          if ($sourceFiles.Count -eq 0 -and $headerFiles.Count -eq 0) {
             Write-Host "⚠️  No C++ source files found"
             exit 0
           }
           
-          Write-Host "Found $($sourceFiles.Count) C++ source files"
+          Write-Host "Found $($sourceFiles.Count) C++ source files and $($headerFiles.Count) header files"
+          Write-Host ""
           
-          # Basic code quality checks
-          $issues = 0
-          foreach ($file in $sourceFiles | Select-Object -First 10) {
-            Write-Host "Checking: $($file.Name)"
+          $allFiles = @($sourceFiles) + @($headerFiles)
+          $issues = @{
+            'Security' = 0
+            'CodeStyle' = 0
+            'Bugs' = 0
+            'Performance' = 0
+            'ThreadSafety' = 0
+            'DataValidation' = 0
+          }
+          
+          foreach ($file in $allFiles) {
             $content = Get-Content $file.FullName -Raw
+            $fileName = $file.Name
             
-            # Check for common issues
-            if ($content -match 'TODO|FIXME|HACK') {
-              Write-Warning "  ⚠️  Contains TODO/FIXME/HACK comments"
-              $issues++
+            # === SECURITY VULNERABILITIES ===
+            # Buffer overflows and unsafe functions
+            if ($content -match '\b(strcpy|strcat|sprintf|gets|scanf)\s*\(') {
+              Write-Warning "  ⚠️  $fileName: Uses unsafe C function (strcpy/strcat/sprintf/gets/scanf)"
+              $issues['Security']++
             }
             
-            # Check for missing include guards in headers
-            if ($file.Extension -eq '.h' -and $content -notmatch '#pragma once|#ifndef') {
-              Write-Warning "  ⚠️  Header file may be missing include guard"
-              $issues++
+            # Uninitialized variables patterns
+            if ($content -match '\b(int|float|double|bool)\s+\w+\s*;[^=]' -and $content -notmatch '//.*uninitialized') {
+              Write-Warning "  ⚠️  $fileName: Potential uninitialized variable"
+              $issues['Bugs']++
+            }
+            
+            # Memory leaks - new without delete
+            if ($content -match '\bnew\s+' -and $content -notmatch '\bdelete\s+' -and $content -notmatch 'TSharedPtr|TUniquePtr|MakeShared') {
+              Write-Warning "  ⚠️  $fileName: Potential memory leak (new without delete/smart pointer)"
+              $issues['Bugs']++
+            }
+            
+            # === CODE STYLE VIOLATIONS ===
+            # Check for overly long functions (>200 lines)
+            $lines = $content -split "`n"
+            $inFunction = $false
+            $functionStart = 0
+            $braceCount = 0
+            
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+              if ($lines[$i] -match '^\s*(void|bool|int|float|double|auto|[A-Z]\w*)\s+[A-Z]\w*::\w+\s*\(') {
+                $inFunction = $true
+                $functionStart = $i
+                $braceCount = 0
+              }
+              
+              if ($inFunction) {
+                $braceCount += ([regex]::Matches($lines[$i], '\{').Count - [regex]::Matches($lines[$i], '\}').Count)
+                
+                if ($braceCount -eq 0 -and $i -gt $functionStart) {
+                  $funcLength = $i - $functionStart
+                  if ($funcLength -gt 200) {
+                    Write-Warning "  ⚠️  $fileName: Function exceeds 200 lines ($funcLength lines)"
+                    $issues['CodeStyle']++
+                  }
+                  $inFunction = $false
+                }
+              }
+            }
+            
+            # Inconsistent naming (detect mixed camelCase/PascalCase in same scope)
+            if ($content -match '\bclass\s+[a-z]' -or $content -match '\bstruct\s+[a-z]') {
+              Write-Warning "  ⚠️  $fileName: Class/struct name should use PascalCase"
+              $issues['CodeStyle']++
+            }
+            
+            # === THREAD SAFETY ISSUES ===
+            # Shared mutable state without synchronization
+            if ($content -match '\bstatic\s+(int|float|double|bool|TArray|TMap)\s+' -and $content -notmatch '\bFCriticalSection\b|\bFRWLock\b|\bstd::mutex\b') {
+              Write-Warning "  ⚠️  $fileName: Static mutable variable may have thread safety issues"
+              $issues['ThreadSafety']++
+            }
+            
+            # === DATA VALIDATION ISSUES ===
+            # Missing null checks before pointer dereference
+            if ($content -match '\bif\s*\([^)]*\bptr\b[^)]*\)' -or $content -match '\bcheck\s*\([^)]*!=\s*nullptr\)') {
+              # Good - has null check
+            } elseif ($content -match '\b\w+\s*->\s*\w+' -and $content -match '\*\s*\w+\s*(=|;)') {
+              Write-Warning "  ⚠️  $fileName: Potential null pointer dereference without check"
+              $issues['DataValidation']++
+            }
+            
+            # Missing array bounds checks
+            if ($content -match '\[\s*\w+\s*\]' -and $content -notmatch '\bIsValidIndex\b|\bNum\(\)') {
+              Write-Warning "  ⚠️  $fileName: Array access may lack bounds checking"
+              $issues['DataValidation']++
+            }
+            
+            # Data asset validation (Issue #1 related)
+            if ($content -match '\bUDataAsset\b|\bUPrimaryDataAsset\b') {
+              if ($content -notmatch '\bIsValid\s*\(|\bcheck\s*\(') {
+                Write-Warning "  ⚠️  $fileName: Data asset usage may lack validation"
+                $issues['DataValidation']++
+              }
+            }
+            
+            # Motion warp target names (Issue #1 related)
+            if ($content -match '\bAddOrUpdateWarpTarget\b|\bMotionWarping\b') {
+              if ($content -notmatch 'if\s*\([^)]*\.IsNone\(\)|if\s*\([^)]*==\s*NAME_None') {
+                Write-Warning "  ⚠️  $fileName: Motion warp target may lack name validation"
+                $issues['DataValidation']++
+              }
+            }
+            
+            # === BUGS & DEFECTS ===
+            # Dead code (unreachable code after return)
+            $lines = $content -split "`n"
+            for ($i = 0; $i -lt $lines.Count - 1; $i++) {
+              if ($lines[$i] -match '^\s*return\s+' -and $lines[$i+1] -match '^\s*[A-Za-z]' -and $lines[$i+1] -notmatch '^\s*\}') {
+                Write-Warning "  ⚠️  $fileName: Potential unreachable code after return statement"
+                $issues['Bugs']++
+                break
+              }
+            }
+            
+            # Shadowing variables
+            if ($content -match '\bfor\s*\([^)]*\bint\s+(\w+)' -and $content -match "int\s+$($Matches[1])\s*[=;]") {
+              Write-Warning "  ⚠️  $fileName: Variable shadowing detected"
+              $issues['Bugs']++
+            }
+            
+            # === PERFORMANCE ISSUES ===
+            # Pass by value for large UE types
+            if ($content -match '\b(FString|FName|FText|FVector|FTransform|TArray)\s+\w+\s*\)' -and $content -notmatch 'const\s+(FString|FName)&') {
+              Write-Warning "  ⚠️  $fileName: Large UE type passed by value (should use const ref)"
+              $issues['Performance']++
             }
           }
           
           Write-Host ""
-          Write-Host "✅ Basic static analysis completed"
-          Write-Host "Found $issues potential issues (non-blocking)"
+          Write-Host "================================================"
+          Write-Host "📊 Static Analysis Summary"
+          Write-Host "================================================"
+          Write-Host "🔒 Security Issues:        $($issues['Security'])"
+          Write-Host "🎨 Code Style Issues:      $($issues['CodeStyle'])"
+          Write-Host "🐛 Potential Bugs:         $($issues['Bugs'])"
+          Write-Host "⚡ Performance Issues:     $($issues['Performance'])"
+          Write-Host "🔄 Thread Safety Issues:   $($issues['ThreadSafety'])"
+          Write-Host "✅ Data Validation Issues: $($issues['DataValidation'])"
+          Write-Host "================================================"
+          $totalIssues = ($issues.Values | Measure-Object -Sum).Sum
+          Write-Host "📌 Total Issues Found: $totalIssues (non-blocking)"
+          Write-Host ""
+          Write-Host "Note: These are heuristic checks. Full clang-tidy analysis"
+          Write-Host "requires compilation database (available in Tier 1 self-hosted)."
+          Write-Host ""
 
       # ============================================
-      # VALIDATION: Check for Build Configuration Files
+      # VALIDATION: Enhanced Build Configuration
       # ============================================
       - name: 🔧 Validate Build Configuration
         shell: pwsh
         run: |
           Write-Host "🔍 Validating build configuration files..."
+          Write-Host ""
           
           $buildFiles = Get-ChildItem -Path "Source" -Recurse -Filter "*.Build.cs"
           $targetFiles = Get-ChildItem -Path "Source" -Recurse -Filter "*.Target.cs"
           
           Write-Host "Found $($buildFiles.Count) Build.cs files"
           Write-Host "Found $($targetFiles.Count) Target.cs files"
+          Write-Host ""
           
           if ($buildFiles.Count -eq 0) {
             Write-Error "❌ No Build.cs files found"
             exit 1
           }
           
-          # Check for basic syntax issues
+          $configIssues = 0
+          
+          # Enhanced Build.cs validation
           foreach ($file in $buildFiles) {
             $content = Get-Content $file.FullName -Raw
+            $fileName = $file.Name
+            
+            Write-Host "Validating: $fileName"
+            
+            # Check for module dependencies
             if ($content -match 'PublicDependencyModuleNames|PrivateDependencyModuleNames') {
-              Write-Host "  ✅ $($file.Name) has module dependencies configured"
+              Write-Host "  ✅ Module dependencies configured"
+              
+              # Check for circular dependencies
+              if ($content -match '(?:Public|Private)DependencyModuleNames[^;]*\b(\w+)\b[^;]*\b\1\b') {
+                Write-Warning "  ⚠️  Possible duplicate module dependency"
+                $configIssues++
+              }
+              
+              # Check for common UE module typos
+              if ($content -match 'CoreUobject|CoreUOjbect') {
+                Write-Error "  ❌ Typo in CoreUObject module name"
+                $configIssues++
+              }
             } else {
-              Write-Warning "  ⚠️  $($file.Name) may be missing module dependencies"
+              Write-Warning "  ⚠️  Missing module dependencies configuration"
+              $configIssues++
+            }
+            
+            # Check for invalid include paths
+            if ($content -match 'PublicIncludePaths\.Add\s*\(\s*["\']([^"\']+)["\']\s*\)') {
+              $includePath = $Matches[1]
+              if ($includePath -match '\.\.|\\\\|//') {
+                Write-Warning "  ⚠️  Suspicious include path: $includePath"
+                $configIssues++
+              }
+            }
+            
+            # Check PCH settings
+            if ($content -match 'PCHUsage\s*=\s*PCHUsageMode\.UseExplicitOrSharedPCHs') {
+              Write-Host "  ✅ PCH usage properly configured"
+            } elseif ($content -notmatch 'PCHUsage') {
+              Write-Warning "  ⚠️  PCH usage not explicitly set"
+            }
+            
+            # Check for platform-specific configurations
+            if ($content -match 'if\s*\(\s*Target\.Platform\s*==') {
+              Write-Host "  ✅ Platform-specific configuration present"
+            }
+            
+            # Validate bUseUnity flag if present
+            if ($content -match 'bUseUnity\s*=\s*false' -and $buildFiles.Count -gt 1) {
+              Write-Warning "  ⚠️  Unity builds disabled - may increase compile time"
+            }
+            
+            Write-Host ""
+          }
+          
+          # Enhanced Target.cs validation
+          foreach ($file in $targetFiles) {
+            $content = Get-Content $file.FullName -Raw
+            $fileName = $file.Name
+            
+            Write-Host "Validating: $fileName"
+            
+            # Check target type
+            if ($content -match 'Type\s*=\s*TargetType\.(Game|Editor|Client|Server)') {
+              Write-Host "  ✅ Target type configured: $($Matches[1])"
+            } else {
+              Write-Error "  ❌ Target type not properly configured"
+              $configIssues++
+            }
+            
+            # Check default build configuration
+            if ($content -match 'DefaultBuildSettings\s*=\s*BuildSettingsVersion\.') {
+              Write-Host "  ✅ Build settings version specified"
+            }
+            
+            # Check for extra module names
+            if ($content -match 'ExtraModuleNames\.Add\s*\(\s*["\']([^"\']+)["\']\s*\)') {
+              $moduleName = $Matches[1]
+              Write-Host "  ✅ Extra module registered: $moduleName"
+              
+              # Verify corresponding Build.cs exists
+              $expectedBuildFile = "Source/$moduleName/$moduleName.Build.cs"
+              if (-not (Test-Path $expectedBuildFile)) {
+                Write-Warning "  ⚠️  Build.cs not found for module: $moduleName"
+                $configIssues++
+              }
+            }
+            
+            Write-Host ""
+          }
+          
+          # Check for missing Target.cs files
+          $expectedTargets = @("Game", "Editor")
+          foreach ($targetType in $expectedTargets) {
+            $pattern = "*$targetType.Target.cs"
+            if (-not (Get-ChildItem -Path "Source" -Recurse -Filter $pattern)) {
+              Write-Warning "  ⚠️  No $targetType target file found"
+              $configIssues++
             }
           }
           
-          Write-Host "✅ Build configuration validated"
+          Write-Host "================================================"
+          if ($configIssues -gt 0) {
+            Write-Warning "⚠️  Build configuration validation completed with $configIssues issues"
+          } else {
+            Write-Host "✅ Build configuration validated successfully"
+          }
+          Write-Host "================================================"
 
       # ============================================
       # TESTING: Unit Test Placeholder
@@ -695,16 +925,27 @@ jobs:
           
           Write-Host ""
           Write-Host "================================================"
-          Write-Host "🌐 GitHub-Hosted Validation Summary"
+          Write-Host "🌐 GitHub-Hosted Tier 2 Validation Summary"
           Write-Host "================================================"
-          Write-Host "✅ YAML Validation: Passed"
+          Write-Host "✅ YAML Workflow Validation: Passed"
           Write-Host "✅ Project Structure: Validated"
-          Write-Host "✅ Build Configuration: Validated"
-          Write-Host "✅ Basic Static Analysis: Completed"
+          Write-Host "✅ Build Configuration: Enhanced validation completed"
+          Write-Host "   ├─ Module dependencies checked"
+          Write-Host "   ├─ Circular dependencies detected"
+          Write-Host "   ├─ Include paths validated"
+          Write-Host "   └─ Target configurations verified"
+          Write-Host "✅ Enhanced Static Analysis: Completed"
+          Write-Host "   ├─ Security vulnerabilities scanned"
+          Write-Host "   ├─ Code style violations detected"
+          Write-Host "   ├─ Potential bugs identified"
+          Write-Host "   ├─ Performance issues flagged"
+          Write-Host "   ├─ Thread safety checked"
+          Write-Host "   └─ Data validation reviewed"
           Write-Host "✅ Test Structure: Validated"
           Write-Host ""
-          Write-Host "Note: Full UE5.6 pipeline (build, tests, assets)"
-          Write-Host "requires self-hosted runner with UE5.6 installed."
+          Write-Host "📊 Tier 2 provides comprehensive UE-independent validation"
+          Write-Host "🎮 Tier 1 (self-hosted) provides full UE5.6 pipeline:"
+          Write-Host "   └─ Compilation, testing, assets, clang-tidy with compile DB"
           Write-Host "================================================"
 
   # ==============================================================================

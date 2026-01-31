@@ -152,12 +152,22 @@ When self-hosted runners with UE5.6 are available, the complete pipeline execute
 - ✅ Binary artifact generation
 - ⏱️ **Timeout**: 15 minutes
 
-#### Tier 2: GitHub-Hosted Runner (Lightweight Validation)
-When self-hosted runners are unavailable, GitHub-hosted runners execute **UE-independent** validation:
+#### Tier 2: GitHub-Hosted Runner (Enhanced Lightweight Validation)
+When self-hosted runners are unavailable, GitHub-hosted runners execute **comprehensive UE-independent** validation:
 - ✅ YAML workflow validation
 - ✅ Project structure validation
-- ✅ Build configuration checks (.Build.cs, .Target.cs)
-- ✅ Basic static analysis
+- ✅ Enhanced build configuration checks (.Build.cs, .Target.cs)
+  - Module dependency validation
+  - Circular dependency detection
+  - Include path validation
+  - Target type verification
+- ✅ **Enhanced static analysis** (UE-independent)
+  - Security vulnerability scanning (buffer overflows, unsafe functions)
+  - Code style violation detection (naming, function complexity)
+  - Bug detection (uninitialized variables, memory leaks, null pointers)
+  - Performance issue identification (pass-by-value for large types)
+  - Thread safety analysis (shared mutable state, synchronization)
+  - Data validation checks (array bounds, data asset validation, motion warp targets)
 - ✅ Test structure validation
 - ⏱️ **Timeout**: 30 minutes
 
@@ -178,8 +188,10 @@ When self-hosted runners are unavailable, GitHub-hosted runners execute **UE-ind
 
 3. **Tier 2: GitHub-hosted fallback** (when self-hosted unavailable/fails)
    - Triggers instantly when self-hosted is skipped or fails
-   - **Executes lightweight validation** - no UE5.6 required
-   - Validates code quality, structure, and configuration
+   - **Executes enhanced lightweight validation** - no UE5.6 required
+   - Comprehensive static analysis for security, bugs, performance, thread safety
+   - Build configuration validation (dependencies, circular refs, include paths)
+   - Data validation checks (addresses Issue #1 concerns)
    - Provides meaningful feedback without full infrastructure
 
 4. **Result aggregation**

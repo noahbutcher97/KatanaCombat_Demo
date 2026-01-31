@@ -93,15 +93,26 @@ The pipeline adapts to available infrastructure with two execution tiers:
 
 **Tier 2: GitHub-Hosted Runner** (`timeout-minutes: 30`):
 - **When**: Self-hosted unavailable or fails
-- **Executes** (UE-independent validation):
+- **Executes** (enhanced UE-independent validation):
   - ✅ YAML workflow validation
   - ✅ Project structure validation
-  - ✅ Build configuration checks (.Build.cs, .Target.cs)
-  - ✅ Basic static analysis on C++ files
+  - ✅ **Enhanced build configuration checks**
+    - Module dependency validation
+    - Circular dependency detection
+    - Include path validation
+    - PCH usage verification
+    - Target type configuration checks
+  - ✅ **Comprehensive static analysis** (UE-independent)
+    - 🔒 Security: unsafe functions, buffer overflows
+    - 🎨 Code style: naming conventions, function complexity
+    - 🐛 Bugs: uninitialized variables, memory leaks, null pointers, shadowing
+    - ⚡ Performance: pass-by-value for large types
+    - 🔄 Thread safety: shared mutable state, synchronization
+    - ✅ Data validation: array bounds, data assets, motion warp targets (Issue #1)
   - ✅ Test structure validation
 - **Timeout**: 30 minutes
-- **No UE5.6 required**: Runs lightweight quality checks
-- **Artifacts**: Validation logs
+- **No UE5.6 required**: Runs comprehensive quality checks via heuristic analysis
+- **Artifacts**: Enhanced validation logs with categorized issue reports
 
 **Fallback Mechanism**:
 

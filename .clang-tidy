@@ -1,7 +1,7 @@
 # clang-tidy Configuration for KatanaCombat
 #
 # This configuration file defines the static analysis checks for the project.
-# It's optimized for Unreal Engine C++ projects.
+# It's optimized for Unreal Engine C++ projects with comprehensive validation.
 #
 # See: https://clang.llvm.org/extra/clang-tidy/checks/list.html
 
@@ -15,6 +15,10 @@ Checks: >
   bugprone-*,
   modernize-*,
   cppcoreguidelines-*,
+  clang-analyzer-*,
+  concurrency-*,
+  cert-*,
+  misc-*,
   -readability-identifier-length,
   -readability-magic-numbers,
   -readability-function-cognitive-complexity,
@@ -26,7 +30,9 @@ Checks: >
   -cppcoreguidelines-pro-bounds-constant-array-index,
   -cppcoreguidelines-pro-type-static-cast-downcast,
   -cppcoreguidelines-special-member-functions,
-  -bugprone-easily-swappable-parameters
+  -bugprone-easily-swappable-parameters,
+  -misc-non-private-member-variables-in-classes,
+  -misc-no-recursion
 
 # Treat warnings as errors (set to false for CI)
 WarningsAsErrors: false
