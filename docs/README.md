@@ -255,6 +255,7 @@ Combo chains or return to Idle
 
 ## Documentation
 
+### Core Documentation
 - **[README.md](README.md)** (this file) - Project overview
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete technical deep dive
 - **[ARCHITECTURE_QUICK.md](ARCHITECTURE_QUICK.md)** - Quick reference for developers
@@ -265,6 +266,14 @@ Combo chains or return to Idle
 - **[CHANGELOG.md](CHANGELOG.md)** - Combat system change history and bug fixes
 - **[ROADMAP.md](ROADMAP.md)** - Planned features and system status
 - **[Source/KatanaCombatTest/README.md](../Source/KatanaCombatTest/README.md)** - C++ unit test suite documentation
+
+### Quality Assurance & Audits
+- **[GAP_AUDIT_EXECUTIVE_SUMMARY.md](GAP_AUDIT_EXECUTIVE_SUMMARY.md)** - ⭐ **START HERE** - Quick overview of all gaps and fixes
+- **[COMPREHENSIVE_GAP_AUDIT_2026-01-31.md](COMPREHENSIVE_GAP_AUDIT_2026-01-31.md)** - Full detailed audit (36 gaps analyzed)
+- **[CRITICAL_FIXES_ACTION_CARD.md](CRITICAL_FIXES_ACTION_CARD.md)** - Immediate action items (3 critical fixes)
+- **[Notes/V2_SYSTEM_AUDIT_2025-11-11.md](Notes/V2_SYSTEM_AUDIT_2025-11-11.md)** - V2 architectural audit
+- **[plans/AUDIT_SYNTHESIS_2026-01-30.md](plans/AUDIT_SYNTHESIS_2026-01-30.md)** - Documentation completeness audit
+- **[plans/LOG_ANALYSIS_2026-01-30.md](plans/LOG_ANALYSIS_2026-01-30.md)** - Bug pattern analysis
 
 ---
 
