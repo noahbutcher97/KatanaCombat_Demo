@@ -107,12 +107,14 @@ jobs:
           if echo "$RUNNER_LIST" | jq -e '.runners' > /dev/null 2>&1; then
             # Check if any self-hosted runner with 'ue5' or 'self-hosted' label is online
             AVAILABLE=$(echo "$RUNNER_LIST" | jq -r '
-              [.runners[] | 
-                select(
-                  (.labels | map(.name) | any(. == "ue5" or . == "self-hosted")) and 
-                  .status == "online"
+              ( .runners // [] )
+              | map(
+                  select(
+                    (.labels | map(.name) | any(. == "ue5" or . == "self-hosted"))
+                    and .status == "online"
+                  )
                 )
-              ] | length > 0
+              | (length > 0)
             ')
             
             if [ "$AVAILABLE" = "true" ]; then
