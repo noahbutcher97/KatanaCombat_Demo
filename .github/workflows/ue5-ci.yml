@@ -178,7 +178,7 @@ jobs:
     needs: detect-environment
     if: needs.detect-environment.outputs.use-self-hosted == 'true'
     runs-on: [self-hosted, Windows, ue5]
-    timeout-minutes: 15  # Reduced timeout since pre-check eliminates most stalling; allows quick fallback
+    timeout-minutes: 30  # Increased timeout to accommodate 15–25 minute cold builds while still enabling fallback
     continue-on-error: ${{ needs.detect-environment.outputs.runner-type == 'auto' }}  # Enable fallback when runner unavailable
     permissions:
       contents: read
