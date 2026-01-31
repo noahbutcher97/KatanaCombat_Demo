@@ -53,11 +53,19 @@ env:
   # This will be auto-detected based on runner labels
   IS_SELF_HOSTED: ${{ contains(github.event.runner.name, 'self-hosted') || github.event.inputs.runner_type == 'self-hosted' }}
 
+# Minimal permissions for security best practices
+permissions:
+  contents: read
+  pull-requests: write  # For PR comments
+  actions: read  # For downloading artifacts
+
 jobs:
   # Pre-flight checks and environment detection
   detect-environment:
     name: Detect Build Environment
     runs-on: windows-latest
+    permissions:
+      contents: read
     outputs:
       runner-type: ${{ steps.detect.outputs.runner-type }}
       use-self-hosted: ${{ steps.detect.outputs.use-self-hosted }}
@@ -84,6 +92,10 @@ jobs:
     needs: detect-environment
     runs-on: ${{ needs.detect-environment.outputs.runner-type }}
     timeout-minutes: 120
+    permissions:
+      contents: read
+      pull-requests: write  # For posting PR comments
+      actions: read  # For workflow context
     
     steps:
       # ============================================
