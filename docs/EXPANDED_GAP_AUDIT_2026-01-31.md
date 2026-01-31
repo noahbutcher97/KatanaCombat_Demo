@@ -8,24 +8,30 @@
 
 ## Executive Summary
 
-This EXPANDED audit covers **ALL 121 gaps** tracked in the project documentation, not just the subset analyzed in the initial report. This includes:
+This EXPANDED audit covers **ALL documented gaps** tracked in the project, including a second-pass analysis of the editor module. This includes:
 
-1. **Architecture gaps** (V2_SYSTEM_AUDIT_2025-11-11.md): 16 gaps
+1. **Combat System Audit** (System Audit 2025-11-11.md): 16 gaps
+   - *Note*: "V2" in document name refers to the audit version, not code naming
+   - Current code uses `CombatComponent` (old V2 designation removed)
 2. **Documentation gaps** (AUDIT_SYNTHESIS_2026-01-30.md): 12 gaps  
 3. **Paired Animation System gaps** (paired-animation-plan-v2-2026-01-30.md): **121 gaps**
-4. **Undocumented code issues**: 17 gaps
+4. **Undocumented runtime code issues**: 17 gaps
+5. **Editor module gaps** (second-pass analysis): **12 gaps**
 
-**CRITICAL CLARIFICATION**: The initial audit focused on 36 gaps (8 documented fixes + 5 planned + 5 doc issues + 18 undocumented). The user correctly identified that **121 additional gaps exist in the Paired Animation Plan** that were not included in scope.
+**CRITICAL CLARIFICATION**: The initial audit focused on 36 gaps (8 documented fixes + 5 planned + 5 doc issues + 18 undocumented). Following feedback, scope expanded to include **ALL 121 Paired Animation Plan gaps** plus **12 editor module gaps** for a corrected total of **178 gaps**.
 
 ### Corrected Total Gap Count
 
 | Source | Count | Status |
 |--------|-------|--------|
 | **Paired Animation Plan** | **121** | 31 done, 76 pending, 14 deferred |
-| **V2 System Audit** | **16** | 8 critical/medium issues + 8 proceduralization |
+| **Combat System Audit (2025-11-11)** | **16** | 8 critical/medium issues + 8 proceduralization |
 | **AUDIT_SYNTHESIS** | **12** | 3 critical, 3 high, 3 medium, 3 low |
-| **Undocumented (code analysis)** | **17** | 3 critical, 4 high, 10 medium/low |
-| **CORRECTED TOTAL** | **~140+** | (with some overlap between sources) |
+| **Undocumented (runtime)** | **17** | 3 critical, 4 high, 10 medium/low |
+| **Undocumented (editor)** | **12** | 5 medium, 7 low |
+| **CORRECTED TOTAL** | **~178** | (with some overlap between sources) |
+
+**Naming Clarification**: References to "V2" in this document refer to historical audit document names or migration context, NOT current code. The codebase now uses `CombatComponent` (old `CombatComponentV2` was deleted after migration).
 
 ---
 
@@ -38,6 +44,8 @@ This EXPANDED audit covers **ALL 121 gaps** tracked in the project documentation
 - ✅ **Done**: 31 (26%)
 - ⏳ **Pending**: 76 (63%)
 - 🔮 **Deferred**: 14 (11%)
+
+**Note**: Document name contains "v2" referring to plan version, not code naming.
 
 ### Section 1.1: Completed Gaps (31/121) - VERIFICATION
 
@@ -650,7 +658,47 @@ These gaps are acknowledged but intentionally deferred to later phases:
 
 ---
 
-## Part 3: Undocumented Gaps (from Initial Audit)
+## Part 5: Editor Module Gaps (12 Total) - SECOND PASS
+
+**Full Analysis**: See [EDITOR_MODULE_GAP_ANALYSIS_2026-01-31.md](./EDITOR_MODULE_GAP_ANALYSIS_2026-01-31.md)
+
+### Overview
+
+Following user feedback to check the editor module, a second-pass analysis identified **12 additional gaps**:
+
+**Total Gaps**: 12
+- 🟡 **Medium Priority**: 5 (null checks, validation)
+- 🟢 **Low Priority**: 7 (TODOs, feature requests)
+
+### Medium Priority Editor Gaps (5)
+
+1. **Gap E.1**: Null check missing in `ExtractTimingFromNotifies` (AttackDataTools.cpp:84)
+2. **Gap E.2**: Skeletal mesh validation missing (PairedMontageAnalyzer.cpp:31)
+3. **Gap E.3**: Array bounds checking in contact point prediction
+4. **Gap E.4**: Missing error recovery in batch operations
+5. **Gap E.5**: No validation of montage section names
+
+**Estimated Fix Time**: 2-3 hours
+
+### Low Priority Editor Gaps (7)
+
+1. **Gap E.6**: Viewport debug shapes not implemented (TODO)
+2. **Gap E.7**: Root motion path visualization (TODO)
+3. **Gap E.8**: Arm reach sphere visualization (TODO)
+4. **Gap E.9**: Capsule collision visualization (TODO)
+5. **Gap E.10**: Configuration persistence (TODO)
+6. **Gap E.11**: JSON export for analysis results (TODO)
+7. **Gap E.12**: Performance profiling instrumentation
+
+**Status**: Feature requests, not bugs
+
+### Editor Module Assessment: 8.0/10
+
+The editor module has **good code quality** with mostly minor gaps. The 5 medium-priority gaps are straightforward null checks and validation issues. The 7 low-priority gaps are feature enhancements that would be nice-to-have but aren't blocking work.
+
+---
+
+## Part 6: Undocumented Gaps (from Initial Audit)
 
 These 17 gaps were found through code analysis and are NOT in the Paired Animation Plan:
 
@@ -673,19 +721,22 @@ These 17 gaps were found through code analysis and are NOT in the Paired Animati
 
 ---
 
-## Part 4: Master Gap Summary
+## Part 7: Master Gap Summary
 
 ### Complete Gap Inventory
 
 | Source | Total | Done | Pending | Deferred | Issues |
 |--------|-------|------|---------|----------|--------|
 | **Paired Animation Plan** | 121 | 31 | 76 | 14 | 2 inadequate |
-| **V2 System Audit** | 16 | 8 | 5 | 3 | 0 |
+| **Combat System Audit** | 16 | 8 | 5 | 3 | 0 |
 | **AUDIT_SYNTHESIS** | 12 | 3 | 9 | 0 | 0 |
-| **Undocumented (code)** | 17 | 0 | 17 | 0 | 0 |
-| **TOTAL** | **~166** | **42** | **107** | **17** | **2** |
+| **Undocumented (runtime)** | 17 | 0 | 17 | 0 | 0 |
+| **Undocumented (editor)** | 12 | 0 | 12 | 0 | 0 |
+| **TOTAL** | **~178** | **42** | **119** | **17** | **2** |
 
 **Note**: Some overlap exists between sources (e.g., null safety appears in multiple audits).
+
+**Clarification**: "Combat System Audit" refers to the System Audit document from 2025-11-11. No "V2" code designation exists in current codebase - all components use standard naming (`CombatComponent`, not `CombatComponentV2`).
 
 ### Priority Distribution
 
@@ -693,8 +744,8 @@ These 17 gaps were found through code analysis and are NOT in the Paired Animati
 |----------|-------|-----------------|
 | **P0 - Critical** | 3 | 1 hour |
 | **P1 - High** | ~20 | 2-3 weeks |
-| **P2 - Medium** | ~50 | 1-2 months |
-| **P3 - Low** | ~34 | Backlog |
+| **P2 - Medium** | ~55 | 1-2 months (includes 5 editor) |
+| **P3 - Low** | ~41 | Backlog (includes 7 editor features) |
 | **Deferred** | ~17 | Future phases |
 
 ---

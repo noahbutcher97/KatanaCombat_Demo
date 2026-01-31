@@ -269,11 +269,15 @@ Combo chains or return to Idle
 
 ### Quality Assurance & Audits
 - **[GAP_AUDIT_EXECUTIVE_SUMMARY.md](GAP_AUDIT_EXECUTIVE_SUMMARY.md)** - ⭐ **START HERE** - Quick overview of all gaps and fixes
-- **[COMPREHENSIVE_GAP_AUDIT_2026-01-31.md](COMPREHENSIVE_GAP_AUDIT_2026-01-31.md)** - Full detailed audit (36 gaps analyzed)
+- **[EXPANDED_GAP_AUDIT_2026-01-31.md](EXPANDED_GAP_AUDIT_2026-01-31.md)** - Full detailed audit (178 gaps analyzed)
+- **[EDITOR_MODULE_GAP_ANALYSIS_2026-01-31.md](EDITOR_MODULE_GAP_ANALYSIS_2026-01-31.md)** - Editor module second-pass (12 gaps)
+- **[COMPREHENSIVE_GAP_AUDIT_2026-01-31.md](COMPREHENSIVE_GAP_AUDIT_2026-01-31.md)** - Initial audit scope (36 gaps)
 - **[CRITICAL_FIXES_ACTION_CARD.md](CRITICAL_FIXES_ACTION_CARD.md)** - Immediate action items (3 critical fixes)
-- **[Notes/V2_SYSTEM_AUDIT_2025-11-11.md](Notes/V2_SYSTEM_AUDIT_2025-11-11.md)** - V2 architectural audit
+- **[Notes/V2_SYSTEM_AUDIT_2025-11-11.md](Notes/V2_SYSTEM_AUDIT_2025-11-11.md)** - Combat system architectural audit
 - **[plans/AUDIT_SYNTHESIS_2026-01-30.md](plans/AUDIT_SYNTHESIS_2026-01-30.md)** - Documentation completeness audit
 - **[plans/LOG_ANALYSIS_2026-01-30.md](plans/LOG_ANALYSIS_2026-01-30.md)** - Bug pattern analysis
+
+**Note**: References to "V2" in audit documents refer to document versions or historical context, not current code naming. All components use standard naming (`CombatComponent`).
 
 ---
 

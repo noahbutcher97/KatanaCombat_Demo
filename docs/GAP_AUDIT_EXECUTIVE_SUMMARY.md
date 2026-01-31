@@ -9,13 +9,15 @@
 
 **Status**: Project is **well-maintained** with excellent documentation. Core systems working (42 gaps fixed), but **expanded scope reveals 107 pending gaps** across paired animation system and general codebase.
 
-### Quick Stats - EXPANDED SCOPE
-- ✅ **42 documented issues fixed**: 31 paired animation + 8 V2 audit + 3 other
-- ⏳ **107 pending gaps**: 76 paired animation + 14 V2/audit + 17 undocumented
+### Quick Stats - EXPANDED SCOPE + EDITOR MODULE
+- ✅ **42 documented issues fixed**: 31 paired animation + 8 system audit + 3 other
+- ⏳ **119 pending gaps**: 76 paired animation + 14 system/audit + 17 runtime + 12 editor
 - 🔮 **17 deferred**: Future phases (Phase 6+)
 - 🔴 **3 critical gaps**: NULL pointer risks (fix in 1 hour)
-- 🟡 **20 high priority gaps**: Paired animation + validation (2-3 weeks)
-- 🟢 **84 medium/low gaps**: Features, polish, technical debt
+- 🟡 **25 high/medium priority gaps**: Paired animation core + validation (2-3 weeks)
+- 🟢 **91 medium/low gaps**: Features, polish, technical debt
+
+**Naming Clarification**: References to "System Audit" or document names with "V2" refer to audit versions, not code. Current codebase uses standard naming (`CombatComponent`, not `CombatComponentV2`).
 
 ---
 
@@ -144,25 +146,28 @@ The bulk of remaining work is in the paired animation system:
 
 ---
 
-## 📊 Gap Distribution - CORRECTED TOTALS
+## 📊 Gap Distribution - CORRECTED TOTALS + EDITOR
 
 ### By Source Document
 
 | Source | Total | Done | Pending | Deferred |
 |--------|-------|------|---------|----------|
 | **Paired Animation Plan** | 121 | 31 | 76 | 14 |
-| **V2 System Audit** | 16 | 8 | 5 | 3 |
+| **Combat System Audit** | 16 | 8 | 5 | 3 |
 | **AUDIT_SYNTHESIS** | 12 | 3 | 9 | 0 |
-| **Undocumented (code)** | 17 | 0 | 17 | 0 |
-| **TOTAL** | **~166** | **42** | **107** | **17** |
+| **Undocumented (runtime)** | 17 | 0 | 17 | 0 |
+| **Undocumented (editor)** | 12 | 0 | 12 | 0 |
+| **TOTAL** | **~178** | **42** | **119** | **17** |
+
+**Clarification**: "Combat System Audit" refers to historical audit document. No "V2" code naming exists - all components use standard naming (`CombatComponent`).
 
 ### By Severity
 
 ```
 🔴 Critical (P0):     3 gaps  [NULL checks - 1 hour]
 🟡 High (P1):        ~20 gaps  [Paired animation core + validation - 2-3 weeks]
-🟢 Medium (P2):      ~50 gaps  [Audio/VFX wiring, UI, polish - 1-2 months]
-⚪ Low (P3):         ~34 gaps  [Performance, docs, technical debt - backlog]
+🟢 Medium (P2):      ~55 gaps  [Audio/VFX wiring, UI, polish, editor validation - 1-2 months]
+⚪ Low (P3):         ~41 gaps  [Performance, docs, technical debt, editor features - backlog]
 📋 Deferred:         ~17 gaps  [Future phases 6-8]
 ```
 
@@ -182,7 +187,8 @@ The bulk of remaining work is in the paired animation system:
 | Bug Prevention | 5 | Null safety, validation |
 | Polish | 3 | Camera, slow-mo, effects |
 | VFX | 2 | Niagara spawning |
-| **PLUS**: General code issues | 17 | NULL checks, type safety, etc. |
+| **Editor Module** | 12 | 5 validation, 7 features |
+| **PLUS**: General runtime | 17 | NULL checks, type safety, etc. |
 
 ---
 
