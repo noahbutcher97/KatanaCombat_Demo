@@ -1,0 +1,496 @@
+name: UE5 CI - Build, Test, and Analyze
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+
+env:
+  UE_VERSION: '5.6'
+  PROJECT_NAME: 'KatanaCombat'
+  PLATFORM: 'Win64'
+  CONFIGURATION: 'Development Editor'
+
+jobs:
+  build-and-test:
+    name: Build, Analyze, and Test
+    runs-on: windows-latest
+    
+    steps:
+      #############################################
+      # Step 1: Checkout Repository
+      #############################################
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+      
+      #############################################
+      # Step 2: Setup Caching for Build Artifacts
+      #############################################
+      - name: Cache UE Build Dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            Intermediate
+            DerivedDataCache
+            Saved/BuildGraph
+          key: ${{ runner.os }}-ue-${{ env.UE_VERSION }}-${{ hashFiles('**/*.uproject', '**/*.Build.cs', '**/*.Target.cs') }}
+          restore-keys: |
+            ${{ runner.os }}-ue-${{ env.UE_VERSION }}-
+            ${{ runner.os }}-ue-
+      
+      #############################################
+      # Step 3: Setup Unreal Engine 5.6
+      #############################################
+      - name: Setup Unreal Engine 5.6
+        id: setup-ue
+        shell: pwsh
+        run: |
+          Write-Host "🔧 Setting up Unreal Engine 5.6 environment"
+          
+          # Check if UE is already installed (for self-hosted runners)
+          $ueInstallPath = "C:\Program Files\Epic Games\UE_5.6"
+          
+          if (Test-Path $ueInstallPath) {
+            Write-Host "✅ Unreal Engine 5.6 found at: $ueInstallPath"
+            echo "UE_ROOT=$ueInstallPath" >> $env:GITHUB_ENV
+            echo "UE_EDITOR=$ueInstallPath\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" >> $env:GITHUB_ENV
+            echo "UE_BUILD_TOOL=$ueInstallPath\Engine\Build\BatchFiles\Build.bat" >> $env:GITHUB_ENV
+          } else {
+            Write-Host "⚠️ Unreal Engine 5.6 not found at default location."
+            Write-Host "📋 This workflow requires a self-hosted runner with UE5.6 pre-installed."
+            Write-Host "📚 Installation Guide: https://www.unrealengine.com/download"
+            
+            # For demonstration purposes, set paths assuming standard installation
+            # In production, this should fail if UE is not installed
+            echo "UE_ROOT=C:\Program Files\Epic Games\UE_5.6" >> $env:GITHUB_ENV
+            echo "UE_EDITOR=C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" >> $env:GITHUB_ENV
+            echo "UE_BUILD_TOOL=C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" >> $env:GITHUB_ENV
+            
+            Write-Host "🚨 NOTE: Proceeding with assumed paths. Build will fail if UE5.6 is not installed."
+          }
+          
+          # Log environment for debugging
+          Write-Host "Environment Variables Set:"
+          Write-Host "  UE_ROOT: $env:UE_ROOT"
+      
+      #############################################
+      # Step 4: Generate Project Files
+      #############################################
+      - name: Generate Visual Studio Project Files
+        shell: pwsh
+        run: |
+          Write-Host "📦 Generating Visual Studio project files..."
+          
+          $uprojectFile = "${{ github.workspace }}\${{ env.PROJECT_NAME }}.uproject"
+          $generateProjectFiles = "$env:UE_ROOT\Engine\Build\BatchFiles\GenerateProjectFiles.bat"
+          
+          if (Test-Path $generateProjectFiles) {
+            & $generateProjectFiles -projectfiles -project="$uprojectFile" -game -rocket -progress
+            
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "❌ Failed to generate project files"
+              exit 1
+            }
+            
+            Write-Host "✅ Project files generated successfully"
+          } else {
+            Write-Host "⚠️ GenerateProjectFiles.bat not found. Skipping project generation."
+          }
+      
+      #############################################
+      # Step 5: Build the Project (Win64 Development Editor)
+      #############################################
+      - name: Build Project - Win64 Development Editor
+        id: build
+        shell: pwsh
+        run: |
+          Write-Host "🔨 Building ${{ env.PROJECT_NAME }} for ${{ env.PLATFORM }} ${{ env.CONFIGURATION }}"
+          
+          $uprojectFile = "${{ github.workspace }}\${{ env.PROJECT_NAME }}.uproject"
+          $buildBat = "$env:UE_BUILD_TOOL"
+          
+          # Create log directory
+          New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\Saved\Logs\Build" | Out-Null
+          $buildLogFile = "${{ github.workspace }}\Saved\Logs\Build\BuildLog.txt"
+          
+          if (Test-Path $buildBat) {
+            Write-Host "Using Build.bat: $buildBat"
+            
+            # Build command targeting Development Editor configuration
+            $buildArgs = @(
+              "${{ env.PROJECT_NAME }}Editor",
+              "${{ env.PLATFORM }}",
+              "Development",
+              "`"$uprojectFile`"",
+              "-WaitMutex",
+              "-FromMsBuild"
+            )
+            
+            Write-Host "Build Command: $buildBat $buildArgs"
+            
+            # Execute build and capture output
+            & $buildBat @buildArgs 2>&1 | Tee-Object -FilePath $buildLogFile
+            
+            $buildExitCode = $LASTEXITCODE
+            
+            if ($buildExitCode -eq 0) {
+              Write-Host "✅ Build completed successfully"
+              echo "build_status=success" >> $env:GITHUB_OUTPUT
+            } else {
+              Write-Host "❌ Build failed with exit code: $buildExitCode"
+              echo "build_status=failed" >> $env:GITHUB_OUTPUT
+              
+              # Display last 50 lines of build log for quick diagnosis
+              Write-Host "`n=== Last 50 lines of build log ==="
+              Get-Content $buildLogFile -Tail 50
+              
+              exit 1
+            }
+          } else {
+            Write-Host "❌ Build.bat not found at: $buildBat"
+            echo "build_status=failed" >> $env:GITHUB_OUTPUT
+            exit 1
+          }
+      
+      #############################################
+      # Step 6: Static Analysis with clang-tidy
+      #############################################
+      - name: Static Analysis - clang-tidy
+        if: always() && steps.build.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Write-Host "🔍 Running static analysis with clang-tidy"
+          
+          # Find clang-tidy (typically bundled with UE or installed separately)
+          $clangTidyPaths = @(
+            "$env:UE_ROOT\Engine\Extras\ThirdPartyNotUE\LLVM\bin\clang-tidy.exe",
+            "C:\Program Files\LLVM\bin\clang-tidy.exe",
+            "clang-tidy.exe"
+          )
+          
+          $clangTidy = $null
+          foreach ($path in $clangTidyPaths) {
+            if (Test-Path $path) {
+              $clangTidy = $path
+              break
+            }
+          }
+          
+          if (-not $clangTidy) {
+            # Try to find in PATH
+            $clangTidy = Get-Command clang-tidy -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
+          }
+          
+          if ($clangTidy) {
+            Write-Host "✅ Found clang-tidy at: $clangTidy"
+            
+            # Create directory for analysis results
+            New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\Saved\Logs\StaticAnalysis" | Out-Null
+            $analysisLog = "${{ github.workspace }}\Saved\Logs\StaticAnalysis\clang-tidy.txt"
+            
+            # Find all C++ source files in Source directory
+            $cppFiles = Get-ChildItem -Path "${{ github.workspace }}\Source" -Include "*.cpp","*.h" -Recurse
+            
+            Write-Host "Found $($cppFiles.Count) C++ files to analyze"
+            
+            # Basic clang-tidy configuration for Unreal Engine projects
+            $checks = "readability-*,performance-*,bugprone-*,modernize-*,-modernize-use-trailing-return-type"
+            
+            $warningCount = 0
+            foreach ($file in $cppFiles) {
+              Write-Host "Analyzing: $($file.Name)"
+              
+              # Run clang-tidy on each file
+              $output = & $clangTidy $file.FullName -checks=$checks -- -std=c++20 2>&1
+              
+              if ($output -match "warning:") {
+                $warningCount++
+                $output | Out-File -Append -FilePath $analysisLog
+              }
+            }
+            
+            Write-Host "⚠️ Found $warningCount files with warnings"
+            Write-Host "📋 Full analysis log saved to: $analysisLog"
+            
+            # Display summary of warnings
+            if (Test-Path $analysisLog) {
+              $warnings = Get-Content $analysisLog | Select-String "warning:"
+              Write-Host "`n=== Warning Summary (first 20) ==="
+              $warnings | Select-Object -First 20 | ForEach-Object { Write-Host $_ }
+            }
+          } else {
+            Write-Host "⚠️ clang-tidy not found. Skipping static analysis."
+            Write-Host "To enable static analysis, install LLVM/Clang or use UE's bundled version."
+          }
+      
+      #############################################
+      # Step 7: Editor Validation (Headless Asset Verification)
+      #############################################
+      - name: Editor Validation - Verify Assets
+        if: always() && steps.build.outcome == 'success'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Write-Host "✔️ Running Editor Validation (Asset Verification)"
+          
+          $uprojectFile = "${{ github.workspace }}\${{ env.PROJECT_NAME }}.uproject"
+          $unrealEditor = "$env:UE_EDITOR"
+          
+          if (Test-Path $unrealEditor) {
+            # Create log directory
+            New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\Saved\Logs\Validation" | Out-Null
+            $validationLog = "${{ github.workspace }}\Saved\Logs\Validation\AssetValidation.txt"
+            
+            Write-Host "Using UnrealEditor: $unrealEditor"
+            
+            # Run headless validation using ResavePackages commandlet
+            # This verifies that all assets can be loaded without errors
+            $validationArgs = @(
+              "`"$uprojectFile`"",
+              "-run=ResavePackages",
+              "-unattended",
+              "-nopause",
+              "-buildmachine",
+              "-forcelogflush",
+              "-CrashForUAT",
+              "-NoLogTimes",
+              "-UTF8Output"
+            )
+            
+            Write-Host "Validation Command: $unrealEditor $validationArgs"
+            
+            & $unrealEditor @validationArgs 2>&1 | Tee-Object -FilePath $validationLog
+            
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "✅ Asset validation completed successfully"
+            } else {
+              Write-Host "⚠️ Asset validation completed with warnings (exit code: $LASTEXITCODE)"
+              
+              # Display last 30 lines for diagnosis
+              Write-Host "`n=== Last 30 lines of validation log ==="
+              Get-Content $validationLog -Tail 30
+            }
+          } else {
+            Write-Host "⚠️ UnrealEditor-Cmd.exe not found at: $unrealEditor"
+            Write-Host "Skipping editor validation."
+          }
+      
+      #############################################
+      # Step 8: Run Automation Tests
+      #############################################
+      - name: Run Automation Tests
+        if: always() && steps.build.outcome == 'success'
+        id: tests
+        shell: pwsh
+        run: |
+          Write-Host "🧪 Running Unreal Engine Automation Tests"
+          
+          $uprojectFile = "${{ github.workspace }}\${{ env.PROJECT_NAME }}.uproject"
+          $unrealEditor = "$env:UE_EDITOR"
+          
+          if (Test-Path $unrealEditor) {
+            # Create log directory
+            New-Item -ItemType Directory -Force -Path "${{ github.workspace }}\Saved\Logs\Tests" | Out-Null
+            $testLogFile = "${{ github.workspace }}\Saved\Logs\Tests\AutomationTest.txt"
+            $testReportFile = "${{ github.workspace }}\Saved\Logs\Tests\TestReport.json"
+            
+            Write-Host "Using UnrealEditor: $unrealEditor"
+            
+            # Run automation tests
+            # Use the KatanaCombat filter to run only this project's tests
+            $testArgs = @(
+              "`"$uprojectFile`"",
+              "-ExecCmds=Automation RunTests KatanaCombat",
+              "-unattended",
+              "-nopause",
+              "-nosplash",
+              "-nullrhi",
+              "-buildmachine",
+              "-forcelogflush",
+              "-ReportOutputPath=`"${{ github.workspace }}\Saved\Logs\Tests`"",
+              "-log"
+            )
+            
+            Write-Host "Test Command: $unrealEditor $testArgs"
+            
+            # Execute tests and capture output
+            & $unrealEditor @testArgs 2>&1 | Tee-Object -FilePath $testLogFile
+            
+            $testExitCode = $LASTEXITCODE
+            
+            # Parse test results from log
+            $testContent = Get-Content $testLogFile -Raw
+            
+            # Look for test summary in log
+            $successPattern = "Success:"
+            $failPattern = "Fail:"
+            
+            $passedTests = ([regex]::Matches($testContent, "$successPattern")).Count
+            $failedTests = ([regex]::Matches($testContent, "$failPattern")).Count
+            
+            Write-Host "`n=== Test Results ==="
+            Write-Host "✅ Passed: $passedTests"
+            Write-Host "❌ Failed: $failedTests"
+            
+            echo "tests_passed=$passedTests" >> $env:GITHUB_OUTPUT
+            echo "tests_failed=$failedTests" >> $env:GITHUB_OUTPUT
+            
+            if ($failedTests -gt 0 -or $testExitCode -ne 0) {
+              Write-Host "❌ Some tests failed"
+              echo "test_status=failed" >> $env:GITHUB_OUTPUT
+              
+              # Display test failures
+              Write-Host "`n=== Failed Tests (last 100 lines) ==="
+              $testContent -split "`n" | Select-String -Pattern "Error:|Fail:" | Select-Object -Last 100
+              
+              exit 1
+            } else {
+              Write-Host "✅ All tests passed"
+              echo "test_status=success" >> $env:GITHUB_OUTPUT
+            }
+          } else {
+            Write-Host "❌ UnrealEditor-Cmd.exe not found at: $unrealEditor"
+            echo "test_status=skipped" >> $env:GITHUB_OUTPUT
+            Write-Host "Cannot run tests without UnrealEditor."
+            exit 1
+          }
+      
+      #############################################
+      # Step 9: Upload Build Logs
+      #############################################
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.sha }}
+          path: |
+            Saved/Logs/Build/**/*.txt
+            Saved/Logs/Build/**/*.log
+          retention-days: 14
+          if-no-files-found: warn
+      
+      #############################################
+      # Step 10: Upload Static Analysis Results
+      #############################################
+      - name: Upload Static Analysis Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-analysis-${{ github.sha }}
+          path: |
+            Saved/Logs/StaticAnalysis/**/*.txt
+          retention-days: 14
+          if-no-files-found: warn
+      
+      #############################################
+      # Step 11: Upload Test Results
+      #############################################
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.sha }}
+          path: |
+            Saved/Logs/Tests/**/*.txt
+            Saved/Logs/Tests/**/*.json
+            Saved/Logs/Tests/**/*.xml
+          retention-days: 30
+          if-no-files-found: warn
+      
+      #############################################
+      # Step 12: Upload Validation Logs
+      #############################################
+      - name: Upload Validation Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-logs-${{ github.sha }}
+          path: |
+            Saved/Logs/Validation/**/*.txt
+          retention-days: 14
+          if-no-files-found: warn
+      
+      #############################################
+      # Step 13: Upload Compiled Binaries (Optional)
+      #############################################
+      - name: Upload Compiled Binaries
+        if: steps.build.outputs.build_status == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-binaries-${{ github.sha }}
+          path: |
+            Binaries/**/*.dll
+            Binaries/**/*.pdb
+          retention-days: 7
+          if-no-files-found: warn
+      
+      #############################################
+      # Step 14: Job Summary
+      #############################################
+      - name: Generate Job Summary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "📊 Generating GitHub Actions Job Summary"
+          
+          $summary = @"
+          # 🎮 KatanaCombat CI/CD Pipeline Results
+          
+          ## Build Information
+          - **Project**: ${{ env.PROJECT_NAME }}
+          - **Platform**: ${{ env.PLATFORM }}
+          - **Configuration**: ${{ env.CONFIGURATION }}
+          - **UE Version**: ${{ env.UE_VERSION }}
+          - **Commit**: ${{ github.sha }}
+          - **Branch**: ${{ github.ref_name }}
+          
+          ## Results Summary
+          
+          | Stage | Status |
+          |-------|--------|
+          | Build | ${{ steps.build.outputs.build_status == 'success' && '✅ Success' || '❌ Failed' }} |
+          | Tests | ${{ steps.tests.outputs.test_status == 'success' && '✅ Success' || steps.tests.outputs.test_status == 'failed' && '❌ Failed' || '⚠️ Skipped' }} |
+          
+          ## Test Results
+          - ✅ Passed: ${{ steps.tests.outputs.tests_passed || '0' }}
+          - ❌ Failed: ${{ steps.tests.outputs.tests_failed || '0' }}
+          
+          ## Artifacts
+          - 📦 Build logs uploaded
+          - 📦 Test results uploaded
+          - 📦 Static analysis results uploaded
+          - 📦 Validation logs uploaded
+          ${{ steps.build.outputs.build_status == 'success' && '- 📦 Compiled binaries uploaded' || '' }}
+          
+          ---
+          
+          For more details, check the individual job steps above.
+          "@
+          
+          $summary | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding UTF8
+          
+          Write-Host "✅ Job summary generated"
+
+  # Optional: Notify on completion
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    if: always()
+    
+    steps:
+      - name: Job Status
+        run: |
+          echo "Pipeline completed with status: ${{ needs.build-and-test.result }}"
+          
+          if [ "${{ needs.build-and-test.result }}" == "success" ]; then
+            echo "✅ All checks passed!"
+          else
+            echo "❌ Some checks failed. Review the logs above."
+          fi
