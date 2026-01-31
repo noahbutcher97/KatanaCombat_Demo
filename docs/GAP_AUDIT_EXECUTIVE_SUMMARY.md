@@ -31,7 +31,7 @@
 
 | Location | Issue | Fix |
 |----------|-------|-----|
-| `CombatComponent.cpp:56` | No null check after `Cast<ABaseCombatCharacter>` | Add `if (!OwnerCharacter)` guard |
+| `CombatComponent.cpp:56` | No null check on `OwnerCharacter->GetMesh()` | Add mesh validation guard before using `OwnerCharacter->GetMesh()` |
 | `HitReactionComponent.cpp:42` | No null check on `Character->GetMesh()` | Add mesh validation |
 | `WeaponComponent.cpp:34` | `OwnerMesh` used without validation | Add null check in BeginPlay |
 
