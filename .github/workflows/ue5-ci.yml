@@ -621,19 +621,19 @@ jobs:
             # === SECURITY VULNERABILITIES ===
             # Buffer overflows and unsafe functions
             if ($content -match '\b(strcpy|strcat|sprintf|gets|scanf)\s*\(') {
-              Write-Warning "  ⚠️  $fileName: Uses unsafe C function (strcpy/strcat/sprintf/gets/scanf)"
+              Write-Warning "  ⚠️  ${fileName}: Uses unsafe C function (strcpy/strcat/sprintf/gets/scanf)"
               $issues['Security']++
             }
             
             # Uninitialized variables patterns
             if ($content -match '\b(int|float|double|bool)\s+\w+\s*;[^=]' -and $content -notmatch '//.*uninitialized') {
-              Write-Warning "  ⚠️  $fileName: Potential uninitialized variable"
+              Write-Warning "  ⚠️  ${fileName}: Potential uninitialized variable"
               $issues['Bugs']++
             }
             
             # Memory leaks - new without delete
             if ($content -match '\bnew\s+' -and $content -notmatch '\bdelete\s+' -and $content -notmatch 'TSharedPtr|TUniquePtr|MakeShared') {
-              Write-Warning "  ⚠️  $fileName: Potential memory leak (new without delete/smart pointer)"
+              Write-Warning "  ⚠️  ${fileName}: Potential memory leak (new without delete/smart pointer)"
               $issues['Bugs']++
             }
             
@@ -657,7 +657,7 @@ jobs:
                 if ($braceCount -eq 0 -and $i -gt $functionStart) {
                   $funcLength = $i - $functionStart
                   if ($funcLength -gt 200) {
-                    Write-Warning "  ⚠️  $fileName: Function exceeds 200 lines ($funcLength lines)"
+                    Write-Warning "  ⚠️  ${fileName}: Function exceeds 200 lines ($funcLength lines)"
                     $issues['CodeStyle']++
                   }
                   $inFunction = $false
@@ -667,14 +667,14 @@ jobs:
             
             # Inconsistent naming (detect mixed camelCase/PascalCase in same scope)
             if ($content -match '\bclass\s+[a-z]' -or $content -match '\bstruct\s+[a-z]') {
-              Write-Warning "  ⚠️  $fileName: Class/struct name should use PascalCase"
+              Write-Warning "  ⚠️  ${fileName}: Class/struct name should use PascalCase"
               $issues['CodeStyle']++
             }
             
             # === THREAD SAFETY ISSUES ===
             # Shared mutable state without synchronization
             if ($content -match '\bstatic\s+(int|float|double|bool|TArray|TMap)\s+' -and $content -notmatch '\bFCriticalSection\b|\bFRWLock\b|\bstd::mutex\b') {
-              Write-Warning "  ⚠️  $fileName: Static mutable variable may have thread safety issues"
+              Write-Warning "  ⚠️  ${fileName}: Static mutable variable may have thread safety issues"
               $issues['ThreadSafety']++
             }
             
@@ -683,20 +683,20 @@ jobs:
             if ($content -match '\bif\s*\([^)]*\bptr\b[^)]*\)' -or $content -match '\bcheck\s*\([^)]*!=\s*nullptr\)') {
               # Good - has null check
             } elseif ($content -match '\b\w+\s*->\s*\w+' -and $content -match '\*\s*\w+\s*(=|;)') {
-              Write-Warning "  ⚠️  $fileName: Potential null pointer dereference without check"
+              Write-Warning "  ⚠️  ${fileName}: Potential null pointer dereference without check"
               $issues['DataValidation']++
             }
             
             # Missing array bounds checks
             if ($content -match '\[\s*\w+\s*\]' -and $content -notmatch '\bIsValidIndex\b|\bNum\(\)') {
-              Write-Warning "  ⚠️  $fileName: Array access may lack bounds checking"
+              Write-Warning "  ⚠️  ${fileName}: Array access may lack bounds checking"
               $issues['DataValidation']++
             }
             
             # Data asset validation (Issue #1 related)
             if ($content -match '\bUDataAsset\b|\bUPrimaryDataAsset\b') {
               if ($content -notmatch '\bIsValid\s*\(|\bcheck\s*\(') {
-                Write-Warning "  ⚠️  $fileName: Data asset usage may lack validation"
+                Write-Warning "  ⚠️  ${fileName}: Data asset usage may lack validation"
                 $issues['DataValidation']++
               }
             }
@@ -704,7 +704,7 @@ jobs:
             # Motion warp target names (Issue #1 related)
             if ($content -match '\bAddOrUpdateWarpTarget\b|\bMotionWarping\b') {
               if ($content -notmatch 'if\s*\([^)]*\.IsNone\(\)|if\s*\([^)]*==\s*NAME_None') {
-                Write-Warning "  ⚠️  $fileName: Motion warp target may lack name validation"
+                Write-Warning "  ⚠️  ${fileName}: Motion warp target may lack name validation"
                 $issues['DataValidation']++
               }
             }
@@ -714,7 +714,7 @@ jobs:
             $lines = $content -split "`n"
             for ($i = 0; $i -lt $lines.Count - 1; $i++) {
               if ($lines[$i] -match '^\s*return\s+' -and $lines[$i+1] -match '^\s*[A-Za-z]' -and $lines[$i+1] -notmatch '^\s*\}') {
-                Write-Warning "  ⚠️  $fileName: Potential unreachable code after return statement"
+                Write-Warning "  ⚠️  ${fileName}: Potential unreachable code after return statement"
                 $issues['Bugs']++
                 break
               }
@@ -722,14 +722,14 @@ jobs:
             
             # Shadowing variables
             if ($content -match '\bfor\s*\([^)]*\bint\s+(\w+)' -and $content -match "int\s+$($Matches[1])\s*[=;]") {
-              Write-Warning "  ⚠️  $fileName: Variable shadowing detected"
+              Write-Warning "  ⚠️  ${fileName}: Variable shadowing detected"
               $issues['Bugs']++
             }
             
             # === PERFORMANCE ISSUES ===
             # Pass by value for large UE types
             if ($content -match '\b(FString|FName|FText|FVector|FTransform|TArray)\s+\w+\s*\)' -and $content -notmatch 'const\s+(FString|FName|FText|FVector|FTransform|TArray)\s*&') {
-              Write-Warning "  ⚠️  $fileName: Large UE type passed by value (should use const ref)"
+              Write-Warning "  ⚠️  ${fileName}: Large UE type passed by value (should use const ref)"
               $issues['Performance']++
             }
           }
