@@ -9,7 +9,8 @@
 - **Posture-Based Defense**: Guard breaks and perfect parries
 - **Data-Driven Configuration**: Attack properties defined in AttackData assets
 - **Paired Animation System**: Finishers, counters, and cinematic executions
-- **Comprehensive Testing**: 14 test suites with 126 tests
+- **Editor Tools**: Custom analysis windows, auto-notify generation, validation tools
+- **Comprehensive Testing**: 14 test suites with 159 tests
 
 ## Core Design Principles
 
@@ -32,7 +33,7 @@
    - Anti-Pattern: Putting the Parry Window on the defender's block animation
 
 4. **Functional Consolidation**
-   - `UCombatComponent` is intentionally dense (~1000 lines)
+   - `UCombatComponent` is intentionally dense (~4000 lines of implementation)
    - Do NOT fragment logic into tiny sub-components unless absolutely necessary
    - Maintain separation between the 4 main components
 
@@ -42,26 +43,56 @@
 Source/KatanaCombat/Public/
 ├── CombatTypes.h              # ALL enums, structs, system-wide delegates
 ├── Core/
-│   ├── CombatComponent.h      # Combat state, attack execution, FIFO queue
+│   ├── CombatComponent.h      # Combat state, attack execution, FIFO queue (~4000 lines)
 │   ├── TargetingComponent.h   # Soft-lock targeting, aim assist
 │   ├── WeaponComponent.h      # Hit detection, weapon state
 │   └── HitReactionComponent.h # Damage reception, hit reactions, death
 ├── Data/
 │   ├── AttackData.h           # Attack configuration asset
 │   ├── CombatSettings.h       # Global tuning values
-│   └── HitReactionSettings.h  # Hit reaction configuration
+│   ├── HitReactionSettings.h  # Hit reaction configuration
+│   ├── TargetingSettings.h    # Targeting configuration
+│   ├── MotionWarpingSettings.h# Motion warping configuration
+│   └── PairedAnimationData.h  # Paired animation data
 ├── Animation/
-│   ├── AnimNotify_AttackPhaseTransition.h
-│   ├── AnimNotifyState_ParryWindow.h
-│   └── AnimNotifyState_ComboWindow.h
+│   ├── AnimNotify_AttackPhaseTransition.h  # Phase transitions
+│   ├── AnimNotifyState_ParryWindow.h       # Parry timing windows
+│   ├── AnimNotifyState_ComboWindow.h       # Combo input windows
+│   ├── AnimNotifyState_HoldWindow.h        # Hold input windows
+│   ├── AnimNotifyState_CombatWarp.h        # Motion warping
+│   └── AnimNotifyState_PairedAnimationSync.h # Finisher sync points
 ├── Characters/
 │   ├── BaseCombatCharacter.h  # Base class with 4 combat components
 │   ├── PlayerCharacter.h      # Player-specific combat
 │   └── EnemyCharacter.h       # Enemy-specific combat
-└── Interfaces/
-    ├── DamageableInterface.h  # Damage/health contract
-    ├── CombatInterface.h      # Combat state contract
-    └── TeamMemberInterface.h  # Team/faction contract
+├── Interfaces/
+│   ├── DamageableInterface.h  # Damage/health contract
+│   ├── CombatInterface.h      # Combat state contract
+│   └── TeamMemberInterface.h  # Team/faction contract
+├── Utilities/
+│   ├── MontageUtilityLibrary.h            # 27 montage utility functions
+│   ├── PairedAnimationUtilityLibrary.h    # Paired animation validation
+│   ├── CinematicEffectsUtilityLibrary.h   # Time dilation, camera shake
+│   ├── SpatialQueryLibrary.h              # Spatial queries
+│   ├── SkeletalAnalysisLibrary.h          # Skeleton analysis
+│   ├── PhysicsIntegrationLibrary.h        # Physics integration
+│   ├── GeometryMathLibrary.h              # Geometry math
+│   └── CombatUtils.h                      # General utilities
+└── Debug/
+    ├── CombatDebugHUD.h       # Debug HUD overlay
+    ├── CombatDebugWidget.h    # Debug UI widgets
+    └── DebugUtils.h           # Debug visualization utilities
+
+Source/KatanaCombatEditor/Public/  # EDITOR-ONLY MODULE
+├── MontageAnalyzerWindow.h        # Quick montage analysis launcher
+├── MontageAnalysisDashboard.h     # Frame-by-frame montage analysis
+├── PairedAnimationPreview.h       # Synchronized pair animation preview
+├── AttackDataTools.h              # Attack data utilities & automation
+├── PairedMontageAnalyzer.h        # Paired animation analysis engine
+├── MontageAnalyzerTools.h         # General montage analysis utilities
+└── Customizations/
+    ├── AttackDataCustomization.h  # Custom AttackData editor UI
+    └── HitReactionDataCustomization.h # Custom HitReactionData editor UI
 ```
 
 ## Development Standards
@@ -95,6 +126,111 @@ Source/KatanaCombat/Public/
 - **Follow Existing Patterns**: Consistent with tests in `Source/KatanaCombatTest/`
 - **Run Tests Before PR**: Execute automation tests to verify changes
 - **Test Location**: Unit tests in `Source/KatanaCombatTest/Private/`
+- **Current Coverage**: 159 tests across 14 test suites
+
+## Editor Tools & Automation
+
+The **KatanaCombatEditor** module provides optional but powerful custom editor tools for combat configuration and validation. These tools are editor-only and do not affect runtime.
+
+### Custom Editor Windows
+
+#### Paired Animation Preview
+Industry-grade synchronized animation analysis for paired combat sequences (finishers, counters).
+
+**Key Features:**
+- Shared 3D viewport with simultaneous attacker/victim preview
+- Procedural contact point detection (6 points per character with confidence scoring)
+- Bone trajectory visualization with velocity tracking
+- One-click optimization (auto-calculates distance, rotation, sync time, victim offset)
+- Root motion analysis and visualization layers
+- Export analysis to CSV/JSON
+
+**Access:** `Window → Paired Animation Preview` in editor
+
+#### Montage Analysis Dashboard
+Frame-by-frame montage analysis with detailed per-frame analytics.
+
+**Key Features:**
+- 3D preview with scrubber controls
+- Per-frame root motion, bone transforms, and velocities
+- Interactive notify timeline visualization
+- Bone selection and tracking
+- Warp data display and phase information
+
+**Access:** `Window → Montage Analysis Dashboard` in editor
+
+### Customization Details Panels
+
+#### AttackDataCustomization
+Enhances the `UAttackData` details panel with intelligent editing tools.
+
+**Features:**
+- **Section Selector Dropdown**: Auto-populated from montage sections with time/duration display
+- **Visual Timing Editor**: Phase sliders showing windup/active/recovery breakdown
+- **Auto-Calculate Timing**: Smart timing based on attack type (Light: 30/20/50%, Heavy: 40/30/30%)
+- **Generate AnimNotifies**: One-click creation of:
+  - `AnimNotify_AttackPhaseTransition` (phase boundary markers)
+  - `AnimNotifyState_ComboWindow` (recovery phase window)
+- **Validation Warnings**: Highlights section conflicts, missing notifies, bad montages
+- **Batch Operations**: Generate notifies for multiple attacks at once
+
+#### HitReactionDataCustomization
+Streamlined editor for reaction montages with section selection and validation.
+
+### Utility Classes (Blueprint-Callable)
+
+#### UMontageAnalyzerTools
+Static utility library with 27+ functions for montage analysis.
+
+**Categories:**
+- **Timing Analysis**: `GetMontageTiming()`, `GetMontageDuration()`, `FindSyncPointTime()`
+- **Notify Analysis**: `GetNotifiesInRange()`, `GetNotifiesOfClass()`, `HasNotifyOfClass()`
+- **Bone Trajectory**: `SampleBoneTrajectory()`, `GetBoneVelocityAtTime()`, `GetMaxBoneSpeed()`
+- **Root Motion**: `GetRootMotionDistance()`, `GetRootMotionDirectionAtTime()`
+- **Validation**: `ValidateMontage()`, `DoesSectionExist()`
+- **Complete Analysis**: `AnalyzeMontage()` - comprehensive all-in-one
+
+#### UAttackDataTools
+Specialized tools for attack configuration and batch operations.
+
+**Key Functions:**
+- Auto-calculate timing from attack type
+- Extract timing from existing notifies
+- Generate notifies automatically
+- Validate AttackData with warnings/errors
+- Find all AttackData assets
+- Detect section conflicts across multiple attacks
+
+#### UPairedMontageAnalyzer
+Advanced analysis for paired animations with optimization recommendations.
+
+**Analysis Types:**
+- Contact point prediction (where bones approach closest)
+- Sync point validation (timing alignment)
+- Reach requirement calculation
+- Optimal distance recommendations
+- Timing synchronization
+- Montage compatibility checking
+- Auto-fill PairedAnimationData values
+
+### Editor Workflow
+
+**For New Attacks:**
+1. Create `UAttackData` asset
+2. Assign montage and select section
+3. Click "Auto-Calculate Timing" or adjust sliders
+4. Click "Generate AnimNotifies" → Automatically creates all required notifies
+5. Click "Validate" to check for issues
+6. One-click open montage editor if adjustments needed
+
+**For Paired Animations:**
+1. Open Paired Animation Preview window
+2. Select attacker and victim montages
+3. Click "Auto-Optimize" → Calculates optimal distance, rotation, sync time
+4. Preview synchronized playback
+5. Export analysis or apply to PairedAnimationData asset
+
+**Value Proposition:** Eliminates 80% of manual animation configuration work through intelligent analysis and automation.
 
 ## Common Mistakes to Avoid
 
@@ -105,6 +241,17 @@ Source/KatanaCombat/Public/
 - Declaring delegates in component headers (use CombatTypes.h)
 - Calling `BlueprintNativeEvent` interface methods directly (use `Execute_` pattern)
 - Making internal state variables `BlueprintReadOnly` unnecessarily
+- Using deprecated AnimNotifyState_AttackPhase (use AnimNotify_AttackPhaseTransition instead)
+- Using deprecated AnimNotify_ToggleHitDetection (hit detection is now automatic during Active phase)
+
+## Deprecated Features
+
+The following features still exist in the codebase but are marked as deprecated with migration warnings:
+
+- **AnimNotifyState_AttackPhase**: Replaced by `AnimNotify_AttackPhaseTransition`. See `docs/PHASE_SYSTEM_MIGRATION.md`
+- **AnimNotify_ToggleHitDetection**: No longer needed - hit detection is automatic during Active phase
+
+Do not use these in new work. Migrate existing usage when touching related code.
 
 ## Documentation
 
@@ -130,6 +277,21 @@ The project uses context modes for focused work. Available modes:
 - **`full`**: Architecture (Cross-cutting changes)
 
 Documentation in `.claude/context-modes/` and `.gemini/context-modes/`
+
+### Utility Libraries
+
+The project includes 8 Blueprint-callable utility libraries for common operations:
+
+- **MontageUtilityLibrary**: 27 functions for montage timing, blending, section navigation
+- **PairedAnimationUtilityLibrary**: Validation and contact point analysis for paired animations
+- **CinematicEffectsUtilityLibrary**: Time dilation, hitstop, camera shake
+- **SpatialQueryLibrary**: Spatial queries and geometry tests
+- **SkeletalAnalysisLibrary**: Skeleton bone analysis and hierarchy queries
+- **PhysicsIntegrationLibrary**: Physics integration utilities
+- **GeometryMathLibrary**: Geometry and math operations
+- **CombatUtils**: General combat utility functions
+
+These are preferred over implementing custom solutions. Check if functionality exists before writing new code.
 
 ## Build and Test Instructions
 
