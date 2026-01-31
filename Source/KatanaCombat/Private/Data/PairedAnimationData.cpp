@@ -72,14 +72,16 @@ EDataValidationResult UPairedAnimationData::IsDataValid(FDataValidationContext& 
     // Check attacker montage
     if (!AttackerMontage)
     {
-        Context.AddError(FText::FromString(TEXT("AttackerMontage is required")));
+        Context.AddError(FText::FromString(FString::Printf(
+            TEXT("%s: AttackerMontage is required"), *GetName())));
         Result = EDataValidationResult::Invalid;
     }
 
     // Check victim montage
     if (!VictimMontage)
     {
-        Context.AddError(FText::FromString(TEXT("VictimMontage is required for paired animations")));
+        Context.AddError(FText::FromString(FString::Printf(
+            TEXT("%s: VictimMontage is required for paired animations"), *GetName())));
         Result = EDataValidationResult::Invalid;
     }
 
@@ -87,44 +89,50 @@ EDataValidationResult UPairedAnimationData::IsDataValid(FDataValidationContext& 
     if (AttackerMontage && SyncPointTime > AttackerMontage->GetPlayLength())
     {
         Context.AddError(FText::FromString(FString::Printf(
-            TEXT("SyncPointTime (%.2f) exceeds AttackerMontage length (%.2f)"),
-            SyncPointTime, AttackerMontage->GetPlayLength())));
+            TEXT("%s: SyncPointTime (%.2f) exceeds AttackerMontage length (%.2f)"),
+            *GetName(), SyncPointTime, AttackerMontage->GetPlayLength())));
         Result = EDataValidationResult::Invalid;
     }
 
     // Validate distance configuration
     if (MinTriggerDistance >= MaxTriggerDistance)
     {
-        Context.AddError(FText::FromString(TEXT("MinTriggerDistance must be less than MaxTriggerDistance")));
+        Context.AddError(FText::FromString(FString::Printf(
+            TEXT("%s: MinTriggerDistance must be less than MaxTriggerDistance"), *GetName())));
         Result = EDataValidationResult::Invalid;
     }
 
     if (MaxWarpDistance < (MaxTriggerDistance - MinTriggerDistance))
     {
-        Context.AddWarning(FText::FromString(TEXT("MaxWarpDistance may be too small for trigger distance range")));
+        Context.AddWarning(FText::FromString(FString::Printf(
+            TEXT("%s: MaxWarpDistance may be too small for trigger distance range"), *GetName())));
     }
 
     // Validate slow motion settings
     if (bApplySlowMotion && SlowMotionScale >= 1.0f)
     {
-        Context.AddWarning(FText::FromString(TEXT("SlowMotionScale >= 1.0 will not produce slow motion effect")));
+        Context.AddWarning(FText::FromString(FString::Printf(
+            TEXT("%s: SlowMotionScale >= 1.0 will not produce slow motion effect"), *GetName())));
     }
 
     // Validate blend times
     if (AttackerMontage && (AttackerBlendIn + AttackerBlendOut) > AttackerMontage->GetPlayLength())
     {
-        Context.AddWarning(FText::FromString(TEXT("Attacker blend times exceed montage length")));
+        Context.AddWarning(FText::FromString(FString::Printf(
+            TEXT("%s: Attacker blend times exceed montage length"), *GetName())));
     }
 
     if (VictimMontage && (VictimBlendIn + VictimBlendOut) > VictimMontage->GetPlayLength())
     {
-        Context.AddWarning(FText::FromString(TEXT("Victim blend times exceed montage length")));
+        Context.AddWarning(FText::FromString(FString::Printf(
+            TEXT("%s: Victim blend times exceed montage length"), *GetName())));
     }
 
     // Check animation name
     if (AnimationName.IsNone())
     {
-        Context.AddWarning(FText::FromString(TEXT("AnimationName should be set for TMap lookups")));
+        Context.AddWarning(FText::FromString(FString::Printf(
+            TEXT("%s: AnimationName should be set for TMap lookups"), *GetName())));
     }
 
     return Result;
