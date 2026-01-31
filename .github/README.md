@@ -72,64 +72,52 @@ See [SETUP_GUIDE.md](SETUP_GUIDE.md) for detailed instructions.
 
 **Jobs**:
 1. **Environment Detection**: Checks runner availability via GitHub API and selects optimal runner type
-2. **Build & Test (Self-Hosted)**: Executes on self-hosted runners if available
-3. **Build & Test (GitHub-Hosted)**: Fallback to GitHub-hosted runners
+2. **Tier 1: Self-Hosted (Full UE5.6 Pipeline)**: Executes complete build when UE5.6 available
+3. **Tier 2: GitHub-Hosted (Lightweight Validation)**: UE-independent validation fallback
 4. **Report Results**: Aggregates results and posts PR comments
+
+**Two-Tier Architecture**:
+
+The pipeline adapts to available infrastructure with two execution tiers:
+
+**Tier 1: Self-Hosted Runner** (`timeout-minutes: 15`):
+- **When**: Self-hosted runner with UE5.6 is available
+- **Executes**:
+  - ✅ Full UE5.6 project compilation
+  - ✅ Static analysis with clang-tidy
+  - ✅ Asset validation via ResavePackages
+  - ✅ Automation tests with NullRHI (headless)
+  - ✅ Binary artifact generation
+- **Timeout**: 15 minutes (typical: 3-5 min cached, 15-25 min cold)
+- **Artifacts**: Logs, test results, compiled binaries
+
+**Tier 2: GitHub-Hosted Runner** (`timeout-minutes: 30`):
+- **When**: Self-hosted unavailable or fails
+- **Executes** (UE-independent validation):
+  - ✅ YAML workflow validation
+  - ✅ Project structure validation
+  - ✅ Build configuration checks (.Build.cs, .Target.cs)
+  - ✅ Basic static analysis on C++ files
+  - ✅ Test structure validation
+- **Timeout**: 30 minutes
+- **No UE5.6 required**: Runs lightweight quality checks
+- **Artifacts**: Validation logs
 
 **Fallback Mechanism**:
 
-The pipeline implements intelligent pre-check and fallback to prevent workflow stalling:
-
 - **Pre-check step** (Environment Detection):
   - Queries GitHub API to check if self-hosted runners are online
-  - In `auto` mode, immediately skips self-hosted job if no runner available
+  - In `auto` mode, determines which tier to execute
   - Eliminates unnecessary wait times when infrastructure is down
   - Requires `actions: read` permission
 
-- **Self-hosted job** (`timeout-minutes: 15`):
-  - Runs only when runner is detected as available (or when forced)
-  - Reduced timeout since pre-check eliminates most indefinite stalling
-  - `continue-on-error: true` allows workflow to proceed on failure
-  - Typical builds complete in 3-25 minutes, well within timeout
-  - Full pipeline: build, test, validate, analyze
-
-- **GitHub-hosted job** (`timeout-minutes: 180`):
-  - Runs conditionally: when self-hosted is skipped or fails
-  - **Executes complete build pipeline** (not placeholder logic):
-    - Compiles project with UnrealBuildTool
-    - Runs static analysis with clang-tidy
-    - Validates assets via ResavePackages
-    - Executes automation tests with NullRHI
-    - Uploads artifacts (logs, test results, binaries)
-  - Longer timeout accommodates automated VS2022 and UE5.6 setup
-  - Provides cloud-based builds without local infrastructure dependency
-  - Instant fallback when pre-check determines no runners available
-  - **Requires**: UE5.6 cached or custom installation (via `UE_DOWNLOAD_URL` secret)
-
 - **Success criteria**:
-  - Workflow succeeds if **either** runner completes successfully
-  - Both runners can run in parallel when forced via workflow inputs
+  - Workflow succeeds if **either** tier completes successfully
+  - Tier 1 (self-hosted) provides full validation when available
+  - Tier 2 (GitHub-hosted) ensures code quality checks always run
   - Results aggregated and posted to PR comments
-  - Artifacts available from successful runner
 
-**Stages** (executed on both runner types):
-- 📥 Checkout with Git LFS
-- 💾 Restore build cache
-- 🎮 Detect/Setup Unreal Engine
-- 🔨 Setup MSBuild
-- 📦 Generate project files
-- 🏗️ Compile project (`Win64 Development Editor`)
-- 🔍 Static analysis with clang-tidy
-- 📋 Asset validation via ResavePackages
-- 🧪 Automation tests (headless, NullRHI)
-- 📤 Upload artifacts (logs, tests, binaries)
-
-**Build Times & Timeouts**:
-- Self-Hosted (cached): 3-5 minutes (timeout: 15 minutes)
-- Self-Hosted (cold): 15-25 minutes (timeout: 15 minutes)
-- GitHub-Hosted: 40-60 minutes initial setup (timeout: 180 minutes)
-
-**Note**: Self-hosted timeout reduced to 15 minutes since API pre-check eliminates most stalling cases. Pre-check provides instant fallback when runners are offline.
+**Key Benefit**: Pipeline never fails due to infrastructure unavailability. It gracefully degrades to lightweight validation while maintaining meaningful quality checks.
 
 ## 🎮 Using from GitHub Mobile
 

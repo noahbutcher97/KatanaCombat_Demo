@@ -139,37 +139,57 @@ Automated GitHub Actions pipeline with dual-runner support:
 - ✅ **Mobile-Friendly** workflow dispatch
 - ✅ **Artifact Management** (logs, tests, binaries)
 
-### Fallback Mechanism
+### Two-Tier Pipeline Architecture
 
-The pipeline intelligently detects runner availability and falls back to GitHub-hosted runners when needed:
+The CI/CD pipeline implements a **two-tier approach** that adapts to available infrastructure:
+
+#### Tier 1: Self-Hosted Runner (Full UE5.6 Pipeline)
+When self-hosted runners with UE5.6 are available, the complete pipeline executes:
+- ✅ Full UE5.6 project compilation
+- ✅ Static analysis with clang-tidy
+- ✅ Asset validation via ResavePackages
+- ✅ Automation tests with NullRHI (headless)
+- ✅ Binary artifact generation
+- ⏱️ **Timeout**: 15 minutes
+
+#### Tier 2: GitHub-Hosted Runner (Lightweight Validation)
+When self-hosted runners are unavailable, GitHub-hosted runners execute **UE-independent** validation:
+- ✅ YAML workflow validation
+- ✅ Project structure validation
+- ✅ Build configuration checks (.Build.cs, .Target.cs)
+- ✅ Basic static analysis
+- ✅ Test structure validation
+- ⏱️ **Timeout**: 30 minutes
+
+**Key Benefit**: The pipeline never fails due to infrastructure unavailability. It gracefully degrades to lightweight validation while maintaining code quality checks.
+
+### Fallback Mechanism
 
 **How it works**:
 1. **Pre-check for availability** (via GitHub API)
    - Queries repository runners to check if self-hosted runners are online
-   - In `auto` mode, skips self-hosted job immediately if no runner is available
+   - In `auto` mode, determines which tier to execute
    - Eliminates unnecessary wait times when infrastructure is down
 
-2. **Self-hosted attempt** (15-minute timeout)
-   - Runs when self-hosted runner is detected as available
-   - Reduced timeout since pre-check prevents indefinite stalling
-   - Uses `continue-on-error: true` to allow workflow to proceed on failure
-   - Full build, test, and validation pipeline executed
+2. **Tier 1: Self-hosted execution** (when available)
+   - Runs complete UE5.6 build and test pipeline
+   - Uses `continue-on-error: true` to allow fallback on failure
+   - Uploads comprehensive artifacts (logs, tests, binaries)
 
-3. **Automatic fallback to GitHub-hosted**
-   - Triggers when self-hosted is skipped (no runner available) or fails
-   - **Executes complete build pipeline**: compilation, static analysis, tests, asset validation
-   - Provides cloud-based build capability with no local infrastructure dependency
-   - Longer timeout (180 minutes) for initial setup and builds
-   - **Note**: Requires UE5.6 to be available (cached or installed)
+3. **Tier 2: GitHub-hosted fallback** (when self-hosted unavailable/fails)
+   - Triggers instantly when self-hosted is skipped or fails
+   - **Executes lightweight validation** - no UE5.6 required
+   - Validates code quality, structure, and configuration
+   - Provides meaningful feedback without full infrastructure
 
 4. **Result aggregation**
-   - Success if either runner completes successfully
-   - Build results posted to PR comments
-   - Artifacts uploaded from whichever runner succeeded (logs, test results, binaries)
+   - Success if either tier completes successfully
+   - Results posted to PR comments
+   - Clear indication of which tier executed
 
 **Timeout Configuration**:
-- Self-hosted: 15 minutes (pre-check eliminates most stalling cases)
-- GitHub-hosted: 180 minutes (includes automated setup time)
+- Self-hosted (Tier 1): 15 minutes (full pipeline)
+- GitHub-hosted (Tier 2): 30 minutes (lightweight validation)
 
 ### Quick Setup
 ```powershell
