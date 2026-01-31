@@ -199,9 +199,10 @@ When self-hosted runners are unavailable, GitHub-hosted runners execute **compre
    - Results posted to PR comments
    - Clear indication of which tier executed
 
-**Timeout Configuration**:
-- Self-hosted (Tier 1): 15 minutes (full pipeline)
-- GitHub-hosted (Tier 2): 30 minutes (lightweight validation)
+**Timeout & Build Duration**:
+- Self-hosted (Tier 1): 30 minutes job timeout (full pipeline)
+- GitHub-hosted (Tier 2): 30 minutes job timeout (lightweight validation)
+- Expected Tier 1 build time: 15–25 minutes on a cold machine/cache; warm runs are typically faster and should complete well within the 30‑minute timeout.
 
 ### Quick Setup
 ```powershell
