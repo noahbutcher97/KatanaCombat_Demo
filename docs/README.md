@@ -255,6 +255,7 @@ Combo chains or return to Idle
 
 ## Documentation
 
+### Core Documentation
 - **[README.md](README.md)** (this file) - Project overview
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete technical deep dive
 - **[ARCHITECTURE_QUICK.md](ARCHITECTURE_QUICK.md)** - Quick reference for developers
@@ -265,6 +266,12 @@ Combo chains or return to Idle
 - **[CHANGELOG.md](CHANGELOG.md)** - Combat system change history and bug fixes
 - **[ROADMAP.md](ROADMAP.md)** - Planned features and system status
 - **[Source/KatanaCombatTest/README.md](../Source/KatanaCombatTest/README.md)** - C++ unit test suite documentation
+
+### CI/CD & DevOps
+- **[CI_CD_GUIDE.md](CI_CD_GUIDE.md)** - Complete CI/CD pipeline documentation
+- **[CI_CD_QUICK_REFERENCE.md](CI_CD_QUICK_REFERENCE.md)** - Quick reference for common CI/CD tasks
+- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Self-hosted runner setup guide
+- **[DEPLOYMENT_EXAMPLES.md](DEPLOYMENT_EXAMPLES.md)** - Deployment configuration examples
 
 ### For AI/Copilot Agents
 - **[copilot-instructions.md](../copilot-instructions.md)** - Comprehensive guide for GitHub Copilot agents
