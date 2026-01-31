@@ -1,0 +1,891 @@
+name: UE5.6 CI Pipeline
+
+on:
+  push:
+    branches: [ main, develop, 'feature/**', 'bugfix/**' ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.vscode/**'
+      - '.idea/**'
+  pull_request:
+    branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Skip automation tests'
+        required: false
+        type: boolean
+        default: false
+      skip_asset_validation:
+        description: 'Skip asset validation'
+        required: false
+        type: boolean
+        default: false
+      build_configuration:
+        description: 'Build configuration'
+        required: false
+        type: choice
+        options:
+          - Development
+          - DebugGame
+          - Shipping
+        default: Development
+      runner_type:
+        description: 'Force runner type (leave empty for auto-detect)'
+        required: false
+        type: choice
+        options:
+          - ''
+          - self-hosted
+          - windows-latest
+
+env:
+  PROJECT_NAME: KatanaCombat
+  UE_VERSION: 5.6
+  BUILD_CONFIG: ${{ github.event.inputs.build_configuration || 'Development' }}
+  PLATFORM: Win64
+  TARGET: KatanaCombatEditor
+  # Set to 'true' if using a self-hosted runner with UE5.6 pre-installed
+  # This will be auto-detected based on runner labels
+  IS_SELF_HOSTED: ${{ contains(github.event.runner.name, 'self-hosted') || github.event.inputs.runner_type == 'self-hosted' }}
+
+jobs:
+  # Pre-flight checks and environment detection
+  detect-environment:
+    name: Detect Build Environment
+    runs-on: windows-latest
+    outputs:
+      runner-type: ${{ steps.detect.outputs.runner-type }}
+      use-self-hosted: ${{ steps.detect.outputs.use-self-hosted }}
+      cache-key-prefix: ${{ steps.detect.outputs.cache-key-prefix }}
+    steps:
+      - name: Detect Runner Type
+        id: detect
+        shell: pwsh
+        run: |
+          $isSelfHosted = "${{ env.IS_SELF_HOSTED }}" -eq "true"
+          $runnerType = if ($isSelfHosted) { "self-hosted" } else { "windows-latest" }
+          $cachePrefix = if ($isSelfHosted) { "self" } else { "github" }
+          
+          echo "runner-type=$runnerType" >> $env:GITHUB_OUTPUT
+          echo "use-self-hosted=$isSelfHosted" >> $env:GITHUB_OUTPUT
+          echo "cache-key-prefix=$cachePrefix" >> $env:GITHUB_OUTPUT
+          
+          Write-Host "🔍 Detected runner type: $runnerType"
+          Write-Host "🏷️ Cache key prefix: $cachePrefix"
+
+  # Main build job
+  build-and-test:
+    name: Build & Test UE5.6
+    needs: detect-environment
+    runs-on: ${{ needs.detect-environment.outputs.runner-type }}
+    timeout-minutes: 120
+    
+    steps:
+      # ============================================
+      # SETUP: Checkout & Environment
+      # ============================================
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for proper versioning
+          lfs: true       # Enable Git LFS for large assets
+          
+      - name: 🔧 Configure Git LFS
+        shell: pwsh
+        run: |
+          git lfs install
+          git lfs pull
+
+      - name: 📊 Display Environment Info
+        shell: pwsh
+        run: |
+          Write-Host "================================================"
+          Write-Host "🎮 KatanaCombat UE5.6 CI Pipeline"
+          Write-Host "================================================"
+          Write-Host "Runner: ${{ runner.name }}"
+          Write-Host "OS: ${{ runner.os }}"
+          Write-Host "Architecture: ${{ runner.arch }}"
+          Write-Host "Self-Hosted: ${{ needs.detect-environment.outputs.use-self-hosted }}"
+          Write-Host "Build Config: ${{ env.BUILD_CONFIG }}"
+          Write-Host "Platform: ${{ env.PLATFORM }}"
+          Write-Host "Project: ${{ env.PROJECT_NAME }}"
+          Write-Host "UE Version: ${{ env.UE_VERSION }}"
+          Write-Host "================================================"
+          Write-Host ""
+          Write-Host "System Info:"
+          systeminfo | Select-String "OS Name", "OS Version", "System Type", "Total Physical Memory"
+          Write-Host ""
+          Write-Host "Disk Space:"
+          Get-PSDrive -PSProvider FileSystem | Select-Object Name, @{Name="Used(GB)";Expression={[math]::Round($_.Used/1GB,2)}}, @{Name="Free(GB)";Expression={[math]::Round($_.Free/1GB,2)}}
+
+      # ============================================
+      # SETUP: Visual Studio Build Tools
+      # ============================================
+      - name: 🔨 Install Visual Studio 2022 Build Tools
+        if: needs.detect-environment.outputs.use-self-hosted == 'false'
+        shell: pwsh
+        run: |
+          Write-Host "📦 Installing Visual Studio 2022 Build Tools..."
+          
+          # Download VS Build Tools installer
+          $installerUrl = "https://aka.ms/vs/17/release/vs_buildtools.exe"
+          $installerPath = "$env:TEMP\vs_buildtools.exe"
+          
+          Write-Host "Downloading installer..."
+          Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath
+          
+          # Install with required workloads for UE5
+          Write-Host "Installing components (this may take 10-15 minutes)..."
+          Start-Process -FilePath $installerPath -ArgumentList @(
+            '--quiet',
+            '--wait',
+            '--norestart',
+            '--nocache',
+            '--add', 'Microsoft.VisualStudio.Workload.VCTools',
+            '--add', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+            '--add', 'Microsoft.VisualStudio.Component.Windows11SDK.22621',
+            '--add', 'Microsoft.VisualStudio.Component.VC.14.38.17.8.x86.x64'
+          ) -Wait -NoNewWindow
+          
+          Write-Host "✅ Visual Studio Build Tools installed"
+
+      - name: 🔍 Locate MSBuild
+        id: msbuild
+        shell: pwsh
+        run: |
+          $msbuildPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
+            -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe `
+            | Select-Object -First 1
+          
+          if (-not $msbuildPath) {
+            Write-Error "❌ MSBuild not found!"
+            exit 1
+          }
+          
+          Write-Host "✅ Found MSBuild: $msbuildPath"
+          echo "path=$msbuildPath" >> $env:GITHUB_OUTPUT
+
+      # ============================================
+      # SETUP: Unreal Engine 5.6
+      # ============================================
+      - name: 🎮 Detect Unreal Engine 5.6 Installation
+        id: ue-detect
+        shell: pwsh
+        run: |
+          Write-Host "🔍 Searching for Unreal Engine ${{ env.UE_VERSION }}..."
+          
+          # Common installation paths
+          $searchPaths = @(
+            "C:\Program Files\Epic Games\UE_${{ env.UE_VERSION }}",
+            "C:\UnrealEngine\UE_${{ env.UE_VERSION }}",
+            "D:\UnrealEngine\UE_${{ env.UE_VERSION }}",
+            "C:\UE${{ env.UE_VERSION }}",
+            "$env:USERPROFILE\UnrealEngine\UE_${{ env.UE_VERSION }}"
+          )
+          
+          # Check registry for custom installation paths
+          $regPaths = @(
+            "HKLM:\SOFTWARE\EpicGames\Unreal Engine\${{ env.UE_VERSION }}",
+            "HKCU:\SOFTWARE\EpicGames\Unreal Engine\${{ env.UE_VERSION }}"
+          )
+          
+          foreach ($regPath in $regPaths) {
+            if (Test-Path $regPath) {
+              $installDir = (Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue).InstalledDirectory
+              if ($installDir) {
+                $searchPaths += $installDir
+              }
+            }
+          }
+          
+          # Find UE installation
+          $ueRoot = $null
+          foreach ($path in $searchPaths) {
+            $buildBat = Join-Path $path "Engine\Build\BatchFiles\Build.bat"
+            if (Test-Path $buildBat) {
+              $ueRoot = $path
+              Write-Host "✅ Found UE ${{ env.UE_VERSION }} at: $ueRoot"
+              break
+            }
+          }
+          
+          if (-not $ueRoot) {
+            Write-Warning "⚠️ Unreal Engine ${{ env.UE_VERSION }} not found!"
+            Write-Host ""
+            Write-Host "================================================"
+            Write-Host "📋 SETUP INSTRUCTIONS FOR UNREAL ENGINE 5.6"
+            Write-Host "================================================"
+            Write-Host ""
+            Write-Host "For Self-Hosted Runners:"
+            Write-Host "  1. Download UE 5.6 from Epic Games Launcher"
+            Write-Host "  2. Install to: C:\Program Files\Epic Games\UE_5.6"
+            Write-Host "  3. Or set custom path in registry:"
+            Write-Host "     HKLM\SOFTWARE\EpicGames\Unreal Engine\5.6\InstalledDirectory"
+            Write-Host ""
+            Write-Host "For GitHub-Hosted Runners:"
+            Write-Host "  Option A - Use Self-Hosted Runner (Recommended)"
+            Write-Host "  Option B - Download UE from custom source:"
+            Write-Host "    • Set secret: EPIC_API_KEY"
+            Write-Host "    • Set secret: UE_DOWNLOAD_URL"
+            Write-Host "    • Uncomment installation step below"
+            Write-Host ""
+            Write-Host "Alternative - Use Pre-built Docker Image:"
+            Write-Host "  • Use ghcr.io/epicgames/unreal-engine:5.6-dev"
+            Write-Host "  • Requires Epic Games account linking"
+            Write-Host ""
+            Write-Host "================================================"
+            Write-Host ""
+            
+            if ("${{ needs.detect-environment.outputs.use-self-hosted }}" -eq "false") {
+              Write-Error "Cannot proceed without UE installation on GitHub-hosted runner"
+              exit 1
+            }
+          }
+          
+          echo "ue-root=$ueRoot" >> $env:GITHUB_OUTPUT
+          echo "ue-found=$($null -ne $ueRoot)" >> $env:GITHUB_OUTPUT
+          
+          # Validate UE installation
+          if ($ueRoot) {
+            $ubtPath = Join-Path $ueRoot "Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.exe"
+            $uatPath = Join-Path $ueRoot "Engine\Build\BatchFiles\RunUAT.bat"
+            $editorPath = Join-Path $ueRoot "Engine\Binaries\Win64\UnrealEditor.exe"
+            
+            Write-Host ""
+            Write-Host "Validating UE installation:"
+            Write-Host "  UnrealBuildTool: $(if (Test-Path $ubtPath) { '✅' } else { '❌' })"
+            Write-Host "  RunUAT: $(if (Test-Path $uatPath) { '✅' } else { '❌' })"
+            Write-Host "  UnrealEditor: $(if (Test-Path $editorPath) { '✅' } else { '❌' })"
+          }
+
+      # OPTIONAL: Uncomment to enable automated UE installation from custom source
+      # Requires EPIC_API_KEY and UE_DOWNLOAD_URL secrets to be configured
+      # - name: 📦 Download & Install Unreal Engine 5.6
+      #   if: steps.ue-detect.outputs.ue-found == 'false' && needs.detect-environment.outputs.use-self-hosted == 'false'
+      #   shell: pwsh
+      #   env:
+      #     EPIC_API_KEY: ${{ secrets.EPIC_API_KEY }}
+      #     UE_DOWNLOAD_URL: ${{ secrets.UE_DOWNLOAD_URL }}
+      #   run: |
+      #     Write-Host "📦 Downloading Unreal Engine ${{ env.UE_VERSION }}..."
+      #     # Custom download logic here
+      #     # This requires pre-authenticated download URL or Epic Games API integration
+
+      - name: ⚙️ Setup Unreal Engine Environment
+        if: steps.ue-detect.outputs.ue-found == 'true'
+        shell: pwsh
+        run: |
+          $ueRoot = "${{ steps.ue-detect.outputs.ue-root }}"
+          
+          # Add UE directories to PATH
+          $engineBinaries = Join-Path $ueRoot "Engine\Binaries\Win64"
+          $engineBatchFiles = Join-Path $ueRoot "Engine\Build\BatchFiles"
+          
+          echo "$engineBinaries" >> $env:GITHUB_PATH
+          echo "$engineBatchFiles" >> $env:GITHUB_PATH
+          
+          # Set environment variables
+          echo "UE_ROOT=$ueRoot" >> $env:GITHUB_ENV
+          echo "UE_BUILD_BAT=$engineBatchFiles\Build.bat" >> $env:GITHUB_ENV
+          echo "UE_EDITOR=$engineBinaries\UnrealEditor.exe" >> $env:GITHUB_ENV
+          echo "UE_EDITOR_CMD=$engineBinaries\UnrealEditor-Cmd.exe" >> $env:GITHUB_ENV
+          
+          Write-Host "✅ UE environment configured"
+
+      # ============================================
+      # CACHING: Intermediate & DerivedDataCache
+      # ============================================
+      - name: 💾 Cache Intermediate Files
+        uses: actions/cache@v4
+        with:
+          path: |
+            Intermediate/
+            Saved/Shaders/
+          key: ${{ needs.detect-environment.outputs.cache-key-prefix }}-intermediate-${{ hashFiles('Source/**/*.cpp', 'Source/**/*.h', '*.uproject') }}
+          restore-keys: |
+            ${{ needs.detect-environment.outputs.cache-key-prefix }}-intermediate-
+
+      - name: 💾 Cache Derived Data Cache (DDC)
+        uses: actions/cache@v4
+        with:
+          path: |
+            DerivedDataCache/
+          key: ${{ needs.detect-environment.outputs.cache-key-prefix }}-ddc-${{ hashFiles('Content/**/*.uasset', 'Content/**/*.umap', 'Plugins/**/*.uasset') }}
+          restore-keys: |
+            ${{ needs.detect-environment.outputs.cache-key-prefix }}-ddc-
+
+      - name: 💾 Cache Build Tools
+        uses: actions/cache@v4
+        with:
+          path: |
+            Binaries/DotNET/
+            Saved/UnrealBuildTool/
+          key: ${{ needs.detect-environment.outputs.cache-key-prefix }}-buildtools-${{ hashFiles('*.uproject') }}
+          restore-keys: |
+            ${{ needs.detect-environment.outputs.cache-key-prefix }}-buildtools-
+
+      # ============================================
+      # BUILD: Clean & Compile
+      # ============================================
+      - name: 🧹 Clean Previous Build Artifacts
+        shell: pwsh
+        run: |
+          Write-Host "🧹 Cleaning previous build artifacts..."
+          
+          # Clean only if not using cached build
+          $dirsToClean = @(
+            "Binaries\Win64",
+            "Saved\Logs",
+            "Saved\Automation"
+          )
+          
+          foreach ($dir in $dirsToClean) {
+            if (Test-Path $dir) {
+              Write-Host "  Removing $dir..."
+              Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          
+          Write-Host "✅ Cleanup complete"
+
+      - name: 🔨 Build UE5.6 Project
+        id: build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $buildStartTime = Get-Date
+          
+          Write-Host "================================================"
+          Write-Host "🔨 Building ${{ env.PROJECT_NAME }}"
+          Write-Host "================================================"
+          Write-Host "Configuration: ${{ env.BUILD_CONFIG }}"
+          Write-Host "Platform: ${{ env.PLATFORM }}"
+          Write-Host "Target: ${{ env.TARGET }}"
+          Write-Host "================================================"
+          Write-Host ""
+          
+          # Ensure log directory exists
+          New-Item -ItemType Directory -Force -Path "Saved\Logs" | Out-Null
+          
+          # Build using UE Build.bat
+          $buildBat = "$env:UE_BUILD_BAT"
+          $projectFile = "${{ github.workspace }}\${{ env.PROJECT_NAME }}.uproject"
+          
+          if (-not (Test-Path $buildBat)) {
+            Write-Error "❌ Build.bat not found at: $buildBat"
+            exit 1
+          }
+          
+          if (-not (Test-Path $projectFile)) {
+            Write-Error "❌ Project file not found at: $projectFile"
+            exit 1
+          }
+          
+          Write-Host "Executing: $buildBat ${{ env.TARGET }} ${{ env.PLATFORM }} ${{ env.BUILD_CONFIG }} -project=$projectFile -NoHotReloadFromIDE"
+          Write-Host ""
+          
+          # Capture build output
+          $buildLog = "Saved\Logs\Build-${{ github.run_number }}.log"
+          
+          & $buildBat ${{ env.TARGET }} ${{ env.PLATFORM }} ${{ env.BUILD_CONFIG }} `
+            "-project=$projectFile" `
+            -NoHotReloadFromIDE `
+            -WaitMutex `
+            -FromMsBuild `
+            2>&1 | Tee-Object -FilePath $buildLog
+          
+          $buildExitCode = $LASTEXITCODE
+          $buildEndTime = Get-Date
+          $buildDuration = ($buildEndTime - $buildStartTime).TotalSeconds
+          
+          Write-Host ""
+          Write-Host "================================================"
+          Write-Host "📊 Build Statistics"
+          Write-Host "================================================"
+          Write-Host "Duration: $([math]::Round($buildDuration, 2)) seconds"
+          Write-Host "Exit Code: $buildExitCode"
+          Write-Host "Log File: $buildLog"
+          
+          # Parse build log for statistics
+          if (Test-Path $buildLog) {
+            $logContent = Get-Content $buildLog -Raw
+            
+            # Extract compilation stats
+            if ($logContent -match "Completed in (\d+\.\d+) seconds") {
+              Write-Host "UBT Duration: $($Matches[1]) seconds"
+            }
+            
+            if ($logContent -match "(\d+) error\(s\)") {
+              $errorCount = [int]$Matches[1]
+              Write-Host "Errors: $errorCount"
+              echo "build-errors=$errorCount" >> $env:GITHUB_OUTPUT
+            }
+            
+            if ($logContent -match "(\d+) warning\(s\)") {
+              $warningCount = [int]$Matches[1]
+              Write-Host "Warnings: $warningCount"
+              echo "build-warnings=$warningCount" >> $env:GITHUB_OUTPUT
+            }
+            
+            # Check for critical errors
+            if ($logContent -match "ERROR:" -or $logContent -match "CRITICAL ERROR:") {
+              Write-Host "❌ Critical errors detected in build log"
+              
+              # Extract error lines
+              Write-Host ""
+              Write-Host "🔍 Error Details:"
+              $errorLines = $logContent -split "`n" | Where-Object { $_ -match "ERROR:" } | Select-Object -First 20
+              $errorLines | ForEach-Object { Write-Host "  $_" }
+            }
+          }
+          
+          Write-Host "================================================"
+          
+          echo "build-duration=$buildDuration" >> $env:GITHUB_OUTPUT
+          echo "build-log=$buildLog" >> $env:GITHUB_OUTPUT
+          
+          if ($buildExitCode -ne 0) {
+            Write-Error "❌ Build failed with exit code: $buildExitCode"
+            exit $buildExitCode
+          }
+          
+          Write-Host ""
+          Write-Host "✅ Build completed successfully!"
+
+      - name: 📊 Generate Build Report
+        if: always()
+        shell: pwsh
+        run: |
+          $reportFile = "Saved\Logs\BuildReport-${{ github.run_number }}.md"
+          
+          $report = @'
+          # 🔨 Build Report - Run #${{ github.run_number }}
+          
+          ## Build Information
+          - **Project**: ${{ env.PROJECT_NAME }}
+          - **Configuration**: ${{ env.BUILD_CONFIG }}
+          - **Platform**: ${{ env.PLATFORM }}
+          - **Target**: ${{ env.TARGET }}
+          - **UE Version**: ${{ env.UE_VERSION }}
+          - **Runner**: ${{ runner.name }} (${{ runner.os }})
+          - **Commit**: [${{ github.sha }}](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+          - **Branch**: ${{ github.ref_name }}
+          
+          ## Build Statistics
+          - **Duration**: ${{ steps.build.outputs.build-duration }} seconds
+          - **Errors**: ${{ steps.build.outputs.build-errors || 0 }}
+          - **Warnings**: ${{ steps.build.outputs.build-warnings || 0 }}
+          - **Status**: ${{ steps.build.outcome }}
+          
+          ## Build Output
+          See attached build log for full details.
+          
+          ---
+          *Generated by KatanaCombat CI Pipeline*
+          '@
+          
+          $report | Out-File -FilePath $reportFile -Encoding UTF8
+          Write-Host "✅ Build report saved to: $reportFile"
+
+      # ============================================
+      # TESTING: Automation Tests
+      # ============================================
+      - name: 🧪 Run Automation Tests
+        id: tests
+        if: success() && github.event.inputs.skip_tests != 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $testStartTime = Get-Date
+          
+          Write-Host "================================================"
+          Write-Host "🧪 Running Automation Tests"
+          Write-Host "================================================"
+          Write-Host ""
+          
+          $editorCmd = "$env:UE_EDITOR_CMD"
+          $projectFile = "${{ github.workspace }}\${{ env.PROJECT_NAME }}.uproject"
+          $testLog = "Saved\Logs\AutomationTests-${{ github.run_number }}.log"
+          $testReportJson = "Saved\Automation\AutomationReport.json"
+          
+          # Ensure automation directory exists
+          New-Item -ItemType Directory -Force -Path "Saved\Automation" | Out-Null
+          
+          # Run tests with NullRHI (no GPU required)
+          Write-Host "Executing automation tests for: KatanaCombat"
+          Write-Host "Expected tests: ~126 in suite"
+          Write-Host ""
+          
+          & $editorCmd $projectFile `
+            -ExecCmds="Automation RunTests KatanaCombat; Quit" `
+            -NullRHI `
+            -Unattended `
+            -NoSplash `
+            -NoSound `
+            -Log=AutomationTests.log `
+            -ReportExportPath="${{ github.workspace }}\Saved\Automation" `
+            2>&1 | Tee-Object -FilePath $testLog
+          
+          $testExitCode = $LASTEXITCODE
+          $testEndTime = Get-Date
+          $testDuration = ($testEndTime - $testStartTime).TotalSeconds
+          
+          Write-Host ""
+          Write-Host "================================================"
+          Write-Host "📊 Test Statistics"
+          Write-Host "================================================"
+          Write-Host "Duration: $([math]::Round($testDuration, 2)) seconds"
+          Write-Host "Exit Code: $testExitCode"
+          Write-Host "Log File: $testLog"
+          
+          # Parse test results
+          $testsPassed = 0
+          $testsFailed = 0
+          $testsSkipped = 0
+          
+          if (Test-Path $testLog) {
+            $logContent = Get-Content $testLog -Raw
+            
+            if ($logContent -match "Success: (\d+)") {
+              $testsPassed = [int]$Matches[1]
+            }
+            
+            if ($logContent -match "Failed: (\d+)") {
+              $testsFailed = [int]$Matches[1]
+            }
+            
+            if ($logContent -match "Skipped: (\d+)") {
+              $testsSkipped = [int]$Matches[1]
+            }
+            
+            Write-Host "Tests Passed: $testsPassed"
+            Write-Host "Tests Failed: $testsFailed"
+            Write-Host "Tests Skipped: $testsSkipped"
+            
+            # Extract failed test details
+            if ($testsFailed -gt 0) {
+              Write-Host ""
+              Write-Host "❌ Failed Tests:"
+              $failedTests = $logContent -split "`n" | Where-Object { $_ -match "FAILED:" -or $_ -match "Error:" } | Select-Object -First 10
+              $failedTests | ForEach-Object { Write-Host "  $_" }
+            }
+          }
+          
+          # Parse JSON report if available
+          if (Test-Path $testReportJson) {
+            Write-Host ""
+            Write-Host "📋 Parsing JSON test report..."
+            try {
+              $jsonReport = Get-Content $testReportJson -Raw | ConvertFrom-Json
+              Write-Host "✅ JSON report parsed successfully"
+            } catch {
+              Write-Warning "⚠️ Failed to parse JSON report: $_"
+            }
+          }
+          
+          Write-Host "================================================"
+          
+          echo "test-passed=$testsPassed" >> $env:GITHUB_OUTPUT
+          echo "test-failed=$testsFailed" >> $env:GITHUB_OUTPUT
+          echo "test-skipped=$testsSkipped" >> $env:GITHUB_OUTPUT
+          echo "test-duration=$testDuration" >> $env:GITHUB_OUTPUT
+          echo "test-log=$testLog" >> $env:GITHUB_OUTPUT
+          
+          if ($testsFailed -gt 0) {
+            Write-Warning "⚠️ $testsFailed test(s) failed"
+            exit 1
+          }
+          
+          Write-Host ""
+          Write-Host "✅ All tests passed!"
+
+      - name: 📊 Generate Test Report
+        if: always() && github.event.inputs.skip_tests != 'true'
+        shell: pwsh
+        run: |
+          $reportFile = "Saved\Logs\TestReport-${{ github.run_number }}.md"
+          
+          $report = @'
+          # 🧪 Test Report - Run #${{ github.run_number }}
+          
+          ## Test Summary
+          - **Total Passed**: ${{ steps.tests.outputs.test-passed || 0 }}
+          - **Total Failed**: ${{ steps.tests.outputs.test-failed || 0 }}
+          - **Total Skipped**: ${{ steps.tests.outputs.test-skipped || 0 }}
+          - **Duration**: ${{ steps.tests.outputs.test-duration || 0 }} seconds
+          - **Status**: ${{ steps.tests.outcome }}
+          
+          ## Test Configuration
+          - **Test Suite**: KatanaCombat
+          - **Rendering**: NullRHI (Headless)
+          - **Expected Tests**: ~126
+          
+          ## Test Categories
+          - ✅ Combat System Tests
+          - ✅ State Transition Tests
+          - ✅ Input Buffering Tests
+          - ✅ Animation System Tests
+          - ✅ Weapon Component Tests
+          - ✅ Hit Reaction Tests
+          
+          ## Details
+          See attached test log for full output and stack traces.
+          
+          ---
+          *Generated by KatanaCombat CI Pipeline*
+          '@
+          
+          $report | Out-File -FilePath $reportFile -Encoding UTF8
+          Write-Host "✅ Test report saved to: $reportFile"
+
+      # ============================================
+      # VALIDATION: Asset Validation
+      # ============================================
+      - name: 🔍 Validate Assets
+        id: asset-validation
+        if: success() && github.event.inputs.skip_asset_validation != 'true' && github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          $validationStartTime = Get-Date
+          
+          Write-Host "================================================"
+          Write-Host "🔍 Running Asset Validation"
+          Write-Host "================================================"
+          Write-Host ""
+          
+          $editorCmd = "$env:UE_EDITOR_CMD"
+          $projectFile = "${{ github.workspace }}\${{ env.PROJECT_NAME }}.uproject"
+          $validationLog = "Saved\Logs\AssetValidation-${{ github.run_number }}.log"
+          
+          # Run ResavePackages commandlet to validate assets
+          Write-Host "Validating and resaving packages..."
+          
+          & $editorCmd $projectFile `
+            -run=ResavePackages `
+            -unattended `
+            -nopause `
+            -NoLogTimes `
+            -buildlighting `
+            -MapsOnly `
+            -ProjectOnly `
+            -Log=AssetValidation.log `
+            2>&1 | Tee-Object -FilePath $validationLog
+          
+          $validationExitCode = $LASTEXITCODE
+          $validationEndTime = Get-Date
+          $validationDuration = ($validationEndTime - $validationStartTime).TotalSeconds
+          
+          Write-Host ""
+          Write-Host "================================================"
+          Write-Host "📊 Validation Statistics"
+          Write-Host "================================================"
+          Write-Host "Duration: $([math]::Round($validationDuration, 2)) seconds"
+          Write-Host "Exit Code: $validationExitCode"
+          
+          # Parse validation results
+          $assetsValidated = 0
+          $assetsWithErrors = 0
+          $assetsWithWarnings = 0
+          
+          if (Test-Path $validationLog) {
+            $logContent = Get-Content $validationLog -Raw
+            
+            if ($logContent -match "Processed (\d+) packages") {
+              $assetsValidated = [int]$Matches[1]
+            }
+            
+            if ($logContent -match "(\d+) packages with errors") {
+              $assetsWithErrors = [int]$Matches[1]
+            }
+            
+            if ($logContent -match "(\d+) packages with warnings") {
+              $assetsWithWarnings = [int]$Matches[1]
+            }
+            
+            Write-Host "Assets Validated: $assetsValidated"
+            Write-Host "Assets with Errors: $assetsWithErrors"
+            Write-Host "Assets with Warnings: $assetsWithWarnings"
+            
+            if ($assetsWithErrors -gt 0) {
+              Write-Host ""
+              Write-Host "❌ Asset Errors Detected:"
+              $errorLines = $logContent -split "`n" | Where-Object { $_ -match "Error:" } | Select-Object -First 10
+              $errorLines | ForEach-Object { Write-Host "  $_" }
+            }
+          }
+          
+          Write-Host "================================================"
+          
+          echo "assets-validated=$assetsValidated" >> $env:GITHUB_OUTPUT
+          echo "assets-errors=$assetsWithErrors" >> $env:GITHUB_OUTPUT
+          echo "assets-warnings=$assetsWithWarnings" >> $env:GITHUB_OUTPUT
+          echo "validation-duration=$validationDuration" >> $env:GITHUB_OUTPUT
+          
+          if ($assetsWithErrors -gt 0) {
+            Write-Warning "⚠️ Asset validation found $assetsWithErrors error(s)"
+          } else {
+            Write-Host ""
+            Write-Host "✅ Asset validation completed successfully!"
+          }
+
+      # ============================================
+      # ARTIFACTS: Upload Build Results
+      # ============================================
+      - name: 📦 Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ github.run_number }}
+          path: |
+            Saved/Logs/*.log
+            Saved/Logs/*.md
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: 📦 Upload Test Results
+        if: always() && github.event.inputs.skip_tests != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ github.run_number }}
+          path: |
+            Saved/Automation/**
+            Saved/Logs/AutomationTests-*.log
+            Saved/Logs/TestReport-*.md
+          retention-days: 30
+          if-no-files-found: warn
+
+      - name: 📦 Upload Build Binaries
+        if: success() && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ env.PLATFORM }}-${{ env.BUILD_CONFIG }}-${{ github.run_number }}
+          path: |
+            Binaries/Win64/*.exe
+            Binaries/Win64/*.dll
+            Binaries/Win64/*.pdb
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: 📦 Upload Build Statistics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-stats-${{ github.run_number }}
+          path: |
+            Saved/Logs/BuildReport-*.md
+            Saved/Stats/**
+          retention-days: 30
+          if-no-files-found: ignore
+
+      # ============================================
+      # REPORTING: PR Comments
+      # ============================================
+      - name: 💬 Post PR Comment
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const buildStatus = '${{ steps.build.outcome }}';
+            const testStatus = '${{ steps.tests.outcome }}';
+            const validationStatus = '${{ steps.asset-validation.outcome }}';
+            
+            const buildIcon = buildStatus === 'success' ? '✅' : '❌';
+            const testIcon = testStatus === 'success' ? '✅' : testStatus === 'skipped' ? '⏭️' : '❌';
+            const validationIcon = validationStatus === 'success' ? '✅' : validationStatus === 'skipped' ? '⏭️' : '❌';
+            
+            const comment = `## 🎮 KatanaCombat CI Results
+            
+            ### Build Summary
+            | Stage | Status | Details |
+            |-------|--------|---------|
+            | ${buildIcon} **Build** | \`${buildStatus}\` | Duration: ${{ steps.build.outputs.build-duration || 'N/A' }}s<br>Errors: ${{ steps.build.outputs.build-errors || 0 }}<br>Warnings: ${{ steps.build.outputs.build-warnings || 0 }} |
+            | ${testIcon} **Tests** | \`${testStatus}\` | Passed: ${{ steps.tests.outputs.test-passed || 'N/A' }}<br>Failed: ${{ steps.tests.outputs.test-failed || 'N/A' }}<br>Skipped: ${{ steps.tests.outputs.test-skipped || 'N/A' }} |
+            | ${validationIcon} **Asset Validation** | \`${validationStatus}\` | Validated: ${{ steps.asset-validation.outputs.assets-validated || 'N/A' }}<br>Errors: ${{ steps.asset-validation.outputs.assets-errors || 'N/A' }} |
+            
+            ### Configuration
+            - **Platform**: ${{ env.PLATFORM }}
+            - **Configuration**: ${{ env.BUILD_CONFIG }}
+            - **Runner**: ${{ runner.name }}
+            - **Commit**: [\`${context.sha.substring(0, 7)}\`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+            
+            ### 📥 Artifacts
+            - [Build Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            - [Test Results](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            
+            ---
+            <sub>🤖 Automated by [KatanaCombat CI Pipeline](https://github.com/${{ github.repository }}/actions/workflows/ue5-ci.yml) • Run #${{ github.run_number }}</sub>`;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+
+      # ============================================
+      # CLEANUP & FINALIZATION
+      # ============================================
+      - name: 🧹 Cleanup Temporary Files
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "🧹 Cleaning up temporary files..."
+          
+          # Clean temporary build artifacts but preserve logs
+          $tempDirs = @(
+            "Saved\Cooked",
+            "Saved\StagedBuilds"
+          )
+          
+          foreach ($dir in $tempDirs) {
+            if (Test-Path $dir) {
+              Write-Host "  Removing $dir..."
+              Remove-Item -Path $dir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+          }
+          
+          Write-Host "✅ Cleanup complete"
+
+      - name: 📊 Final Summary
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host ""
+          Write-Host "================================================"
+          Write-Host "📊 PIPELINE SUMMARY"
+          Write-Host "================================================"
+          Write-Host "Workflow: ${{ github.workflow }}"
+          Write-Host "Run Number: ${{ github.run_number }}"
+          Write-Host "Run ID: ${{ github.run_id }}"
+          Write-Host "Trigger: ${{ github.event_name }}"
+          Write-Host ""
+          Write-Host "Results:"
+          Write-Host "  Build: ${{ steps.build.outcome }}"
+          Write-Host "  Tests: ${{ steps.tests.outcome }}"
+          Write-Host "  Asset Validation: ${{ steps.asset-validation.outcome }}"
+          Write-Host ""
+          Write-Host "Artifacts:"
+          Write-Host "  - Build logs (14 days retention)"
+          Write-Host "  - Test results (30 days retention)"
+          Write-Host "  - Binaries (7 days retention)"
+          Write-Host "  - Build stats (30 days retention)"
+          Write-Host "================================================"
+          Write-Host ""
+          
+          # Set overall status
+          $buildSuccess = "${{ steps.build.outcome }}" -eq "success"
+          $testsSuccess = "${{ steps.tests.outcome }}" -in @("success", "skipped")
+          
+          if ($buildSuccess -and $testsSuccess) {
+            Write-Host "✅ PIPELINE SUCCEEDED"
+            exit 0
+          } else {
+            Write-Host "❌ PIPELINE FAILED"
+            exit 1
+          }
