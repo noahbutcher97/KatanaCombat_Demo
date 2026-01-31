@@ -12,6 +12,116 @@
 - **Editor Tools**: Custom analysis windows, auto-notify generation, validation tools
 - **Comprehensive Testing**: 14 test suites with 159 tests
 
+## Design Vision & Goals
+
+### Ultimate Aspiration
+
+Create a fully functional combat system that delivers **player expression through flow and movement**. The game prioritizes **feeling powerful and stylish** over difficulty. Inspired by:
+
+- **Batman: Arkham Knight** - Seamless flow between targets, rhythm-based engagement
+- **Assassin's Creed 3** - Brutal lethality, cinematic counter-kills, kill streak chaining
+- **Ghost of Tsushima** - Precise parry timing, samurai aesthetics
+- **Sekiro** - Posture-based defense, perfect parry rewards
+
+### Core Gameplay Loop (Target State)
+
+**Arena Combat Flow State Pipeline:**
+
+```
+Player enters arena
+    ↓
+Enemies surround player
+    ↓
+Player attacks → Seamlessly jumps between enemies with motion warping
+    ↓
+Enemy initiates attack → UI warning appears above attacker
+    ↓
+Player blocks before Active phase → PAIRED PARRY ANIMATION
+    ├─ Enemy attack blends to paired animation variant
+    ├─ Animation sync points align characters
+    ├─ Contact points verified procedurally
+    └─ Motion warping ensures seamless positioning
+    ↓
+Slow-motion window opens → Player presses light attack
+    ↓
+PAIRED COUNTER ANIMATION
+    ├─ Selected based on character poses/orientation/environment
+    ├─ Counter staggers enemy
+    └─ Enemy becomes vulnerable to finisher
+    ↓
+Player follows up with additional light attack → FINISHER INITIATED
+    ├─ Paired takedown animation selected contextually
+    ├─ Brutal cinematic execution
+    └─ Enemy dies in spectacular fashion
+    ↓
+FLOW STATE ACTIVATED
+    └─ Surrounding enemies become more vulnerable to immediate finishers
+```
+
+### Key Design Pillars
+
+1. **Flow Over Difficulty**
+   - Combat should feel effortless when executed properly
+   - Player expression through style and movement, not challenge
+   - Enemies exist to make the player look good
+
+2. **Seamless Transitions**
+   - Motion warping facilitates attack directional changes
+   - Broad animation reuse through contextual selection
+   - No jarring animation switches or teleportation
+
+3. **Cinematic Brutality**
+   - Paired animations for parries, counters, and finishers
+   - Slow-motion at key moments (parry success, finisher initiation)
+   - Visual feedback that makes player feel powerful
+
+4. **Contextual Intelligence**
+   - System selects best paired animation based on:
+     - Character poses and orientation
+     - Proximity and spacing
+     - Environment obstructions
+     - Prior animation context
+   - No animation "pops" or failures due to bad selection
+
+5. **Arena Control**
+   - UI indicators for incoming attacks (Batman Arkham style)
+   - AI coordination prevents overwhelming player (attack token system)
+   - Flow state rewards skilled play with increased lethality
+
+### Current Implementation Status vs. Vision
+
+**✅ Implemented:**
+- Basic combo system with motion warping
+- Parry window detection (defender-side checks)
+- Paired animation infrastructure (finishers working)
+- Attack token coordination (partial)
+- Motion warping for seamless transitions
+
+**🔄 In Progress:**
+- Parry → Counter → Finisher pipeline (Phase 6)
+- Flow state system (Phase 8)
+- Full UI warning indicators
+- AI attack coordination refinement
+
+**⏳ Planned:**
+- Slow-motion timing windows
+- Contextual paired animation selection
+- Kill streak chaining (AC3 style)
+- Environmental finisher support
+- Advanced animation blending for pose transitions
+
+### Evaluating Code Against Vision
+
+When working on this codebase, always ask:
+
+1. **Does this support the flow state?** Changes should enhance, not interrupt, player momentum
+2. **Is it cinematic?** Visual feedback and paired animations are core to the vision
+3. **Does it feel powerful?** Player should feel like a lethal combatant, not struggling
+4. **Is it contextually intelligent?** System should make smart choices, not require player micromanagement
+5. **Does it maintain seamlessness?** No jarring transitions or animation failures
+
+If code changes conflict with these principles, flag them for discussion. The vision is **flow, lethality, and player expression** - not mechanical complexity or difficulty.
+
 ## Core Design Principles
 
 ### Critical Architectural Laws (DO NOT BREAK)
