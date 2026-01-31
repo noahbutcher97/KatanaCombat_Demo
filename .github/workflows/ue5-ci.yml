@@ -84,39 +84,74 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read  # Required to check runner availability
     outputs:
       runner-type: ${{ steps.detect.outputs.runner-type }}
       use-self-hosted: ${{ steps.detect.outputs.use-self-hosted }}
       use-github-hosted: ${{ steps.detect.outputs.use-github-hosted }}
       cache-key-prefix: ${{ steps.detect.outputs.cache-key-prefix }}
+      self-hosted-available: ${{ steps.check-runners.outputs.available }}
     steps:
+      - name: Check Self-Hosted Runner Availability
+        id: check-runners
+        shell: bash
+        run: |
+          echo "🔍 Checking self-hosted runner availability..."
+          
+          # Query GitHub API for self-hosted runners
+          RUNNER_LIST=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/runners")
+          
+          # Check if any self-hosted runner with 'ue5' label is online
+          AVAILABLE=$(echo "$RUNNER_LIST" | jq -r '[.runners[] | select(.labels[].name == "ue5" or .labels[].name == "self-hosted") | select(.status == "online")] | length > 0')
+          
+          if [ "$AVAILABLE" = "true" ]; then
+            echo "available=true" >> $GITHUB_OUTPUT
+            echo "✅ Self-hosted runner is online and available"
+          else
+            echo "available=false" >> $GITHUB_OUTPUT
+            echo "⚠️ No self-hosted runner available - will use GitHub-hosted"
+          fi
+      
       - name: Detect Runner Type
         id: detect
         shell: bash
         run: |
-          echo "🔍 Detecting optimal runner configuration..."
+          echo "🔍 Determining optimal runner configuration..."
           
           RUNNER_INPUT="${{ github.event.inputs.runner_type }}"
+          SELF_HOSTED_AVAILABLE="${{ steps.check-runners.outputs.available }}"
           
           if [ "$RUNNER_INPUT" = "self-hosted" ]; then
+            # Force self-hosted even if unavailable (will timeout if offline)
             echo "runner-type=self-hosted" >> $GITHUB_OUTPUT
             echo "use-self-hosted=true" >> $GITHUB_OUTPUT
             echo "use-github-hosted=false" >> $GITHUB_OUTPUT
             echo "cache-key-prefix=self" >> $GITHUB_OUTPUT
             echo "✅ Forced: Self-hosted runner"
           elif [ "$RUNNER_INPUT" = "github-hosted" ]; then
+            # Force GitHub-hosted
             echo "runner-type=windows-latest" >> $GITHUB_OUTPUT
             echo "use-self-hosted=false" >> $GITHUB_OUTPUT
             echo "use-github-hosted=true" >> $GITHUB_OUTPUT
             echo "cache-key-prefix=github" >> $GITHUB_OUTPUT
             echo "✅ Forced: GitHub-hosted runner"
           else
-            # Auto-detect: Try self-hosted first, with GitHub-hosted as fallback
-            echo "runner-type=auto" >> $GITHUB_OUTPUT
-            echo "use-self-hosted=true" >> $GITHUB_OUTPUT
-            echo "use-github-hosted=true" >> $GITHUB_OUTPUT
-            echo "cache-key-prefix=auto" >> $GITHUB_OUTPUT
-            echo "✅ Auto-detect: Will attempt self-hosted with GitHub-hosted fallback"
+            # Auto-detect based on availability
+            if [ "$SELF_HOSTED_AVAILABLE" = "true" ]; then
+              echo "runner-type=auto" >> $GITHUB_OUTPUT
+              echo "use-self-hosted=true" >> $GITHUB_OUTPUT
+              echo "use-github-hosted=true" >> $GITHUB_OUTPUT
+              echo "cache-key-prefix=auto" >> $GITHUB_OUTPUT
+              echo "✅ Auto-detect: Self-hosted available, will try with GitHub-hosted fallback"
+            else
+              echo "runner-type=github-hosted" >> $GITHUB_OUTPUT
+              echo "use-self-hosted=false" >> $GITHUB_OUTPUT
+              echo "use-github-hosted=true" >> $GITHUB_OUTPUT
+              echo "cache-key-prefix=github" >> $GITHUB_OUTPUT
+              echo "✅ Auto-detect: No self-hosted available, using GitHub-hosted directly"
+            fi
           fi
 
   # ==============================================================================
@@ -127,7 +162,7 @@ jobs:
     needs: detect-environment
     if: needs.detect-environment.outputs.use-self-hosted == 'true'
     runs-on: [self-hosted, Windows, ue5]
-    timeout-minutes: 60  # Timeout to prevent indefinite stalling; allows fallback to GitHub-hosted
+    timeout-minutes: 15  # Reduced timeout since pre-check eliminates most stalling; allows quick fallback
     continue-on-error: ${{ needs.detect-environment.outputs.runner-type == 'auto' }}  # Enable fallback when runner unavailable
     permissions:
       contents: read

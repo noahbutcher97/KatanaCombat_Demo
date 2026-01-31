@@ -141,26 +141,31 @@ Automated GitHub Actions pipeline with dual-runner support:
 
 ### Fallback Mechanism
 
-The pipeline automatically falls back to GitHub-hosted runners when self-hosted runners are unavailable:
+The pipeline intelligently detects runner availability and falls back to GitHub-hosted runners when needed:
 
 **How it works**:
-1. **Self-hosted attempt** (60-minute timeout)
-   - Runs first when `runner-type` is `auto` (default)
-   - Timeout prevents indefinite stalling on unavailable runners
-   - Uses `continue-on-error: true` to allow workflow to proceed
+1. **Pre-check for availability** (via GitHub API)
+   - Queries repository runners to check if self-hosted runners are online
+   - In `auto` mode, skips self-hosted job immediately if no runner is available
+   - Eliminates unnecessary wait times when infrastructure is down
 
-2. **Automatic fallback to GitHub-hosted**
-   - Triggers when self-hosted job fails, times out, or is skipped
+2. **Self-hosted attempt** (15-minute timeout)
+   - Runs when self-hosted runner is detected as available
+   - Reduced timeout since pre-check prevents indefinite stalling
+   - Uses `continue-on-error: true` to allow workflow to proceed on failure
+
+3. **Automatic fallback to GitHub-hosted**
+   - Triggers when self-hosted is skipped (no runner available) or fails
    - Provides cloud-based build capability with no local infrastructure
    - Longer timeout (180 minutes) for initial setup and builds
 
-3. **Result aggregation**
+4. **Result aggregation**
    - Success if either runner completes successfully
    - Build results posted to PR comments
    - Artifacts uploaded from whichever runner succeeded
 
 **Timeout Configuration**:
-- Self-hosted: 60 minutes (faster failure detection for fallback)
+- Self-hosted: 15 minutes (pre-check eliminates most stalling cases)
 - GitHub-hosted: 180 minutes (includes automated setup time)
 
 ### Quick Setup

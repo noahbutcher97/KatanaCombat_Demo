@@ -71,26 +71,32 @@ See [SETUP_GUIDE.md](SETUP_GUIDE.md) for detailed instructions.
 - Manual dispatch via Actions tab or GitHub Mobile
 
 **Jobs**:
-1. **Environment Detection**: Automatically selects optimal runner type
+1. **Environment Detection**: Checks runner availability via GitHub API and selects optimal runner type
 2. **Build & Test (Self-Hosted)**: Executes on self-hosted runners if available
 3. **Build & Test (GitHub-Hosted)**: Fallback to GitHub-hosted runners
 4. **Report Results**: Aggregates results and posts PR comments
 
 **Fallback Mechanism**:
 
-The pipeline implements intelligent fallback to prevent workflow stalling:
+The pipeline implements intelligent pre-check and fallback to prevent workflow stalling:
 
-- **Self-hosted job** (`timeout-minutes: 60`):
-  - Attempts to run first when `runner-type` is `auto` (default)
-  - 60-minute timeout prevents indefinite waiting on unavailable runners
-  - `continue-on-error: true` allows workflow to proceed even on failure
-  - If runner is unavailable, times out, or fails → triggers GitHub-hosted
+- **Pre-check step** (Environment Detection):
+  - Queries GitHub API to check if self-hosted runners are online
+  - In `auto` mode, immediately skips self-hosted job if no runner available
+  - Eliminates unnecessary wait times when infrastructure is down
+  - Requires `actions: read` permission
+
+- **Self-hosted job** (`timeout-minutes: 15`):
+  - Runs only when runner is detected as available (or when forced)
+  - Reduced timeout since pre-check eliminates most indefinite stalling
+  - `continue-on-error: true` allows workflow to proceed on failure
+  - Typical builds complete in 3-25 minutes, well within timeout
 
 - **GitHub-hosted job** (`timeout-minutes: 180`):
-  - Runs conditionally: `if self-hosted.result in ['skipped', 'failure', 'timeout']`
+  - Runs conditionally: when self-hosted is skipped or fails
   - Longer timeout accommodates automated VS2022 and UE5.6 setup
   - Provides cloud-based builds without local infrastructure dependency
-  - Falls back gracefully when self-hosted infrastructure is down
+  - Instant fallback when pre-check determines no runners available
 
 - **Success criteria**:
   - Workflow succeeds if **either** runner completes successfully
@@ -110,11 +116,11 @@ The pipeline implements intelligent fallback to prevent workflow stalling:
 - 📤 Upload artifacts (logs, tests, binaries)
 
 **Build Times & Timeouts**:
-- Self-Hosted (cached): 3-5 minutes (timeout: 60 minutes)
-- Self-Hosted (cold): 15-25 minutes (timeout: 60 minutes)
+- Self-Hosted (cached): 3-5 minutes (timeout: 15 minutes)
+- Self-Hosted (cold): 15-25 minutes (timeout: 15 minutes)
 - GitHub-Hosted: 40-60 minutes initial setup (timeout: 180 minutes)
 
-**Note**: Self-hosted timeout set to 60 minutes for faster failure detection and fallback to GitHub-hosted when runners are unavailable.
+**Note**: Self-hosted timeout reduced to 15 minutes since API pre-check eliminates most stalling cases. Pre-check provides instant fallback when runners are offline.
 
 ## 🎮 Using from GitHub Mobile
 
