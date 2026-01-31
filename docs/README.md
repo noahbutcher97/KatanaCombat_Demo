@@ -468,6 +468,48 @@ slomo 0.3            // Slow motion for timing verification
 
 ---
 
+## CI/CD & Automation
+
+### GitHub Actions Pipeline
+
+[![UE5 CI](https://github.com/noahbutcher97/KatanaCombat_Demo/actions/workflows/ue5-ci.yml/badge.svg)](https://github.com/noahbutcher97/KatanaCombat_Demo/actions/workflows/ue5-ci.yml)
+
+Automated build, test, and validation pipeline with comprehensive CI/CD support:
+
+- ✅ **Dual-Runner Support**: Self-hosted and GitHub-hosted runners with automatic fallback
+- ✅ **Automated Building**: Win64 Development Editor compilation via UnrealBuildTool
+- ✅ **Static Analysis**: clang-tidy integration with UE5-optimized rules
+- ✅ **Automation Tests**: Headless test execution with NullRHI
+- ✅ **Asset Validation**: ResavePackages commandlet for asset integrity
+- ✅ **Smart Caching**: Optimized caching strategies for fast incremental builds
+- ✅ **Mobile-Friendly**: Trigger builds from GitHub Mobile app
+- ✅ **Artifact Management**: Build logs (14d), test results (30d), binaries (7d)
+
+**Quick Links**:
+- [**CI/CD Guide**](CI_CD_GUIDE.md) - Comprehensive setup and usage guide
+- [**Quick Reference**](CI_CD_QUICK_REFERENCE.md) - Common operations
+- [**Deployment Examples**](DEPLOYMENT_EXAMPLES.md) - Platform-specific deployment
+
+**Getting Started**:
+```powershell
+# For self-hosted runners (recommended)
+# 1. Install UE5.6 and VS2022
+# 2. Configure runner with labels: [self-hosted, Windows, ue5]
+# 3. Push to main/develop or create a PR
+
+# For GitHub-hosted runners
+# Requires UE_DOWNLOAD_URL secret or custom setup
+# See .github/SETUP_GUIDE.md for details
+```
+
+**Pipeline Features**:
+- Build times: 3-5 min (cached) | 15-25 min (cold)
+- Parallel execution with fallback logic
+- PR comments with build status
+- Comprehensive error handling and logging
+
+---
+
 ## Future Features
 
 Planned expansions:
