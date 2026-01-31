@@ -297,16 +297,37 @@ EDataValidationResult UAttackData::IsDataValid(FDataValidationContext& Context) 
     const bool bDirectionalValid = ValidateDirectionalFollowUps(ValidationErrors);
     const bool bTerminalValid = ValidateTerminalTag(ValidationErrors);
 
-    // Report all accumulated errors
+    // Report only errors that specifically mention THIS asset
+    // This prevents cascading duplicate errors when validating combo chains
+    const FString ThisAssetName = GetName();
     for (const FText& Error : ValidationErrors)
     {
-        Context.AddError(Error);
+        const FString ErrorString = Error.ToString();
+        // Only report if this error is about THIS asset (error message starts with asset name)
+        if (ErrorString.StartsWith(ThisAssetName + TEXT(":")))
+        {
+            Context.AddError(Error);
+        }
     }
 
-    // Determine result
+    // Determine result - but only fail if THIS asset has errors
+    // Check if any error was actually reported for this asset
     if (ValidationErrors.Num() > 0)
     {
-        Result = EDataValidationResult::Invalid;
+        // Count how many errors are actually about this asset
+        int32 ThisAssetErrors = 0;
+        for (const FText& Error : ValidationErrors)
+        {
+            if (Error.ToString().StartsWith(ThisAssetName + TEXT(":")))
+            {
+                ThisAssetErrors++;
+            }
+        }
+        
+        if (ThisAssetErrors > 0)
+        {
+            Result = EDataValidationResult::Invalid;
+        }
     }
 
     return CombineDataValidationResults(Result, Super::IsDataValid(Context));
@@ -317,14 +338,16 @@ bool UAttackData::DetectCycles(TSet<const UAttackData*>& Visited, TArray<FText>&
     // Check if we've already visited this attack (cycle detected!)
     if (Visited.Contains(this))
     {
+        // Cycle detected - this attack references itself through its combo chain
+        // Only report the error ONCE at the point where the cycle closes
         Errors.Add(FText::FromString(FString::Printf(
-            TEXT("%s: Circular reference detected in combo chain! Attack references itself through combo links."),
+            TEXT("%s: Circular reference detected! This attack is part of a combo cycle. Review NextComboAttack, HeavyComboAttack, and DirectionalFollowUps to break the cycle."),
             *GetName()
         )));
         return true;
     }
 
-    // Add this attack to visited set
+    // Add this attack to visited set for this traversal path
     Visited.Add(this);
 
     bool bFoundCycle = false;
@@ -371,7 +394,8 @@ bool UAttackData::DetectCycles(TSet<const UAttackData*>& Visited, TArray<FText>&
         }
     }
 
-    // Remove from visited set (allow branching paths)
+    // Remove from visited set to allow branching paths (DAG structure)
+    // This allows: A→C, B→C (both A and B can reference C without false positive)
     Visited.Remove(this);
 
     return bFoundCycle;

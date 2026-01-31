@@ -1,0 +1,270 @@
+# Setup steps for GitHub Copilot coding agent
+# This file defines the environment setup, build, and test procedures for the KatanaCombat project
+
+name: KatanaCombat Setup and Validation
+
+# Environment requirements
+requirements:
+  engine: Unreal Engine 5.6
+  platform: Windows (Win64)
+  compiler: Visual Studio 2022 (MSVC)
+  language: C++ (C++20 standard)
+
+# Setup steps to prepare the development environment
+setup:
+  # Step 1: Verify Unreal Engine installation
+  - name: Verify Unreal Engine 5.6
+    description: Ensure Unreal Engine 5.6 is installed
+    commands:
+      # Check if UE 5.6 exists at standard location
+      - test -d "C:/Program Files/Epic Games/UE_5.6" || echo "WARNING: UE 5.6 not found at standard location"
+    notes: |
+      If UE 5.6 is not installed, download from Epic Games Launcher.
+      Standard installation path: C:\Program Files\Epic Games\UE_5.6
+
+  # Step 2: Verify project structure
+  - name: Verify Project Structure
+    description: Ensure all required directories and files exist
+    commands:
+      - test -f "KatanaCombat.uproject" || exit 1
+      - test -d "Source/KatanaCombat" || exit 1
+      - test -d "Source/KatanaCombatTest" || exit 1
+      - test -d "Content" || exit 1
+      - test -d "Config" || exit 1
+    notes: |
+      Critical project files:
+      - KatanaCombat.uproject: Project descriptor
+      - Source/KatanaCombat: Main source code
+      - Source/KatanaCombatTest: Unit tests
+      - Content: Assets and blueprints
+      - Config: Engine and game configuration
+
+  # Step 3: Generate Visual Studio project files (if needed)
+  - name: Generate Project Files
+    description: Generate Visual Studio solution files
+    commands:
+      # This would typically be done through right-click menu in Windows Explorer
+      # or via Epic Games Launcher
+      - echo "Generate project files by right-clicking KatanaCombat.uproject > Generate Visual Studio project files"
+    notes: |
+      In Windows:
+      1. Right-click KatanaCombat.uproject
+      2. Select "Generate Visual Studio project files"
+      This creates KatanaCombat.sln for Visual Studio
+
+# Build steps
+build:
+  # Build the editor version of the project
+  - name: Build KatanaCombat Editor
+    description: Compile the project in Development Editor configuration
+    commands:
+      # Using UnrealBuildTool directly
+      - cd "C:/Program Files/Epic Games/UE_5.6/Engine/Source"
+      - dotnet "../../Engine/Binaries/DotNET/UnrealBuildTool/UnrealBuildTool.dll" KatanaCombatEditor Win64 Development "-Project=${PWD}/KatanaCombat.uproject" -WaitMutex
+    success_indicators:
+      - "Build succeeded"
+      - "Compile succeeded"
+    failure_indicators:
+      - "Build failed"
+      - "Error:"
+      - "fatal error"
+    notes: |
+      Build configurations available:
+      - Development: Standard development build with debugging
+      - Debug: Full debugging, slower performance
+      - Shipping: Optimized for distribution
+      
+      Build typically takes 5-15 minutes on first build.
+      Incremental builds are much faster (1-3 minutes).
+
+  # Alternative: Build from Visual Studio
+  - name: Build via Visual Studio
+    description: Alternative method using Visual Studio IDE
+    commands:
+      - echo "Open KatanaCombat.sln in Visual Studio"
+      - echo "Build > Build Solution (Ctrl+Shift+B)"
+      - echo "Select 'Development Editor' configuration and 'Win64' platform"
+    notes: |
+      Recommended for development:
+      1. Open KatanaCombat.sln
+      2. Set configuration to "Development Editor"
+      3. Set platform to "Win64"
+      4. Build > Build Solution
+
+# Test steps
+test:
+  # Run all automated tests
+  - name: Run Automation Tests
+    description: Execute the full KatanaCombat test suite
+    commands:
+      # Run tests using UnrealEditor in command-line mode
+      - '"C:/Program Files/Epic Games/UE_5.6/Engine/Binaries/Win64/UnrealEditor-Cmd.exe" "${PWD}/KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat" -unattended -nopause -NullRHI -nosplash -stdout'
+    success_indicators:
+      - "Test Completed.*Result={Success}"
+      - "All tests passed"
+    failure_indicators:
+      - "Test Completed.*Result={Fail}"
+      - "Error:"
+    timeout: 600  # 10 minutes
+    notes: |
+      Test suite includes:
+      - 14 test suites
+      - 126 individual tests
+      - Coverage: State transitions, input buffering, combat mechanics,
+        hit detection, damage flow, death system, paired animations
+      
+      Important: The test command doesn't provide a clean exit code.
+      Tests run in background and must be monitored via log file.
+      
+      Check results in: Saved/Logs/KatanaCombat.log
+
+  # Parse test results
+  - name: Analyze Test Results
+    description: Parse test log to determine pass/fail status
+    commands:
+      # Count passed and failed tests
+      - grep -E "Test Completed.*Result=" Saved/Logs/KatanaCombat.log | grep -c "Result={Success}" || echo "0 passed"
+      - grep -E "Test Completed.*Result=" Saved/Logs/KatanaCombat.log | grep -c "Result={Fail}" || echo "0 failed"
+      # Show any failures
+      - grep -E "Test Completed.*Result={Fail}" Saved/Logs/KatanaCombat.log || echo "No failures found"
+    notes: |
+      Test result summary shows:
+      - Total tests passed
+      - Total tests failed
+      - Details of any failures
+      
+      All 126 tests should pass in a clean build.
+
+  # Alternative: Run tests in editor
+  - name: Run Tests in Editor
+    description: Interactive test execution via Session Frontend
+    commands:
+      - echo "1. Open KatanaCombat.uproject in Unreal Editor"
+      - echo "2. Window → Developer Tools → Session Frontend"
+      - 'echo "3. Automation tab → Filter: KatanaCombat"'
+      - 'echo "4. Select tests and click Start Tests"'
+    notes: |
+      Editor testing provides:
+      - Visual feedback of test progress
+      - Detailed error messages
+      - Ability to run individual test suites
+      - Real-time results
+      
+      Recommended for debugging test failures.
+
+# Validation steps - Quick checks to ensure everything works
+validation:
+  # Verify core combat components exist
+  - name: Verify Core Components
+    description: Check that all core combat components are present
+    commands:
+      - test -f "Source/KatanaCombat/Public/Core/CombatComponent.h" || exit 1
+      - test -f "Source/KatanaCombat/Public/Core/TargetingComponent.h" || exit 1
+      - test -f "Source/KatanaCombat/Public/Core/WeaponComponent.h" || exit 1
+      - test -f "Source/KatanaCombat/Public/Core/HitReactionComponent.h" || exit 1
+    notes: |
+      4-Component Architecture:
+      - CombatComponent: State machine, attack execution
+      - TargetingComponent: Target acquisition, aim assist
+      - WeaponComponent: Hit detection, weapon traces
+      - HitReactionComponent: Damage reception, reactions
+
+  # Verify test infrastructure
+  - name: Verify Test Suite
+    description: Check that test files are present
+    commands:
+      - test -f "Source/KatanaCombatTest/KatanaCombatTest.Build.cs" || exit 1
+      - test -d "Source/KatanaCombatTest/Private" || exit 1
+      - ls Source/KatanaCombatTest/Private/*.cpp | grep -q "Test" || exit 1
+    notes: |
+      Test categories:
+      - StateTransitionTests: Combat state machine
+      - InputBufferingTests: Input capture and buffering
+      - ComboTests: Combo chaining logic
+      - ParryTests: Parry detection and timing
+      - DamageFlowTests: Damage calculation and application
+      - DeathSystemTests: Death handling and animations
+      - PairedAnimationTests: Finisher system
+
+  # Verify configuration files
+  - name: Verify Configuration
+    description: Ensure essential config files exist
+    commands:
+      - test -f "Config/DefaultEngine.ini" || exit 1
+      - test -f "Config/DefaultInput.ini" || exit 1
+      - test -f "Config/DefaultGame.ini" || exit 1
+    notes: |
+      Key configuration:
+      - DefaultEngine.ini: Rendering, collision profiles
+      - DefaultInput.ini: Enhanced Input mappings
+      - DefaultGame.ini: Game mode settings
+
+# Linting and code quality checks
+lint:
+  - name: Check for Common Issues
+    description: Verify code follows project conventions
+    commands:
+      # These are conceptual - actual linting would require specific tools
+      - echo "Check 1: No hardcoded magic numbers (use CombatSettings)"
+      - echo "Check 2: All system-wide delegates in CombatTypes.h"
+      - echo "Check 3: BlueprintNativeEvent calls use Execute_ pattern"
+      - echo "Check 4: No tick-based logic without justification"
+    notes: |
+      Code quality standards:
+      - Data-driven: Values in CombatSettings, not hardcoded
+      - Delegate location: CombatTypes.h for system-wide
+      - Interface pattern: Use Execute_ for BlueprintNativeEvent
+      - Performance: Event-driven over tick-based
+      
+      See copilot-instructions.md for complete guidelines.
+
+# Debug and development tools
+debug:
+  - name: Enable Debug Visualization
+    description: Console commands for visual debugging
+    commands:
+      - echo "In-game console commands:"
+      - echo "  Combat.Debug.All 1 - Enable all debug overlays"
+      - echo "  Combat.Debug.Targeting 1 - Show targeting cones"
+      - echo "  Combat.Debug.Weapon 1 - Show weapon traces"
+      - echo "  Combat.Debug.Phase 1 - Show attack phases"
+    notes: |
+      Debug visualization CVars:
+      - Combat.Debug.All: Master switch for all debug
+      - Combat.Debug.Direction: Direction transformation arrows
+      - Combat.Debug.Targeting: Targeting cones and targets
+      - Combat.Debug.Weapon: Weapon trace visualization
+      - Combat.Debug.Phase: Attack phase indicators
+      - Combat.Debug.PairedAnim: Paired animation debug
+      
+      See claude.md for complete list of debug commands.
+
+# Environment-specific notes
+environment:
+  platform_notes: |
+    Current platform: Windows (Win64)
+    Graphics API: DX11 (DX12 disabled due to RTX 5090 driver issues)
+    
+    If switching to DX12:
+    1. Edit Config/DefaultEngine.ini
+    2. Change DefaultGraphicsRHI=DefaultGraphicsRHI_DX11
+    3. To DefaultGraphicsRHI=DefaultGraphicsRHI_DX12
+    
+  known_issues: |
+    - Pre-commit hooks in .claude/hooks/ have syntax errors
+      Workaround: Use 'git commit --no-verify'
+    
+    - Test command doesn't provide clean exit code
+      Workaround: Monitor log file for results
+    
+    - DX12 crashes with RTX 5090 and driver 581.57
+      Workaround: Using DX11 until stable driver available
+
+# Quick reference for common tasks
+quick_reference:
+  build: "Build > Compile in Unreal Editor OR dotnet UnrealBuildTool.dll"
+  test: "Session Frontend > Automation > Filter 'KatanaCombat' > Start Tests"
+  debug_vis: "Console: Combat.Debug.All 1"
+  add_attack: "See docs/ATTACK_CREATION.md"
+  troubleshoot: "See docs/TROUBLESHOOTING.md"
+  architecture: "See docs/ARCHITECTURE.md"
