@@ -103,15 +103,29 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/runners")
           
-          # Check if any self-hosted runner with 'ue5' label is online
-          AVAILABLE=$(echo "$RUNNER_LIST" | jq -r '[.runners[] | select(.labels[].name == "ue5" or .labels[].name == "self-hosted") | select(.status == "online")] | length > 0')
-          
-          if [ "$AVAILABLE" = "true" ]; then
-            echo "available=true" >> $GITHUB_OUTPUT
-            echo "✅ Self-hosted runner is online and available"
+          # Check if API returned valid JSON with runners array
+          if echo "$RUNNER_LIST" | jq -e '.runners' > /dev/null 2>&1; then
+            # Check if any self-hosted runner with 'ue5' or 'self-hosted' label is online
+            AVAILABLE=$(echo "$RUNNER_LIST" | jq -r '
+              [.runners[] | 
+                select(
+                  (.labels | map(.name) | any(. == "ue5" or . == "self-hosted")) and 
+                  .status == "online"
+                )
+              ] | length > 0
+            ')
+            
+            if [ "$AVAILABLE" = "true" ]; then
+              echo "available=true" >> $GITHUB_OUTPUT
+              echo "✅ Self-hosted runner is online and available"
+            else
+              echo "available=false" >> $GITHUB_OUTPUT
+              echo "⚠️ No self-hosted runner available - will use GitHub-hosted"
+            fi
           else
+            # API error or no runners found - default to unavailable
             echo "available=false" >> $GITHUB_OUTPUT
-            echo "⚠️ No self-hosted runner available - will use GitHub-hosted"
+            echo "⚠️ Could not detect self-hosted runners (API error or no runners configured) - will use GitHub-hosted"
           fi
       
       - name: Detect Runner Type
