@@ -647,26 +647,62 @@ jobs:
           
           Write-Host "✅ Unreal Engine environment configured"
 
-      # The rest of the steps would be identical to self-hosted
-      # (Generate project files, build, test, etc.)
-      # For brevity, these are represented as continuation markers
-      
-      - name: 📦 Generate Project Files
+      # ============================================
+      # BUILD: Generate Project Files
+      # ============================================
+      - name: 📦 Generate Visual Studio Project Files
         if: steps.cache-ue.outputs.cache-hit == 'true'
         shell: pwsh
         run: |
-          Write-Host "📦 Generating project files..."
-          # Same as self-hosted version
-          Write-Host "⚠️ Skipped - UE not available"
+          Write-Host "📦 Generating Visual Studio project files..."
+          
+          $ueRoot = "C:\UnrealEngine\UE_${{ env.UE_VERSION }}"
+          $uprojectFile = Join-Path $PWD "${{ env.PROJECT_NAME }}.uproject"
+          $generateScript = Join-Path $ueRoot "Engine\Build\BatchFiles\GenerateProjectFiles.bat"
+          
+          if (-not (Test-Path $generateScript)) {
+            Write-Error "❌ GenerateProjectFiles.bat not found at $generateScript"
+            exit 1
+          }
+          
+          & $generateScript -projectfiles -project="$uprojectFile" -game -rocket -progress
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "❌ Failed to generate project files"
+            exit 1
+          }
+          
+          Write-Host "✅ Project files generated successfully"
 
+      # ============================================
+      # BUILD: Compile Project
+      # ============================================
       - name: 🏗️ Build Project
         id: build
         if: steps.cache-ue.outputs.cache-hit == 'true'
         shell: pwsh
         run: |
-          Write-Host "🏗️ Building project..."
-          # Same as self-hosted version
-          Write-Host "⚠️ Skipped - UE not available"
+          Write-Host "🏗️ Building ${{ env.TARGET }} ${{ env.PLATFORM }} ${{ env.BUILD_CONFIG }}Editor..."
+          
+          $buildBat = "$env:UE_BUILD_BAT"
+          $target = "${{ env.TARGET }}"
+          $platform = "${{ env.PLATFORM }}"
+          $config = "${{ env.BUILD_CONFIG }}Editor"
+          $uprojectFile = Join-Path $PWD "${{ env.PROJECT_NAME }}.uproject"
+          
+          if (-not (Test-Path $buildBat)) {
+            Write-Error "❌ Build.bat not found at $buildBat"
+            exit 1
+          }
+          
+          & $buildBat $target $platform $config -Project="$uprojectFile" -Progress -NoHotReload
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "❌ Build failed with exit code $LASTEXITCODE"
+            exit 1
+          }
+          
+          Write-Host "✅ Build completed successfully"
 
       - name: 📝 Set Build Status
         id: build-status
@@ -676,14 +712,109 @@ jobs:
           $success = "${{ steps.build.outcome }}" -eq "success"
           echo "success=$success" >> $env:GITHUB_OUTPUT
 
-      - name: 🧪 Run Tests
-        id: tests
-        if: steps.build.outcome == 'success'
+      # ============================================
+      # ANALYSIS: Static Analysis with clang-tidy
+      # ============================================
+      - name: 🔍 Run Static Analysis (clang-tidy)
+        if: steps.build.outcome == 'success' && github.event.inputs.skip_static_analysis != 'true'
+        continue-on-error: true
         shell: pwsh
         run: |
-          Write-Host "🧪 Running tests..."
-          # Same as self-hosted version
-          Write-Host "⚠️ Skipped - UE not available"
+          Write-Host "🔍 Running clang-tidy static analysis..."
+          
+          $clangTidy = "clang-tidy"
+          $sourceFiles = Get-ChildItem -Path "Source" -Recurse -Filter "*.cpp" -ErrorAction SilentlyContinue
+          
+          if ($sourceFiles.Count -eq 0) {
+            Write-Host "⚠️ No C++ source files found"
+            exit 0
+          }
+          
+          Write-Host "Analyzing $($sourceFiles.Count) source files..."
+          
+          $issues = 0
+          foreach ($file in $sourceFiles) {
+            Write-Host "  Checking: $($file.Name)"
+            try {
+              & $clangTidy $file.FullName --config-file=.clang-tidy 2>&1 | Tee-Object -Variable output
+              if ($output -match "warning:|error:") {
+                $issues++
+              }
+            } catch {
+              Write-Host "    ⚠️ Could not analyze file: $_"
+            }
+          }
+          
+          Write-Host ""
+          if ($issues -eq 0) {
+            Write-Host "✅ Static analysis completed - No issues found"
+          } else {
+            Write-Host "⚠️ Static analysis found $issues potential issues"
+          }
+
+      # ============================================
+      # TEST: Asset Validation
+      # ============================================
+      - name: 📋 Validate Assets
+        if: steps.build.outcome == 'success' && github.event.inputs.skip_asset_validation != 'true'
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Write-Host "📋 Validating project assets..."
+          
+          $editor = "$env:UE_EDITOR"
+          $uprojectFile = Join-Path $PWD "${{ env.PROJECT_NAME }}.uproject"
+          
+          if (-not (Test-Path $editor)) {
+            Write-Warning "⚠️ UnrealEditor-Cmd.exe not found at $editor"
+            exit 0
+          }
+          
+          & $editor $uprojectFile -run=ResavePackages -unattended -nopause -nullrhi -nosplash -log=AssetValidation.log
+          
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "⚠️ Asset validation completed with warnings"
+          } else {
+            Write-Host "✅ Asset validation completed successfully"
+          }
+
+      # ============================================
+      # TEST: Automation Tests
+      # ============================================
+      - name: 🧪 Run Automation Tests
+        id: tests
+        if: steps.build.outcome == 'success' && github.event.inputs.skip_tests != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "🧪 Running Automation Test Framework..."
+          
+          $editor = "$env:UE_EDITOR"
+          $uprojectFile = Join-Path $PWD "${{ env.PROJECT_NAME }}.uproject"
+          
+          if (-not (Test-Path $editor)) {
+            Write-Error "❌ UnrealEditor-Cmd.exe not found at $editor"
+            exit 1
+          }
+          
+          & $editor $uprojectFile -ExecCmds="Automation RunTests ${{ env.PROJECT_NAME }}" -unattended -nopause -nullrhi -nosplash -log=AutomationTest.log -ReportOutputPath="$PWD/TestResults"
+          
+          $exitCode = $LASTEXITCODE
+          
+          # Check for test results
+          $testResults = Get-ChildItem -Path "TestResults" -Filter "*.json" -ErrorAction SilentlyContinue
+          if ($testResults) {
+            Write-Host "✅ Test results generated"
+            $testResults | ForEach-Object {
+              Write-Host "  - $($_.Name)"
+            }
+          }
+          
+          if ($exitCode -ne 0) {
+            Write-Error "❌ Tests failed with exit code $exitCode"
+            exit 1
+          }
+          
+          Write-Host "✅ All tests passed successfully"
 
       - name: 📝 Set Test Status
         id: test-status
@@ -693,7 +824,9 @@ jobs:
           $success = "${{ steps.tests.outcome }}" -eq "success"
           echo "success=$success" >> $env:GITHUB_OUTPUT
 
-      # Artifacts same as self-hosted
+      # ============================================
+      # ARTIFACTS: Upload Build Logs and Results
+      # ============================================
       - name: 📤 Upload Build Logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -703,6 +836,24 @@ jobs:
             *.log
             Saved/Logs/**
           retention-days: 14
+
+      - name: 📤 Upload Test Results
+        if: always() && steps.tests.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-github-hosted-${{ github.run_number }}
+          path: TestResults/**
+          retention-days: 30
+
+      - name: 📤 Upload Binaries
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-github-hosted-${{ github.run_number }}
+          path: |
+            Binaries/**
+            !Binaries/**/*.pdb
+          retention-days: 7
 
   # ==============================================================================
   # JOB 4: Report Results

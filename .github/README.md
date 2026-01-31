@@ -91,19 +91,28 @@ The pipeline implements intelligent pre-check and fallback to prevent workflow s
   - Reduced timeout since pre-check eliminates most indefinite stalling
   - `continue-on-error: true` allows workflow to proceed on failure
   - Typical builds complete in 3-25 minutes, well within timeout
+  - Full pipeline: build, test, validate, analyze
 
 - **GitHub-hosted job** (`timeout-minutes: 180`):
   - Runs conditionally: when self-hosted is skipped or fails
+  - **Executes complete build pipeline** (not placeholder logic):
+    - Compiles project with UnrealBuildTool
+    - Runs static analysis with clang-tidy
+    - Validates assets via ResavePackages
+    - Executes automation tests with NullRHI
+    - Uploads artifacts (logs, test results, binaries)
   - Longer timeout accommodates automated VS2022 and UE5.6 setup
   - Provides cloud-based builds without local infrastructure dependency
   - Instant fallback when pre-check determines no runners available
+  - **Requires**: UE5.6 cached or custom installation (via `UE_DOWNLOAD_URL` secret)
 
 - **Success criteria**:
   - Workflow succeeds if **either** runner completes successfully
   - Both runners can run in parallel when forced via workflow inputs
   - Results aggregated and posted to PR comments
+  - Artifacts available from successful runner
 
-**Stages**:
+**Stages** (executed on both runner types):
 - 📥 Checkout with Git LFS
 - 💾 Restore build cache
 - 🎮 Detect/Setup Unreal Engine

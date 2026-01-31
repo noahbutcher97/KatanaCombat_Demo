@@ -153,16 +153,19 @@ The pipeline intelligently detects runner availability and falls back to GitHub-
    - Runs when self-hosted runner is detected as available
    - Reduced timeout since pre-check prevents indefinite stalling
    - Uses `continue-on-error: true` to allow workflow to proceed on failure
+   - Full build, test, and validation pipeline executed
 
 3. **Automatic fallback to GitHub-hosted**
    - Triggers when self-hosted is skipped (no runner available) or fails
-   - Provides cloud-based build capability with no local infrastructure
+   - **Executes complete build pipeline**: compilation, static analysis, tests, asset validation
+   - Provides cloud-based build capability with no local infrastructure dependency
    - Longer timeout (180 minutes) for initial setup and builds
+   - **Note**: Requires UE5.6 to be available (cached or installed)
 
 4. **Result aggregation**
    - Success if either runner completes successfully
    - Build results posted to PR comments
-   - Artifacts uploaded from whichever runner succeeded
+   - Artifacts uploaded from whichever runner succeeded (logs, test results, binaries)
 
 **Timeout Configuration**:
 - Self-hosted: 15 minutes (pre-check eliminates most stalling cases)
