@@ -588,7 +588,6 @@ jobs:
       # ANALYSIS: Enhanced Static Analysis
       # ============================================
       - name: 🔍 Run Enhanced Static Analysis
-        continue-on-error: true
         shell: pwsh
         run: |
           Write-Host "🔍 Running enhanced static analysis on C++ files..."
