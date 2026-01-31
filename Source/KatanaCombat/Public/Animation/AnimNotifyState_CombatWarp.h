@@ -79,6 +79,13 @@ public:
 
 #if WITH_EDITOR
     virtual FLinearColor GetEditorColor() override { return FLinearColor(0.9f, 0.5f, 0.1f, 1.0f); } // Orange
+    
+    /**
+     * Override editor validation to prevent false warnings about WarpTargetName
+     * The parent class validates WarpTargetName at edit time, but we set it dynamically at runtime
+     * We validate that at least ONE of our target names is set instead
+     */
+    virtual void ValidateAssociatedAssets() override;
 #endif
 
 private:
