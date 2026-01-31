@@ -537,7 +537,20 @@ FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship(
 		}
 	}
 
-	// Analyze at the best contact time
+	// CRITICAL FIX: Save current config and temporarily apply IDENTITY rotation for victim
+	// This ensures inference is based on animation content, not user configuration.
+	// Without this, optimization flip-flops because each run reads the previous run's rotation.
+	FRotator SavedVictimRotation = VictimConfig.RotationOffset;
+	FRotator SavedAttackerRotation = AttackerConfig.RotationOffset;
+	float SavedDistance = LockedDistance;
+
+	// Apply neutral configuration for inference
+	VictimConfig.RotationOffset = FRotator::ZeroRotator;
+	AttackerConfig.RotationOffset = FRotator::ZeroRotator;
+	LockedDistance = 150.0f;  // Standard inference distance
+	ApplyCharacterConfigs();
+
+	// Analyze at the best contact time with neutral config
 	UpdateAnimations(BestContactTime);
 	FMultiContactAnalysis ContactAnalysis = ComputeMultiContactPoints(BestContactTime);
 
@@ -550,7 +563,7 @@ FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship(
 		Result.VictimContactBone = VictimBoneConfig.GetBoneForType(ContactAnalysis.BestVictimContact);
 	}
 
-	// Calculate victim's facing relative to attacker
+	// Calculate victim's facing relative to attacker (now based on neutral/identity rotation)
 	FVector AttackerLoc = AttackerMeshComponent->GetComponentLocation();
 	FVector VictimLoc = VictimMeshComponent->GetComponentLocation();
 	FVector VictimForward = VictimMeshComponent->GetComponentRotation().Vector();
@@ -632,6 +645,13 @@ FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship(
 	Result.ReasoningText = Reasoning;
 	bSpatialInferenceCacheDirty = false;
 	InferredRelationship = Result;
+
+	// Restore original configuration after inference
+	VictimConfig.RotationOffset = SavedVictimRotation;
+	AttackerConfig.RotationOffset = SavedAttackerRotation;
+	LockedDistance = SavedDistance;
+	ApplyCharacterConfigs();
+	UpdateAnimations(CurrentTime);  // Restore to current timeline position
 
 	return Result;
 }
