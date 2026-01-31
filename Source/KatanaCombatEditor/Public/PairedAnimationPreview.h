@@ -14,6 +14,7 @@ class SSlider;
 class SCheckBox;
 class SExpandableArea;
 class SEditableTextBox;
+template<typename OptionType> class SComboBox;
 
 // ============================================================================
 // ENUMS
@@ -285,6 +286,68 @@ struct FTimingAnalysis
 };
 
 /**
+ * Per-frame trajectory sample for holistic analysis
+ */
+struct FTrajectoryFrameSample
+{
+	float Time = 0.0f;
+
+	// Activity metrics (velocity-based)
+	float AttackerVelocityMagnitude = 0.0f;
+	float VictimVelocityMagnitude = 0.0f;
+	float CombinedActivity = 0.0f;  // Normalized 0-1
+
+	// Contact metrics
+	float ClosestDistance = FLT_MAX;
+	float ContactQuality = 0.0f;
+	float AngleQuality = 0.0f;
+
+	// Weight for optimization (higher during high-activity phases)
+	float OptimizationWeight = 1.0f;
+
+	// Approach trajectory
+	FVector ApproachDirection = FVector::ForwardVector;
+	float ApproachSpeed = 0.0f;
+
+	// Phase detection
+	bool bIsHighActivityPhase = false;
+	bool bIsContactPhase = false;
+	bool bIsPeakVelocityFrame = false;
+};
+
+/**
+ * Holistic timeline analysis for intelligent optimization
+ */
+struct FHolisticTimelineAnalysis
+{
+	TArray<FTrajectoryFrameSample> FrameSamples;
+
+	// Peak detection
+	float PeakVelocityTime = 0.0f;
+	float PeakVelocityMagnitude = 0.0f;
+
+	// Phase boundaries
+	float HighActivityStartTime = 0.0f;
+	float HighActivityEndTime = 0.0f;
+	float ContactPhaseStartTime = 0.0f;
+	float ContactPhaseEndTime = 0.0f;
+
+	// Optimization weights (pre-computed)
+	float TotalWeight = 0.0f;
+
+	// Statistics
+	float AverageActivity = 0.0f;
+	float AverageContactQuality = 0.0f;
+	int32 HighActivityFrameCount = 0;
+	int32 ContactPhaseFrameCount = 0;
+
+	// Quality metrics (weighted by activity)
+	float WeightedContactScore = 0.0f;
+	float WeightedAlignmentScore = 0.0f;
+	float WeightedOverallScore = 0.0f;
+};
+
+/**
  * Optimization result from auto-analysis
  */
 struct FOptimizationResult
@@ -430,6 +493,20 @@ private:
 	TWeakObjectPtr<USkeletalMesh> AttackerSkeleton;
 	TWeakObjectPtr<USkeletalMesh> VictimSkeleton;
 
+	// Montage section selection (NAME_None = entire montage)
+	FName AttackerMontageSection = NAME_None;
+	FName VictimMontageSection = NAME_None;
+	TArray<TSharedPtr<FName>> AttackerSectionOptions;
+	TArray<TSharedPtr<FName>> VictimSectionOptions;
+
+	void RefreshAttackerSectionOptions();
+	void RefreshVictimSectionOptions();
+	void OnAttackerSectionChanged(TSharedPtr<FName> NewSelection, ESelectInfo::Type SelectType);
+	void OnVictimSectionChanged(TSharedPtr<FName> NewSelection, ESelectInfo::Type SelectType);
+	float GetSectionStartTime(UAnimMontage* Montage, FName SectionName) const;
+	float GetSectionDuration(UAnimMontage* Montage, FName SectionName) const;
+	void GetSectionTimeRange(UAnimMontage* Montage, FName SectionName, float& OutStart, float& OutEnd) const;
+
 	// Playback
 	float CurrentTime = 0.0f;
 	float MaxDuration = 0.0f;
@@ -465,16 +542,27 @@ private:
 	FDistanceAnalysis DistanceAnalysis;
 	FTimingAnalysis TimingAnalysis;
 	FOptimizationResult LastOptimizationResult;
+	FHolisticTimelineAnalysis HolisticAnalysis;
 
 	// Cache validity
 	bool bAnalysisCacheDirty = true;
+	bool bHolisticCacheDirty = true;
 
 	void RebuildAnalysisCache();
 	void RebuildTrajectoryCache();
 	void RebuildDistanceAnalysis();
 	void RebuildTimingAnalysis();
+	void RebuildHolisticAnalysis();
 	FPairedFrameAnalysis AnalyzeFrame(float Time);
 	FPairedFrameAnalysis GetAnalysisAtTime(float Time) const;
+
+	// Holistic timeline analysis for intelligent optimization
+	FTrajectoryFrameSample SampleTrajectoryFrame(float Time);
+	void DetectActivityPhases();
+	void DetectContactPhases();
+	void ComputeOptimizationWeights();
+	float GetActivityWeightAtTime(float Time) const;
+	float EvaluateConfigurationHolistic(float Distance, FRotator AttackerRot, FRotator VictimRot);
 
 	// Core procedural analysis functions
 	TArray<FProceduralContactPoint> ComputeContactPoints(float Time);
@@ -627,6 +715,10 @@ private:
 	void OnVictimMontageSelected(const FAssetData& AssetData);
 	void OnAttackerSkeletonSelected(const FAssetData& AssetData);
 	void OnVictimSkeletonSelected(const FAssetData& AssetData);
+
+	// Section Selection Widgets
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> AttackerSectionCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> VictimSectionCombo;
 
 	// ========================================================================
 	// SOCKET CONFIGURATION

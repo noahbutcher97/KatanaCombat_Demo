@@ -14,6 +14,7 @@
 #include "Widgets/Input/SSlider.h"
 #include "Widgets/Input/SSpinBox.h"
 #include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SComboBox.h"
 #include "Widgets/Input/SEditableTextBox.h"
 #include "Widgets/Input/SNumericEntryBox.h"
 #include "Widgets/Text/STextBlock.h"
@@ -211,6 +212,10 @@ void SPairedAnimationPreview::Construct(const FArguments& InArgs)
 	VictimConfig.Color = VictimColor;
 	VictimConfig.PositionOffset = FVector(LockedDistance, 0.0f, 0.0f);
 	VictimConfig.RotationOffset = FRotator(0.0f, 180.0f, 0.0f);
+
+	// Initialize section options with default "Entire Montage" option
+	AttackerSectionOptions.Add(MakeShared<FName>(NAME_None));
+	VictimSectionOptions.Add(MakeShared<FName>(NAME_None));
 
 	SetupSharedPreviewScene();
 
@@ -411,8 +416,14 @@ void SPairedAnimationPreview::OnAttackerMontageSelected(const FAssetData& AssetD
 		AttackerMeshComponent->SetAnimation(AttackerMontage.Get());
 		AttackerMeshComponent->SetPosition(0.0f);
 	}
+
+	// Reset section selection and refresh options
+	AttackerMontageSection = NAME_None;
+	RefreshAttackerSectionOptions();
+
 	RecalculateMaxDuration();
 	bAnalysisCacheDirty = true;
+	bHolisticCacheDirty = true;
 
 	// Clear caches when montage changes
 	FrameAnalysisCache.Empty();
@@ -435,8 +446,14 @@ void SPairedAnimationPreview::OnVictimMontageSelected(const FAssetData& AssetDat
 		VictimMeshComponent->SetAnimation(VictimMontage.Get());
 		VictimMeshComponent->SetPosition(0.0f);
 	}
+
+	// Reset section selection and refresh options
+	VictimMontageSection = NAME_None;
+	RefreshVictimSectionOptions();
+
 	RecalculateMaxDuration();
 	bAnalysisCacheDirty = true;
+	bHolisticCacheDirty = true;
 
 	// Clear caches when montage changes
 	FrameAnalysisCache.Empty();
@@ -463,14 +480,203 @@ void SPairedAnimationPreview::OnVictimSkeletonSelected(const FAssetData& AssetDa
 void SPairedAnimationPreview::RecalculateMaxDuration()
 {
 	MaxDuration = 0.0f;
+
+	// Calculate effective duration considering section selection
 	if (AttackerMontage.IsValid())
 	{
-		MaxDuration = FMath::Max(MaxDuration, AttackerMontage->GetPlayLength());
+		float AttackerDuration = GetSectionDuration(AttackerMontage.Get(), AttackerMontageSection);
+		MaxDuration = FMath::Max(MaxDuration, AttackerDuration);
 	}
 	if (VictimMontage.IsValid())
 	{
-		MaxDuration = FMath::Max(MaxDuration, VictimMontage->GetPlayLength() + VictimTimeOffset);
+		float VictimDuration = GetSectionDuration(VictimMontage.Get(), VictimMontageSection);
+		MaxDuration = FMath::Max(MaxDuration, VictimDuration + VictimTimeOffset);
 	}
+}
+
+// ============================================================================
+// MONTAGE SECTION SELECTION
+// ============================================================================
+
+void SPairedAnimationPreview::RefreshAttackerSectionOptions()
+{
+	AttackerSectionOptions.Empty();
+
+	// Always add "Entire Montage" option (NAME_None)
+	AttackerSectionOptions.Add(MakeShared<FName>(NAME_None));
+
+	if (AttackerMontage.IsValid())
+	{
+		// Iterate over composite sections in the montage
+		for (int32 i = 0; i < AttackerMontage->CompositeSections.Num(); ++i)
+		{
+			FName SectionName = AttackerMontage->CompositeSections[i].SectionName;
+			if (!SectionName.IsNone())
+			{
+				AttackerSectionOptions.Add(MakeShared<FName>(SectionName));
+			}
+		}
+	}
+
+	// Reset selection to "Entire Montage"
+	AttackerMontageSection = NAME_None;
+
+	// Refresh combo box if it exists
+	if (AttackerSectionCombo.IsValid())
+	{
+		AttackerSectionCombo->RefreshOptions();
+		if (AttackerSectionOptions.Num() > 0)
+		{
+			AttackerSectionCombo->SetSelectedItem(AttackerSectionOptions[0]);
+		}
+	}
+}
+
+void SPairedAnimationPreview::RefreshVictimSectionOptions()
+{
+	VictimSectionOptions.Empty();
+
+	// Always add "Entire Montage" option (NAME_None)
+	VictimSectionOptions.Add(MakeShared<FName>(NAME_None));
+
+	if (VictimMontage.IsValid())
+	{
+		// Iterate over composite sections in the montage
+		for (int32 i = 0; i < VictimMontage->CompositeSections.Num(); ++i)
+		{
+			FName SectionName = VictimMontage->CompositeSections[i].SectionName;
+			if (!SectionName.IsNone())
+			{
+				VictimSectionOptions.Add(MakeShared<FName>(SectionName));
+			}
+		}
+	}
+
+	// Reset selection to "Entire Montage"
+	VictimMontageSection = NAME_None;
+
+	// Refresh combo box if it exists
+	if (VictimSectionCombo.IsValid())
+	{
+		VictimSectionCombo->RefreshOptions();
+		if (VictimSectionOptions.Num() > 0)
+		{
+			VictimSectionCombo->SetSelectedItem(VictimSectionOptions[0]);
+		}
+	}
+}
+
+void SPairedAnimationPreview::OnAttackerSectionChanged(TSharedPtr<FName> NewSelection, ESelectInfo::Type SelectType)
+{
+	if (NewSelection.IsValid())
+	{
+		AttackerMontageSection = *NewSelection;
+		RecalculateMaxDuration();
+		bAnalysisCacheDirty = true;
+		bHolisticCacheDirty = true;
+
+		// Reset to section start
+		float SectionStart = 0.0f;
+		float SectionEnd = 0.0f;
+		GetSectionTimeRange(AttackerMontage.Get(), AttackerMontageSection, SectionStart, SectionEnd);
+		CurrentTime = SectionStart;
+		UpdateAnimations(CurrentTime);
+	}
+}
+
+void SPairedAnimationPreview::OnVictimSectionChanged(TSharedPtr<FName> NewSelection, ESelectInfo::Type SelectType)
+{
+	if (NewSelection.IsValid())
+	{
+		VictimMontageSection = *NewSelection;
+		RecalculateMaxDuration();
+		bAnalysisCacheDirty = true;
+		bHolisticCacheDirty = true;
+		UpdateAnimations(CurrentTime);
+	}
+}
+
+float SPairedAnimationPreview::GetSectionStartTime(UAnimMontage* Montage, FName SectionName) const
+{
+	if (!Montage || SectionName.IsNone())
+	{
+		return 0.0f;
+	}
+
+	int32 SectionIndex = Montage->GetSectionIndex(SectionName);
+	if (SectionIndex != INDEX_NONE)
+	{
+		return Montage->GetAnimCompositeSection(SectionIndex).GetTime();
+	}
+
+	return 0.0f;
+}
+
+float SPairedAnimationPreview::GetSectionDuration(UAnimMontage* Montage, FName SectionName) const
+{
+	if (!Montage)
+	{
+		return 0.0f;
+	}
+
+	if (SectionName.IsNone())
+	{
+		// Entire montage
+		return Montage->GetPlayLength();
+	}
+
+	float StartTime = 0.0f;
+	float EndTime = 0.0f;
+	GetSectionTimeRange(Montage, SectionName, StartTime, EndTime);
+	return EndTime - StartTime;
+}
+
+void SPairedAnimationPreview::GetSectionTimeRange(UAnimMontage* Montage, FName SectionName, float& OutStart, float& OutEnd) const
+{
+	OutStart = 0.0f;
+	OutEnd = 0.0f;
+
+	if (!Montage)
+	{
+		return;
+	}
+
+	if (SectionName.IsNone())
+	{
+		// Entire montage
+		OutStart = 0.0f;
+		OutEnd = Montage->GetPlayLength();
+		return;
+	}
+
+	int32 SectionIndex = Montage->GetSectionIndex(SectionName);
+	if (SectionIndex == INDEX_NONE)
+	{
+		// Section not found, use entire montage
+		OutStart = 0.0f;
+		OutEnd = Montage->GetPlayLength();
+		return;
+	}
+
+	// Get section start time
+	OutStart = Montage->GetAnimCompositeSection(SectionIndex).GetTime();
+
+	// Find next section to determine end time
+	// Sections are not necessarily ordered in the array, so we need to find the next section by time
+	float NextSectionStart = Montage->GetPlayLength();
+	for (int32 i = 0; i < Montage->CompositeSections.Num(); ++i)
+	{
+		if (i != SectionIndex)
+		{
+			float OtherStart = Montage->GetAnimCompositeSection(i).GetTime();
+			if (OtherStart > OutStart && OtherStart < NextSectionStart)
+			{
+				NextSectionStart = OtherStart;
+			}
+		}
+	}
+
+	OutEnd = NextSectionStart;
 }
 
 // ============================================================================
@@ -1006,6 +1212,317 @@ void SPairedAnimationPreview::RebuildTimingAnalysis()
 }
 
 // ============================================================================
+// HOLISTIC TIMELINE ANALYSIS
+// ============================================================================
+
+void SPairedAnimationPreview::RebuildHolisticAnalysis()
+{
+	HolisticAnalysis = FHolisticTimelineAnalysis();
+	HolisticAnalysis.FrameSamples.Empty();
+
+	if (MaxDuration <= 0.0f || !AttackerMeshComponent || !VictimMeshComponent)
+	{
+		bHolisticCacheDirty = false;
+		return;
+	}
+
+	// Sample the entire animation timeline at high resolution
+	const int32 NumSamples = FMath::Max(30, FMath::CeilToInt(MaxDuration * 30.0f)); // 30 samples per second
+	const float TimeStep = MaxDuration / NumSamples;
+
+	// First pass: Collect raw trajectory data
+	for (int32 i = 0; i <= NumSamples; ++i)
+	{
+		float t = i * TimeStep;
+		FTrajectoryFrameSample Sample = SampleTrajectoryFrame(t);
+		HolisticAnalysis.FrameSamples.Add(Sample);
+	}
+
+	// Detect activity and contact phases
+	DetectActivityPhases();
+	DetectContactPhases();
+
+	// Compute optimization weights based on activity and contact phases
+	ComputeOptimizationWeights();
+
+	bHolisticCacheDirty = false;
+}
+
+FTrajectoryFrameSample SPairedAnimationPreview::SampleTrajectoryFrame(float Time)
+{
+	FTrajectoryFrameSample Sample;
+	Sample.Time = Time;
+
+	if (!AttackerMeshComponent || !VictimMeshComponent)
+	{
+		return Sample;
+	}
+
+	// Update animations to this time
+	UpdateAnimations(Time);
+
+	// Compute velocities using central difference
+	const float DeltaTime = 0.016f; // ~60fps sampling
+
+	// Get hand velocities (primary attack effectors)
+	FVector AttackerHandVel = ComputeBoneVelocity(AttackerMeshComponent, TEXT("hand_r"), Time, DeltaTime);
+	FVector VictimPelvisVel = ComputeBoneVelocity(VictimMeshComponent, TEXT("pelvis"), Time, DeltaTime);
+
+	Sample.AttackerVelocityMagnitude = AttackerHandVel.Size();
+	Sample.VictimVelocityMagnitude = VictimPelvisVel.Size();
+
+	// Combined activity: weighted sum (attacker motion matters more for combat)
+	float MaxExpectedVelocity = 1000.0f; // Reasonable max for hand motion in cm/s
+	Sample.CombinedActivity = FMath::Clamp(
+		(Sample.AttackerVelocityMagnitude * 0.7f + Sample.VictimVelocityMagnitude * 0.3f) / MaxExpectedVelocity,
+		0.0f, 1.0f);
+
+	// Get multi-contact analysis for this frame
+	FMultiContactAnalysis MultiContact = ComputeMultiContactPoints(Time);
+	Sample.ClosestDistance = MultiContact.BestContactDistance;
+	Sample.ContactQuality = MultiContact.WeightedContactQuality;
+
+	// Compute approach direction and speed
+	FVector AttackerPos = AttackerMeshComponent->GetComponentLocation();
+	FVector VictimPos = VictimMeshComponent->GetComponentLocation();
+	Sample.ApproachDirection = (VictimPos - AttackerPos).GetSafeNormal();
+
+	// Project attacker velocity onto approach direction
+	Sample.ApproachSpeed = FVector::DotProduct(AttackerHandVel, Sample.ApproachDirection);
+
+	// Compute angle quality - how well aligned is the weapon with the approach direction
+	FVector WeaponStart = GetSocketWorldLocation(AttackerMeshComponent, AttackerConfig.WeaponStartSocket);
+	FVector WeaponEnd = GetSocketWorldLocation(AttackerMeshComponent, AttackerConfig.WeaponEndSocket);
+	FVector WeaponDir = (WeaponEnd - WeaponStart).GetSafeNormal();
+	float AngleDot = FMath::Abs(FVector::DotProduct(WeaponDir, Sample.ApproachDirection));
+	Sample.AngleQuality = FMath::Clamp(1.0f - AngleDot, 0.0f, 1.0f); // Perpendicular is best for slashing
+
+	return Sample;
+}
+
+void SPairedAnimationPreview::DetectActivityPhases()
+{
+	if (HolisticAnalysis.FrameSamples.Num() < 2) return;
+
+	// Find peak velocity and high activity threshold
+	float MaxVelocity = 0.0f;
+	int32 PeakIndex = 0;
+
+	for (int32 i = 0; i < HolisticAnalysis.FrameSamples.Num(); ++i)
+	{
+		FTrajectoryFrameSample& Sample = HolisticAnalysis.FrameSamples[i];
+		if (Sample.AttackerVelocityMagnitude > MaxVelocity)
+		{
+			MaxVelocity = Sample.AttackerVelocityMagnitude;
+			PeakIndex = i;
+		}
+	}
+
+	HolisticAnalysis.PeakVelocityMagnitude = MaxVelocity;
+	HolisticAnalysis.PeakVelocityTime = HolisticAnalysis.FrameSamples[PeakIndex].Time;
+	HolisticAnalysis.FrameSamples[PeakIndex].bIsPeakVelocityFrame = true;
+
+	// High activity threshold: 40% of peak velocity
+	float HighActivityThreshold = MaxVelocity * 0.4f;
+	bool bInHighActivity = false;
+
+	for (FTrajectoryFrameSample& Sample : HolisticAnalysis.FrameSamples)
+	{
+		bool bIsHigh = Sample.AttackerVelocityMagnitude > HighActivityThreshold;
+		Sample.bIsHighActivityPhase = bIsHigh;
+
+		if (bIsHigh)
+		{
+			HolisticAnalysis.HighActivityFrameCount++;
+			if (!bInHighActivity)
+			{
+				HolisticAnalysis.HighActivityStartTime = Sample.Time;
+				bInHighActivity = true;
+			}
+			HolisticAnalysis.HighActivityEndTime = Sample.Time;
+		}
+	}
+
+	// Compute average activity
+	float TotalActivity = 0.0f;
+	for (const FTrajectoryFrameSample& Sample : HolisticAnalysis.FrameSamples)
+	{
+		TotalActivity += Sample.CombinedActivity;
+	}
+	HolisticAnalysis.AverageActivity = TotalActivity / HolisticAnalysis.FrameSamples.Num();
+}
+
+void SPairedAnimationPreview::DetectContactPhases()
+{
+	if (HolisticAnalysis.FrameSamples.Num() < 2) return;
+
+	// Contact phase: frames where contact quality is above threshold
+	const float ContactQualityThreshold = 0.3f;
+	bool bInContactPhase = false;
+
+	float TotalContactQuality = 0.0f;
+
+	for (FTrajectoryFrameSample& Sample : HolisticAnalysis.FrameSamples)
+	{
+		bool bIsContact = Sample.ContactQuality > ContactQualityThreshold;
+		Sample.bIsContactPhase = bIsContact;
+
+		if (bIsContact)
+		{
+			HolisticAnalysis.ContactPhaseFrameCount++;
+			TotalContactQuality += Sample.ContactQuality;
+
+			if (!bInContactPhase)
+			{
+				HolisticAnalysis.ContactPhaseStartTime = Sample.Time;
+				bInContactPhase = true;
+			}
+			HolisticAnalysis.ContactPhaseEndTime = Sample.Time;
+		}
+	}
+
+	if (HolisticAnalysis.ContactPhaseFrameCount > 0)
+	{
+		HolisticAnalysis.AverageContactQuality = TotalContactQuality / HolisticAnalysis.ContactPhaseFrameCount;
+	}
+}
+
+void SPairedAnimationPreview::ComputeOptimizationWeights()
+{
+	if (HolisticAnalysis.FrameSamples.Num() < 2) return;
+
+	// Weight scheme:
+	// - High activity phases get weight 2.0 (most important for attack animations)
+	// - Contact phases get weight 1.5 (where contact matters)
+	// - Peak velocity frame gets weight 3.0 (critical impact moment)
+	// - Other frames get weight 0.5 (still considered but less important)
+
+	float TotalWeight = 0.0f;
+	float WeightedContact = 0.0f;
+	float WeightedAlignment = 0.0f;
+
+	for (FTrajectoryFrameSample& Sample : HolisticAnalysis.FrameSamples)
+	{
+		float Weight = 0.5f; // Base weight
+
+		if (Sample.bIsPeakVelocityFrame)
+		{
+			Weight = 3.0f;
+		}
+		else if (Sample.bIsHighActivityPhase && Sample.bIsContactPhase)
+		{
+			Weight = 2.5f; // Both high activity AND contact
+		}
+		else if (Sample.bIsHighActivityPhase)
+		{
+			Weight = 2.0f;
+		}
+		else if (Sample.bIsContactPhase)
+		{
+			Weight = 1.5f;
+		}
+
+		Sample.OptimizationWeight = Weight;
+		TotalWeight += Weight;
+		WeightedContact += Sample.ContactQuality * Weight;
+		WeightedAlignment += Sample.AngleQuality * Weight;
+	}
+
+	HolisticAnalysis.TotalWeight = TotalWeight;
+
+	if (TotalWeight > 0.0f)
+	{
+		HolisticAnalysis.WeightedContactScore = WeightedContact / TotalWeight;
+		HolisticAnalysis.WeightedAlignmentScore = WeightedAlignment / TotalWeight;
+		HolisticAnalysis.WeightedOverallScore = (HolisticAnalysis.WeightedContactScore * 0.6f +
+												 HolisticAnalysis.WeightedAlignmentScore * 0.4f);
+	}
+}
+
+float SPairedAnimationPreview::GetActivityWeightAtTime(float Time) const
+{
+	if (HolisticAnalysis.FrameSamples.Num() == 0)
+	{
+		return 1.0f;
+	}
+
+	// Find closest frame sample
+	float MinDiff = FLT_MAX;
+	float Weight = 1.0f;
+
+	for (const FTrajectoryFrameSample& Sample : HolisticAnalysis.FrameSamples)
+	{
+		float Diff = FMath::Abs(Sample.Time - Time);
+		if (Diff < MinDiff)
+		{
+			MinDiff = Diff;
+			Weight = Sample.OptimizationWeight;
+		}
+	}
+
+	return Weight;
+}
+
+float SPairedAnimationPreview::EvaluateConfigurationHolistic(float Distance, FRotator AttackerRot, FRotator VictimRot)
+{
+	// Rebuild holistic analysis if dirty
+	if (bHolisticCacheDirty)
+	{
+		RebuildHolisticAnalysis();
+	}
+
+	// Temporarily apply configuration
+	float OriginalDistance = LockedDistance;
+	FRotator OriginalAttackerRot = AttackerConfig.RotationOffset;
+	FRotator OriginalVictimRot = VictimConfig.RotationOffset;
+
+	LockedDistance = Distance;
+	AttackerConfig.RotationOffset = AttackerRot;
+	VictimConfig.RotationOffset = VictimRot;
+	ApplyCharacterConfigs();
+
+	// Use holistic analysis for weighted evaluation
+	float WeightedScore = 0.0f;
+	float TotalWeight = 0.0f;
+	float TotalPenetrationPenalty = 0.0f;
+
+	for (const FTrajectoryFrameSample& Sample : HolisticAnalysis.FrameSamples)
+	{
+		float t = Sample.Time;
+		FMultiContactAnalysis MultiAnalysis = ComputeMultiContactPoints(t);
+
+		float FrameScore = MultiAnalysis.WeightedContactQuality;
+		float Weight = Sample.OptimizationWeight;
+
+		WeightedScore += FrameScore * Weight;
+		TotalWeight += Weight;
+
+		if (MultiAnalysis.bHasPenetration)
+		{
+			TotalPenetrationPenalty += MultiAnalysis.MaxPenetrationDepth * Weight;
+		}
+	}
+
+	// Restore original configuration
+	LockedDistance = OriginalDistance;
+	AttackerConfig.RotationOffset = OriginalAttackerRot;
+	VictimConfig.RotationOffset = OriginalVictimRot;
+	ApplyCharacterConfigs();
+
+	if (TotalWeight <= 0.0f)
+	{
+		return 0.0f;
+	}
+
+	// Compute final score with penetration penalty
+	float NormalizedScore = WeightedScore / TotalWeight;
+	float NormalizedPenalty = (TotalPenetrationPenalty / TotalWeight) / 30.0f; // Normalize penalty
+	NormalizedPenalty = FMath::Clamp(NormalizedPenalty, 0.0f, 0.3f);
+
+	return NormalizedScore - NormalizedPenalty;
+}
+
+// ============================================================================
 // OPTIMIZATION ENGINE
 // ============================================================================
 
@@ -1056,11 +1573,18 @@ float SPairedAnimationPreview::FindOptimalDistance(float MinDist, float MaxDist,
 	float BestDistance = LockedDistance;
 	float BestScore = -1.0f;  // Use -1 to distinguish "no valid config found" from 0 score
 
-	// FIX: Use integer loop to guarantee boundary evaluation (MinDist and MaxDist both tested)
+	// Ensure holistic analysis is up to date
+	if (bHolisticCacheDirty)
+	{
+		RebuildHolisticAnalysis();
+	}
+
+	// Use integer loop to guarantee boundary evaluation (MinDist and MaxDist both tested)
 	for (int32 i = 0; i <= Steps; ++i)
 	{
 		float d = MinDist + (i * (MaxDist - MinDist) / Steps);
-		float Score = EvaluateConfigurationWithMultiContact(d, AttackerConfig.RotationOffset, VictimConfig.RotationOffset);
+		// Use holistic evaluation that considers the full animation timeline
+		float Score = EvaluateConfigurationHolistic(d, AttackerConfig.RotationOffset, VictimConfig.RotationOffset);
 		if (Score > BestScore)
 		{
 			BestScore = Score;
@@ -1076,13 +1600,20 @@ FRotator SPairedAnimationPreview::FindOptimalAttackerRotation(int32 Steps)
 	FRotator BestRotation = AttackerConfig.RotationOffset;
 	float BestScore = -1.0f;  // Use -1 to distinguish "no valid config" from 0 score
 
-	// FIX: Use integer loop for uniform angular coverage
+	// Ensure holistic analysis is up to date
+	if (bHolisticCacheDirty)
+	{
+		RebuildHolisticAnalysis();
+	}
+
+	// Use integer loop for uniform angular coverage
 	// With Steps=36, evaluates 0, 10, 20, ..., 350 degrees (36 unique values)
 	for (int32 i = 0; i < Steps; ++i)
 	{
 		float Yaw = (i * 360.0f) / Steps;
 		FRotator TestRot(0.0f, Yaw, 0.0f);
-		float Score = EvaluateConfigurationWithMultiContact(LockedDistance, TestRot, VictimConfig.RotationOffset);
+		// Use holistic evaluation that considers the full animation timeline
+		float Score = EvaluateConfigurationHolistic(LockedDistance, TestRot, VictimConfig.RotationOffset);
 		if (Score > BestScore)
 		{
 			BestScore = Score;
@@ -1098,12 +1629,19 @@ FRotator SPairedAnimationPreview::FindOptimalVictimRotation(int32 Steps)
 	FRotator BestRotation = VictimConfig.RotationOffset;
 	float BestScore = -1.0f;  // Use -1 to distinguish "no valid config" from 0 score
 
-	// FIX: Use integer loop for uniform angular coverage
+	// Ensure holistic analysis is up to date
+	if (bHolisticCacheDirty)
+	{
+		RebuildHolisticAnalysis();
+	}
+
+	// Use integer loop for uniform angular coverage
 	for (int32 i = 0; i < Steps; ++i)
 	{
 		float Yaw = (i * 360.0f) / Steps;
 		FRotator TestRot(0.0f, Yaw, 0.0f);
-		float Score = EvaluateConfigurationWithMultiContact(LockedDistance, AttackerConfig.RotationOffset, TestRot);
+		// Use holistic evaluation that considers the full animation timeline
+		float Score = EvaluateConfigurationHolistic(LockedDistance, AttackerConfig.RotationOffset, TestRot);
 		if (Score > BestScore)
 		{
 			BestScore = Score;
@@ -2382,6 +2920,45 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildAssetSelectionPanel()
 				]
 			]
 
+			// Attacker Section Selection
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(STextBlock).Text(LOCTEXT("Section", "Section"))
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.Padding(4.0f, 0.0f)
+				[
+					SAssignNew(AttackerSectionCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&AttackerSectionOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnAttackerSectionChanged)
+					.OnGenerateWidget_Lambda([](TSharedPtr<FName> Item)
+					{
+						FString DisplayName = Item->IsNone() ? TEXT("(Entire Montage)") : Item->ToString();
+						return SNew(STextBlock).Text(FText::FromString(DisplayName));
+					})
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							if (AttackerMontageSection.IsNone())
+							{
+								return FText::FromString(TEXT("(Entire Montage)"));
+							}
+							return FText::FromName(AttackerMontageSection);
+						})
+					]
+				]
+			]
+
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(2.0f, 8.0f, 2.0f, 2.0f)
@@ -2441,6 +3018,45 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildAssetSelectionPanel()
 					.AllowedClass(UAnimMontage::StaticClass())
 					.ObjectPath_Lambda([this]() { return GetVictimMontagePath(); })
 					.OnObjectChanged(this, &SPairedAnimationPreview::OnVictimMontageSelected)
+				]
+			]
+
+			// Victim Section Selection
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(STextBlock).Text(LOCTEXT("Section2", "Section"))
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.Padding(4.0f, 0.0f)
+				[
+					SAssignNew(VictimSectionCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&VictimSectionOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnVictimSectionChanged)
+					.OnGenerateWidget_Lambda([](TSharedPtr<FName> Item)
+					{
+						FString DisplayName = Item->IsNone() ? TEXT("(Entire Montage)") : Item->ToString();
+						return SNew(STextBlock).Text(FText::FromString(DisplayName));
+					})
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							if (VictimMontageSection.IsNone())
+							{
+								return FText::FromString(TEXT("(Entire Montage)"));
+							}
+							return FText::FromName(VictimMontageSection);
+						})
+					]
 				]
 			]
 		];
