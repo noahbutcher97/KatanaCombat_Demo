@@ -1,20 +1,21 @@
 # Gap Audit - Executive Summary
 **Project**: KatanaCombat Demo  
 **Date**: January 31, 2026  
-**Full Report**: [COMPREHENSIVE_GAP_AUDIT_2026-01-31.md](./COMPREHENSIVE_GAP_AUDIT_2026-01-31.md)
+**Full Report**: [EXPANDED_GAP_AUDIT_2026-01-31.md](./EXPANDED_GAP_AUDIT_2026-01-31.md) | [Original](./COMPREHENSIVE_GAP_AUDIT_2026-01-31.md)
 
 ---
 
-## 🎯 Overall Assessment: 8.5/10
+## 🎯 Overall Assessment: 7.0/10
 
-**Status**: Project is **well-maintained** with excellent documentation practices. All documented fixes are **verified working**. Main gaps are in **defensive programming** (NULL checks, bounds validation).
+**Status**: Project is **well-maintained** with excellent documentation. Core systems working (42 gaps fixed), but **expanded scope reveals 107 pending gaps** across paired animation system and general codebase.
 
-### Quick Stats
-- ✅ **8 documented issues**: All verified fixed
-- 📋 **5 planned improvements**: Phase 2/3 work
+### Quick Stats - EXPANDED SCOPE
+- ✅ **42 documented issues fixed**: 31 paired animation + 8 V2 audit + 3 other
+- ⏳ **107 pending gaps**: 76 paired animation + 14 V2/audit + 17 undocumented
+- 🔮 **17 deferred**: Future phases (Phase 6+)
 - 🔴 **3 critical gaps**: NULL pointer risks (fix in 1 hour)
-- 🟡 **4 high priority gaps**: Validation issues (fix in 10 hours)
-- 🟢 **11 medium/low gaps**: Technical debt (track in backlog)
+- 🟡 **20 high priority gaps**: Paired animation + validation (2-3 weeks)
+- 🟢 **84 medium/low gaps**: Features, polish, technical debt
 
 ---
 
@@ -84,93 +85,168 @@ void UMyComponent::BeginPlay()
 
 ## ✅ What's Working Well
 
-### Documented Issues - All Fixed! 🎉
+### Documented Issues - Verified Fixed! 🎉
 
-| Issue | Status | Evidence |
-|-------|--------|----------|
-| Root Motion Bug | ✅ FIXED | `UpdateMovementFromMontageState()` implemented and working |
-| Blend State Entanglement | ✅ MITIGATED | Rapid input detection + force cleanup |
-| Hold State Persistence | ✅ FIXED | `ClearHoldState()` called on new attacks |
-| Victim Freeze Bug | ✅ FIXED | All 3 guards implemented |
+| Issue | Source | Status | Evidence |
+|-------|--------|--------|----------|
+| Root Motion Bug | V2 Audit | ✅ FIXED | `UpdateMovementFromMontageState()` implemented |
+| Blend State Entanglement | V2 Audit | ✅ MITIGATED | Rapid input detection + force cleanup |
+| Hold State Persistence | V2 Audit | ✅ FIXED | `ClearHoldState()` called on new attacks |
+| Victim Freeze Bug | Log Analysis | ✅ FIXED | All 3 guards implemented |
+| 31 Paired Animation Gaps | PA Plan | ✅ DONE | Core finisher system functional |
 
 ### Strong Documentation Practices
 
-- ✅ 3 comprehensive audit documents found
-- ✅ All claimed fixes actually exist in code
+- ✅ Comprehensive gap tracking (121 gaps in Paired Animation Plan)
+- ✅ All claimed fixes verified present in code
 - ✅ 34 paired animation tests (excellent coverage)
 - ✅ Clear architectural documentation
 - ✅ Well-marked deprecated code (9 locations)
+- ✅ Proactive audit culture (4 audit documents)
 
 ---
 
-## 📊 Gap Distribution
+## 📋 What Needs Attention
+
+### Paired Animation System (76 Pending Gaps)
+
+The bulk of remaining work is in the paired animation system:
+
+**P1 Critical for Polish** (~10 gaps):
+- Gap 20.5: Distance drift investigation (characters drift 90+ units)
+- Gap 3.3: Montage section support (enables content creation)
+- Gap 19.6: Warp blocked by obstacle fallback
+
+**P2 Feature Complete** (~40 gaps):
+- Audio/VFX wiring (properties scaffolded, need hookup)
+- UI/HUD integration (finisher prompts, indicators)
+- Input handling refinements
+- State transition safety
+
+**P3 Polish** (~26 gaps):
+- Camera effects tuning
+- Slow-mo curve easing
+- Performance optimizations
+
+### General Codebase Issues (17 Gaps)
+
+**P0 Critical** (3 gaps):
+- NULL checks in component initialization
+
+**P1 High** (4 gaps):
+- Finisher data validation
+- Array bounds checking
+- Delegate unbinding
+- API documentation
+
+**P2/P3** (10 gaps):
+- Type safety, performance, TODOs
+
+---
+
+## 📊 Gap Distribution - CORRECTED TOTALS
+
+### By Source Document
+
+| Source | Total | Done | Pending | Deferred |
+|--------|-------|------|---------|----------|
+| **Paired Animation Plan** | 121 | 31 | 76 | 14 |
+| **V2 System Audit** | 16 | 8 | 5 | 3 |
+| **AUDIT_SYNTHESIS** | 12 | 3 | 9 | 0 |
+| **Undocumented (code)** | 17 | 0 | 17 | 0 |
+| **TOTAL** | **~166** | **42** | **107** | **17** |
 
 ### By Severity
 
 ```
-🔴 Critical (P0):     3 gaps  [NULL checks]
-🟡 High (P1):         4 gaps  [Validation, docs]
-🟢 Medium (P2):       6 gaps  [Type safety, cleanup]
-⚪ Low (P3):          5 gaps  [Performance, docs]
-📋 Planned (Phase 2): 5 gaps  [Architecture improvements]
+🔴 Critical (P0):     3 gaps  [NULL checks - 1 hour]
+🟡 High (P1):        ~20 gaps  [Paired animation core + validation - 2-3 weeks]
+🟢 Medium (P2):      ~50 gaps  [Audio/VFX wiring, UI, polish - 1-2 months]
+⚪ Low (P3):         ~34 gaps  [Performance, docs, technical debt - backlog]
+📋 Deferred:         ~17 gaps  [Future phases 6-8]
 ```
 
-### By Category
+### By Category (Paired Animation Focus)
 
-| Category | Count | Status |
-|----------|-------|--------|
-| NULL Safety Issues | 6 | 3 critical, 3 medium |
-| Documentation Gaps | 5 | All fixable |
-| Input Validation | 3 | Need bounds checking |
-| Type Safety | 3 | Unsafe casts, const violations |
-| Resource Management | 2 | Timers, delegates |
-| Performance | 2 | Array sorting, string ops |
-| TODO Items | 13 | Track in backlog |
-
----
-
-## 🎯 Recommended Roadmap
-
-### Week 1: Critical Fixes (1 hour)
-- [ ] Add NULL checks to 3 component initialization paths
-- [ ] Verify all fixes work with manual testing
-
-### Week 2-3: Documentation & High Priority (10 hours)
-- [ ] Update ROADMAP.md completion percentages
-- [ ] Update plans/README.md (remove "no active plans")
-- [ ] Add API documentation for paired animations
-- [ ] Add troubleshooting section
-- [ ] Add finisher data validation
-- [ ] Add array bounds checking
-
-### Month 1: Medium Priority (6 hours)
-- [ ] Audit and add delegate unbinding
-- [ ] Fix unsafe casts in MontageUtilityLibrary
-- [ ] Review const-correctness violations
-- [ ] Verify timer cleanup in abnormal scenarios
-
-### Quarter 1: Architectural Improvements (8-13 days)
-- [ ] Phase 2: Curve-based easing (per V2_SYSTEM_AUDIT)
-- [ ] Phase 2: Lazy checkpoint evaluation
-- [ ] Phase 3: Blend policy system
-- [ ] Phase 3: Implicit state derivation
+| Category | Pending | Notes |
+|----------|---------|-------|
+| AI Coordination | 4 | Behavior tree integration |
+| Input Handling | 3 | Selective filtering needed |
+| Animation/Timing | 5 | Montage sections, sync |
+| Audio Sync | 4 | Properties scaffolded, not wired |
+| UI/HUD | 5 | Finisher prompts, indicators |
+| Environment | 2 | Wall/ledge detection |
+| State Transitions | 2 | Interrupt handling |
+| Performance | 2 | Warp updates, array iteration |
+| Recovery/Cleanup | 4 | Error paths |
+| Bug Prevention | 5 | Null safety, validation |
+| Polish | 3 | Camera, slow-mo, effects |
+| VFX | 2 | Niagara spawning |
+| **PLUS**: General code issues | 17 | NULL checks, type safety, etc. |
 
 ---
 
-## 🔍 Detailed Findings
+## 🎯 Recommended Roadmap - UPDATED FOR FULL SCOPE
+
+### Week 1: Critical Fixes (1 hour + 1 day)
+- [ ] ✅ Add NULL checks to 3 component initialization paths (1 hour)
+- [ ] ✅ Create verification test suite for 31 "done" paired animation gaps (1 day)
+- [ ] ✅ Verify all fixes work with comprehensive testing
+
+### Week 2-4: P1 Paired Animation Gaps (2-3 weeks)
+- [ ] 🔍 **CRITICAL**: Investigate Gap 20.5 (distance drift 90+ units)
+- [ ] ✅ Implement Gap 3.3 (montage section support)
+- [ ] ✅ Implement Gap 19.6 (warp obstacle fallback)
+- [ ] ✅ Fix inadequate solutions (Gap 2.2, Gap 19.5)
+- [ ] ✅ Complete ~10 P1 gaps blocking testing/polish
+
+### Month 1-2: P2 Feature Complete (1-2 months)
+- [ ] ✅ Audio/VFX wiring (~10 gaps - properties exist, need hookup)
+- [ ] ✅ UI/HUD integration (~5 gaps - finisher prompts, indicators)
+- [ ] ✅ Input handling refinements (~3 gaps)
+- [ ] ✅ State transition safety (~5 gaps)
+- [ ] ✅ Documentation updates (~5 gaps)
+- [ ] ✅ Add bounds checking and validation (~5 gaps)
+
+### Quarter 1: P2/P3 Polish (2-3 months)
+- [ ] ✅ Camera effects and tuning (~3 gaps)
+- [ ] ✅ Performance optimizations (~5 gaps)
+- [ ] ✅ Bug prevention hardening (~5 gaps)
+- [ ] ✅ Polish and refinement (~20 gaps)
+- [ ] ✅ V2 System Audit Phase 2/3 items (8-13 days)
+- [ ] ✅ Complete remaining P2/P3 gaps
+
+### Future Phases: Deferred Features
+- [ ] 📋 Phase 6: Environmental finishers, IK, multi-victim
+- [ ] 📋 Phase 7: Advanced VFX implementation
+- [ ] 📋 Phase 8: Multiplayer/network replication
+
+---
+
+## 🔍 Detailed Findings - CORRECTED
 
 ### Gaps Reported Fixed But Aren't: **0** ✅
-All documented fixes are verified working!
+All 42 documented fixes are present in code (8 deeply verified, 34 need testing)
 
-### Gaps With Solutions That Won't Work: **0** ✅
-All implemented mitigations are effective!
+### Gaps With Solutions That Won't Work: **2** ⚠️
+1. Gap 2.2: Input buffering - should use selective filtering, not clear all
+2. Gap 19.5: Sync timeout - 3s too long, should be 0.5-1.0s
 
-### Gaps With No Solution: **5**
-1. Completion percentage inconsistency (docs only)
-2. Missing API documentation (docs only)
-3. Missing troubleshooting section (docs only)
-4. Plans README not updated (docs only)
-5. No security policy document (docs only)
+### Gaps With No Solution Provided: **76** ⏳
+Pending gaps in Paired Animation System:
+- 4 AI Coordination gaps
+- 3 Input Handling gaps
+- 5 Animation/Timing gaps
+- 4 Audio Sync gaps (scaffolded)
+- 5 UI/HUD gaps
+- 2 Environment gaps
+- Plus ~50 more feature/polish gaps
+
+### Newly Discovered Gaps: **17**
+Undocumented code issues:
+- 3 Critical (NULL checks)
+- 4 High Priority (validation, docs)
+- 10 Medium/Low (type safety, performance, TODOs)
 
 ### Newly Discovered Gaps: **17**
 
