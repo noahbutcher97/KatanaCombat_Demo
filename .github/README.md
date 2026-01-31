@@ -96,12 +96,15 @@ The pipeline adapts to available infrastructure with two execution tiers:
 - **Executes** (enhanced UE-independent validation):
   - ✅ YAML workflow validation
   - ✅ Project structure validation
-  - ✅ **Enhanced build configuration checks**
-    - Module dependency validation
-    - Circular dependency detection
-    - Include path validation
+  - ✅ **Enhanced build configuration checks** with line-level error reporting
+    - Module dependency validation with duplicate detection
+    - Circular dependency detection with context snippets
+    - Include path validation (detects `../`, `\\`, `//` patterns)
+    - Module typo detection (e.g., `CoreUobject` → `CoreUObject`)
     - PCH usage verification
     - Target type configuration checks
+    - **Regex validation** with proper PowerShell escaping
+    - **Line-level context** showing exact issue location
   - ✅ **Comprehensive static analysis** (UE-independent)
     - 🔒 Security: unsafe functions, buffer overflows
     - 🎨 Code style: naming conventions, function complexity
@@ -112,7 +115,7 @@ The pipeline adapts to available infrastructure with two execution tiers:
   - ✅ Test structure validation
 - **Timeout**: 30 minutes
 - **No UE5.6 required**: Runs comprehensive quality checks via heuristic analysis
-- **Artifacts**: Enhanced validation logs with categorized issue reports
+- **Artifacts**: Enhanced validation logs with categorized issue reports and line-level context
 
 **Fallback Mechanism**:
 

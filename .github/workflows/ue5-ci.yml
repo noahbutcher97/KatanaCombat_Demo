@@ -778,6 +778,7 @@ jobs:
           # Enhanced Build.cs validation
           foreach ($file in $buildFiles) {
             $content = Get-Content $file.FullName -Raw
+            $lines = Get-Content $file.FullName
             $fileName = $file.Name
             
             Write-Host "Validating: $fileName"
@@ -786,28 +787,53 @@ jobs:
             if ($content -match 'PublicDependencyModuleNames|PrivateDependencyModuleNames') {
               Write-Host "  ✅ Module dependencies configured"
               
-              # Check for circular dependencies
-              if ($content -match '(?:Public|Private)DependencyModuleNames[^;]*\b(\w+)\b[^;]*\b\1\b') {
-                Write-Warning "  ⚠️  Possible duplicate module dependency"
-                $configIssues++
-              }
-              
-              # Check for common UE module typos
-              if ($content -match 'CoreUobject|CoreUOjbect') {
-                Write-Error "  ❌ Typo in CoreUObject module name"
-                $configIssues++
+              # Check for circular dependencies with line context
+              $lineNum = 0
+              foreach ($line in $lines) {
+                $lineNum++
+                if ($line -match '(?:Public|Private)DependencyModuleNames') {
+                  # Extract module names from this dependency line
+                  if ($line -match 'AddRange\s*\(\s*new\s+string\[\]\s*\{([^}]+)\}') {
+                    $moduleList = $Matches[1]
+                    $modules = @()
+                    if ($moduleList -match '"([^"]+)"') {
+                      $modules = [regex]::Matches($moduleList, '"([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
+                      $uniqueModules = $modules | Select-Object -Unique
+                      if ($modules.Count -ne $uniqueModules.Count) {
+                        Write-Warning "  ⚠️  Line $lineNum`: Duplicate module dependencies detected"
+                        Write-Host "    Context: $($line.Trim())"
+                        $configIssues++
+                      }
+                    }
+                  }
+                }
+                
+                # Check for common UE module typos
+                if ($line -match 'CoreUobject|CoreUOjbect') {
+                  Write-Error "  ❌ Line $lineNum`: Typo in CoreUObject module name"
+                  Write-Host "    Context: $($line.Trim())"
+                  Write-Host "    Fix: Replace with 'CoreUObject'"
+                  $configIssues++
+                }
               }
             } else {
               Write-Warning "  ⚠️  Missing module dependencies configuration"
               $configIssues++
             }
             
-            # Check for invalid include paths
-            if ($content -match 'PublicIncludePaths\.Add\s*\(\s*["\']([^"\']+)["\']\s*\)') {
-              $includePath = $Matches[1]
-              if ($includePath -match '\.\.|\\\\|//') {
-                Write-Warning "  ⚠️  Suspicious include path: $includePath"
-                $configIssues++
+            # Check for invalid include paths with line context
+            $lineNum = 0
+            foreach ($line in $lines) {
+              $lineNum++
+              if ($line -match 'PublicIncludePaths\.Add\s*\(\s*["'']([^"'']+)["'']\s*\)') {
+                $includePath = $Matches[1]
+                if ($includePath -match '\.\.|\\\\|//') {
+                  Write-Warning "  ⚠️  Line $lineNum`: Suspicious include path detected"
+                  Write-Host "    Path: $includePath"
+                  Write-Host "    Context: $($line.Trim())"
+                  Write-Host "    Issue: Contains relative paths (.. or //) which may cause build issues"
+                  $configIssues++
+                }
               }
             }
             
@@ -852,7 +878,7 @@ jobs:
             }
             
             # Check for extra module names
-            if ($content -match 'ExtraModuleNames\.Add\s*\(\s*["\']([^"\']+)["\']\s*\)') {
+            if ($content -match 'ExtraModuleNames\.Add\s*\(\s*["'']([^"'']+)["'']\s*\)') {
               $moduleName = $Matches[1]
               Write-Host "  ✅ Extra module registered: $moduleName"
               

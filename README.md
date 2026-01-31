@@ -156,11 +156,14 @@ When self-hosted runners with UE5.6 are available, the complete pipeline execute
 When self-hosted runners are unavailable, GitHub-hosted runners execute **comprehensive UE-independent** validation:
 - ✅ YAML workflow validation
 - ✅ Project structure validation
-- ✅ Enhanced build configuration checks (.Build.cs, .Target.cs)
-  - Module dependency validation
+- ✅ **Enhanced build configuration checks** (.Build.cs, .Target.cs) with line-level context
+  - Module dependency validation with duplicate detection
   - Circular dependency detection
-  - Include path validation
+  - Include path validation (detects relative paths like `../`, `\\`, `//`)
+  - Module typo detection (e.g., `CoreUobject` → `CoreUObject`)
   - Target type verification
+  - **Line-level error reporting** with context snippets
+  - **Regex validation** with proper escaping and error handling
 - ✅ **Enhanced static analysis** (UE-independent)
   - Security vulnerability scanning (buffer overflows, unsafe functions)
   - Code style violation detection (naming, function complexity)
