@@ -332,16 +332,22 @@ void SPairedAnimationPreview::UpdateAnimations(float Time)
 	// Best practice from UE5 research: Just call SetPosition()
 	// The preview scene's TickPreviewScene() handles animation updates
 	// Manual TickAnimation/RefreshBoneTransforms can cause fighting
+	//
+	// CRITICAL FIX: Use the passed Time parameter, not CurrentTime!
+	// This was causing the holistic optimization to produce different results
+	// at different timeline positions - it was always evaluating at CurrentTime
+	// instead of the sampled time points.
 
 	if (AttackerMeshComponent && AttackerMontage.IsValid())
 	{
-		float AttackerTime = GetAttackerTime();
-		AttackerMeshComponent->SetPosition(AttackerTime);
+		// Use passed Time parameter (attacker time = Time directly)
+		AttackerMeshComponent->SetPosition(Time);
 	}
 
 	if (VictimMeshComponent && VictimMontage.IsValid())
 	{
-		float VictimTime = GetVictimTime();
+		// Use passed Time parameter with victim offset applied
+		float VictimTime = FMath::Max(0.0f, Time - VictimTimeOffset);
 		VictimMeshComponent->SetPosition(VictimTime);
 	}
 }
@@ -491,6 +497,228 @@ void SPairedAnimationPreview::RecalculateMaxDuration()
 	{
 		float VictimDuration = GetSectionDuration(VictimMontage.Get(), VictimMontageSection);
 		MaxDuration = FMath::Max(MaxDuration, VictimDuration + VictimTimeOffset);
+	}
+}
+
+// ============================================================================
+// SPATIAL RELATIONSHIP (PT-2)
+// ============================================================================
+
+FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship()
+{
+	FSpatialRelationshipInference Result;
+	Result.InferredRelationship = ESpatialRelationship::Facing;
+	Result.Confidence = 0.0f;
+
+	if (!AttackerMeshComponent || !VictimMeshComponent)
+	{
+		Result.ReasoningText = TEXT("No meshes loaded");
+		return Result;
+	}
+
+	// Ensure holistic analysis is up to date
+	if (bHolisticCacheDirty)
+	{
+		RebuildHolisticAnalysis();
+	}
+
+	// Find the frame with best contact quality (this is where the attack actually connects)
+	float BestContactTime = TimingAnalysis.BestSyncTime;
+	if (BestContactTime <= 0.0f)
+	{
+		// Fallback: use activity peak
+		for (const FTrajectoryFrameSample& Sample : HolisticAnalysis.FrameSamples)
+		{
+			if (Sample.ContactQuality > Result.Confidence)
+			{
+				Result.Confidence = Sample.ContactQuality;
+				BestContactTime = Sample.Time;
+			}
+		}
+	}
+
+	// Analyze at the best contact time
+	UpdateAnimations(BestContactTime);
+	FMultiContactAnalysis ContactAnalysis = ComputeMultiContactPoints(BestContactTime);
+
+	// Get the contact normal from the best contact pair
+	if (ContactAnalysis.BestContactDistance < ContactThreshold)
+	{
+		FVector AttackerPos = ContactAnalysis.AttackerContactPositions.FindRef(ContactAnalysis.BestAttackerContact);
+		FVector VictimPos = ContactAnalysis.VictimContactPositions.FindRef(ContactAnalysis.BestVictimContact);
+		Result.PrimaryContactNormal = (AttackerPos - VictimPos).GetSafeNormal();
+		Result.VictimContactBone = VictimBoneConfig.GetBoneForType(ContactAnalysis.BestVictimContact);
+	}
+
+	// Calculate victim's facing relative to attacker
+	FVector AttackerLoc = AttackerMeshComponent->GetComponentLocation();
+	FVector VictimLoc = VictimMeshComponent->GetComponentLocation();
+	FVector VictimForward = VictimMeshComponent->GetComponentRotation().Vector();
+	FVector DirToAttacker = (AttackerLoc - VictimLoc).GetSafeNormal2D();
+
+	// Angle between victim's forward and direction to attacker
+	// 0 = victim facing attacker, 180 = victim facing away
+	float DotProduct = FVector::DotProduct(VictimForward.GetSafeNormal2D(), DirToAttacker);
+	Result.VictimFacingAngle = FMath::RadiansToDegrees(FMath::Acos(DotProduct));
+
+	// Determine which side of victim the attacker is on
+	FVector VictimRight = FVector::CrossProduct(FVector::UpVector, VictimForward).GetSafeNormal();
+	float SideDot = FVector::DotProduct(VictimRight, DirToAttacker);
+
+	// Infer relationship based on facing angle and contact bone
+	FString Reasoning;
+
+	// Use VictimContactBone as additional evidence
+	bool bContactsBack = (Result.VictimContactBone == TEXT("spine_01") ||
+						   Result.VictimContactBone == TEXT("spine_02") ||
+						   Result.VictimContactBone == TEXT("spine_03"));
+	bool bContactsFront = (Result.VictimContactBone == TEXT("chest") ||
+						   Result.VictimContactBone == TEXT("neck_01") ||
+						   Result.VictimContactBone == TEXT("head"));
+
+	if (Result.VictimFacingAngle < 45.0f)
+	{
+		// Victim is facing attacker (front attack)
+		Result.InferredRelationship = ESpatialRelationship::Facing;
+		Result.Confidence = 0.9f - (Result.VictimFacingAngle / 90.0f);
+		Reasoning = FString::Printf(TEXT("Victim facing attacker (%.1f deg)"), Result.VictimFacingAngle);
+	}
+	else if (Result.VictimFacingAngle > 135.0f)
+	{
+		// Victim facing away (backstab)
+		Result.InferredRelationship = ESpatialRelationship::Behind;
+		Result.Confidence = 0.9f - ((180.0f - Result.VictimFacingAngle) / 90.0f);
+		Reasoning = FString::Printf(TEXT("Victim facing away (%.1f deg)"), Result.VictimFacingAngle);
+	}
+	else if (SideDot > 0.3f)
+	{
+		// Attacker on victim's right side
+		Result.InferredRelationship = ESpatialRelationship::RightSide;
+		Result.Confidence = FMath::Abs(SideDot);
+		Reasoning = FString::Printf(TEXT("Attacker on victim's right (side dot: %.2f)"), SideDot);
+	}
+	else if (SideDot < -0.3f)
+	{
+		// Attacker on victim's left side
+		Result.InferredRelationship = ESpatialRelationship::LeftSide;
+		Result.Confidence = FMath::Abs(SideDot);
+		Reasoning = FString::Printf(TEXT("Attacker on victim's left (side dot: %.2f)"), SideDot);
+	}
+	else
+	{
+		// Ambiguous - could be facing or behind
+		if (bContactsBack)
+		{
+			Result.InferredRelationship = ESpatialRelationship::Behind;
+			Result.Confidence = 0.6f;
+			Reasoning = FString::Printf(TEXT("Contact on back bones (%s)"), *Result.VictimContactBone.ToString());
+		}
+		else
+		{
+			Result.InferredRelationship = ESpatialRelationship::Facing;
+			Result.Confidence = 0.5f;
+			Reasoning = TEXT("Ambiguous angle - defaulting to Facing");
+		}
+	}
+
+	// Boost confidence if contact bone evidence aligns
+	if ((Result.InferredRelationship == ESpatialRelationship::Behind && bContactsBack) ||
+		(Result.InferredRelationship == ESpatialRelationship::Facing && bContactsFront))
+	{
+		Result.Confidence = FMath::Min(1.0f, Result.Confidence + 0.2f);
+		Reasoning += TEXT(" (confirmed by contact bone)");
+	}
+
+	Result.ReasoningText = Reasoning;
+	bSpatialInferenceCacheDirty = false;
+	InferredRelationship = Result;
+
+	return Result;
+}
+
+FSpatialRotationConstraint SPairedAnimationPreview::GetRotationConstraintForRelationship() const
+{
+	FSpatialRotationConstraint Constraint;
+
+	ESpatialRelationship EffectiveRelationship = GetEffectiveSpatialRelationship();
+
+	switch (EffectiveRelationship)
+	{
+		case ESpatialRelationship::Facing:
+			// Victim should face attacker (180 degrees relative to attacker forward)
+			Constraint.TargetYaw = 180.0f;
+			Constraint.Tolerance = 30.0f;
+			Constraint.bConstrained = true;
+			break;
+
+		case ESpatialRelationship::Behind:
+			// Victim should face away from attacker (0 degrees - back to attacker)
+			Constraint.TargetYaw = 0.0f;
+			Constraint.Tolerance = 30.0f;
+			Constraint.bConstrained = true;
+			break;
+
+		case ESpatialRelationship::LeftSide:
+			// Victim's left side to attacker (90 degrees)
+			Constraint.TargetYaw = 90.0f;
+			Constraint.Tolerance = 30.0f;
+			Constraint.bConstrained = true;
+			break;
+
+		case ESpatialRelationship::RightSide:
+			// Victim's right side to attacker (-90 degrees)
+			Constraint.TargetYaw = -90.0f;
+			Constraint.Tolerance = 30.0f;
+			Constraint.bConstrained = true;
+			break;
+
+		case ESpatialRelationship::Custom:
+		case ESpatialRelationship::Inferred:
+		default:
+			// No constraint - full search space
+			Constraint.bConstrained = false;
+			break;
+	}
+
+	return Constraint;
+}
+
+ESpatialRelationship SPairedAnimationPreview::GetEffectiveSpatialRelationship() const
+{
+	if (CurrentSpatialRelationship == ESpatialRelationship::Inferred)
+	{
+		// Use the cached inferred relationship
+		return InferredRelationship.InferredRelationship;
+	}
+	return CurrentSpatialRelationship;
+}
+
+void SPairedAnimationPreview::OnSpatialRelationshipChanged(ESpatialRelationship NewRelationship)
+{
+	CurrentSpatialRelationship = NewRelationship;
+
+	// If changed to Inferred, recalculate
+	if (NewRelationship == ESpatialRelationship::Inferred)
+	{
+		bSpatialInferenceCacheDirty = true;
+		InferSpatialRelationship();
+	}
+
+	// Mark holistic cache dirty since optimization constraints changed
+	bHolisticCacheDirty = true;
+}
+
+FString SPairedAnimationPreview::GetRelationshipDisplayName(ESpatialRelationship Relationship)
+{
+	switch (Relationship)
+	{
+		case ESpatialRelationship::Inferred:  return TEXT("Auto-Detect");
+		case ESpatialRelationship::Facing:    return TEXT("Facing (Front)");
+		case ESpatialRelationship::Behind:    return TEXT("Behind (Back)");
+		case ESpatialRelationship::LeftSide:  return TEXT("Left Side");
+		case ESpatialRelationship::RightSide: return TEXT("Right Side");
+		case ESpatialRelationship::Custom:    return TEXT("Custom (No Constraint)");
+		default: return TEXT("Unknown");
 	}
 }
 
@@ -1027,14 +1255,15 @@ FPairedFrameAnalysis SPairedAnimationPreview::AnalyzeFrame(float Time)
 	Analysis.AttackerCOM = ComputeCenterOfMass(AttackerMeshComponent);
 	Analysis.VictimCOM = ComputeCenterOfMass(VictimMeshComponent);
 
-	// Active notifies
+	// Active notifies - use passed Time parameter with victim offset
 	if (AttackerMontage.IsValid())
 	{
-		Analysis.AttackerActiveNotifies = GetActiveNotifies(AttackerMontage.Get(), GetAttackerTime());
+		Analysis.AttackerActiveNotifies = GetActiveNotifies(AttackerMontage.Get(), Time);
 	}
 	if (VictimMontage.IsValid())
 	{
-		Analysis.VictimActiveNotifies = GetActiveNotifies(VictimMontage.Get(), GetVictimTime());
+		float VictimTime = FMath::Max(0.0f, Time - VictimTimeOffset);
+		Analysis.VictimActiveNotifies = GetActiveNotifies(VictimMontage.Get(), VictimTime);
 	}
 
 	return Analysis;
@@ -1635,17 +1864,45 @@ FRotator SPairedAnimationPreview::FindOptimalVictimRotation(int32 Steps)
 		RebuildHolisticAnalysis();
 	}
 
-	// Use integer loop for uniform angular coverage
-	for (int32 i = 0; i < Steps; ++i)
+	// Get spatial relationship constraint (PT-2)
+	FSpatialRotationConstraint Constraint = GetRotationConstraintForRelationship();
+
+	if (Constraint.bConstrained)
 	{
-		float Yaw = (i * 360.0f) / Steps;
-		FRotator TestRot(0.0f, Yaw, 0.0f);
-		// Use holistic evaluation that considers the full animation timeline
-		float Score = EvaluateConfigurationHolistic(LockedDistance, AttackerConfig.RotationOffset, TestRot);
-		if (Score > BestScore)
+		// Constrained search: only search within tolerance of target angle
+		// Convert to search around TargetYaw with Tolerance degrees on each side
+		float MinYaw = Constraint.TargetYaw - Constraint.Tolerance;
+		float MaxYaw = Constraint.TargetYaw + Constraint.Tolerance;
+
+		// Reduce steps since we're searching a smaller range
+		int32 ConstrainedSteps = FMath::Max(6, Steps / 6);
+		float YawStep = (MaxYaw - MinYaw) / ConstrainedSteps;
+
+		for (int32 i = 0; i <= ConstrainedSteps; ++i)
 		{
-			BestScore = Score;
-			BestRotation = TestRot;
+			float Yaw = FMath::UnwindDegrees(MinYaw + (i * YawStep));
+			FRotator TestRot(0.0f, Yaw, 0.0f);
+			float Score = EvaluateConfigurationHolistic(LockedDistance, AttackerConfig.RotationOffset, TestRot);
+			if (Score > BestScore)
+			{
+				BestScore = Score;
+				BestRotation = TestRot;
+			}
+		}
+	}
+	else
+	{
+		// Unconstrained: full 360 degree search
+		for (int32 i = 0; i < Steps; ++i)
+		{
+			float Yaw = (i * 360.0f) / Steps;
+			FRotator TestRot(0.0f, Yaw, 0.0f);
+			float Score = EvaluateConfigurationHolistic(LockedDistance, AttackerConfig.RotationOffset, TestRot);
+			if (Score > BestScore)
+			{
+				BestScore = Score;
+				BestRotation = TestRot;
+			}
 		}
 	}
 
@@ -1667,6 +1924,22 @@ FOptimizationResult SPairedAnimationPreview::RunFullOptimization()
 		Result.bSuccess = false;
 		Result.Warnings.Add(TEXT("Both attacker and victim montages must be loaded"));
 		return Result;
+	}
+
+	// Phase 0: Infer spatial relationship if set to Auto-Detect (PT-2)
+	if (CurrentSpatialRelationship == ESpatialRelationship::Inferred || bSpatialInferenceCacheDirty)
+	{
+		FSpatialRelationshipInference Inference = InferSpatialRelationship();
+		Result.Suggestions.Add(FString::Printf(TEXT("Spatial relationship: %s (%.0f%% confidence) - %s"),
+			*GetRelationshipDisplayName(Inference.InferredRelationship),
+			Inference.Confidence * 100.0f,
+			*Inference.ReasoningText));
+	}
+	else
+	{
+		// Report the user-selected relationship
+		Result.Suggestions.Add(FString::Printf(TEXT("Using spatial relationship: %s (user-selected)"),
+			*GetRelationshipDisplayName(CurrentSpatialRelationship)));
 	}
 
 	// Phase 1: Find optimal distance

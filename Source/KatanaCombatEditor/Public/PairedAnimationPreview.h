@@ -64,6 +64,21 @@ enum class EContactPointType : uint8
 	COUNT
 };
 
+/**
+ * Spatial relationship between attacker and victim.
+ * Used to constrain optimization search space and provide context.
+ */
+UENUM()
+enum class ESpatialRelationship : uint8
+{
+	Inferred,		// Auto-detect from animation (ContactNormal + victim bone)
+	Facing,			// Victim faces attacker (front attack)
+	Behind,			// Attacker behind victim (backstab)
+	LeftSide,		// Attacker on victim's left
+	RightSide,		// Attacker on victim's right
+	Custom			// No constraints - full search space
+};
+
 /** Bone configuration for multi-contact tracking */
 struct FMultiContactBoneConfig
 {
@@ -417,6 +432,41 @@ struct FPairedFrameAnalysis
 };
 
 /**
+ * Result of inferring spatial relationship from animation data
+ */
+struct FSpatialRelationshipInference
+{
+	ESpatialRelationship InferredRelationship = ESpatialRelationship::Facing;
+	float Confidence = 0.0f;  // 0-1 confidence in the inference
+
+	// Evidence that led to this inference
+	FVector PrimaryContactNormal = FVector::ForwardVector;  // Contact normal at sync point
+	FName VictimContactBone = NAME_None;  // Which bone receives the contact
+	float VictimFacingAngle = 0.0f;  // Angle between victim forward and attacker position
+
+	// Reasoning (for display)
+	FString ReasoningText;
+};
+
+/**
+ * Rotation constraints based on spatial relationship
+ */
+struct FSpatialRotationConstraint
+{
+	float TargetYaw = 0.0f;  // Target victim rotation relative to attacker forward
+	float Tolerance = 30.0f;  // Degrees of allowed deviation
+	bool bConstrained = false;  // Whether this relationship constrains the search
+
+	// Returns true if a rotation is within the constraint
+	bool IsWithinConstraint(float VictimYaw) const
+	{
+		if (!bConstrained) return true;
+		float Diff = FMath::Abs(FMath::FindDeltaAngleDegrees(TargetYaw, VictimYaw));
+		return Diff <= Tolerance;
+	}
+};
+
+/**
  * Paired Animation Preview Tool - Industry-Grade Editor
  *
  * A comprehensive preview environment for analyzing paired animations with
@@ -522,6 +572,32 @@ private:
 	void RecalculateMaxDuration();
 	float GetAttackerTime() const { return CurrentTime; }
 	float GetVictimTime() const { return FMath::Max(0.0f, CurrentTime - VictimTimeOffset); }
+
+	// ========================================================================
+	// SPATIAL RELATIONSHIP (PT-2)
+	// ========================================================================
+
+	// User-selected spatial relationship (Inferred = auto-detect)
+	ESpatialRelationship CurrentSpatialRelationship = ESpatialRelationship::Inferred;
+
+	// Cached inference result (updated when montages change or on demand)
+	FSpatialRelationshipInference InferredRelationship;
+	bool bSpatialInferenceCacheDirty = true;
+
+	// Infer spatial relationship from animation data at peak contact time
+	FSpatialRelationshipInference InferSpatialRelationship();
+
+	// Get rotation constraint for current relationship (used by optimization)
+	FSpatialRotationConstraint GetRotationConstraintForRelationship() const;
+
+	// Get the effective relationship (either user-selected or inferred)
+	ESpatialRelationship GetEffectiveSpatialRelationship() const;
+
+	// UI callback for relationship dropdown
+	void OnSpatialRelationshipChanged(ESpatialRelationship NewRelationship);
+
+	// Get display name for relationship type
+	static FString GetRelationshipDisplayName(ESpatialRelationship Relationship);
 
 	// ========================================================================
 	// PROCEDURAL ANALYSIS ENGINE
