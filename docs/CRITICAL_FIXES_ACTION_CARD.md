@@ -67,7 +67,7 @@ void UCombatComponent::BeginPlay()
 
 **File**: `Source/KatanaCombat/Private/Core/HitReactionComponent.cpp`  
 **Line**: 42  
-**Issue**: No validation after Cast operation
+**Issue**: GetMesh() called without validation that mesh exists
 
 ### Current Code (UNSAFE):
 ```cpp
@@ -75,11 +75,17 @@ void UHitReactionComponent::BeginPlay()
 {
     Super::BeginPlay();
     
-    ACharacter* Character = Cast<ACharacter>(GetOwner());
-    
-    // CRASH RISK: No null check here!
-    OwnerMesh = Character->GetMesh();
-    // ...
+    OwnerCharacter = Cast<ACharacter>(GetOwner());
+    if (OwnerCharacter)
+    {
+        // CRASH RISK: No null check on GetMesh() return value
+        AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
+        
+        if (AnimInstance)
+        {
+            // Bind delegate...
+        }
+    }
 }
 ```
 
@@ -96,19 +102,23 @@ void UHitReactionComponent::BeginPlay()
         return;
     }
     
-    OwnerMesh = Character->GetMesh();
-    if (!OwnerMesh)
+    USkeletalMeshComponent* Mesh = Character->GetMesh();
+    if (!Mesh)
     {
         UE_LOG(LogTemp, Error, TEXT("HitReactionComponent owner missing SkeletalMeshComponent"));
         return;
     }
     
-    // Safe to continue...
+    AnimInstance = Mesh->GetAnimInstance();
+    if (AnimInstance)
+    {
+        AnimInstance->OnMontageBlendingOut.AddDynamic(this, &UHitReactionComponent::OnAnyMontageBlendingOut);
+    }
 }
 ```
 
 **Test**:
-1. Attach HitReactionComponent to non-character actor
+1. Create character without mesh component
 2. BeginPlay should log error and not crash
 
 ---
@@ -125,10 +135,12 @@ void UWeaponComponent::BeginPlay()
 {
     Super::BeginPlay();
     
-    ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner());
-    
-    // CRASH RISK: No validation that GetMesh() succeeded
-    OwnerMesh = OwnerCharacter->GetMesh();
+    OwnerCharacter = Cast<ACharacter>(GetOwner());
+    if (OwnerCharacter)
+    {
+        // CRASH RISK: No validation that GetMesh() succeeded
+        OwnerMesh = OwnerCharacter->GetMesh();
+    }
     // ...
 }
 
@@ -148,25 +160,31 @@ void UWeaponComponent::BeginPlay()
 {
     Super::BeginPlay();
     
-    ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner());
-    if (!OwnerCharacter)
+    ACharacter* Character = Cast<ACharacter>(GetOwner());
+    if (!Character)
     {
-        UE_LOG(LogWeaponComponent, Error, TEXT("WeaponComponent requires ABaseCombatCharacter owner"));
+        UE_LOG(LogWeaponComponent, Error, TEXT("WeaponComponent requires ACharacter owner"));
         return;
     }
     
-    OwnerMesh = OwnerCharacter->GetMesh();
+    OwnerMesh = Character->GetMesh();
     if (!OwnerMesh)
     {
         UE_LOG(LogWeaponComponent, Error, TEXT("WeaponComponent owner missing SkeletalMeshComponent"));
         return;
     }
     
-    // Safe to continue...
+    // Initialize from WeaponData if set
+    if (WeaponData)
+    {
+        InitializeFromWeaponData(WeaponData, true);
+    }
 }
 
 void UWeaponComponent::TickComponent(float DeltaTime, ...)
 {
+    Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+    
     // Add guard at start of tick
     if (!OwnerMesh || !bHitDetectionEnabled)
     {

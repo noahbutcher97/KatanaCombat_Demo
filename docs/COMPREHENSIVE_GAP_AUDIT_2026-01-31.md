@@ -304,24 +304,31 @@ Guard pattern found ✅
 
 **Issue**:
 ```cpp
-// Line 49
+// Line 49-56
 ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner());
-
-// Line 56 - NO NULL CHECK between Cast and use!
-UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
+if (OwnerCharacter)
+{
+    // CRASH RISK: No null check on GetMesh() return value before use
+    if (UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance())
+    {
+        // Bind delegates...
+    }
+}
 ```
 
-**Risk**: If `GetOwner()` returns non-ABaseCombatCharacter, Cast returns nullptr → **CRASH**
+**Risk**: If `GetMesh()` returns nullptr → **CRASH**
 
-**Impact**: HIGH - Crash on BeginPlay if component attached to wrong actor type
+**Impact**: HIGH - Crash on BeginPlay if character has no mesh component
 
-**Mitigation**: Add validation:
+**Mitigation**: Add mesh validation:
 ```cpp
-if (!OwnerCharacter || !OwnerCharacter->GetMesh())
+USkeletalMeshComponent* Mesh = OwnerCharacter->GetMesh();
+if (!Mesh)
 {
-    UE_LOG(LogCombat, Error, TEXT("CombatComponent requires ABaseCombatCharacter owner with valid mesh"));
+    UE_LOG(LogCombat, Error, TEXT("CombatComponent owner missing mesh"));
     return;
 }
+UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
 ```
 
 ---
@@ -333,15 +340,18 @@ if (!OwnerCharacter || !OwnerCharacter->GetMesh())
 **Issue**:
 ```cpp
 ACharacter* Character = Cast<ACharacter>(GetOwner());
-// Immediately uses Character->GetMesh() without validation
-OwnerMesh = Character->GetMesh();
+if (OwnerCharacter)
+{
+    // CRASH RISK: GetMesh() called without validation
+    AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
+}
 ```
 
-**Risk**: NULL dereference if owner is not ACharacter
+**Risk**: NULL dereference if GetMesh() returns nullptr
 
 **Impact**: HIGH - Crash on component initialization
 
-**Mitigation**: Add validation after Cast
+**Mitigation**: Add mesh validation after checking Character
 
 ---
 

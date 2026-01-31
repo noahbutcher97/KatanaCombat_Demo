@@ -7,7 +7,7 @@
 
 ## 🎯 Overall Assessment: 7.0/10
 
-**Status**: Project is **well-maintained** with excellent documentation. Core systems working (42 gaps fixed), but **expanded scope reveals 107 pending gaps** across paired animation system and general codebase.
+**Status**: Project is **well-maintained** with excellent documentation. Core systems working (42 gaps fixed), but **expanded scope reveals 119 pending gaps** across paired animation system and general codebase.
 
 ### Quick Stats - EXPANDED SCOPE + EDITOR MODULE
 - ✅ **42 documented issues fixed**: 31 paired animation + 8 system audit + 3 other
@@ -248,13 +248,18 @@ Pending gaps in Paired Animation System:
 - 2 Environment gaps
 - Plus ~50 more feature/polish gaps
 
-### Newly Discovered Gaps: **17**
-Undocumented code issues:
+### Newly Discovered Gaps: **29 Total**
+
+**Undocumented Runtime Issues (17)**:
 - 3 Critical (NULL checks)
 - 4 High Priority (validation, docs)
 - 10 Medium/Low (type safety, performance, TODOs)
 
-### Newly Discovered Gaps: **17**
+**Undocumented Editor Issues (12)**:
+- 5 Medium Priority (validation gaps)
+- 7 Low Priority (feature TODOs)
+
+**Breakdown by Severity**:
 
 **Critical (3)**:
 - NULL check missing after Cast in CombatComponent
@@ -406,3 +411,6 @@ These fixes have **high impact** for **low effort**:
 
 **Report Generated**: January 31, 2026  
 **Audit Method**: Static analysis + documentation verification  
+**Total Gaps Analyzed**: ~178 (42 done, 119 pending, 17 deferred)  
+**Critical Issues**: 3 (P0 - 1 hour to fix)  
+**High Priority**: ~20 (P1 - 2-3 weeks)  

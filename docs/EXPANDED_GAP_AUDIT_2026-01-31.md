@@ -642,17 +642,13 @@ These gaps are acknowledged but intentionally deferred to later phases:
    - Issue: Too long for combat pacing
    - Better: 0.5-1.0 second timeout
 
-3. **Gap 5.5: Finisher progress indicator**
-   - Proposed: Show progress bar
-   - Issue: Breaks cinematic immersion
-   - Better: Skip this feature
-
 ### Solutions Requiring Refinement
 
 **Count**: ~10 gaps
 
 1. **Gap 3.4: Sync point tolerance** - 150 units seems too large
-2. **Gap 20.5: Distance drift** - Root cause unknown, needs investigation
+2. **Gap 5.5: Finisher progress indicator** - Progress bar may break cinematic immersion
+3. **Gap 20.5: Distance drift** - Root cause unknown, needs investigation
 3. **Gap 13.1-13.5: Bug prevention** - Overlap with general null safety
 4. **Various cleanup gaps** - Need comprehensive audit of all cleanup paths
 
@@ -750,7 +746,7 @@ These 17 gaps were found through code analysis and are NOT in the Paired Animati
 
 ---
 
-## Part 5: Recommendations
+## Part 6: Recommendations
 
 ### Immediate Actions (Week 1)
 
@@ -797,8 +793,8 @@ These 17 gaps were found through code analysis and are NOT in the Paired Animati
 
 ### Key Findings
 
-1. **Scope Correction**: Initial audit covered 36 gaps; **actual total is ~166 gaps**
-2. **Completion Rate**: 42/166 = **25% complete**
+1. **Scope Correction**: Initial audit covered 36 gaps; **actual total is ~178 gaps**
+2. **Completion Rate**: 42/178 = **24% complete**
 3. **Solution Quality**: 2 inadequate solutions found, need revision
 4. **Verification Need**: 23 gaps marked "done" need deeper verification
 

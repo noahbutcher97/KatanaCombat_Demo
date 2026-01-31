@@ -56,69 +56,52 @@ Editor-only tools for:
 
 ### 🟡 MEDIUM PRIORITY GAPS
 
-#### Gap E.1: Null Check Missing in ExtractTimingFromNotifies
+#### Gap E.1: Better Error Messages for Missing Notify Coverage
 
 **File**: `AttackDataTools.cpp:84-94`
 
 **Issue**:
-```cpp
-if (const UAnimNotify_AttackPhaseTransition* TransitionNotify = 
-    Cast<UAnimNotify_AttackPhaseTransition>(NotifyEvent.Notify))
-{
-    // No validation that NotifyEvent.Notify is not nullptr before Cast
-}
-```
+The code uses `Cast<>` which is null-safe, but could provide better feedback when notify coverage is incomplete.
 
-**Risk**: Medium - Editor-only, but could crash if montage data corrupted
+**Current Behavior**: Silent if no phase transition notifies found
 
-**Impact**: Editor crash when analyzing malformed montages
+**Risk**: Low - Tool silently returns no timing data without clear indication why
+
+**Impact**: Confusing for users when timing extraction fails
 
 **Recommended Fix**:
 ```cpp
-if (NotifyEvent.Notify)
+// After checking all notifies, if none found:
+if (ActiveTransitionTime < 0.0f || RecoveryTransitionTime < 0.0f)
 {
-    if (const UAnimNotify_AttackPhaseTransition* TransitionNotify = 
-        Cast<UAnimNotify_AttackPhaseTransition>(NotifyEvent.Notify))
-    {
-        // Safe to use
-    }
+    LogToolMessage(TEXT("ExtractTimingFromNotifies: No AttackPhaseTransition notifies found in section"), true);
+    return false;
 }
 ```
 
 ---
 
-#### Gap E.2: Skeletal Mesh Validation Missing
+#### Gap E.2: Better Analysis Feedback When Mesh Missing
 
 **File**: `PairedMontageAnalyzer.cpp:31-34`
 
 **Issue**:
-```cpp
-// Use same mesh for both if victim not specified
-if (!VictimMesh)
-{
-    VictimMesh = AttackerMesh;
-}
-// But no validation that AttackerMesh is valid
-```
+Analysis continues with null mesh but produces limited results without clear feedback.
 
-**Risk**: Medium - Could lead to nullptr dereference in analysis
+**Current Behavior**: Analysis degrades silently when meshes are missing
 
-**Impact**: Editor crash when analyzing without mesh reference
+**Risk**: Low - No crash, but users may be confused by incomplete analysis
+
+**Impact**: Difficult to diagnose why contact prediction failed
 
 **Recommended Fix**:
 ```cpp
-if (!VictimMesh)
-{
-    VictimMesh = AttackerMesh;
-}
-
 if (!AttackerMesh)
 {
     Result.CombinedMessages.Add(FAnalysisMessage(
-        EAnalysisMessageSeverity::Error,
-        FText::FromString(TEXT("AttackerMesh is required for analysis"))
+        EAnalysisMessageSeverity::Warning,
+        FText::FromString(TEXT("AttackerMesh not provided - contact point analysis will be limited"))
     ));
-    return Result;
 }
 ```
 
@@ -306,11 +289,11 @@ if (!AttackerMesh)
 
 ### Medium Priority (Address in Next Sprint)
 
-1. **Gap E.1**: Add null check before Cast in ExtractTimingFromNotifies
-2. **Gap E.2**: Validate AttackerMesh before use in analysis
-3. **Gap E.3**: Add bounds checking for contact bone arrays
-4. **Gap E.4**: Improve batch operation error handling
-5. **Gap E.5**: Add montage section validation
+1. **Gap E.1**: Better error messages for missing notify coverage (AttackDataTools.cpp:84)
+2. **Gap E.2**: Better analysis feedback when mesh missing (PairedMontageAnalyzer.cpp:31)
+3. **Gap E.3**: Handling empty contact bone sets with diagnostics
+4. **Gap E.4**: Missing error recovery in batch operations
+5. **Gap E.5**: No validation of montage section names
 
 **Estimated Effort**: 2-3 hours
 
