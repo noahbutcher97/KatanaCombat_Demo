@@ -1714,34 +1714,38 @@ float SPairedAnimationPreview::GetActivityWeightAtTime(float Time) const
 
 float SPairedAnimationPreview::EvaluateConfigurationHolistic(float Distance, FRotator AttackerRot, FRotator VictimRot)
 {
-	// Rebuild holistic analysis if dirty
-	if (bHolisticCacheDirty)
-	{
-		RebuildHolisticAnalysis();
-	}
-
-	// Temporarily apply configuration
+	// Save original configuration
 	float OriginalDistance = LockedDistance;
 	FRotator OriginalAttackerRot = AttackerConfig.RotationOffset;
 	FRotator OriginalVictimRot = VictimConfig.RotationOffset;
+	float OriginalTime = CurrentTime;
 
+	// Apply test configuration
 	LockedDistance = Distance;
 	AttackerConfig.RotationOffset = AttackerRot;
 	VictimConfig.RotationOffset = VictimRot;
 	ApplyCharacterConfigs();
 
-	// Use holistic analysis for weighted evaluation
+	// Sample animation at key times and compute contact quality
+	// CRITICAL FIX: Must call UpdateAnimations(t) before computing contact points!
 	float WeightedScore = 0.0f;
 	float TotalWeight = 0.0f;
 	float TotalPenetrationPenalty = 0.0f;
 
-	for (const FTrajectoryFrameSample& Sample : HolisticAnalysis.FrameSamples)
+	// Sample at multiple times across the animation
+	const int32 NumSamples = 20;
+	for (int32 i = 0; i <= NumSamples; ++i)
 	{
-		float t = Sample.Time;
+		float t = (NumSamples > 0) ? (i * MaxDuration / NumSamples) : 0.0f;
+
+		// CRITICAL: Update mesh pose to time t before computing contact points
+		UpdateAnimations(t);
+
 		FMultiContactAnalysis MultiAnalysis = ComputeMultiContactPoints(t);
 
+		// Weight frames by contact quality (higher quality frames matter more)
 		float FrameScore = MultiAnalysis.WeightedContactQuality;
-		float Weight = Sample.OptimizationWeight;
+		float Weight = 1.0f + FrameScore;  // Frames with good contact weighted higher
 
 		WeightedScore += FrameScore * Weight;
 		TotalWeight += Weight;
@@ -1757,6 +1761,7 @@ float SPairedAnimationPreview::EvaluateConfigurationHolistic(float Distance, FRo
 	AttackerConfig.RotationOffset = OriginalAttackerRot;
 	VictimConfig.RotationOffset = OriginalVictimRot;
 	ApplyCharacterConfigs();
+	UpdateAnimations(OriginalTime);
 
 	if (TotalWeight <= 0.0f)
 	{
@@ -1765,7 +1770,7 @@ float SPairedAnimationPreview::EvaluateConfigurationHolistic(float Distance, FRo
 
 	// Compute final score with penetration penalty
 	float NormalizedScore = WeightedScore / TotalWeight;
-	float NormalizedPenalty = (TotalPenetrationPenalty / TotalWeight) / 30.0f; // Normalize penalty
+	float NormalizedPenalty = (TotalPenetrationPenalty / TotalWeight) / 30.0f;
 	NormalizedPenalty = FMath::Clamp(NormalizedPenalty, 0.0f, 0.3f);
 
 	return NormalizedScore - NormalizedPenalty;
@@ -1847,21 +1852,13 @@ float SPairedAnimationPreview::FindOptimalDistance(float MinDist, float MaxDist,
 FRotator SPairedAnimationPreview::FindOptimalAttackerRotation(int32 Steps)
 {
 	FRotator BestRotation = AttackerConfig.RotationOffset;
-	float BestScore = -1.0f;  // Use -1 to distinguish "no valid config" from 0 score
+	float BestScore = -1.0f;
 
-	// Ensure holistic analysis is up to date
-	if (bHolisticCacheDirty)
+	// Search full 360 degree range
+	for (int32 i = 0; i <= Steps; ++i)
 	{
-		RebuildHolisticAnalysis();
-	}
-
-	// Use integer loop for uniform angular coverage
-	// With Steps=36, evaluates 0, 10, 20, ..., 350 degrees (36 unique values)
-	for (int32 i = 0; i < Steps; ++i)
-	{
-		float Yaw = (i * 360.0f) / Steps;
+		float Yaw = (i * 360.0f / Steps);
 		FRotator TestRot(0.0f, Yaw, 0.0f);
-		// Use holistic evaluation that considers the full animation timeline
 		float Score = EvaluateConfigurationHolistic(LockedDistance, TestRot, VictimConfig.RotationOffset);
 		if (Score > BestScore)
 		{
@@ -1876,53 +1873,18 @@ FRotator SPairedAnimationPreview::FindOptimalAttackerRotation(int32 Steps)
 FRotator SPairedAnimationPreview::FindOptimalVictimRotation(int32 Steps)
 {
 	FRotator BestRotation = VictimConfig.RotationOffset;
-	float BestScore = -1.0f;  // Use -1 to distinguish "no valid config" from 0 score
+	float BestScore = -1.0f;
 
-	// Ensure holistic analysis is up to date
-	if (bHolisticCacheDirty)
+	// Search full 360 degree range
+	for (int32 i = 0; i <= Steps; ++i)
 	{
-		RebuildHolisticAnalysis();
-	}
-
-	// Get spatial relationship constraint (PT-2)
-	FSpatialRotationConstraint Constraint = GetRotationConstraintForRelationship();
-
-	if (Constraint.bConstrained)
-	{
-		// Constrained search: only search within tolerance of target angle
-		// Convert to search around TargetYaw with Tolerance degrees on each side
-		float MinYaw = Constraint.TargetYaw - Constraint.Tolerance;
-		float MaxYaw = Constraint.TargetYaw + Constraint.Tolerance;
-
-		// Reduce steps since we're searching a smaller range
-		int32 ConstrainedSteps = FMath::Max(6, Steps / 6);
-		float YawStep = (MaxYaw - MinYaw) / ConstrainedSteps;
-
-		for (int32 i = 0; i <= ConstrainedSteps; ++i)
+		float Yaw = (i * 360.0f / Steps);
+		FRotator TestRot(0.0f, Yaw, 0.0f);
+		float Score = EvaluateConfigurationHolistic(LockedDistance, AttackerConfig.RotationOffset, TestRot);
+		if (Score > BestScore)
 		{
-			float Yaw = FMath::UnwindDegrees(MinYaw + (i * YawStep));
-			FRotator TestRot(0.0f, Yaw, 0.0f);
-			float Score = EvaluateConfigurationHolistic(LockedDistance, AttackerConfig.RotationOffset, TestRot);
-			if (Score > BestScore)
-			{
-				BestScore = Score;
-				BestRotation = TestRot;
-			}
-		}
-	}
-	else
-	{
-		// Unconstrained: full 360 degree search
-		for (int32 i = 0; i < Steps; ++i)
-		{
-			float Yaw = (i * 360.0f) / Steps;
-			FRotator TestRot(0.0f, Yaw, 0.0f);
-			float Score = EvaluateConfigurationHolistic(LockedDistance, AttackerConfig.RotationOffset, TestRot);
-			if (Score > BestScore)
-			{
-				BestScore = Score;
-				BestRotation = TestRot;
-			}
+			BestScore = Score;
+			BestRotation = TestRot;
 		}
 	}
 

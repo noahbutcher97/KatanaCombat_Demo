@@ -1,0 +1,1034 @@
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_SamuraiCharacter_C_0 bound global OnMontageBlendingOut delegate
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_3' → 'LightAttack_4'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_4
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 49.0 -> 24.0 (delta: -25.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 with LightAttack_4
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 doesn't implement IDamageableInterface
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Ragdoll, BlendTime=0.20
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=NO
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 Applying death outcome: EReactionOutcome::Ragdoll
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 activated ragdoll (snapshot saved as 'DeathPose')
+LogTemp: Warning: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 FinalizeDeath called but not DYING
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 entering DEAD state (death finalized)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 BLOCKED: Target is dead
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_SamuraiCharacter_C_0 bound global OnMontageBlendingOut delegate
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 74.0 -> 48.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961940705 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961940705 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 48.0 -> 23.0 (delta: -25.0, max: 100.0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=NO
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: Warning: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 FinalizeDeath called but not DYING
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 entering DEAD state (death finalized)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 BLOCKED: Target is dead
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_SamuraiCharacter_C_0 bound global OnMontageBlendingOut delegate
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 100.0 -> 75.0 (delta: -25.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_3' → 'LightAttack_4'
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 with LightAttack_3
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961940705 with LightAttack_3
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961940705 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 75.0 -> 50.0 (delta: -25.0, max: 100.0)
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=YES
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: Warning: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 FinalizeDeath called but not DYING
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 entering DEAD state (death finalized)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 BLOCKED: Target is dead
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_SamuraiCharacter_C_0 bound global OnMontageBlendingOut delegate
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 49.0 -> 23.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 23.0 -> 0.0 (delta: -23.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 entering DYING state (killed by BP_SamuraiCharacter_C_0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 PlayDeathReaction: Finisher victim montage is playing as death animation - waiting for blend-out (Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death)
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 was killed by BP_SamuraiCharacter_C_0
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=YES
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 entering DEAD state (death finalized)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961940705 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961940705 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961929694 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961929694 doesn't implement IDamageableInterface
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 BLOCKED: Target is dead
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 49.0 -> 23.0 (delta: -26.0, max: 100.0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=NO
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: Warning: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 FinalizeDeath called but not DYING
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 entering DEAD state (death finalized)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 BLOCKED: Target is dead
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961925689 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961925689 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 49.0 -> 23.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961938703 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961938703 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 23.0 -> 0.0 (delta: -23.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 entering DYING state (killed by BP_SamuraiCharacter_C_0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 PlayDeathReaction: Finisher victim montage is playing as death animation - waiting for blend-out (Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death)
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 was killed by BP_SamuraiCharacter_C_0
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=YES
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 entering DEAD state (death finalized)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961938703 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961938703 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961925689 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961925689 doesn't implement IDamageableInterface
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 BLOCKED: Target is dead
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 49.0 -> 23.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961958729 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961958729 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 23.0 -> 0.0 (delta: -23.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 entering DYING state (killed by BP_SamuraiCharacter_C_0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 PlayDeathReaction: Finisher victim montage is playing as death animation - waiting for blend-out (Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death)
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 was killed by BP_SamuraiCharacter_C_0
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=YES
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 entering DEAD state (death finalized)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961958729 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961958729 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 doesn't implement IDamageableInterface
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 BLOCKED: Target is dead
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_SamuraiCharacter_C_0 bound global OnMontageBlendingOut delegate
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 74.0 -> 48.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961952720 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961952720 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 48.0 -> 22.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 22.0 -> 0.0 (delta: -22.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 entering DYING state (killed by BP_SamuraiCharacter_C_0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 PlayDeathReaction: Finisher victim montage is playing as death animation - waiting for blend-out (Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death)
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 was killed by BP_SamuraiCharacter_C_0
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=YES
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 entering DEAD state (death finalized)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961924688 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961924688 doesn't implement IDamageableInterface
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 BLOCKED: Target is dead
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961925689 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961925689 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_3' → 'LightAttack_4'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_4
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 49.0 -> 24.0 (delta: -25.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_4' → 'LightAttack_5'
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_4
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 24.0 -> 0.0 (delta: -24.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 entering DYING state (killed by BP_SamuraiCharacter_C_0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 PlayDeathReaction: Finisher victim montage is playing as death animation - waiting for blend-out (Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death)
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 was killed by BP_SamuraiCharacter_C_0
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=YES
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 entering DEAD state (death finalized)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961938703 with LightAttack_4
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961938703 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961925689 with LightAttack_4
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961925689 doesn't implement IDamageableInterface
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 BLOCKED: Target is dead
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_SamuraiCharacter_C_0 bound global OnMontageBlendingOut delegate
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 74.0 -> 48.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961952720 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961952720 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 48.0 -> 22.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961952720 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961952720 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 22.0 -> 0.0 (delta: -22.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 entering DYING state (killed by BP_SamuraiCharacter_C_0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 PlayDeathReaction: Finisher victim montage is playing as death animation - waiting for blend-out (Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death)
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 was killed by BP_SamuraiCharacter_C_0
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=YES
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 entering DEAD state (death finalized)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961951719 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961951719 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961952720 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961952720 doesn't implement IDamageableInterface
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 BLOCKED: Target is dead
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 bound global OnMontageBlendingOut delegate
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Spawned weapon mesh: SKM_Katana
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Initialized weapon: Katana (Equipped: Yes)
+LogTemp: [HitReaction] BP_SamuraiCharacter_C_0 bound global OnMontageBlendingOut delegate
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogTemp: [DEBUG] Total Checkpoints: 3
+LogTemp: [DEBUG] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DEBUG] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DEBUG] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-57.733 Y=-27.394 Z=346.813
+LogWeaponComponent:   - End socket: weapon_end -> X=-63.827 Y=-93.295 Z=388.597
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=100.653 Y=-31.392 Z=348.090
+LogWeaponComponent:   - End socket: weapon_end -> X=77.556 Y=40.969 Z=366.968
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=317.887 Y=19.113 Z=381.771
+LogWeaponComponent:   - End socket: weapon_end -> X=384.047 Y=-0.749 Z=418.573
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 100.0 -> 75.0 (delta: -25.0, max: 100.0)
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=273.124 Y=-3.393 Z=348.683
+LogWeaponComponent:   - End socket: weapon_end -> X=244.933 Y=-63.029 Z=390.812
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 75.0 -> 49.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961940705 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961940705 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=461.662 Y=-96.542 Z=298.867
+LogWeaponComponent:   - End socket: weapon_end -> X=425.512 Y=-144.772 Z=348.798
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=459.671 Y=-43.257 Z=350.086
+LogWeaponComponent:   - End socket: weapon_end -> X=456.874 Y=-109.907 Z=391.024
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144: 49.0 -> 23.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961940705 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961940705 doesn't implement IDamageableInterface
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=453.276 Y=51.194 Z=277.869
+LogWeaponComponent:   - End socket: weapon_end -> X=509.054 Y=100.421 Z=253.548
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=NO
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: Warning: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 FinalizeDeath called but not DYING
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 entering DEAD state (death finalized)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883337144 BLOCKED: Target is dead
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-14.931 Y=-199.965 Z=348.988
+LogWeaponComponent:   - End socket: weapon_end -> X=-76.654 Y=-175.784 Z=390.599
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-69.598 Y=-351.918 Z=341.088
+LogWeaponComponent:   - End socket: weapon_end -> X=1.335 Y=-325.585 Z=361.116
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=16.911 Y=-406.200 Z=370.211
+LogWeaponComponent:   - End socket: weapon_end -> X=23.593 Y=-471.315 Z=413.122
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-23.846 Y=-375.082 Z=342.198
+LogWeaponComponent:   - End socket: weapon_end -> X=-89.866 Y=-369.003 Z=383.797
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 49.0 -> 23.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-61.323 Y=-482.995 Z=329.893
+LogWeaponComponent:   - End socket: weapon_end -> X=-73.246 Y=-497.864 Z=405.806
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=YES
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: Warning: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 FinalizeDeath called but not DYING
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 entering DEAD state (death finalized)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143: 23.0 -> 0.0 (delta: -23.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 entering DYING state (killed by BP_SamuraiCharacter_C_0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 PlayDeathReaction: Death handled by paired animation, applying outcome directly (Outcome=EReactionOutcome::Death, BlendTime=0.20)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: Warning: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 FinalizeDeath called but already DEAD
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 was killed by BP_SamuraiCharacter_C_0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961958729 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961958729 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 doesn't implement IDamageableInterface
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1860183143 BLOCKED: Target is dead
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Playing holster animation: AM_Unequip (Duration: 1.08)
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Weapon holstered to socket: weapon_back
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Playing equip animation: AM_Equip (Duration: 1.08)
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Weapon equipped to socket: weapon_r
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-264.480 Y=29.445 Z=349.293
+LogWeaponComponent:   - End socket: weapon_end -> X=-250.833 Y=94.837 Z=390.081
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-378.084 Y=54.824 Z=339.406
+LogWeaponComponent:   - End socket: weapon_end -> X=-361.231 Y=-19.302 Z=358.043
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-392.966 Y=27.376 Z=344.693
+LogWeaponComponent:   - End socket: weapon_end -> X=-389.147 Y=93.880 Z=385.787
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 74.0 -> 48.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-498.651 Y=36.930 Z=342.918
+LogWeaponComponent:   - End socket: weapon_end -> X=-489.137 Y=-36.884 Z=367.144
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-505.627 Y=-23.407 Z=288.435
+LogWeaponComponent:   - End socket: weapon_end -> X=-470.399 Y=-58.870 Z=348.662
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 48.0 -> 22.0 (delta: -26.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-591.631 Y=-24.557 Z=237.938
+LogWeaponComponent:   - End socket: weapon_end -> X=-658.188 Y=-57.891 Z=213.753
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961938703 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961938703 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=YES
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: Warning: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 FinalizeDeath called but not DYING
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 entering DEAD state (death finalized)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479: 22.0 -> 0.0 (delta: -22.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 entering DYING state (killed by BP_SamuraiCharacter_C_0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 PlayDeathReaction: Death handled by paired animation, applying outcome directly (Outcome=EReactionOutcome::Death, BlendTime=0.20)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: Warning: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 FinalizeDeath called but already DEAD
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 was killed by BP_SamuraiCharacter_C_0
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BAAEB902_1417660479 BLOCKED: Target is dead
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-133.363 Y=148.131 Z=348.249
+LogWeaponComponent:   - End socket: weapon_end -> X=-93.247 Y=95.599 Z=390.165
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_1
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 26.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 26.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 26.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 100.0 -> 74.0 (delta: -26.0, max: 100.0)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=5.152 Y=329.248 Z=339.583
+LogWeaponComponent:   - End socket: weapon_end -> X=-69.909 Y=320.284 Z=359.865
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-78.783 Y=413.036 Z=369.994
+LogWeaponComponent:   - End socket: weapon_end -> X=-54.682 Y=473.668 Z=413.225
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_3
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 74.0 -> 49.0 (delta: -25.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_3' → 'LightAttack_4'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.667 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=3.001 Duration=0.286 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.287 Duration=0.379 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-14.280 Y=542.695 Z=329.804
+LogWeaponComponent:   - End socket: weapon_end -> X=47.096 Y=550.140 Z=281.809
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_4
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 49.0 -> 24.0 (delta: -25.0, max: 100.0)
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_4' → 'LightAttack_5'
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=6.070 Y=465.402 Z=257.708
+LogWeaponComponent:   - End socket: weapon_end -> X=59.247 Y=487.945 Z=204.888
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 SetupPendingDeathFromFinisher: Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death, BlendTime=0.20
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 with LightAttack_4
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 applying 25.0 damage to BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 25.0)
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 APPLIED: 25.0 damage (resistance: 1.00)
+LogTemp: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145: 24.0 -> 0.0 (delta: -24.0, max: 100.0)
+LogTemp: Warning: [HEALTH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 DIED! Killed by BP_SamuraiCharacter_C_0
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 entering DYING state (killed by BP_SamuraiCharacter_C_0)
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 PlayDeathReaction: Finisher victim montage is playing as death animation - waiting for blend-out (Montage=Finisher_1_Victim, Outcome=EReactionOutcome::Death)
+LogTemp: BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 was killed by BP_SamuraiCharacter_C_0
+LogTemp: Warning: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 DEATH MONTAGE BLENDING OUT! Montage=Finisher_1_Victim, Interrupted=YES
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 Applying death outcome: EReactionOutcome::Death
+LogTemp: [HitReaction] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 frozen at death pose (snapshot: 'DeathPose', anims paused)
+LogTemp: [DEATH] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 entering DEAD state (death finalized)
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961952720 with LightAttack_4
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961952720 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961951719 with LightAttack_4
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961951719 doesn't implement IDamageableInterface
+LogTemp: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 receiving damage from BP_SamuraiCharacter_C_0 (Raw: 100.0)
+LogTemp: Warning: [DAMAGE] BP_EnemyCharacter_C_UAID_C85309FA19BA07BA02_1883340145 BLOCKED: Target is dead
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=62.184 Y=210.412 Z=362.831
+LogWeaponComponent:   - End socket: weapon_end -> X=103.615 Y=164.876 Z=411.161
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=22.615 Y=548.343 Z=314.883
+LogWeaponComponent:   - End socket: weapon_end -> X=-17.053 Y=615.584 Z=320.447
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=119.303 Y=525.698 Z=337.248
+LogWeaponComponent:   - End socket: weapon_end -> X=70.591 Y=571.179 Z=378.293
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=10.706 Y=440.475 Z=338.313
+LogWeaponComponent:   - End socket: weapon_end -> X=55.692 Y=379.098 Z=356.617
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-90.132 Y=333.165 Z=378.144
+LogWeaponComponent:   - End socket: weapon_end -> X=-115.576 Y=352.511 Z=449.589
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-97.294 Y=344.275 Z=347.605
+LogWeaponComponent:   - End socket: weapon_end -> X=-163.260 Y=325.550 Z=385.337
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961937702 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=27.690 Y=162.719 Z=340.470
+LogWeaponComponent:   - End socket: weapon_end -> X=-37.976 Y=169.015 Z=382.593
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Heavy combo branch: 'LightAttack_2' → 'HeavyAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=10.567 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=9.920 Duration=0.483 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=10.403 Duration=0.164 Active=Yes
+LogTemp: [Hold] Section 'Loop_Heavy' set to loop in montage 'AM_Heavy_Katana_Event'
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=546.836 Y=273.726 Z=288.586
+LogWeaponComponent:   - End socket: weapon_end -> X=522.016 Y=330.402 Z=336.520
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=934.695 Y=49.305 Z=139.508
+LogWeaponComponent:   - End socket: weapon_end -> X=891.196 Y=99.030 Z=181.475
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961929694 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961929694 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=825.998 Y=-17.462 Z=192.548
+LogWeaponComponent:   - End socket: weapon_end -> X=869.863 Y=-81.113 Z=204.807
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Heavy combo branch: 'LightAttack_2' → 'HeavyAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=10.567 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=9.920 Duration=0.483 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=10.403 Duration=0.164 Active=Yes
+LogTemp: [Hold] Section 'Loop_Heavy' set to loop in montage 'AM_Heavy_Katana_Event'
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=343.949 Y=-151.804 Z=288.834
+LogWeaponComponent:   - End socket: weapon_end -> X=374.234 Y=-205.775 Z=336.750
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=10.567 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=9.920 Duration=0.483 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=10.403 Duration=0.164 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=175.676 Y=-215.657 Z=315.135
+LogWeaponComponent:   - End socket: weapon_end -> X=200.140 Y=-239.822 Z=385.445
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Heavy combo branch: 'HeavyAttack_1' → 'HeavyAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=10.567 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=9.920 Duration=0.483 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=10.403 Duration=0.164 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-27.981 Y=-522.498 Z=329.062
+LogWeaponComponent:   - End socket: weapon_end -> X=-104.022 Y=-524.386 Z=347.507
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Heavy combo branch: 'HeavyAttack_2' → 'HeavyAttack_3'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=10.567 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=9.920 Duration=0.483 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=10.403 Duration=0.164 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-208.309 Y=-633.368 Z=239.186
+LogWeaponComponent:   - End socket: weapon_end -> X=-195.985 Y=-647.625 Z=315.152
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Light combo chain: 'HeavyAttack_3' → 'LightAttack_1'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-329.085 Y=-782.314 Z=136.963
+LogWeaponComponent:   - End socket: weapon_end -> X=-392.436 Y=-802.711 Z=178.152
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit Floor_UAID_F4A475FF15A3736A02_1961940706 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target Floor_UAID_F4A475FF15A3736A02_1961940706 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-184.180 Y=-885.163 Z=138.064
+LogWeaponComponent:   - End socket: weapon_end -> X=-122.383 Y=-929.563 Z=156.390
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_2' → 'LightAttack_3'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-327.058 Y=-896.152 Z=169.782
+LogWeaponComponent:   - End socket: weapon_end -> X=-299.194 Y=-836.939 Z=212.717
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_3' → 'LightAttack_4'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.667 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=3.001 Duration=0.286 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.287 Duration=0.379 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-217.838 Y=-798.632 Z=148.890
+LogWeaponComponent:   - End socket: weapon_end -> X=-150.776 Y=-816.182 Z=112.550
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 with LightAttack_4
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_4' → 'LightAttack_5'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.667 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=3.001 Duration=0.286 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.287 Duration=0.379 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-220.515 Y=-794.463 Z=108.521
+LogWeaponComponent:   - End socket: weapon_end -> X=-269.288 Y=-794.317 Z=169.735
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 with LightAttack_5
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 doesn't implement IDamageableInterface
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-296.793 Y=-748.936 Z=136.726
+LogWeaponComponent:   - End socket: weapon_end -> X=-278.675 Y=-812.368 Z=178.846
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 doesn't implement IDamageableInterface
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit Floor_UAID_F4A475FF15A3736A02_1961940706 with LightAttack_1
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target Floor_UAID_F4A475FF15A3736A02_1961940706 doesn't implement IDamageableInterface
+LogTemp: [COMBO RESOLVE] Light combo chain: 'LightAttack_1' → 'LightAttack_2'
+LogTemp: [DISCOVERY] Total Checkpoints: 3
+LogTemp: [DISCOVERY] [0] Combo: Time=0.000 Duration=3.682 Active=Yes
+LogTemp: [DISCOVERY] [1] Parry: Time=2.840 Duration=0.416 Active=Yes
+LogTemp: [DISCOVERY] [2] Recovery: Time=3.256 Duration=0.425 Active=Yes
+LogWeaponComponent: [BP_SamuraiCharacter_C_0] Hit detection ENABLED:
+LogWeaponComponent:   - Socket source: Weapon Mesh
+LogWeaponComponent:   - Start socket: weapon_start -> X=-265.678 Y=-673.143 Z=137.154
+LogWeaponComponent:   - End socket: weapon_end -> X=-201.741 Y=-628.002 Z=137.731
+LogWeaponComponent:   - Trace radius: 15.0
+LogTemp: [HIT] BP_SamuraiCharacter_C_0 hit StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 with LightAttack_2
+LogTemp: Warning: [HIT] BP_SamuraiCharacter_C_0 SKIPPED: Target StaticMeshActor_UAID_F4A475FF15A3736A02_1961895678 doesn't implement IDamageableInterface
