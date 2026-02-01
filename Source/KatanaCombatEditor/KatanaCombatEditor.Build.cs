@@ -19,6 +19,7 @@ public class KatanaCombatEditor : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(new string[]
         {
+            "EditorSubsystem",      // UEditorSubsystem base class for PairedAnimationAnalysisSubsystem
             "UnrealEd",             // Editor framework
             "Slate",                // UI framework
             "SlateCore",            // UI core

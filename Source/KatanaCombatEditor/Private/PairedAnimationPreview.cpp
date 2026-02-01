@@ -5,10 +5,13 @@
 #include "Animation/DebugSkelMeshComponent.h"
 #include "Animation/AnimNotifies/AnimNotify.h"
 #include "Animation/AnimNotifies/AnimNotifyState.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "AdvancedPreviewScene.h"
 #include "SEditorViewport.h"
 #include "EditorViewportClient.h"
 #include "Engine/SkeletalMeshSocket.h"
+#include "Engine/StaticMeshSocket.h"
 
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SSlider.h"
@@ -253,6 +256,15 @@ void SPairedAnimationPreview::SetupSharedPreviewScene()
 	VictimMeshComponent = NewObject<UDebugSkelMeshComponent>();
 	SharedPreviewScene->AddComponent(VictimMeshComponent, FTransform::Identity);
 
+	// Create weapon mesh components (will be attached to skeletons when weapons are assigned)
+	AttackerWeaponMeshComponent = NewObject<UStaticMeshComponent>();
+	SharedPreviewScene->AddComponent(AttackerWeaponMeshComponent, FTransform::Identity);
+	AttackerWeaponMeshComponent->SetVisibility(false);
+
+	VictimWeaponMeshComponent = NewObject<UStaticMeshComponent>();
+	SharedPreviewScene->AddComponent(VictimWeaponMeshComponent, FTransform::Identity);
+	VictimWeaponMeshComponent->SetVisibility(false);
+
 	ApplyCharacterConfigs();
 }
 
@@ -273,16 +285,506 @@ void SPairedAnimationPreview::UpdateVictimMesh(USkeletalMesh* Mesh)
 		VictimMeshComponent->SetSkeletalMesh(Mesh);
 		VictimMeshComponent->SetForcedLOD(1);
 		bAnalysisCacheDirty = true;
+		// Re-attach weapons to new skeleton
+		ReattachWeapons();
 	}
+}
+
+void SPairedAnimationPreview::UpdateAttackerWeaponMesh(UStaticMesh* Mesh)
+{
+	if (!AttackerWeaponMeshComponent) return;
+
+	if (Mesh)
+	{
+		AttackerWeaponMeshComponent->SetStaticMesh(Mesh);
+		AttackerWeaponConfig.SetWeaponMesh(Mesh);
+		AttackerWeaponMeshComponent->SetVisibility(true);
+
+		// Attach to skeleton if available
+		if (AttackerMeshComponent && AttackerMeshComponent->GetSkeletalMeshAsset())
+		{
+			FName Socket = AttackerWeaponConfig.GetAttachmentSocket();
+			if (AttackerMeshComponent->DoesSocketExist(Socket))
+			{
+				AttackerWeaponMeshComponent->AttachToComponent(
+					AttackerMeshComponent,
+					FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+					Socket);
+
+				// Calculate attachment offset accounting for grip socket
+				FTransform AttachOffset = AttackerWeaponConfig.GetAttachmentOffset();
+				FName GripSocket = AttackerWeaponConfig.GetWeaponGripSocket();
+				if (!GripSocket.IsNone() && AttackerWeaponMeshComponent->DoesSocketExist(GripSocket))
+				{
+					// Get the grip socket's transform relative to component (local space)
+					FTransform GripSocketTransform = AttackerWeaponMeshComponent->GetSocketTransform(GripSocket, RTS_Component);
+					// Apply inverse to position grip socket at attachment point
+					FVector GripOffset = -GripSocketTransform.GetLocation();
+					AttachOffset.SetLocation(AttachOffset.GetLocation() + GripOffset);
+				}
+				AttackerWeaponMeshComponent->SetRelativeTransform(AttachOffset);
+			}
+		}
+
+		// Refresh weapon socket options since mesh changed
+		RefreshAttackerWeaponSocketOptions();
+	}
+	else
+	{
+		AttackerWeaponMeshComponent->SetStaticMesh(nullptr);
+		AttackerWeaponConfig.SetWeaponMesh(nullptr);
+		AttackerWeaponMeshComponent->SetVisibility(false);
+		AttackerWeaponMeshComponent->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+		RefreshAttackerWeaponSocketOptions();
+	}
+
+	bAnalysisCacheDirty = true;
+}
+
+void SPairedAnimationPreview::UpdateVictimWeaponMesh(UStaticMesh* Mesh)
+{
+	if (!VictimWeaponMeshComponent) return;
+
+	if (Mesh)
+	{
+		VictimWeaponMeshComponent->SetStaticMesh(Mesh);
+		VictimWeaponConfig.SetWeaponMesh(Mesh);
+		VictimWeaponMeshComponent->SetVisibility(true);
+
+		// Attach to skeleton if available
+		if (VictimMeshComponent && VictimMeshComponent->GetSkeletalMeshAsset())
+		{
+			FName Socket = VictimWeaponConfig.GetAttachmentSocket();
+			if (VictimMeshComponent->DoesSocketExist(Socket))
+			{
+				VictimWeaponMeshComponent->AttachToComponent(
+					VictimMeshComponent,
+					FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+					Socket);
+
+				// Calculate attachment offset accounting for grip socket
+				FTransform AttachOffset = VictimWeaponConfig.GetAttachmentOffset();
+				FName GripSocket = VictimWeaponConfig.GetWeaponGripSocket();
+				if (!GripSocket.IsNone() && VictimWeaponMeshComponent->DoesSocketExist(GripSocket))
+				{
+					// Get the grip socket's transform relative to component (local space)
+					FTransform GripSocketTransform = VictimWeaponMeshComponent->GetSocketTransform(GripSocket, RTS_Component);
+					// Apply inverse to position grip socket at attachment point
+					FVector GripOffset = -GripSocketTransform.GetLocation();
+					AttachOffset.SetLocation(AttachOffset.GetLocation() + GripOffset);
+				}
+				VictimWeaponMeshComponent->SetRelativeTransform(AttachOffset);
+			}
+		}
+
+		// Refresh weapon socket options since mesh changed
+		RefreshVictimWeaponSocketOptions();
+	}
+	else
+	{
+		VictimWeaponMeshComponent->SetStaticMesh(nullptr);
+		VictimWeaponConfig.SetWeaponMesh(nullptr);
+		VictimWeaponMeshComponent->SetVisibility(false);
+		VictimWeaponMeshComponent->DetachFromComponent(FDetachmentTransformRules::KeepWorldTransform);
+		RefreshVictimWeaponSocketOptions();
+	}
+
+	bAnalysisCacheDirty = true;
+}
+
+void SPairedAnimationPreview::ReattachWeapons()
+{
+	// Re-attach attacker weapon
+	if (AttackerWeaponMeshComponent && AttackerWeaponConfig.IsValid() && AttackerMeshComponent)
+	{
+		FName Socket = AttackerWeaponConfig.GetAttachmentSocket();
+		if (AttackerMeshComponent->DoesSocketExist(Socket))
+		{
+			AttackerWeaponMeshComponent->AttachToComponent(
+				AttackerMeshComponent,
+				FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+				Socket);
+
+			// Calculate attachment offset accounting for grip socket
+			FTransform AttachOffset = AttackerWeaponConfig.GetAttachmentOffset();
+			FName GripSocket = AttackerWeaponConfig.GetWeaponGripSocket();
+			if (!GripSocket.IsNone() && AttackerWeaponMeshComponent->DoesSocketExist(GripSocket))
+			{
+				// Get the grip socket's transform relative to component (local space)
+				FTransform GripSocketTransform = AttackerWeaponMeshComponent->GetSocketTransform(GripSocket, RTS_Component);
+				FVector GripOffset = -GripSocketTransform.GetLocation();
+				AttachOffset.SetLocation(AttachOffset.GetLocation() + GripOffset);
+			}
+			AttackerWeaponMeshComponent->SetRelativeTransform(AttachOffset);
+		}
+	}
+
+	// Re-attach victim weapon
+	if (VictimWeaponMeshComponent && VictimWeaponConfig.IsValid() && VictimMeshComponent)
+	{
+		FName Socket = VictimWeaponConfig.GetAttachmentSocket();
+		if (VictimMeshComponent->DoesSocketExist(Socket))
+		{
+			VictimWeaponMeshComponent->AttachToComponent(
+				VictimMeshComponent,
+				FAttachmentTransformRules::SnapToTargetNotIncludingScale,
+				Socket);
+
+			// Calculate attachment offset accounting for grip socket
+			FTransform AttachOffset = VictimWeaponConfig.GetAttachmentOffset();
+			FName GripSocket = VictimWeaponConfig.GetWeaponGripSocket();
+			if (!GripSocket.IsNone() && VictimWeaponMeshComponent->DoesSocketExist(GripSocket))
+			{
+				// Get the grip socket's transform relative to component (local space)
+				FTransform GripSocketTransform = VictimWeaponMeshComponent->GetSocketTransform(GripSocket, RTS_Component);
+				FVector GripOffset = -GripSocketTransform.GetLocation();
+				AttachOffset.SetLocation(AttachOffset.GetLocation() + GripOffset);
+			}
+			VictimWeaponMeshComponent->SetRelativeTransform(AttachOffset);
+		}
+	}
+
+	bAnalysisCacheDirty = true;
+}
+
+FVector SPairedAnimationPreview::GetWeaponContactPosition(UStaticMeshComponent* WeaponMesh, const FWeaponMeshConfig& Config, EContactPointType ContactType) const
+{
+	if (!WeaponMesh || !WeaponMesh->GetStaticMesh()) return FVector::ZeroVector;
+
+	// Try to use weapon sockets first
+	FName SocketName = NAME_None;
+	if (ContactType == EContactPointType::WeaponTip)
+	{
+		SocketName = Config.GetWeaponTipSocket();
+	}
+	else if (ContactType == EContactPointType::WeaponBase)
+	{
+		SocketName = Config.GetWeaponBaseSocket();
+	}
+
+	if (SocketName != NAME_None && WeaponMesh->DoesSocketExist(SocketName))
+	{
+		return WeaponMesh->GetSocketLocation(SocketName);
+	}
+
+	// Fall back to mesh bounds
+	FBoxSphereBounds Bounds = WeaponMesh->CalcBounds(WeaponMesh->GetComponentTransform());
+	FVector LocalExtent = Bounds.BoxExtent;
+
+	// Assume weapon is oriented with X as the length axis
+	switch (ContactType)
+	{
+		case EContactPointType::WeaponTip:
+			// Tip is at the far end of the weapon
+			return Bounds.Origin + FVector(LocalExtent.X, 0, 0);
+
+		case EContactPointType::WeaponBase:
+			// Base is at the near end of the weapon
+			return Bounds.Origin - FVector(LocalExtent.X, 0, 0);
+
+		case EContactPointType::WeaponMid:
+		default:
+			// Mid is at the center
+			return Bounds.Origin;
+	}
+}
+
+// ============================================================================
+// WEAPON SOCKET CONFIGURATION
+// ============================================================================
+
+TArray<FName> SPairedAnimationPreview::GetSkeletalMeshSockets(UDebugSkelMeshComponent* MeshComp) const
+{
+	TArray<FName> SocketNames;
+	if (!MeshComp || !MeshComp->GetSkeletalMeshAsset()) return SocketNames;
+
+	// Add a "None" option first
+	SocketNames.Add(NAME_None);
+
+	// Get sockets from the skeletal mesh
+	const TArray<USkeletalMeshSocket*>& Sockets = MeshComp->GetSkeletalMeshAsset()->GetActiveSocketList();
+	for (const USkeletalMeshSocket* Socket : Sockets)
+	{
+		if (Socket)
+		{
+			SocketNames.Add(Socket->SocketName);
+		}
+	}
+
+	// Also add bone names as potential attachment points
+	const FReferenceSkeleton& RefSkeleton = MeshComp->GetSkeletalMeshAsset()->GetRefSkeleton();
+	for (int32 i = 0; i < RefSkeleton.GetNum(); ++i)
+	{
+		SocketNames.AddUnique(RefSkeleton.GetBoneName(i));
+	}
+
+	return SocketNames;
+}
+
+TArray<FName> SPairedAnimationPreview::GetStaticMeshSockets(UStaticMesh* StaticMesh) const
+{
+	TArray<FName> SocketNames;
+	if (!StaticMesh) return SocketNames;
+
+	// Add a "None" option first (for bounds-based fallback)
+	SocketNames.Add(NAME_None);
+
+	// Get sockets from the static mesh
+	const TArray<UStaticMeshSocket*>& Sockets = StaticMesh->Sockets;
+	for (const UStaticMeshSocket* Socket : Sockets)
+	{
+		if (Socket)
+		{
+			SocketNames.Add(Socket->SocketName);
+		}
+	}
+
+	return SocketNames;
+}
+
+void SPairedAnimationPreview::RefreshAttackerWeaponSocketOptions()
+{
+	// Character sockets (from skeletal mesh)
+	AttackerCharacterSocketOptions.Empty();
+	TArray<FName> CharSockets = GetSkeletalMeshSockets(AttackerMeshComponent);
+	for (const FName& Socket : CharSockets)
+	{
+		AttackerCharacterSocketOptions.Add(MakeShared<FName>(Socket));
+	}
+
+	// Weapon sockets (from static mesh)
+	AttackerWeaponSocketOptions.Empty();
+	if (UStaticMesh* WeaponMesh = AttackerWeaponConfig.GetWeaponMesh())
+	{
+		TArray<FName> WpnSockets = GetStaticMeshSockets(WeaponMesh);
+		for (const FName& Socket : WpnSockets)
+		{
+			AttackerWeaponSocketOptions.Add(MakeShared<FName>(Socket));
+		}
+	}
+	else
+	{
+		AttackerWeaponSocketOptions.Add(MakeShared<FName>(NAME_None));
+	}
+
+	// Refresh combo boxes if they exist
+	if (AttackerCharacterSocketCombo.IsValid())
+	{
+		AttackerCharacterSocketCombo->RefreshOptions();
+	}
+	if (AttackerWeaponGripSocketCombo.IsValid())
+	{
+		AttackerWeaponGripSocketCombo->RefreshOptions();
+	}
+	if (AttackerWeaponTipSocketCombo.IsValid())
+	{
+		AttackerWeaponTipSocketCombo->RefreshOptions();
+	}
+	if (AttackerWeaponMidSocketCombo.IsValid())
+	{
+		AttackerWeaponMidSocketCombo->RefreshOptions();
+	}
+	if (AttackerWeaponBaseSocketCombo.IsValid())
+	{
+		AttackerWeaponBaseSocketCombo->RefreshOptions();
+	}
+}
+
+void SPairedAnimationPreview::RefreshVictimWeaponSocketOptions()
+{
+	// Character sockets (from skeletal mesh)
+	VictimCharacterSocketOptions.Empty();
+	TArray<FName> CharSockets = GetSkeletalMeshSockets(VictimMeshComponent);
+	for (const FName& Socket : CharSockets)
+	{
+		VictimCharacterSocketOptions.Add(MakeShared<FName>(Socket));
+	}
+
+	// Weapon sockets (from static mesh)
+	VictimWeaponSocketOptions.Empty();
+	if (UStaticMesh* WeaponMesh = VictimWeaponConfig.GetWeaponMesh())
+	{
+		TArray<FName> WpnSockets = GetStaticMeshSockets(WeaponMesh);
+		for (const FName& Socket : WpnSockets)
+		{
+			VictimWeaponSocketOptions.Add(MakeShared<FName>(Socket));
+		}
+	}
+	else
+	{
+		VictimWeaponSocketOptions.Add(MakeShared<FName>(NAME_None));
+	}
+
+	// Refresh combo boxes if they exist
+	if (VictimCharacterSocketCombo.IsValid())
+	{
+		VictimCharacterSocketCombo->RefreshOptions();
+	}
+	if (VictimWeaponGripSocketCombo.IsValid())
+	{
+		VictimWeaponGripSocketCombo->RefreshOptions();
+	}
+	if (VictimWeaponTipSocketCombo.IsValid())
+	{
+		VictimWeaponTipSocketCombo->RefreshOptions();
+	}
+	if (VictimWeaponMidSocketCombo.IsValid())
+	{
+		VictimWeaponMidSocketCombo->RefreshOptions();
+	}
+	if (VictimWeaponBaseSocketCombo.IsValid())
+	{
+		VictimWeaponBaseSocketCombo->RefreshOptions();
+	}
+}
+
+void SPairedAnimationPreview::OnAttackerCharacterSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType)
+{
+	if (NewSocket.IsValid())
+	{
+		AttackerWeaponConfig.SetAttachmentSocket(*NewSocket);
+		ReattachWeapons();
+		bAnalysisCacheDirty = true;
+	}
+}
+
+void SPairedAnimationPreview::OnAttackerWeaponGripSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType)
+{
+	if (NewSocket.IsValid())
+	{
+		AttackerWeaponConfig.SetWeaponGripSocket(*NewSocket);
+		ReattachWeapons();
+		bAnalysisCacheDirty = true;
+	}
+}
+
+void SPairedAnimationPreview::OnAttackerWeaponTipSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType)
+{
+	if (NewSocket.IsValid())
+	{
+		AttackerWeaponConfig.SetWeaponTipSocket(*NewSocket);
+		bAnalysisCacheDirty = true;
+	}
+}
+
+void SPairedAnimationPreview::OnAttackerWeaponMidSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType)
+{
+	if (NewSocket.IsValid())
+	{
+		AttackerWeaponConfig.SetWeaponMidSocket(*NewSocket);
+		bAnalysisCacheDirty = true;
+	}
+}
+
+void SPairedAnimationPreview::OnAttackerWeaponBaseSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType)
+{
+	if (NewSocket.IsValid())
+	{
+		AttackerWeaponConfig.SetWeaponBaseSocket(*NewSocket);
+		bAnalysisCacheDirty = true;
+	}
+}
+
+void SPairedAnimationPreview::OnVictimCharacterSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType)
+{
+	if (NewSocket.IsValid())
+	{
+		VictimWeaponConfig.SetAttachmentSocket(*NewSocket);
+		ReattachWeapons();
+		bAnalysisCacheDirty = true;
+	}
+}
+
+void SPairedAnimationPreview::OnVictimWeaponGripSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType)
+{
+	if (NewSocket.IsValid())
+	{
+		VictimWeaponConfig.SetWeaponGripSocket(*NewSocket);
+		ReattachWeapons();
+		bAnalysisCacheDirty = true;
+	}
+}
+
+void SPairedAnimationPreview::OnVictimWeaponTipSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType)
+{
+	if (NewSocket.IsValid())
+	{
+		VictimWeaponConfig.SetWeaponTipSocket(*NewSocket);
+		bAnalysisCacheDirty = true;
+	}
+}
+
+void SPairedAnimationPreview::OnVictimWeaponMidSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType)
+{
+	if (NewSocket.IsValid())
+	{
+		VictimWeaponConfig.SetWeaponMidSocket(*NewSocket);
+		bAnalysisCacheDirty = true;
+	}
+}
+
+void SPairedAnimationPreview::OnVictimWeaponBaseSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType)
+{
+	if (NewSocket.IsValid())
+	{
+		VictimWeaponConfig.SetWeaponBaseSocket(*NewSocket);
+		bAnalysisCacheDirty = true;
+	}
+}
+
+void SPairedAnimationPreview::OnAttackerWeaponOffsetChanged(FVector NewOffset)
+{
+	FTransform CurrentOffset = AttackerWeaponConfig.GetAttachmentOffset();
+	CurrentOffset.SetLocation(NewOffset);
+	AttackerWeaponConfig.SetAttachmentOffset(CurrentOffset);
+	ReattachWeapons();
+	bAnalysisCacheDirty = true;
+}
+
+void SPairedAnimationPreview::OnAttackerWeaponRotationChanged(FRotator NewRotation)
+{
+	FTransform CurrentOffset = AttackerWeaponConfig.GetAttachmentOffset();
+	CurrentOffset.SetRotation(NewRotation.Quaternion());
+	AttackerWeaponConfig.SetAttachmentOffset(CurrentOffset);
+	ReattachWeapons();
+	bAnalysisCacheDirty = true;
+}
+
+void SPairedAnimationPreview::OnVictimWeaponOffsetChanged(FVector NewOffset)
+{
+	FTransform CurrentOffset = VictimWeaponConfig.GetAttachmentOffset();
+	CurrentOffset.SetLocation(NewOffset);
+	VictimWeaponConfig.SetAttachmentOffset(CurrentOffset);
+	ReattachWeapons();
+	bAnalysisCacheDirty = true;
+}
+
+void SPairedAnimationPreview::OnVictimWeaponRotationChanged(FRotator NewRotation)
+{
+	FTransform CurrentOffset = VictimWeaponConfig.GetAttachmentOffset();
+	CurrentOffset.SetRotation(NewRotation.Quaternion());
+	VictimWeaponConfig.SetAttachmentOffset(CurrentOffset);
+	ReattachWeapons();
+	bAnalysisCacheDirty = true;
 }
 
 void SPairedAnimationPreview::ApplyCharacterConfigs()
 {
+	// Mesh yaw offset: Skeletal meshes are authored with +Y as visual forward,
+	// but Unreal uses +X as component forward. Add -90° to align mesh visuals
+	// with expected component orientation.
+	static constexpr float MeshYawOffset = -90.0f;
+
 	if (AttackerMeshComponent)
 	{
 		FTransform AttackerTransform;
 		AttackerTransform.SetLocation(AttackerConfig.PositionOffset);
-		AttackerTransform.SetRotation(AttackerConfig.RotationOffset.Quaternion());
+
+		// Apply mesh yaw offset to align visual forward with component forward
+		FRotator AdjustedAttackerRotation = AttackerConfig.RotationOffset;
+		AdjustedAttackerRotation.Yaw += MeshYawOffset;
+		AttackerTransform.SetRotation(AdjustedAttackerRotation.Quaternion());
+
 		AttackerTransform.SetScale3D(FVector(AttackerConfig.Scale));
 		AttackerMeshComponent->SetRelativeTransform(AttackerTransform);
 	}
@@ -314,7 +816,12 @@ void SPairedAnimationPreview::ApplyCharacterConfigs()
 
 		FTransform VictimTransform;
 		VictimTransform.SetLocation(VictimPosition);
-		VictimTransform.SetRotation(VictimConfig.RotationOffset.Quaternion());
+
+		// Apply mesh yaw offset to align visual forward with component forward
+		FRotator AdjustedVictimRotation = VictimConfig.RotationOffset;
+		AdjustedVictimRotation.Yaw += MeshYawOffset;
+		VictimTransform.SetRotation(AdjustedVictimRotation.Quaternion());
+
 		VictimTransform.SetScale3D(FVector(VictimConfig.Scale));
 		VictimMeshComponent->SetRelativeTransform(VictimTransform);
 	}
@@ -329,26 +836,62 @@ void SPairedAnimationPreview::UpdateCharacterPositions()
 
 void SPairedAnimationPreview::UpdateAnimations(float Time)
 {
-	// Best practice from UE5 research: Just call SetPosition()
-	// The preview scene's TickPreviewScene() handles animation updates
-	// Manual TickAnimation/RefreshBoneTransforms can cause fighting
-	//
 	// CRITICAL FIX: Use the passed Time parameter, not CurrentTime!
 	// This was causing the holistic optimization to produce different results
 	// at different timeline positions - it was always evaluating at CurrentTime
 	// instead of the sampled time points.
+	//
+	// SECOND FIX: Must call RefreshBoneTransforms() after SetPosition() to ensure
+	// bone world transforms are updated immediately for contact point analysis.
+	// Without this, animations with root motion produce frame-dependent results.
+	//
+	// THIRD FIX: Each character loops independently within their section bounds.
+	// This allows each montage section to repeat without waiting for the other.
 
 	if (AttackerMeshComponent && AttackerMontage.IsValid())
 	{
-		// Use passed Time parameter (attacker time = Time directly)
-		AttackerMeshComponent->SetPosition(Time);
+		float AttackerTime = Time;
+
+		// Wrap attacker time within section bounds for independent looping
+		float SectionLength = AttackerSectionEnd - AttackerSectionStart;
+		if (SectionLength > 0.0f && bLoopPlayback)
+		{
+			// Calculate how far we are past section start, then wrap within section
+			float TimeInSection = FMath::Fmod(AttackerTime - AttackerSectionStart, SectionLength);
+			if (TimeInSection < 0.0f) TimeInSection += SectionLength;  // Handle negative mod
+			AttackerTime = AttackerSectionStart + TimeInSection;
+		}
+		else
+		{
+			// Clamp to section bounds if not looping
+			AttackerTime = FMath::Clamp(AttackerTime, AttackerSectionStart, AttackerSectionEnd);
+		}
+
+		AttackerMeshComponent->SetPosition(AttackerTime);
+		AttackerMeshComponent->RefreshBoneTransforms();
 	}
 
 	if (VictimMeshComponent && VictimMontage.IsValid())
 	{
-		// Use passed Time parameter with victim offset applied
 		float VictimTime = FMath::Max(0.0f, Time - VictimTimeOffset);
+
+		// Wrap victim time within section bounds for independent looping
+		float SectionLength = VictimSectionEnd - VictimSectionStart;
+		if (SectionLength > 0.0f && bLoopPlayback)
+		{
+			// Calculate how far we are past section start, then wrap within section
+			float TimeInSection = FMath::Fmod(VictimTime - VictimSectionStart, SectionLength);
+			if (TimeInSection < 0.0f) TimeInSection += SectionLength;  // Handle negative mod
+			VictimTime = VictimSectionStart + TimeInSection;
+		}
+		else
+		{
+			// Clamp to section bounds if not looping
+			VictimTime = FMath::Clamp(VictimTime, VictimSectionStart, VictimSectionEnd);
+		}
+
 		VictimMeshComponent->SetPosition(VictimTime);
+		VictimMeshComponent->RefreshBoneTransforms();
 	}
 }
 
@@ -483,20 +1026,59 @@ void SPairedAnimationPreview::OnVictimSkeletonSelected(const FAssetData& AssetDa
 	UpdateVictimMesh(VictimSkeleton.Get());
 }
 
+void SPairedAnimationPreview::OnAttackerWeaponMeshSelected(const FAssetData& AssetData)
+{
+	UStaticMesh* Mesh = Cast<UStaticMesh>(AssetData.GetAsset());
+	UpdateAttackerWeaponMesh(Mesh);
+}
+
+void SPairedAnimationPreview::OnVictimWeaponMeshSelected(const FAssetData& AssetData)
+{
+	UStaticMesh* Mesh = Cast<UStaticMesh>(AssetData.GetAsset());
+	UpdateVictimWeaponMesh(Mesh);
+}
+
+FString SPairedAnimationPreview::GetAttackerWeaponMeshPath() const
+{
+	if (UStaticMesh* Mesh = AttackerWeaponConfig.GetWeaponMesh())
+	{
+		return Mesh->GetPathName();
+	}
+	return FString();
+}
+
+FString SPairedAnimationPreview::GetVictimWeaponMeshPath() const
+{
+	if (UStaticMesh* Mesh = VictimWeaponConfig.GetWeaponMesh())
+	{
+		return Mesh->GetPathName();
+	}
+	return FString();
+}
+
 void SPairedAnimationPreview::RecalculateMaxDuration()
 {
+	MinTime = 0.0f;
 	MaxDuration = 0.0f;
+	AttackerSectionStart = 0.0f;
+	AttackerSectionEnd = 0.0f;
+	VictimSectionStart = 0.0f;
+	VictimSectionEnd = 0.0f;
 
 	// Calculate effective duration considering section selection
 	if (AttackerMontage.IsValid())
 	{
-		float AttackerDuration = GetSectionDuration(AttackerMontage.Get(), AttackerMontageSection);
-		MaxDuration = FMath::Max(MaxDuration, AttackerDuration);
+		GetSectionTimeRange(AttackerMontage.Get(), AttackerMontageSection, AttackerSectionStart, AttackerSectionEnd);
+		float AttackerDuration = AttackerSectionEnd - AttackerSectionStart;
+		MaxDuration = FMath::Max(MaxDuration, AttackerSectionEnd);
+		MinTime = AttackerSectionStart;  // Use attacker section start as the effective start
 	}
 	if (VictimMontage.IsValid())
 	{
-		float VictimDuration = GetSectionDuration(VictimMontage.Get(), VictimMontageSection);
-		MaxDuration = FMath::Max(MaxDuration, VictimDuration + VictimTimeOffset);
+		GetSectionTimeRange(VictimMontage.Get(), VictimMontageSection, VictimSectionStart, VictimSectionEnd);
+		float VictimDuration = VictimSectionEnd - VictimSectionStart;
+		// Victim effective end accounts for offset
+		MaxDuration = FMath::Max(MaxDuration, VictimSectionEnd + VictimTimeOffset);
 	}
 }
 
@@ -507,12 +1089,12 @@ void SPairedAnimationPreview::RecalculateMaxDuration()
 FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship()
 {
 	FSpatialRelationshipInference Result;
-	Result.InferredRelationship = ESpatialRelationship::Facing;
-	Result.Confidence = 0.0f;
+	Result.SetInferredRelationship(ESpatialRelationship::Facing);
+	Result.SetConfidence(0.0f);
 
 	if (!AttackerMeshComponent || !VictimMeshComponent)
 	{
-		Result.ReasoningText = TEXT("No meshes loaded");
+		Result.SetReasoningText(TEXT("No meshes loaded"));
 		return Result;
 	}
 
@@ -529,9 +1111,9 @@ FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship(
 		// Fallback: use activity peak
 		for (const FTrajectoryFrameSample& Sample : HolisticAnalysis.FrameSamples)
 		{
-			if (Sample.ContactQuality > Result.Confidence)
+			if (Sample.ContactQuality > Result.GetConfidence())
 			{
-				Result.Confidence = Sample.ContactQuality;
+				Result.SetConfidence(Sample.ContactQuality);
 				BestContactTime = Sample.Time;
 			}
 		}
@@ -540,13 +1122,13 @@ FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship(
 	// CRITICAL FIX: Save current config and temporarily apply IDENTITY rotation for victim
 	// This ensures inference is based on animation content, not user configuration.
 	// Without this, optimization flip-flops because each run reads the previous run's rotation.
-	FRotator SavedVictimRotation = VictimConfig.RotationOffset;
-	FRotator SavedAttackerRotation = AttackerConfig.RotationOffset;
+	FRotator SavedVictimRotation = VictimConfig.GetRotationOffset();
+	FRotator SavedAttackerRotation = AttackerConfig.GetRotationOffset();
 	float SavedDistance = LockedDistance;
 
 	// Apply neutral configuration for inference
-	VictimConfig.RotationOffset = FRotator::ZeroRotator;
-	AttackerConfig.RotationOffset = FRotator::ZeroRotator;
+	VictimConfig.SetRotationOffset(FRotator::ZeroRotator);
+	AttackerConfig.SetRotationOffset(FRotator::ZeroRotator);
 	LockedDistance = 150.0f;  // Standard inference distance
 	ApplyCharacterConfigs();
 
@@ -555,12 +1137,12 @@ FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship(
 	FMultiContactAnalysis ContactAnalysis = ComputeMultiContactPoints(BestContactTime);
 
 	// Get the contact normal from the best contact pair
-	if (ContactAnalysis.BestContactDistance < ContactThreshold)
+	if (ContactAnalysis.GetBestContactDistance() < ContactThreshold)
 	{
-		FVector AttackerPos = ContactAnalysis.AttackerContactPositions.FindRef(ContactAnalysis.BestAttackerContact);
-		FVector VictimPos = ContactAnalysis.VictimContactPositions.FindRef(ContactAnalysis.BestVictimContact);
-		Result.PrimaryContactNormal = (AttackerPos - VictimPos).GetSafeNormal();
-		Result.VictimContactBone = VictimBoneConfig.GetBoneForType(ContactAnalysis.BestVictimContact);
+		FVector AttackerPos = ContactAnalysis.GetAttackerContactPositions().FindRef(ContactAnalysis.GetBestAttackerContact());
+		FVector VictimPos = ContactAnalysis.GetVictimContactPositions().FindRef(ContactAnalysis.GetBestVictimContact());
+		Result.SetPrimaryContactNormal((AttackerPos - VictimPos).GetSafeNormal());
+		Result.SetVictimContactBone(VictimBoneConfig.GetBoneForType(ContactAnalysis.GetBestVictimContact()));
 	}
 
 	// Calculate victim's facing relative to attacker (now based on neutral/identity rotation)
@@ -572,7 +1154,7 @@ FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship(
 	// Angle between victim's forward and direction to attacker
 	// 0 = victim facing attacker, 180 = victim facing away
 	float DotProduct = FVector::DotProduct(VictimForward.GetSafeNormal2D(), DirToAttacker);
-	Result.VictimFacingAngle = FMath::RadiansToDegrees(FMath::Acos(DotProduct));
+	Result.SetVictimFacingAngle(FMath::RadiansToDegrees(FMath::Acos(DotProduct)));
 
 	// Determine which side of victim the attacker is on
 	FVector VictimRight = FVector::CrossProduct(FVector::UpVector, VictimForward).GetSafeNormal();
@@ -582,39 +1164,41 @@ FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship(
 	FString Reasoning;
 
 	// Use VictimContactBone as additional evidence
-	bool bContactsBack = (Result.VictimContactBone == TEXT("spine_01") ||
-						   Result.VictimContactBone == TEXT("spine_02") ||
-						   Result.VictimContactBone == TEXT("spine_03"));
-	bool bContactsFront = (Result.VictimContactBone == TEXT("chest") ||
-						   Result.VictimContactBone == TEXT("neck_01") ||
-						   Result.VictimContactBone == TEXT("head"));
+	FName VictimContactBone = Result.GetVictimContactBone();
+	bool bContactsBack = (VictimContactBone == TEXT("spine_01") ||
+						   VictimContactBone == TEXT("spine_02") ||
+						   VictimContactBone == TEXT("spine_03"));
+	bool bContactsFront = (VictimContactBone == TEXT("chest") ||
+						   VictimContactBone == TEXT("neck_01") ||
+						   VictimContactBone == TEXT("head"));
 
-	if (Result.VictimFacingAngle < 45.0f)
+	float VictimFacingAngle = Result.GetVictimFacingAngle();
+	if (VictimFacingAngle < 45.0f)
 	{
 		// Victim is facing attacker (front attack)
-		Result.InferredRelationship = ESpatialRelationship::Facing;
-		Result.Confidence = 0.9f - (Result.VictimFacingAngle / 90.0f);
-		Reasoning = FString::Printf(TEXT("Victim facing attacker (%.1f deg)"), Result.VictimFacingAngle);
+		Result.SetInferredRelationship(ESpatialRelationship::Facing);
+		Result.SetConfidence(0.9f - (VictimFacingAngle / 90.0f));
+		Reasoning = FString::Printf(TEXT("Victim facing attacker (%.1f deg)"), VictimFacingAngle);
 	}
-	else if (Result.VictimFacingAngle > 135.0f)
+	else if (VictimFacingAngle > 135.0f)
 	{
 		// Victim facing away (backstab)
-		Result.InferredRelationship = ESpatialRelationship::Behind;
-		Result.Confidence = 0.9f - ((180.0f - Result.VictimFacingAngle) / 90.0f);
-		Reasoning = FString::Printf(TEXT("Victim facing away (%.1f deg)"), Result.VictimFacingAngle);
+		Result.SetInferredRelationship(ESpatialRelationship::Behind);
+		Result.SetConfidence(0.9f - ((180.0f - VictimFacingAngle) / 90.0f));
+		Reasoning = FString::Printf(TEXT("Victim facing away (%.1f deg)"), VictimFacingAngle);
 	}
 	else if (SideDot > 0.3f)
 	{
 		// Attacker on victim's right side
-		Result.InferredRelationship = ESpatialRelationship::RightSide;
-		Result.Confidence = FMath::Abs(SideDot);
+		Result.SetInferredRelationship(ESpatialRelationship::RightSide);
+		Result.SetConfidence(FMath::Abs(SideDot));
 		Reasoning = FString::Printf(TEXT("Attacker on victim's right (side dot: %.2f)"), SideDot);
 	}
 	else if (SideDot < -0.3f)
 	{
 		// Attacker on victim's left side
-		Result.InferredRelationship = ESpatialRelationship::LeftSide;
-		Result.Confidence = FMath::Abs(SideDot);
+		Result.SetInferredRelationship(ESpatialRelationship::LeftSide);
+		Result.SetConfidence(FMath::Abs(SideDot));
 		Reasoning = FString::Printf(TEXT("Attacker on victim's left (side dot: %.2f)"), SideDot);
 	}
 	else
@@ -622,33 +1206,33 @@ FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship(
 		// Ambiguous - could be facing or behind
 		if (bContactsBack)
 		{
-			Result.InferredRelationship = ESpatialRelationship::Behind;
-			Result.Confidence = 0.6f;
-			Reasoning = FString::Printf(TEXT("Contact on back bones (%s)"), *Result.VictimContactBone.ToString());
+			Result.SetInferredRelationship(ESpatialRelationship::Behind);
+			Result.SetConfidence(0.6f);
+			Reasoning = FString::Printf(TEXT("Contact on back bones (%s)"), *VictimContactBone.ToString());
 		}
 		else
 		{
-			Result.InferredRelationship = ESpatialRelationship::Facing;
-			Result.Confidence = 0.5f;
+			Result.SetInferredRelationship(ESpatialRelationship::Facing);
+			Result.SetConfidence(0.5f);
 			Reasoning = TEXT("Ambiguous angle - defaulting to Facing");
 		}
 	}
 
 	// Boost confidence if contact bone evidence aligns
-	if ((Result.InferredRelationship == ESpatialRelationship::Behind && bContactsBack) ||
-		(Result.InferredRelationship == ESpatialRelationship::Facing && bContactsFront))
+	if ((Result.GetInferredRelationship() == ESpatialRelationship::Behind && bContactsBack) ||
+		(Result.GetInferredRelationship() == ESpatialRelationship::Facing && bContactsFront))
 	{
-		Result.Confidence = FMath::Min(1.0f, Result.Confidence + 0.2f);
+		Result.SetConfidence(FMath::Min(1.0f, Result.GetConfidence() + 0.2f));
 		Reasoning += TEXT(" (confirmed by contact bone)");
 	}
 
-	Result.ReasoningText = Reasoning;
+	Result.SetReasoningText(Reasoning);
 	bSpatialInferenceCacheDirty = false;
 	InferredRelationship = Result;
 
 	// Restore original configuration after inference
-	VictimConfig.RotationOffset = SavedVictimRotation;
-	AttackerConfig.RotationOffset = SavedAttackerRotation;
+	VictimConfig.SetRotationOffset(SavedVictimRotation);
+	AttackerConfig.SetRotationOffset(SavedAttackerRotation);
 	LockedDistance = SavedDistance;
 	ApplyCharacterConfigs();
 	UpdateAnimations(CurrentTime);  // Restore to current timeline position
@@ -666,37 +1250,37 @@ FSpatialRotationConstraint SPairedAnimationPreview::GetRotationConstraintForRela
 	{
 		case ESpatialRelationship::Facing:
 			// Victim should face attacker (180 degrees relative to attacker forward)
-			Constraint.TargetYaw = 180.0f;
-			Constraint.Tolerance = 30.0f;
-			Constraint.bConstrained = true;
+			Constraint.SetTargetYaw(180.0f);
+			Constraint.SetTolerance(30.0f);
+			Constraint.SetConstrained(true);
 			break;
 
 		case ESpatialRelationship::Behind:
 			// Victim should face away from attacker (0 degrees - back to attacker)
-			Constraint.TargetYaw = 0.0f;
-			Constraint.Tolerance = 30.0f;
-			Constraint.bConstrained = true;
+			Constraint.SetTargetYaw(0.0f);
+			Constraint.SetTolerance(30.0f);
+			Constraint.SetConstrained(true);
 			break;
 
 		case ESpatialRelationship::LeftSide:
 			// Victim's left side to attacker (90 degrees)
-			Constraint.TargetYaw = 90.0f;
-			Constraint.Tolerance = 30.0f;
-			Constraint.bConstrained = true;
+			Constraint.SetTargetYaw(90.0f);
+			Constraint.SetTolerance(30.0f);
+			Constraint.SetConstrained(true);
 			break;
 
 		case ESpatialRelationship::RightSide:
 			// Victim's right side to attacker (-90 degrees)
-			Constraint.TargetYaw = -90.0f;
-			Constraint.Tolerance = 30.0f;
-			Constraint.bConstrained = true;
+			Constraint.SetTargetYaw(-90.0f);
+			Constraint.SetTolerance(30.0f);
+			Constraint.SetConstrained(true);
 			break;
 
 		case ESpatialRelationship::Custom:
 		case ESpatialRelationship::Inferred:
 		default:
 			// No constraint - full search space
-			Constraint.bConstrained = false;
+			Constraint.SetConstrained(false);
 			break;
 	}
 
@@ -708,7 +1292,7 @@ ESpatialRelationship SPairedAnimationPreview::GetEffectiveSpatialRelationship() 
 	if (CurrentSpatialRelationship == ESpatialRelationship::Inferred)
 	{
 		// Use the cached inferred relationship
-		return InferredRelationship.InferredRelationship;
+		return InferredRelationship.GetInferredRelationship();
 	}
 	return CurrentSpatialRelationship;
 }
@@ -933,13 +1517,13 @@ void SPairedAnimationPreview::GetSectionTimeRange(UAnimMontage* Montage, FName S
 
 void SPairedAnimationPreview::OnWeaponStartSocketChanged(const FText& NewText, ETextCommit::Type CommitType)
 {
-	AttackerConfig.WeaponStartSocket = FName(*NewText.ToString());
+	AttackerConfig.SetWeaponStartSocket(FName(*NewText.ToString()));
 	bAnalysisCacheDirty = true;
 }
 
 void SPairedAnimationPreview::OnWeaponEndSocketChanged(const FText& NewText, ETextCommit::Type CommitType)
 {
-	AttackerConfig.WeaponEndSocket = FName(*NewText.ToString());
+	AttackerConfig.SetWeaponEndSocket(FName(*NewText.ToString()));
 	bAnalysisCacheDirty = true;
 }
 
@@ -1780,65 +2364,66 @@ float SPairedAnimationPreview::EvaluateConfigurationHolistic(float Distance, FRo
 // OPTIMIZATION ENGINE
 // ============================================================================
 
-float SPairedAnimationPreview::EvaluateConfiguration(float Distance, FRotator AttackerRot, FRotator VictimRot)
+float SPairedAnimationPreview::EvaluateConfigurationAtFrame(float Distance, FRotator AttackerRot, FRotator VictimRot, float Time)
 {
-	// Temporarily apply configuration
+	// Evaluates configuration quality at a SINGLE frame.
+	// Used for finding Global Paired Orientation (starting positions).
+	// This is frame-independent - the optimal starting config doesn't change
+	// based on what frame you're viewing.
+
+	// Save original state
 	float OriginalDistance = LockedDistance;
 	FRotator OriginalAttackerRot = AttackerConfig.RotationOffset;
 	FRotator OriginalVictimRot = VictimConfig.RotationOffset;
+	float OriginalTime = CurrentTime;
 
+	// Apply test configuration
 	LockedDistance = Distance;
 	AttackerConfig.RotationOffset = AttackerRot;
 	VictimConfig.RotationOffset = VictimRot;
 	ApplyCharacterConfigs();
+	UpdateAnimations(Time);
 
-	// Evaluate over entire animation using integer steps for guaranteed boundary coverage
-	float TotalScore = 0.0f;
-	int32 SampleCount = 0;
-	float BestContactConfidence = 0.0f;
+	// Compute score at this specific frame
+	FMultiContactAnalysis Analysis = ComputeMultiContactPoints(Time);
+	float Score = Analysis.OverallContactQuality;
 
-	const int32 NumSamples = 30;
-	for (int32 i = 0; i <= NumSamples; ++i)
+	// Penalize penetrations
+	if (Analysis.bHasPenetration)
 	{
-		float t = (NumSamples > 0) ? (i * MaxDuration / NumSamples) : 0.0f;
-		FPairedFrameAnalysis Frame = AnalyzeFrame(t);
-		if (Frame.PrimaryContact.Confidence > BestContactConfidence)
-		{
-			BestContactConfidence = Frame.PrimaryContact.Confidence;
-		}
-		TotalScore += Frame.PrimaryContact.Confidence;
-		SampleCount++;
+		Score -= Analysis.MaxPenetrationDepth / 50.0f;
 	}
 
-	// Restore original
+	// Restore original state
 	LockedDistance = OriginalDistance;
 	AttackerConfig.RotationOffset = OriginalAttackerRot;
 	VictimConfig.RotationOffset = OriginalVictimRot;
 	ApplyCharacterConfigs();
+	UpdateAnimations(OriginalTime);
 
-	// FIX: Use weighted blend instead of (avg + max) * 0.5 which double-counts the max
-	// Weight: 60% peak quality + 40% consistency (average)
-	float AverageConfidence = (SampleCount > 0) ? (TotalScore / SampleCount) : 0.0f;
-	return (BestContactConfidence * 0.6f) + (AverageConfidence * 0.4f);
+	return Score;
+}
+
+float SPairedAnimationPreview::EvaluateConfiguration(float Distance, FRotator AttackerRot, FRotator VictimRot)
+{
+	// Legacy function - evaluate at reference frame (t=0) for starting orientation
+	return EvaluateConfigurationAtFrame(Distance, AttackerRot, VictimRot, 0.0f);
 }
 
 float SPairedAnimationPreview::FindOptimalDistance(float MinDist, float MaxDist, int32 Steps)
 {
 	float BestDistance = LockedDistance;
-	float BestScore = -1.0f;  // Use -1 to distinguish "no valid config found" from 0 score
+	float BestScore = -1.0f;
 
-	// Ensure holistic analysis is up to date
-	if (bHolisticCacheDirty)
-	{
-		RebuildHolisticAnalysis();
-	}
+	// Evaluate at reference frame (t=0) for Global Paired Orientation.
+	// The starting distance doesn't depend on what frame you're viewing -
+	// it's the setup position before the animation plays.
+	const float ReferenceTime = 0.0f;
 
-	// Use integer loop to guarantee boundary evaluation (MinDist and MaxDist both tested)
 	for (int32 i = 0; i <= Steps; ++i)
 	{
 		float d = MinDist + (i * (MaxDist - MinDist) / Steps);
-		// Use holistic evaluation that considers the full animation timeline
-		float Score = EvaluateConfigurationHolistic(d, AttackerConfig.RotationOffset, VictimConfig.RotationOffset);
+		float Score = EvaluateConfigurationAtFrame(d, AttackerConfig.RotationOffset, VictimConfig.RotationOffset, ReferenceTime);
 		if (Score > BestScore)
 		{
 			BestScore = Score;
@@ -1854,12 +2439,15 @@ FRotator SPairedAnimationPreview::FindOptimalAttackerRotation(int32 Steps)
 	FRotator BestRotation = AttackerConfig.RotationOffset;
 	float BestScore = -1.0f;
 
+	// Evaluate at reference frame (t=0) for Global Paired Orientation
+	const float ReferenceTime = 0.0f;
+
 	// Search full 360 degree range
 	for (int32 i = 0; i <= Steps; ++i)
 	{
 		float Yaw = (i * 360.0f / Steps);
 		FRotator TestRot(0.0f, Yaw, 0.0f);
-		float Score = EvaluateConfigurationHolistic(LockedDistance, TestRot, VictimConfig.RotationOffset);
+		float Score = EvaluateConfigurationAtFrame(LockedDistance, TestRot, VictimConfig.RotationOffset, ReferenceTime);
 		if (Score > BestScore)
 		{
 			BestScore = Score;
@@ -1875,16 +2463,44 @@ FRotator SPairedAnimationPreview::FindOptimalVictimRotation(int32 Steps)
 	FRotator BestRotation = VictimConfig.RotationOffset;
 	float BestScore = -1.0f;
 
-	// Search full 360 degree range
-	for (int32 i = 0; i <= Steps; ++i)
+	// Evaluate at reference frame (t=0) for Global Paired Orientation
+	const float ReferenceTime = 0.0f;
+
+	// Get rotation constraint from spatial relationship (PT-2)
+	FSpatialRotationConstraint Constraint = GetRotationConstraintForRelationship();
+
+	if (Constraint.IsConstrained())
 	{
-		float Yaw = (i * 360.0f / Steps);
-		FRotator TestRot(0.0f, Yaw, 0.0f);
-		float Score = EvaluateConfigurationHolistic(LockedDistance, AttackerConfig.RotationOffset, TestRot);
-		if (Score > BestScore)
+		// Constrained search: only search within the valid range for this relationship
+		float MinYaw = Constraint.GetTargetYaw() - Constraint.GetTolerance();
+		float MaxYaw = Constraint.GetTargetYaw() + Constraint.GetTolerance();
+		float Range = MaxYaw - MinYaw;
+
+		for (int32 i = 0; i <= Steps; ++i)
 		{
-			BestScore = Score;
-			BestRotation = TestRot;
+			float Yaw = MinYaw + (i * Range / Steps);
+			FRotator TestRot(0.0f, Yaw, 0.0f);
+			float Score = EvaluateConfigurationAtFrame(LockedDistance, AttackerConfig.RotationOffset, TestRot, ReferenceTime);
+			if (Score > BestScore)
+			{
+				BestScore = Score;
+				BestRotation = TestRot;
+			}
+		}
+	}
+	else
+	{
+		// Unconstrained search: full 360 degree range
+		for (int32 i = 0; i <= Steps; ++i)
+		{
+			float Yaw = -180.0f + (i * 360.0f / Steps);
+			FRotator TestRot(0.0f, Yaw, 0.0f);
+			float Score = EvaluateConfigurationAtFrame(LockedDistance, AttackerConfig.RotationOffset, TestRot, ReferenceTime);
+			if (Score > BestScore)
+			{
+				BestScore = Score;
+				BestRotation = TestRot;
+			}
 		}
 	}
 
@@ -1924,15 +2540,22 @@ FOptimizationResult SPairedAnimationPreview::RunFullOptimization()
 			*GetRelationshipDisplayName(CurrentSpatialRelationship)));
 	}
 
-	// Phase 1: Find optimal distance
+	// CRITICAL: Reset to neutral baseline before optimization to ensure deterministic results.
+	// Without this, sequential optimization flip-flops because each phase depends on previous state.
+	AttackerConfig.RotationOffset = FRotator::ZeroRotator;
+	VictimConfig.RotationOffset = FRotator::ZeroRotator;
+	LockedDistance = 150.0f;  // Neutral starting distance
+	ApplyCharacterConfigs();
+
+	// Phase 1: Find optimal distance (from neutral rotations)
 	Result.RecommendedDistance = FindOptimalDistance(50.0f, 400.0f, 50);
 
-	// Phase 2: Find optimal attacker rotation at that distance
+	// Phase 2: Find optimal attacker rotation at that distance (victim still at 0)
 	LockedDistance = Result.RecommendedDistance;
 	ApplyCharacterConfigs();
 	Result.RecommendedAttackerRotation = FindOptimalAttackerRotation(36);
 
-	// Phase 3: Find optimal victim rotation
+	// Phase 3: Find optimal victim rotation (now with optimal attacker rotation)
 	AttackerConfig.RotationOffset = Result.RecommendedAttackerRotation;
 	ApplyCharacterConfigs();
 	Result.RecommendedVictimRotation = FindOptimalVictimRotation(36);
@@ -1982,7 +2605,8 @@ void SPairedAnimationPreview::ApplyOptimizationResult(const FOptimizationResult&
 	VictimConfig.RotationOffset = Result.RecommendedVictimRotation;
 	ApplyCharacterConfigs();
 
-	CurrentTime = Result.RecommendedSyncTime;
+	// Don't change CurrentTime - optimization is holistic and frame-independent
+	// User should stay on whatever frame they were viewing
 	UpdateAnimations(CurrentTime);
 
 	bAnalysisCacheDirty = true;
@@ -2073,27 +2697,41 @@ void SPairedAnimationPreview::OnFindOptimalSyncClicked()
 
 void SPairedAnimationPreview::InitializeContactTypeWeights()
 {
-	// Weight contact types by importance for finisher quality
+	// Weight contact types by importance for paired animation quality
 	ContactTypeWeights.Empty();
+
+	// Body contact types
 	ContactTypeWeights.Add(EContactPointType::Head, 1.0f);       // Head contact = most important (kill shots)
 	ContactTypeWeights.Add(EContactPointType::RightHand, 0.9f);  // Weapon hand (attacker)
 	ContactTypeWeights.Add(EContactPointType::LeftHand, 0.6f);   // Support hand
 	ContactTypeWeights.Add(EContactPointType::Pelvis, 0.5f);     // Body stability
 	ContactTypeWeights.Add(EContactPointType::RightFoot, 0.3f);  // Positioning
 	ContactTypeWeights.Add(EContactPointType::LeftFoot, 0.3f);   // Positioning
+
+	// Weapon contact types - highest priority when weapons are available
+	ContactTypeWeights.Add(EContactPointType::WeaponTip, 1.0f);  // Weapon tip = primary strike point
+	ContactTypeWeights.Add(EContactPointType::WeaponMid, 0.8f);  // Mid-blade for slashing
+	ContactTypeWeights.Add(EContactPointType::WeaponBase, 0.6f); // Hilt/base for close combat
 }
 
 float SPairedAnimationPreview::GetPenetrationThreshold(EContactPointType Type) const
 {
-	// Return capsule/bone radius estimate for penetration detection
+	// Return capsule/bone/weapon radius estimate for penetration detection
 	switch (Type)
 	{
+		// Body contact types
 		case EContactPointType::Head: return 12.0f;
 		case EContactPointType::Pelvis: return 15.0f;
 		case EContactPointType::LeftHand:
 		case EContactPointType::RightHand: return 8.0f;
 		case EContactPointType::LeftFoot:
 		case EContactPointType::RightFoot: return 10.0f;
+
+		// Weapon contact types - smaller radii for precise contact
+		case EContactPointType::WeaponTip: return 3.0f;   // Sharp tip
+		case EContactPointType::WeaponMid: return 5.0f;   // Blade width
+		case EContactPointType::WeaponBase: return 8.0f;  // Hilt/guard area
+
 		default: return 10.0f;
 	}
 }
@@ -2150,27 +2788,53 @@ FMultiContactAnalysis SPairedAnimationPreview::ComputeMultiContactPoints(float T
 	{
 		EContactPointType ContactType = static_cast<EContactPointType>(TypeIdx);
 
-		// Get attacker bone position
-		FName AttackerBone = AttackerBoneConfig.GetBoneForType(ContactType);
-		FVector AttackerPos = GetBoneWorldLocation(AttackerMeshComponent, AttackerBone);
-		Result.AttackerContactPositions.Add(ContactType, AttackerPos);
+		// Handle weapon vs body contact types differently
+		if (FMultiContactBoneConfig::IsWeaponContactType(ContactType))
+		{
+			// Weapon contact types - use weapon mesh positions if available
+			if (HasAttackerWeapon())
+			{
+				FVector AttackerPos = GetWeaponContactPosition(AttackerWeaponMeshComponent, AttackerWeaponConfig, ContactType);
+				Result.AttackerContactPositions.Add(ContactType, AttackerPos);
+			}
 
-		// Get victim bone position
-		FName VictimBone = VictimBoneConfig.GetBoneForType(ContactType);
-		FVector VictimPos = GetBoneWorldLocation(VictimMeshComponent, VictimBone);
-		Result.VictimContactPositions.Add(ContactType, VictimPos);
+			if (HasVictimWeapon())
+			{
+				FVector VictimPos = GetWeaponContactPosition(VictimWeaponMeshComponent, VictimWeaponConfig, ContactType);
+				Result.VictimContactPositions.Add(ContactType, VictimPos);
+			}
+		}
+		else
+		{
+			// Body contact types - use bone positions
+			FName AttackerBone = AttackerBoneConfig.GetBoneForType(ContactType);
+			FVector AttackerPos = GetBoneWorldLocation(AttackerMeshComponent, AttackerBone);
+			Result.AttackerContactPositions.Add(ContactType, AttackerPos);
+
+			FName VictimBone = VictimBoneConfig.GetBoneForType(ContactType);
+			FVector VictimPos = GetBoneWorldLocation(VictimMeshComponent, VictimBone);
+			Result.VictimContactPositions.Add(ContactType, VictimPos);
+		}
 	}
 
 	// Compute pairwise distances and detect penetrations
 	for (int32 AType = 0; AType < static_cast<int32>(EContactPointType::COUNT); ++AType)
 	{
 		EContactPointType AttackerType = static_cast<EContactPointType>(AType);
-		FVector AttackerPos = Result.AttackerContactPositions[AttackerType];
+
+		// Skip if attacker position wasn't computed (e.g., weapon type without weapon mesh)
+		FVector* AttackerPosPtr = Result.AttackerContactPositions.Find(AttackerType);
+		if (!AttackerPosPtr) continue;
+		FVector AttackerPos = *AttackerPosPtr;
 
 		for (int32 VType = 0; VType < static_cast<int32>(EContactPointType::COUNT); ++VType)
 		{
 			EContactPointType VictimType = static_cast<EContactPointType>(VType);
-			FVector VictimPos = Result.VictimContactPositions[VictimType];
+
+			// Skip if victim position wasn't computed (e.g., weapon type without weapon mesh)
+			FVector* VictimPosPtr = Result.VictimContactPositions.Find(VictimType);
+			if (!VictimPosPtr) continue;
+			FVector VictimPos = *VictimPosPtr;
 
 			float Distance = FVector::Dist(AttackerPos, VictimPos);
 			Result.PairwiseDistances.Add(TPair<EContactPointType, EContactPointType>(AttackerType, VictimType), Distance);
@@ -2403,6 +3067,9 @@ void SPairedAnimationPreview::DrawDebugVisualization()
 	// Flush previous debug draws
 	FlushPersistentDebugLines(World);
 
+	// Draw reference grid first (so other visualization draws on top)
+	if (IsVisualizationActive(EVisualizationLayer::AxisGrid)) DrawAxisGrid();
+
 	if (IsVisualizationActive(EVisualizationLayer::ContactPoints)) DrawContactPoints();
 	if (IsVisualizationActive(EVisualizationLayer::WeaponTrace)) DrawWeaponTrace();
 	if (IsVisualizationActive(EVisualizationLayer::DistanceLines)) DrawDistanceLines();
@@ -2559,13 +3226,135 @@ void SPairedAnimationPreview::DrawCollisionBounds()
 	// Would show capsule collision bounds - TODO
 }
 
+void SPairedAnimationPreview::DrawAxisGrid()
+{
+	if (!SharedPreviewScene) return;
+	UWorld* World = SharedPreviewScene->GetWorld();
+	if (!World) return;
+
+	// Configuration - clean, professional look
+	const float GridSize = 200.0f;
+	const float GridStep = 50.0f;
+	const float AxisLength = 100.0f;
+	const FVector Origin = FVector::ZeroVector;
+
+	// Bright, saturated colors matching Unreal's viewport gizmo
+	const FColor XAxisColor = FColor(255, 80, 80);		// Bright red
+	const FColor YAxisColor = FColor(80, 255, 80);		// Bright green
+	const FColor ZAxisColor = FColor(80, 130, 255);		// Bright blue
+	const FColor GridColor = FColor(60, 60, 60);		// Subtle dark gray
+
+	// --- Simple floor grid (XY plane) ---
+	const float HalfGrid = GridSize / 2.0f;
+	for (float X = -HalfGrid; X <= HalfGrid; X += GridStep)
+	{
+		if (!FMath::IsNearlyZero(X))  // Skip center lines, axes will cover them
+		{
+			DrawDebugLine(World, FVector(X, -HalfGrid, 0.0f), FVector(X, HalfGrid, 0.0f),
+				GridColor, false, -1.0f, 0, 0.5f);
+		}
+	}
+	for (float Y = -HalfGrid; Y <= HalfGrid; Y += GridStep)
+	{
+		if (!FMath::IsNearlyZero(Y))
+		{
+			DrawDebugLine(World, FVector(-HalfGrid, Y, 0.0f), FVector(HalfGrid, Y, 0.0f),
+				GridColor, false, -1.0f, 0, 0.5f);
+		}
+	}
+
+	// --- Main axis lines (thick, prominent) ---
+	// X Axis (Red) - FORWARD in Unreal
+	DrawDebugLine(World, FVector(-20.0f, 0.0f, 0.0f), FVector(AxisLength, 0.0f, 0.0f),
+		XAxisColor, false, -1.0f, 0, 4.0f);
+	// Arrowhead for X
+	DrawDebugLine(World, FVector(AxisLength, 0.0f, 0.0f), FVector(AxisLength - 15.0f, 8.0f, 0.0f),
+		XAxisColor, false, -1.0f, 0, 3.0f);
+	DrawDebugLine(World, FVector(AxisLength, 0.0f, 0.0f), FVector(AxisLength - 15.0f, -8.0f, 0.0f),
+		XAxisColor, false, -1.0f, 0, 3.0f);
+
+	// Y Axis (Green) - RIGHT in Unreal
+	DrawDebugLine(World, FVector(0.0f, -20.0f, 0.0f), FVector(0.0f, AxisLength, 0.0f),
+		YAxisColor, false, -1.0f, 0, 4.0f);
+	// Arrowhead for Y
+	DrawDebugLine(World, FVector(0.0f, AxisLength, 0.0f), FVector(8.0f, AxisLength - 15.0f, 0.0f),
+		YAxisColor, false, -1.0f, 0, 3.0f);
+	DrawDebugLine(World, FVector(0.0f, AxisLength, 0.0f), FVector(-8.0f, AxisLength - 15.0f, 0.0f),
+		YAxisColor, false, -1.0f, 0, 3.0f);
+
+	// Z Axis (Blue) - UP in Unreal
+	DrawDebugLine(World, Origin, FVector(0.0f, 0.0f, AxisLength),
+		ZAxisColor, false, -1.0f, 0, 4.0f);
+	// Arrowhead for Z
+	DrawDebugLine(World, FVector(0.0f, 0.0f, AxisLength), FVector(8.0f, 0.0f, AxisLength - 15.0f),
+		ZAxisColor, false, -1.0f, 0, 3.0f);
+	DrawDebugLine(World, FVector(0.0f, 0.0f, AxisLength), FVector(-8.0f, 0.0f, AxisLength - 15.0f),
+		ZAxisColor, false, -1.0f, 0, 3.0f);
+
+	// --- Axis labels using simple letter shapes ---
+	const float LabelOffset = AxisLength + 20.0f;
+	const float LetterSize = 8.0f;
+
+	// "X" label (two crossing lines)
+	FVector XLabelPos = FVector(LabelOffset, 0.0f, 0.0f);
+	DrawDebugLine(World, XLabelPos + FVector(0, -LetterSize, -LetterSize), XLabelPos + FVector(0, LetterSize, LetterSize),
+		XAxisColor, false, -1.0f, 0, 2.5f);
+	DrawDebugLine(World, XLabelPos + FVector(0, -LetterSize, LetterSize), XLabelPos + FVector(0, LetterSize, -LetterSize),
+		XAxisColor, false, -1.0f, 0, 2.5f);
+
+	// "Y" label (V with stem)
+	FVector YLabelPos = FVector(0.0f, LabelOffset, 0.0f);
+	DrawDebugLine(World, YLabelPos + FVector(-LetterSize, 0, LetterSize), YLabelPos,
+		YAxisColor, false, -1.0f, 0, 2.5f);
+	DrawDebugLine(World, YLabelPos + FVector(LetterSize, 0, LetterSize), YLabelPos,
+		YAxisColor, false, -1.0f, 0, 2.5f);
+	DrawDebugLine(World, YLabelPos, YLabelPos + FVector(0, 0, -LetterSize),
+		YAxisColor, false, -1.0f, 0, 2.5f);
+
+	// "Z" label (three horizontal lines connected)
+	FVector ZLabelPos = FVector(0.0f, 0.0f, LabelOffset);
+	DrawDebugLine(World, ZLabelPos + FVector(-LetterSize, -LetterSize, 0), ZLabelPos + FVector(LetterSize, -LetterSize, 0),
+		ZAxisColor, false, -1.0f, 0, 2.5f);
+	DrawDebugLine(World, ZLabelPos + FVector(LetterSize, -LetterSize, 0), ZLabelPos + FVector(-LetterSize, LetterSize, 0),
+		ZAxisColor, false, -1.0f, 0, 2.5f);
+	DrawDebugLine(World, ZLabelPos + FVector(-LetterSize, LetterSize, 0), ZLabelPos + FVector(LetterSize, LetterSize, 0),
+		ZAxisColor, false, -1.0f, 0, 2.5f);
+
+	// --- Character forward direction indicators (at pelvis height for visibility) ---
+	const float PelvisHeight = 100.0f;
+
+	if (AttackerMeshComponent)
+	{
+		FVector AttackerPos = AttackerMeshComponent->GetComponentLocation();
+		FVector ArrowStart = FVector(AttackerPos.X, AttackerPos.Y, PelvisHeight);
+		FVector AttackerForward = AttackerMeshComponent->GetForwardVector();
+		FVector ArrowEnd = ArrowStart + AttackerForward * 80.0f;
+
+		// Thicker cyan arrow for attacker forward
+		DrawDebugDirectionalArrow(World, ArrowStart, ArrowEnd, 15.0f, FColor::Cyan, false, -1.0f, 0, 3.0f);
+	}
+
+	if (VictimMeshComponent)
+	{
+		FVector VictimPos = VictimMeshComponent->GetComponentLocation();
+		FVector ArrowStart = FVector(VictimPos.X, VictimPos.Y, PelvisHeight);
+		FVector VictimForward = VictimMeshComponent->GetForwardVector();
+		FVector ArrowEnd = ArrowStart + VictimForward * 80.0f;
+
+		// Thicker orange arrow for victim forward
+		DrawDebugDirectionalArrow(World, ArrowStart, ArrowEnd, 15.0f, FColor::Orange, false, -1.0f, 0, 3.0f);
+	}
+}
+
 // ============================================================================
 // PLAYBACK CONTROLS
 // ============================================================================
 
 void SPairedAnimationPreview::OnTimelineValueChanged(float NewValue)
 {
-	CurrentTime = NewValue * MaxDuration;
+	// Convert slider value (0-1) to time within section range (MinTime to MaxDuration)
+	float Range = MaxDuration - MinTime;
+	CurrentTime = MinTime + (NewValue * Range);
 	UpdateAnimations(CurrentTime);
 	UpdateAnalyticsDisplay();
 }
@@ -2593,7 +3382,7 @@ void SPairedAnimationPreview::OnStepForward()
 
 void SPairedAnimationPreview::OnStepBackward()
 {
-	CurrentTime = FMath::Max(CurrentTime - (1.0f / 60.0f), 0.0f);
+	CurrentTime = FMath::Max(CurrentTime - (1.0f / 60.0f), MinTime);
 	UpdateAnimations(CurrentTime);
 	UpdateAnalyticsDisplay();
 }
@@ -2607,14 +3396,14 @@ void SPairedAnimationPreview::OnStepForwardLarge()
 
 void SPairedAnimationPreview::OnStepBackwardLarge()
 {
-	CurrentTime = FMath::Max(CurrentTime - 0.1f, 0.0f);
+	CurrentTime = FMath::Max(CurrentTime - 0.1f, MinTime);
 	UpdateAnimations(CurrentTime);
 	UpdateAnalyticsDisplay();
 }
 
 void SPairedAnimationPreview::OnResetClicked()
 {
-	CurrentTime = 0.0f;
+	CurrentTime = MinTime;  // Reset to section start, not 0
 	bIsPlaying = false;
 
 	// Reinitialize animations if they exist
@@ -2684,7 +3473,7 @@ void SPairedAnimationPreview::Tick(const FGeometry& AllottedGeometry, const doub
 	SCompoundWidget::Tick(AllottedGeometry, InCurrentTime, InDeltaTime);
 
 	// Advance time if playing
-	if (bIsPlaying && MaxDuration > 0.0f)
+	if (bIsPlaying && MaxDuration > MinTime)
 	{
 		float TimeAdvance = InDeltaTime * PlaybackSpeed;
 
@@ -2696,9 +3485,9 @@ void SPairedAnimationPreview::Tick(const FGeometry& AllottedGeometry, const doub
 				CurrentTime = MaxDuration;
 				PingPongDirection = -1;
 			}
-			else if (CurrentTime <= 0.0f)
+			else if (CurrentTime <= MinTime)
 			{
-				CurrentTime = 0.0f;
+				CurrentTime = MinTime;
 				PingPongDirection = 1;
 			}
 		}
@@ -2709,7 +3498,8 @@ void SPairedAnimationPreview::Tick(const FGeometry& AllottedGeometry, const doub
 			{
 				if (bLoopPlayback)
 				{
-					CurrentTime = 0.0f;
+					// Loop back to section start, not 0
+					CurrentTime = MinTime;
 				}
 				else
 				{
@@ -2735,9 +3525,11 @@ void SPairedAnimationPreview::Tick(const FGeometry& AllottedGeometry, const doub
 	DrawDebugVisualization();
 
 	// Update slider position
-	if (TimelineSlider.IsValid() && MaxDuration > 0.0f)
+	if (TimelineSlider.IsValid() && MaxDuration > MinTime)
 	{
-		TimelineSlider->SetValue(CurrentTime / MaxDuration);
+		// Normalize slider value within section range (MinTime to MaxDuration)
+		float Range = MaxDuration - MinTime;
+		TimelineSlider->SetValue((CurrentTime - MinTime) / Range);
 	}
 }
 
@@ -2851,35 +3643,49 @@ FText SPairedAnimationPreview::GetStatusText() const
 }
 
 // ============================================================================
-// PRESETS
+// ORIENTATION PRESETS
 // ============================================================================
 
-void SPairedAnimationPreview::ApplyPreset_Finisher()
+void SPairedAnimationPreview::ApplyOrientationPreset_Facing()
 {
-	LockedDistance = 150.0f;
+	// Characters facing each other - victim rotated 180° to face attacker
 	AttackerConfig.RotationOffset = FRotator::ZeroRotator;
 	VictimConfig.RotationOffset = FRotator(0.0f, 180.0f, 0.0f);
-	ContactThreshold = 50.0f;
+	CurrentSpatialRelationship = ESpatialRelationship::Facing;
+	bSpatialInferenceCacheDirty = true;
 	ApplyCharacterConfigs();
 	bAnalysisCacheDirty = true;
 }
 
-void SPairedAnimationPreview::ApplyPreset_Counter()
+void SPairedAnimationPreview::ApplyOrientationPreset_Behind()
 {
-	LockedDistance = 120.0f;
+	// Attacker behind victim - victim at 0° (back to attacker)
 	AttackerConfig.RotationOffset = FRotator::ZeroRotator;
-	VictimConfig.RotationOffset = FRotator(0.0f, 180.0f, 0.0f);
-	ContactThreshold = 40.0f;
+	VictimConfig.RotationOffset = FRotator::ZeroRotator;
+	CurrentSpatialRelationship = ESpatialRelationship::Behind;
+	bSpatialInferenceCacheDirty = true;
 	ApplyCharacterConfigs();
 	bAnalysisCacheDirty = true;
 }
 
-void SPairedAnimationPreview::ApplyPreset_Parry()
+void SPairedAnimationPreview::ApplyOrientationPreset_LeftSide()
 {
-	LockedDistance = 100.0f;
+	// Attacker on victim's left side - victim rotated 90° (left shoulder toward attacker)
 	AttackerConfig.RotationOffset = FRotator::ZeroRotator;
-	VictimConfig.RotationOffset = FRotator(0.0f, 180.0f, 0.0f);
-	ContactThreshold = 30.0f;
+	VictimConfig.RotationOffset = FRotator(0.0f, 90.0f, 0.0f);
+	CurrentSpatialRelationship = ESpatialRelationship::LeftSide;
+	bSpatialInferenceCacheDirty = true;
+	ApplyCharacterConfigs();
+	bAnalysisCacheDirty = true;
+}
+
+void SPairedAnimationPreview::ApplyOrientationPreset_RightSide()
+{
+	// Attacker on victim's right side - victim rotated -90° (right shoulder toward attacker)
+	AttackerConfig.RotationOffset = FRotator::ZeroRotator;
+	VictimConfig.RotationOffset = FRotator(0.0f, -90.0f, 0.0f);
+	CurrentSpatialRelationship = ESpatialRelationship::RightSide;
+	bSpatialInferenceCacheDirty = true;
 	ApplyCharacterConfigs();
 	bAnalysisCacheDirty = true;
 }
@@ -2983,6 +3789,14 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildMainLayout()
 				.Padding(4.0f)
 				[
 					BuildAssetSelectionPanel()
+				]
+
+				// Weapon Configuration (expandable, collapsed by default)
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(4.0f)
+				[
+					BuildWeaponConfigPanel()
 				]
 
 				// Positioning
@@ -3314,6 +4128,790 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildAssetSelectionPanel()
 					]
 				]
 			]
+
+		];
+}
+
+TSharedRef<SWidget> SPairedAnimationPreview::BuildWeaponConfigPanel()
+{
+	// Helper lambda for socket dropdown generation
+	auto MakeSocketWidget = [](TSharedPtr<FName> Item) -> TSharedRef<SWidget>
+	{
+		FString DisplayName = Item->IsNone() ? TEXT("(Use Bounds)") : Item->ToString();
+		return SNew(STextBlock).Text(FText::FromString(DisplayName));
+	};
+
+	return SNew(SExpandableArea)
+		.AreaTitle(LOCTEXT("WeaponConfig", "Weapon Configuration"))
+		.InitiallyCollapsed(true)
+		.ToolTipText(LOCTEXT("WeaponConfigTip", "Configure weapon meshes, attachment sockets, and contact detection settings for both characters."))
+		.BodyContent()
+		[
+			SNew(SVerticalBox)
+
+			// ========== ATTACKER WEAPON ==========
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f, 4.0f)
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("AttackerWeaponHeader", "ATTACKER WEAPON"))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+				.ColorAndOpacity(FLinearColor(0.2f, 0.6f, 1.0f))
+			]
+
+			// Attacker Weapon Mesh
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock).Text(LOCTEXT("WpnMesh", "Mesh"))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SNew(SObjectPropertyEntryBox)
+					.AllowedClass(UStaticMesh::StaticClass())
+					.ObjectPath_Lambda([this]() { return GetAttackerWeaponMeshPath(); })
+					.OnObjectChanged_Lambda([this](const FAssetData& AssetData)
+					{
+						OnAttackerWeaponMeshSelected(AssetData);
+						RefreshAttackerWeaponSocketOptions();
+					})
+				]
+			]
+
+			// Attacker Character Socket (where weapon attaches on skeleton)
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("CharSocket", "Hand Socket"))
+						.ToolTipText(LOCTEXT("CharSocketTip", "Socket on the character's skeleton where the weapon attaches (e.g., hand_r, weapon_r)"))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(AttackerCharacterSocketCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&AttackerCharacterSocketOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnAttackerCharacterSocketChanged)
+					.OnGenerateWidget_Lambda(MakeSocketWidget)
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							FName Socket = AttackerWeaponConfig.GetAttachmentSocket();
+							return FText::FromString(Socket.IsNone() ? TEXT("(Select)") : Socket.ToString());
+						})
+					]
+				]
+			]
+
+			// Attacker Weapon Grip Socket (where on weapon mesh to attach)
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("GripSocket", "Grip Socket"))
+						.ToolTipText(LOCTEXT("GripSocketTip", "Socket on the weapon mesh where the character grips it (e.g., Hilt). The Hand Socket will attach to this point. Leave as (Mesh Origin) to attach at weapon mesh origin."))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(AttackerWeaponGripSocketCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&AttackerWeaponSocketOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnAttackerWeaponGripSocketChanged)
+					.OnGenerateWidget_Lambda(MakeSocketWidget)
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							FName Socket = AttackerWeaponConfig.GetWeaponGripSocket();
+							return FText::FromString(Socket.IsNone() ? TEXT("(Mesh Origin)") : Socket.ToString());
+						})
+					]
+				]
+			]
+
+			// Attacker Weapon Tip Socket
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("TipSocket", "Tip Socket"))
+						.ToolTipText(LOCTEXT("TipSocketTip", "Socket on the weapon mesh for the blade tip. Used for contact detection. Leave as (Use Bounds) to auto-detect from mesh bounds."))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(AttackerWeaponTipSocketCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&AttackerWeaponSocketOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnAttackerWeaponTipSocketChanged)
+					.OnGenerateWidget_Lambda(MakeSocketWidget)
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							FName Socket = AttackerWeaponConfig.GetWeaponTipSocket();
+							return FText::FromString(Socket.IsNone() ? TEXT("(Use Bounds)") : Socket.ToString());
+						})
+					]
+				]
+			]
+
+			// Attacker Weapon Mid Socket
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("MidSocket", "Mid Socket"))
+						.ToolTipText(LOCTEXT("MidSocketTip", "Socket on the weapon mesh for the blade middle. Optional - if only Tip and Base are set, they define weapon length. Set all 3 for full contact detection."))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(AttackerWeaponMidSocketCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&AttackerWeaponSocketOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnAttackerWeaponMidSocketChanged)
+					.OnGenerateWidget_Lambda(MakeSocketWidget)
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							FName Socket = AttackerWeaponConfig.GetWeaponMidSocket();
+							return FText::FromString(Socket.IsNone() ? TEXT("(Optional)") : Socket.ToString());
+						})
+					]
+				]
+			]
+
+			// Attacker Weapon Base Socket
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("BaseSocket", "Base Socket"))
+						.ToolTipText(LOCTEXT("BaseSocketTip", "Socket on the weapon mesh for the hilt/base. Used for contact detection. Leave as (Use Bounds) to auto-detect from mesh bounds."))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(AttackerWeaponBaseSocketCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&AttackerWeaponSocketOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnAttackerWeaponBaseSocketChanged)
+					.OnGenerateWidget_Lambda(MakeSocketWidget)
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							FName Socket = AttackerWeaponConfig.GetWeaponBaseSocket();
+							return FText::FromString(Socket.IsNone() ? TEXT("(Use Bounds)") : Socket.ToString());
+						})
+					]
+				]
+			]
+
+			// Attacker Weapon Offset (Expandable)
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SExpandableArea)
+				.AreaTitle(LOCTEXT("AttackerWpnOffset", "Offset Adjustment"))
+				.InitiallyCollapsed(true)
+				.Padding(FMargin(10.0f, 2.0f, 2.0f, 2.0f))
+				.BodyContent()
+				[
+					SNew(SVerticalBox)
+					// Position offset
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(2.0f)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(SBox)
+							.WidthOverride(60.0f)
+							[
+								SNew(STextBlock).Text(LOCTEXT("PosOffset", "Position"))
+							]
+						]
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-100.0f)
+								.MaxValue(100.0f)
+								.Value_Lambda([this]() { return AttackerWeaponConfig.GetAttachmentOffset().GetLocation().X; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FVector Offset = AttackerWeaponConfig.GetAttachmentOffset().GetLocation();
+									Offset.X = Val;
+									OnAttackerWeaponOffsetChanged(Offset);
+								})
+								.ToolTipText(LOCTEXT("XOffsetTip", "X offset (forward/back)"))
+							]
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-100.0f)
+								.MaxValue(100.0f)
+								.Value_Lambda([this]() { return AttackerWeaponConfig.GetAttachmentOffset().GetLocation().Y; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FVector Offset = AttackerWeaponConfig.GetAttachmentOffset().GetLocation();
+									Offset.Y = Val;
+									OnAttackerWeaponOffsetChanged(Offset);
+								})
+								.ToolTipText(LOCTEXT("YOffsetTip", "Y offset (left/right)"))
+							]
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-100.0f)
+								.MaxValue(100.0f)
+								.Value_Lambda([this]() { return AttackerWeaponConfig.GetAttachmentOffset().GetLocation().Z; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FVector Offset = AttackerWeaponConfig.GetAttachmentOffset().GetLocation();
+									Offset.Z = Val;
+									OnAttackerWeaponOffsetChanged(Offset);
+								})
+								.ToolTipText(LOCTEXT("ZOffsetTip", "Z offset (up/down)"))
+							]
+						]
+					]
+					// Rotation offset
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(2.0f)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(SBox)
+							.WidthOverride(60.0f)
+							[
+								SNew(STextBlock).Text(LOCTEXT("RotOffset", "Rotation"))
+							]
+						]
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-180.0f)
+								.MaxValue(180.0f)
+								.Value_Lambda([this]() { return AttackerWeaponConfig.GetAttachmentOffset().Rotator().Pitch; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FRotator Rot = AttackerWeaponConfig.GetAttachmentOffset().Rotator();
+									Rot.Pitch = Val;
+									OnAttackerWeaponRotationChanged(Rot);
+								})
+								.ToolTipText(LOCTEXT("PitchTip", "Pitch (tilt forward/back)"))
+							]
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-180.0f)
+								.MaxValue(180.0f)
+								.Value_Lambda([this]() { return AttackerWeaponConfig.GetAttachmentOffset().Rotator().Yaw; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FRotator Rot = AttackerWeaponConfig.GetAttachmentOffset().Rotator();
+									Rot.Yaw = Val;
+									OnAttackerWeaponRotationChanged(Rot);
+								})
+								.ToolTipText(LOCTEXT("YawTip", "Yaw (rotate left/right)"))
+							]
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-180.0f)
+								.MaxValue(180.0f)
+								.Value_Lambda([this]() { return AttackerWeaponConfig.GetAttachmentOffset().Rotator().Roll; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FRotator Rot = AttackerWeaponConfig.GetAttachmentOffset().Rotator();
+									Rot.Roll = Val;
+									OnAttackerWeaponRotationChanged(Rot);
+								})
+								.ToolTipText(LOCTEXT("RollTip", "Roll (twist)"))
+							]
+						]
+					]
+				]
+			]
+
+			// Separator
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f, 6.0f)
+			[
+				SNew(SSeparator)
+			]
+
+			// ========== VICTIM WEAPON ==========
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f, 4.0f)
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("VictimWeaponHeader", "VICTIM WEAPON"))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+				.ColorAndOpacity(FLinearColor(1.0f, 0.4f, 0.2f))
+			]
+
+			// Victim Weapon Mesh
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock).Text(LOCTEXT("WpnMesh2", "Mesh"))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SNew(SObjectPropertyEntryBox)
+					.AllowedClass(UStaticMesh::StaticClass())
+					.ObjectPath_Lambda([this]() { return GetVictimWeaponMeshPath(); })
+					.OnObjectChanged_Lambda([this](const FAssetData& AssetData)
+					{
+						OnVictimWeaponMeshSelected(AssetData);
+						RefreshVictimWeaponSocketOptions();
+					})
+				]
+			]
+
+			// Victim Character Socket
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("CharSocket2", "Hand Socket"))
+						.ToolTipText(LOCTEXT("CharSocket2Tip", "Socket on the character's skeleton where the weapon attaches"))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(VictimCharacterSocketCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&VictimCharacterSocketOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnVictimCharacterSocketChanged)
+					.OnGenerateWidget_Lambda(MakeSocketWidget)
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							FName Socket = VictimWeaponConfig.GetAttachmentSocket();
+							return FText::FromString(Socket.IsNone() ? TEXT("(Select)") : Socket.ToString());
+						})
+					]
+				]
+			]
+
+			// Victim Weapon Grip Socket (where on weapon mesh to attach)
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("GripSocket2", "Grip Socket"))
+						.ToolTipText(LOCTEXT("GripSocket2Tip", "Socket on the weapon mesh where the character grips it (e.g., Hilt). The Hand Socket will attach to this point. Leave as (Mesh Origin) to attach at weapon mesh origin."))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(VictimWeaponGripSocketCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&VictimWeaponSocketOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnVictimWeaponGripSocketChanged)
+					.OnGenerateWidget_Lambda(MakeSocketWidget)
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							FName Socket = VictimWeaponConfig.GetWeaponGripSocket();
+							return FText::FromString(Socket.IsNone() ? TEXT("(Mesh Origin)") : Socket.ToString());
+						})
+					]
+				]
+			]
+
+			// Victim Weapon Tip Socket
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("TipSocket2", "Tip Socket"))
+						.ToolTipText(LOCTEXT("TipSocket2Tip", "Socket on the weapon mesh for the blade tip"))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(VictimWeaponTipSocketCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&VictimWeaponSocketOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnVictimWeaponTipSocketChanged)
+					.OnGenerateWidget_Lambda(MakeSocketWidget)
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							FName Socket = VictimWeaponConfig.GetWeaponTipSocket();
+							return FText::FromString(Socket.IsNone() ? TEXT("(Use Bounds)") : Socket.ToString());
+						})
+					]
+				]
+			]
+
+			// Victim Weapon Mid Socket
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("MidSocket2", "Mid Socket"))
+						.ToolTipText(LOCTEXT("MidSocket2Tip", "Socket on the weapon mesh for the blade middle. Optional - set all 3 for full contact detection."))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(VictimWeaponMidSocketCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&VictimWeaponSocketOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnVictimWeaponMidSocketChanged)
+					.OnGenerateWidget_Lambda(MakeSocketWidget)
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							FName Socket = VictimWeaponConfig.GetWeaponMidSocket();
+							return FText::FromString(Socket.IsNone() ? TEXT("(Optional)") : Socket.ToString());
+						})
+					]
+				]
+			]
+
+			// Victim Weapon Base Socket
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(SBox)
+					.WidthOverride(80.0f)
+					[
+						SNew(STextBlock)
+						.Text(LOCTEXT("BaseSocket2", "Base Socket"))
+						.ToolTipText(LOCTEXT("BaseSocket2Tip", "Socket on the weapon mesh for the hilt/base"))
+					]
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				[
+					SAssignNew(VictimWeaponBaseSocketCombo, SComboBox<TSharedPtr<FName>>)
+					.OptionsSource(&VictimWeaponSocketOptions)
+					.OnSelectionChanged(this, &SPairedAnimationPreview::OnVictimWeaponBaseSocketChanged)
+					.OnGenerateWidget_Lambda(MakeSocketWidget)
+					.Content()
+					[
+						SNew(STextBlock)
+						.Text_Lambda([this]()
+						{
+							FName Socket = VictimWeaponConfig.GetWeaponBaseSocket();
+							return FText::FromString(Socket.IsNone() ? TEXT("(Use Bounds)") : Socket.ToString());
+						})
+					]
+				]
+			]
+
+			// Victim Weapon Offset (Expandable)
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SExpandableArea)
+				.AreaTitle(LOCTEXT("VictimWpnOffset", "Offset Adjustment"))
+				.InitiallyCollapsed(true)
+				.Padding(FMargin(10.0f, 2.0f, 2.0f, 2.0f))
+				.BodyContent()
+				[
+					SNew(SVerticalBox)
+					// Position offset
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(2.0f)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(SBox)
+							.WidthOverride(60.0f)
+							[
+								SNew(STextBlock).Text(LOCTEXT("PosOffset2", "Position"))
+							]
+						]
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-100.0f)
+								.MaxValue(100.0f)
+								.Value_Lambda([this]() { return VictimWeaponConfig.GetAttachmentOffset().GetLocation().X; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FVector Offset = VictimWeaponConfig.GetAttachmentOffset().GetLocation();
+									Offset.X = Val;
+									OnVictimWeaponOffsetChanged(Offset);
+								})
+							]
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-100.0f)
+								.MaxValue(100.0f)
+								.Value_Lambda([this]() { return VictimWeaponConfig.GetAttachmentOffset().GetLocation().Y; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FVector Offset = VictimWeaponConfig.GetAttachmentOffset().GetLocation();
+									Offset.Y = Val;
+									OnVictimWeaponOffsetChanged(Offset);
+								})
+							]
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-100.0f)
+								.MaxValue(100.0f)
+								.Value_Lambda([this]() { return VictimWeaponConfig.GetAttachmentOffset().GetLocation().Z; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FVector Offset = VictimWeaponConfig.GetAttachmentOffset().GetLocation();
+									Offset.Z = Val;
+									OnVictimWeaponOffsetChanged(Offset);
+								})
+							]
+						]
+					]
+					// Rotation offset
+					+ SVerticalBox::Slot()
+					.AutoHeight()
+					.Padding(2.0f)
+					[
+						SNew(SHorizontalBox)
+						+ SHorizontalBox::Slot()
+						.AutoWidth()
+						.VAlign(VAlign_Center)
+						[
+							SNew(SBox)
+							.WidthOverride(60.0f)
+							[
+								SNew(STextBlock).Text(LOCTEXT("RotOffset2", "Rotation"))
+							]
+						]
+						+ SHorizontalBox::Slot()
+						.FillWidth(1.0f)
+						[
+							SNew(SHorizontalBox)
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-180.0f)
+								.MaxValue(180.0f)
+								.Value_Lambda([this]() { return VictimWeaponConfig.GetAttachmentOffset().Rotator().Pitch; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FRotator Rot = VictimWeaponConfig.GetAttachmentOffset().Rotator();
+									Rot.Pitch = Val;
+									OnVictimWeaponRotationChanged(Rot);
+								})
+							]
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-180.0f)
+								.MaxValue(180.0f)
+								.Value_Lambda([this]() { return VictimWeaponConfig.GetAttachmentOffset().Rotator().Yaw; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FRotator Rot = VictimWeaponConfig.GetAttachmentOffset().Rotator();
+									Rot.Yaw = Val;
+									OnVictimWeaponRotationChanged(Rot);
+								})
+							]
+							+ SHorizontalBox::Slot()
+							.FillWidth(1.0f)
+							.Padding(1.0f)
+							[
+								SNew(SSpinBox<float>)
+								.MinValue(-180.0f)
+								.MaxValue(180.0f)
+								.Value_Lambda([this]() { return VictimWeaponConfig.GetAttachmentOffset().Rotator().Roll; })
+								.OnValueChanged_Lambda([this](float Val)
+								{
+									FRotator Rot = VictimWeaponConfig.GetAttachmentOffset().Rotator();
+									Rot.Roll = Val;
+									OnVictimWeaponRotationChanged(Rot);
+								})
+							]
+						]
+					]
+				]
+			]
 		];
 }
 
@@ -3341,6 +4939,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildPositioningPanel()
 						bLockVictimToAttacker = (State == ECheckBoxState::Checked);
 						ApplyCharacterConfigs();
 					})
+					.ToolTipText(LOCTEXT("LockVictimTip", "When enabled, the victim automatically maintains a fixed distance from the attacker. Disable to position victim independently."))
 				]
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
@@ -3351,7 +4950,17 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildPositioningPanel()
 				]
 			]
 
-			// Distance
+			// Distance section header
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f, 8.0f, 2.0f, 2.0f)
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("DistanceHeader", "Character Distance"))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+			]
+
+			// Distance slider
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(2.0f)
@@ -3372,78 +4981,103 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildPositioningPanel()
 					.MaxValue(1000.0f)
 					.Value_Lambda([this]() { return LockedDistance; })
 					.OnValueChanged_Lambda([this](float Val) { OnLockedDistanceChanged(Val); })
+					.ToolTipText(LOCTEXT("DistanceSliderTip", "Distance between attacker and victim in Unreal units"))
 				]
+			]
+
+			// Find Optimal Distance button (full width, matching rotation button)
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("FindOptDist", "Find Optimal Distance"))
+				.ToolTipText(LOCTEXT("FindOptDistTip", "Analyze animation trajectories to find the distance that minimizes penetration while maximizing contact quality across the entire timeline"))
+				.OnClicked_Lambda([this]() { OnFindOptimalDistanceClicked(); return FReply::Handled(); })
+			]
+
+			// Rotation section header
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f, 8.0f, 2.0f, 2.0f)
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("RotationHeader", "Character Rotations"))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+			]
+
+			// Attacker rotation
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SHorizontalBox)
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
-				.Padding(2.0f, 0.0f)
+				.VAlign(VAlign_Center)
 				[
-					SNew(SButton)
-					.Text(LOCTEXT("FindOptDist", "Find"))
-					.ToolTipText(LOCTEXT("FindOptDistTip", "Find optimal distance"))
-					.OnClicked_Lambda([this]() { OnFindOptimalDistanceClicked(); return FReply::Handled(); })
+					SNew(STextBlock).Text(LOCTEXT("AttackerYaw", "Attacker Yaw"))
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.Padding(4.0f, 0.0f)
+				[
+					SNew(SSpinBox<float>)
+					.MinValue(-180.0f)
+					.MaxValue(180.0f)
+					.Value_Lambda([this]() { return AttackerConfig.RotationOffset.Yaw; })
+					.OnValueChanged_Lambda([this](float Val) {
+						OnAttackerRotationChanged(FRotator(0.0f, Val, 0.0f));
+					})
+					.ToolTipText(LOCTEXT("AttackerYawTip", "Attacker's facing direction (yaw rotation in degrees, -180 to 180)"))
 				]
 			]
 
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f, 8.0f, 2.0f, 2.0f)
-			[
-				SNew(STextBlock)
-				.Text(LOCTEXT("AttackerPos", "Attacker Rotation (Yaw)"))
-				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-			]
-
+			// Victim rotation
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(2.0f)
 			[
-				SNew(SSpinBox<float>)
-				.MinValue(-180.0f)
-				.MaxValue(180.0f)
-				.Value_Lambda([this]() { return AttackerConfig.RotationOffset.Yaw; })
-				.OnValueChanged_Lambda([this](float Val) {
-					OnAttackerRotationChanged(FRotator(0.0f, Val, 0.0f));
-				})
+				SNew(SHorizontalBox)
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.VAlign(VAlign_Center)
+				[
+					SNew(STextBlock).Text(LOCTEXT("VictimYaw", "Victim Yaw"))
+				]
+				+ SHorizontalBox::Slot()
+				.FillWidth(1.0f)
+				.Padding(4.0f, 0.0f)
+				[
+					SNew(SSpinBox<float>)
+					.MinValue(-180.0f)
+					.MaxValue(180.0f)
+					.Value_Lambda([this]() { return VictimConfig.RotationOffset.Yaw; })
+					.OnValueChanged_Lambda([this](float Val) {
+						OnVictimRotationChanged(FRotator(0.0f, Val, 0.0f));
+					})
+					.ToolTipText(LOCTEXT("VictimYawTip", "Victim's facing direction (yaw rotation in degrees, -180 to 180)"))
+				]
 			]
 
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f, 8.0f, 2.0f, 2.0f)
-			[
-				SNew(STextBlock)
-				.Text(LOCTEXT("VictimRot", "Victim Rotation (Yaw)"))
-				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-			]
-
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f)
-			[
-				SNew(SSpinBox<float>)
-				.MinValue(-180.0f)
-				.MaxValue(180.0f)
-				.Value_Lambda([this]() { return VictimConfig.RotationOffset.Yaw; })
-				.OnValueChanged_Lambda([this](float Val) {
-					OnVictimRotationChanged(FRotator(0.0f, Val, 0.0f));
-				})
-			]
-
+			// Find Optimal Rotations button (full width)
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(2.0f)
 			[
 				SNew(SButton)
 				.Text(LOCTEXT("FindOptRot", "Find Optimal Rotations"))
+				.ToolTipText(LOCTEXT("FindOptRotTip", "Analyze animation trajectories to find attacker and victim rotations that maximize contact quality while respecting the current spatial relationship constraints"))
 				.OnClicked_Lambda([this]() { OnFindOptimalRotationClicked(); return FReply::Handled(); })
 			]
 
-			// Presets
+			// Orientation Presets
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(2.0f, 8.0f, 2.0f, 2.0f)
 			[
 				SNew(STextBlock)
-				.Text(LOCTEXT("Presets", "Quick Presets"))
+				.Text(LOCTEXT("OrientationPresets", "Orientation Presets"))
 				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
 			]
 
@@ -3457,24 +5091,36 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildPositioningPanel()
 				.Padding(2.0f)
 				[
 					SNew(SButton)
-					.Text(LOCTEXT("PresetFinisher", "Finisher"))
-					.OnClicked_Lambda([this]() { ApplyPreset_Finisher(); return FReply::Handled(); })
+					.Text(LOCTEXT("PresetFacing", "Facing"))
+					.ToolTipText(LOCTEXT("PresetFacingTip", "Characters facing each other: Victim rotated 180 degrees to face attacker. Sets spatial relationship to 'Facing'. Use for front attacks, counters, and direct confrontations."))
+					.OnClicked_Lambda([this]() { ApplyOrientationPreset_Facing(); return FReply::Handled(); })
 				]
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.Padding(2.0f)
 				[
 					SNew(SButton)
-					.Text(LOCTEXT("PresetCounter", "Counter"))
-					.OnClicked_Lambda([this]() { ApplyPreset_Counter(); return FReply::Handled(); })
+					.Text(LOCTEXT("PresetBehind", "Behind"))
+					.ToolTipText(LOCTEXT("PresetBehindTip", "Attacker behind victim: Victim at 0 degrees (back to attacker). Sets spatial relationship to 'Behind'. Use for backstab and assassination animations."))
+					.OnClicked_Lambda([this]() { ApplyOrientationPreset_Behind(); return FReply::Handled(); })
 				]
 				+ SHorizontalBox::Slot()
 				.AutoWidth()
 				.Padding(2.0f)
 				[
 					SNew(SButton)
-					.Text(LOCTEXT("PresetParry", "Parry"))
-					.OnClicked_Lambda([this]() { ApplyPreset_Parry(); return FReply::Handled(); })
+					.Text(LOCTEXT("PresetLeft", "Left"))
+					.ToolTipText(LOCTEXT("PresetLeftTip", "Attacker on victim's left: Victim rotated 90 degrees (left shoulder toward attacker). Sets spatial relationship to 'Left Side'. Use for side attacks from the left."))
+					.OnClicked_Lambda([this]() { ApplyOrientationPreset_LeftSide(); return FReply::Handled(); })
+				]
+				+ SHorizontalBox::Slot()
+				.AutoWidth()
+				.Padding(2.0f)
+				[
+					SNew(SButton)
+					.Text(LOCTEXT("PresetRight", "Right"))
+					.ToolTipText(LOCTEXT("PresetRightTip", "Attacker on victim's right: Victim rotated -90 degrees (right shoulder toward attacker). Sets spatial relationship to 'Right Side'. Use for side attacks from the right."))
+					.OnClicked_Lambda([this]() { ApplyOrientationPreset_RightSide(); return FReply::Handled(); })
 				]
 			]
 		];
@@ -3691,59 +5337,71 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildAnalysisPanel()
 TSharedRef<SWidget> SPairedAnimationPreview::BuildOptimizationPanel()
 {
 	return SNew(SExpandableArea)
-		.AreaTitle(LOCTEXT("Optimization", "Optimization"))
+		.AreaTitle(LOCTEXT("Optimization", "Advanced Optimization"))
 		.InitiallyCollapsed(true)
 		.BodyContent()
 		[
 			SNew(SVerticalBox)
 
+			// Info text
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(2.0f)
 			[
-				SNew(SButton)
-				.Text(LOCTEXT("RunFullOpt", "Run Full Optimization"))
-				.ToolTipText(LOCTEXT("RunFullOptTip", "Find optimal distance, rotations, and sync time"))
-				.OnClicked_Lambda([this]() { OnOptimizeClicked(); return FReply::Handled(); })
+				SNew(STextBlock)
+				.Text(LOCTEXT("OptInfoText", "Individual optimization controls. Use Auto-Optimize in the quick bar for all-in-one optimization."))
+				.AutoWrapText(true)
+				.ColorAndOpacity(FSlateColor::UseSubduedForeground())
 			]
 
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("FindDist", "Find Distance"))
-					.OnClicked_Lambda([this]() { OnFindOptimalDistanceClicked(); return FReply::Handled(); })
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("FindRot", "Find Rotation"))
-					.OnClicked_Lambda([this]() { OnFindOptimalRotationClicked(); return FReply::Handled(); })
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("FindSync", "Find Sync"))
-					.OnClicked_Lambda([this]() { OnFindOptimalSyncClicked(); return FReply::Handled(); })
-				]
-			]
-
+			// Individual optimization buttons
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(2.0f, 8.0f, 2.0f, 2.0f)
 			[
 				SNew(SButton)
+				.Text(LOCTEXT("FindDistOnly", "Optimize Distance Only"))
+				.ToolTipText(LOCTEXT("FindDistOnlyTip", "Find the optimal distance between characters by analyzing bone proximity across the entire animation timeline. Does not modify rotations."))
+				.OnClicked_Lambda([this]() { OnFindOptimalDistanceClicked(); return FReply::Handled(); })
+			]
+
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("FindRotOnly", "Optimize Rotations Only"))
+				.ToolTipText(LOCTEXT("FindRotOnlyTip", "Find optimal attacker and victim rotations by analyzing contact quality across the timeline. Respects spatial relationship constraints (Facing, Behind, etc.). Does not modify distance."))
+				.OnClicked_Lambda([this]() { OnFindOptimalRotationClicked(); return FReply::Handled(); })
+			]
+
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SButton)
+				.Text(LOCTEXT("FindSyncOnly", "Jump to Best Sync Frame"))
+				.ToolTipText(LOCTEXT("FindSyncOnlyTip", "Analyze the timeline to find the frame with the best contact alignment, then jump the playhead to that position. Useful for finding the ideal impact moment."))
+				.OnClicked_Lambda([this]() { OnFindOptimalSyncClicked(); return FReply::Handled(); })
+			]
+
+			// Cache management
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f, 16.0f, 2.0f, 2.0f)
+			[
+				SNew(STextBlock)
+				.Text(LOCTEXT("CacheHeader", "Cache Management"))
+				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
+			]
+
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SButton)
 				.Text(LOCTEXT("RebuildCache", "Rebuild Analysis Cache"))
+				.ToolTipText(LOCTEXT("RebuildCacheTip", "Force rebuild of all analysis caches (frame analysis, trajectories, holistic timeline). Use this if analysis results seem stale after changing animations or settings."))
 				.OnClicked_Lambda([this]() {
 					RebuildAnalysisCache();
 					RebuildTrajectoryCache();
@@ -3762,6 +5420,20 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildVisualizationPanel()
 		[
 			SNew(SVerticalBox)
 
+			// Axis Grid - first for reference orientation
+			+ SVerticalBox::Slot()
+			.AutoHeight()
+			.Padding(2.0f)
+			[
+				SNew(SCheckBox)
+				.IsChecked_Lambda([this]() { return IsVisualizationActive(EVisualizationLayer::AxisGrid) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
+				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { SetVisualizationActive(EVisualizationLayer::AxisGrid, State == ECheckBoxState::Checked); })
+				.ToolTipText(LOCTEXT("ShowAxisGridTip", "Display world axis grid (X=Red/Forward, Y=Green/Right, Z=Blue/Up) and character forward direction arrows. Note: Skeletal meshes at runtime typically have -90° yaw offset from capsule."))
+				[
+					SNew(STextBlock).Text(LOCTEXT("ShowAxisGrid", "Axis Grid"))
+				]
+			]
+
 			+ SVerticalBox::Slot()
 			.AutoHeight()
 			.Padding(2.0f)
@@ -3769,6 +5441,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildVisualizationPanel()
 				SNew(SCheckBox)
 				.IsChecked_Lambda([this]() { return IsVisualizationActive(EVisualizationLayer::ContactPoints) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { SetVisualizationActive(EVisualizationLayer::ContactPoints, State == ECheckBoxState::Checked); })
+				.ToolTipText(LOCTEXT("ShowContactsTip", "Display spheres at detected contact points between characters. Yellow = current contacts, Green = predicted future contacts."))
 				[
 					SNew(STextBlock).Text(LOCTEXT("ShowContacts", "Contact Points"))
 				]
@@ -3781,6 +5454,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildVisualizationPanel()
 				SNew(SCheckBox)
 				.IsChecked_Lambda([this]() { return IsVisualizationActive(EVisualizationLayer::WeaponTrace) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { SetVisualizationActive(EVisualizationLayer::WeaponTrace, State == ECheckBoxState::Checked); })
+				.ToolTipText(LOCTEXT("ShowWeaponTip", "Display the weapon trace line between WeaponStart and WeaponEnd sockets. Red line shows the weapon's hit detection area."))
 				[
 					SNew(STextBlock).Text(LOCTEXT("ShowWeapon", "Weapon Trace"))
 				]
@@ -3793,6 +5467,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildVisualizationPanel()
 				SNew(SCheckBox)
 				.IsChecked_Lambda([this]() { return IsVisualizationActive(EVisualizationLayer::DistanceLines) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { SetVisualizationActive(EVisualizationLayer::DistanceLines, State == ECheckBoxState::Checked); })
+				.ToolTipText(LOCTEXT("ShowDistanceTip", "Display lines showing distances between key bones on attacker and victim. Helps visualize spacing and alignment."))
 				[
 					SNew(STextBlock).Text(LOCTEXT("ShowDistance", "Distance Lines"))
 				]
@@ -3805,6 +5480,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildVisualizationPanel()
 				SNew(SCheckBox)
 				.IsChecked_Lambda([this]() { return IsVisualizationActive(EVisualizationLayer::VelocityVectors) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { SetVisualizationActive(EVisualizationLayer::VelocityVectors, State == ECheckBoxState::Checked); })
+				.ToolTipText(LOCTEXT("ShowVelocityTip", "Display velocity arrows on key bones showing direction and speed of movement. Longer arrows indicate faster movement."))
 				[
 					SNew(STextBlock).Text(LOCTEXT("ShowVelocity", "Velocity Vectors"))
 				]
@@ -3817,6 +5493,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildVisualizationPanel()
 				SNew(SCheckBox)
 				.IsChecked_Lambda([this]() { return IsVisualizationActive(EVisualizationLayer::CenterOfMass) ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
 				.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { SetVisualizationActive(EVisualizationLayer::CenterOfMass, State == ECheckBoxState::Checked); })
+				.ToolTipText(LOCTEXT("ShowCOMTip", "Display the calculated center of mass for each character. Useful for understanding balance and weight distribution during animations."))
 				[
 					SNew(STextBlock).Text(LOCTEXT("ShowCOM", "Center of Mass"))
 				]
@@ -3861,6 +5538,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildSettingsPanel()
 					SAssignNew(WeaponStartSocketInput, SEditableTextBox)
 					.Text(FText::FromName(AttackerConfig.WeaponStartSocket))
 					.OnTextCommitted(this, &SPairedAnimationPreview::OnWeaponStartSocketChanged)
+					.ToolTipText(LOCTEXT("StartSocketTip", "Socket name for the weapon's base/handle (e.g., 'WeaponStart'). Used for weapon trace visualization and contact detection."))
 				]
 			]
 
@@ -3882,6 +5560,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildSettingsPanel()
 					SAssignNew(WeaponEndSocketInput, SEditableTextBox)
 					.Text(FText::FromName(AttackerConfig.WeaponEndSocket))
 					.OnTextCommitted(this, &SPairedAnimationPreview::OnWeaponEndSocketChanged)
+					.ToolTipText(LOCTEXT("EndSocketTip", "Socket name for the weapon's tip/end (e.g., 'WeaponEnd'). Used for weapon trace visualization and contact detection."))
 				]
 			]
 
@@ -3918,6 +5597,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildSettingsPanel()
 						ContactThreshold = Val;
 						bAnalysisCacheDirty = true;
 					})
+					.ToolTipText(LOCTEXT("ContactThresholdTip", "Maximum distance (in Unreal units) between bones to be considered a contact. Lower values = stricter contact detection."))
 				]
 			]
 
@@ -3944,6 +5624,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildSettingsPanel()
 						AnalysisSampleRate = Val;
 						bAnalysisCacheDirty = true;
 					})
+					.ToolTipText(LOCTEXT("SampleRateTip", "Frames per second to sample during analysis. Higher = more accurate but slower. 60 is typically sufficient."))
 				]
 			]
 		];

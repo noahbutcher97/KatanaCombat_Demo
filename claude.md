@@ -274,6 +274,97 @@ This applies to ALL `BlueprintNativeEvent` interface methods:
 - Use component tick without explicit permission
 - **Make internal state variables `BlueprintReadOnly`**: If a parameter isn't meaningful to view/edit at runtime in the editor, don't expose it to Blueprint. This adds visual load and confusion. Reserve Blueprint visibility for intentional public API, not internal implementation details.
 
+## Editor Tool Architecture Patterns
+
+**CRITICAL: These patterns MUST be followed for all editor tooling in KatanaCombatEditor module.**
+
+### Three-Layer Separation
+
+Editor tools follow a strict three-layer architecture:
+
+| Layer | Purpose | File Location | Contains |
+|-------|---------|---------------|----------|
+| **Types Layer** | Pure data definitions | `Data/PairedAnimationEditorTypes.h` | USTRUCT, UENUM, simple inline accessors |
+| **Library Layer** | Stateless pure math | `PairedAnimationAnalysisLibrary.h/.cpp` | Static functions taking/returning primitives |
+| **Subsystem Layer** | UObject state management | `PairedAnimationAnalysisSubsystem.h/.cpp` | UEditorSubsystem with UObject references |
+
+### Rules by Layer
+
+**Types Layer (`*Types.h`)**:
+- ✅ USTRUCT and UENUM definitions
+- ✅ Simple inline accessors (getters/setters)
+- ✅ Factory methods (`CreateDefault()`, `CreateForRelationship()`)
+- ✅ TWeakObjectPtr for UObject references (requires direct assignment)
+- ❌ NO complex calculations (extract to Library)
+- ❌ NO #include of Library headers (causes circular dependency)
+
+**Library Layer (`*Library.h/.cpp`)**:
+- ✅ Static BlueprintPure functions ONLY
+- ✅ Input: primitives, enums, pure data structs
+- ✅ Output: primitives, enums, pure data structs
+- ✅ NO side effects, NO state
+- ❌ NO UObject references (no USkeletalMeshComponent*, no AActor*)
+- ❌ NO member variables
+
+**Subsystem Layer (`*Subsystem.h/.cpp`)**:
+- ✅ UEditorSubsystem base class
+- ✅ UObject references (mesh components, montages, actors)
+- ✅ Calls Library functions for math
+- ✅ Manages editor-time state
+- ❌ NO struct/enum definitions (put in Types)
+- ❌ NO complex inline calculations (extract to Library)
+
+### Example: Correct Pattern
+
+```cpp
+// Types file - pure data struct with factory
+USTRUCT(BlueprintType)
+struct FRotationConstraint
+{
+    float TargetYaw;
+    float Tolerance;
+
+    static FRotationConstraint CreateForRelationship(ESpatialRelationship Relationship);
+    bool IsWithinConstraint(float TestYaw) const; // Simple inline OK
+};
+
+// Library file - pure stateless math
+UCLASS()
+class UAnalysisLibrary : public UBlueprintFunctionLibrary
+{
+    UFUNCTION(BlueprintPure)
+    static float CalculateConfidence(float AngleDegrees);
+
+    UFUNCTION(BlueprintPure)
+    static bool IsYawWithinConstraint(float TargetYaw, float Tolerance, float TestYaw);
+};
+
+// Subsystem file - UObject operations
+UCLASS()
+class UAnalysisSubsystem : public UEditorSubsystem
+{
+    // Calls Library functions, passes results to/from UObjects
+    FAnalysisResult AnalyzeMontage(UAnimMontage* Montage);
+};
+```
+
+### Why This Matters
+
+1. **Testability**: Library functions can be unit tested without UObject setup
+2. **Reusability**: Pure math works in runtime, editor, or tests
+3. **Maintainability**: Clear ownership - calculations in one place, state in another
+4. **Compile Times**: Types file changes don't require recompiling Library
+5. **Circular Dependencies**: Prevented by strict include hierarchy
+
+### Synchronization Requirements
+
+When struct methods duplicate Library logic (due to circular dependency prevention), add documentation:
+```cpp
+// Note: Logic synchronized with UAnalysisLibrary::IsYawWithinConstraint()
+// If modifying, update both locations
+bool IsWithinConstraint(float TestYaw) const { ... }
+```
+
 ## Claude CLI Best Practices
 
 ### Session Continuity

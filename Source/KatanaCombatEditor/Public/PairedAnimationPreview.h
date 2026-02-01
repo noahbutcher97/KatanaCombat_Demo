@@ -5,466 +5,20 @@
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
+#include "Data/PairedAnimationEditorTypes.h"
 
 class UAnimMontage;
 class USkeletalMesh;
+class UStaticMesh;
 class UDebugSkelMeshComponent;
+class UStaticMeshComponent;
 class FAdvancedPreviewScene;
 class SSlider;
 class SCheckBox;
 class SExpandableArea;
 class SEditableTextBox;
+class SObjectPropertyEntryBox;
 template<typename OptionType> class SComboBox;
-
-// ============================================================================
-// ENUMS
-// ============================================================================
-
-/** Analysis mode for different insights */
-UENUM()
-enum class EAnalysisMode : uint8
-{
-	ContactPoints,		// Focus on contact detection
-	Trajectories,		// Bone movement paths
-	Timing,				// Sync and timing analysis
-	Optimization		// Auto-optimization tools
-};
-
-/** Visualization layer toggles */
-UENUM()
-enum class EVisualizationLayer : uint32
-{
-	None				= 0,
-	Skeletons			= 1 << 0,
-	BoneNames			= 1 << 1,
-	VelocityVectors		= 1 << 2,
-	ContactPoints		= 1 << 3,
-	ContactTrails		= 1 << 4,
-	WeaponTrace			= 1 << 5,
-	RootMotionPath		= 1 << 6,
-	DistanceLines		= 1 << 7,
-	ReachEnvelopes		= 1 << 8,
-	CenterOfMass		= 1 << 9,
-	CollisionBounds		= 1 << 10,
-	MultiContact		= 1 << 11,  // Multi-contact point visualization
-	All					= 0xFFFF
-};
-ENUM_CLASS_FLAGS(EVisualizationLayer);
-
-/** Contact point types for multi-contact analysis */
-UENUM()
-enum class EContactPointType : uint8
-{
-	Head,
-	LeftHand,
-	RightHand,
-	LeftFoot,
-	RightFoot,
-	Pelvis,
-	COUNT
-};
-
-/**
- * Spatial relationship between attacker and victim.
- * Used to constrain optimization search space and provide context.
- */
-UENUM()
-enum class ESpatialRelationship : uint8
-{
-	Inferred,		// Auto-detect from animation (ContactNormal + victim bone)
-	Facing,			// Victim faces attacker (front attack)
-	Behind,			// Attacker behind victim (backstab)
-	LeftSide,		// Attacker on victim's left
-	RightSide,		// Attacker on victim's right
-	Custom			// No constraints - full search space
-};
-
-/** Bone configuration for multi-contact tracking */
-struct FMultiContactBoneConfig
-{
-	FName HeadBone = TEXT("head");
-	FName LeftHandBone = TEXT("hand_l");
-	FName RightHandBone = TEXT("hand_r");
-	FName LeftFootBone = TEXT("foot_l");
-	FName RightFootBone = TEXT("foot_r");
-	FName PelvisBone = TEXT("pelvis");
-
-	/** Get bone name for contact type */
-	FName GetBoneForType(EContactPointType Type) const
-	{
-		switch (Type)
-		{
-			case EContactPointType::Head: return HeadBone;
-			case EContactPointType::LeftHand: return LeftHandBone;
-			case EContactPointType::RightHand: return RightHandBone;
-			case EContactPointType::LeftFoot: return LeftFootBone;
-			case EContactPointType::RightFoot: return RightFootBone;
-			case EContactPointType::Pelvis: return PelvisBone;
-			default: return NAME_None;
-		}
-	}
-
-	/** Get display name for contact type */
-	static FString GetTypeName(EContactPointType Type)
-	{
-		switch (Type)
-		{
-			case EContactPointType::Head: return TEXT("Head");
-			case EContactPointType::LeftHand: return TEXT("L.Hand");
-			case EContactPointType::RightHand: return TEXT("R.Hand");
-			case EContactPointType::LeftFoot: return TEXT("L.Foot");
-			case EContactPointType::RightFoot: return TEXT("R.Foot");
-			case EContactPointType::Pelvis: return TEXT("Pelvis");
-			default: return TEXT("Unknown");
-		}
-	}
-};
-
-/** Multi-contact analysis result for a single frame */
-struct FMultiContactAnalysis
-{
-	float Time = 0.0f;
-
-	// Per contact point positions and quality
-	TMap<EContactPointType, FVector> AttackerContactPositions;
-	TMap<EContactPointType, FVector> VictimContactPositions;
-
-	// Pairwise distances between contact points
-	// Key: (AttackerType, VictimType), Value: distance
-	TMap<TPair<EContactPointType, EContactPointType>, float> PairwiseDistances;
-
-	// Penetration detection (distance < threshold)
-	TArray<TPair<EContactPointType, EContactPointType>> PenetrationPairs;
-	float MaxPenetrationDepth = 0.0f;
-	EContactPointType MostPenetratingAttacker = EContactPointType::RightHand;
-	EContactPointType MostPenetratingVictim = EContactPointType::Head;
-
-	// Contact quality per type (only if within threshold)
-	TMap<EContactPointType, float> AttackerContactQualities;
-	TMap<EContactPointType, float> VictimContactQualities;
-
-	// Best contact pair found this frame
-	EContactPointType BestAttackerContact = EContactPointType::RightHand;
-	EContactPointType BestVictimContact = EContactPointType::Head;
-	float BestContactDistance = FLT_MAX;
-	float BestContactQuality = 0.0f;
-
-	// Overall metrics
-	int32 TotalActiveContacts = 0;
-	float WeightedContactQuality = 0.0f;  // Quality weighted by contact type importance
-	bool bHasPenetration = false;
-};
-
-// ============================================================================
-// DATA STRUCTURES
-// ============================================================================
-
-/**
- * Configuration for a single character in the preview
- */
-struct FCharacterPreviewConfig
-{
-	// Position offset from origin (or from partner if locked)
-	FVector PositionOffset = FVector::ZeroVector;
-
-	// Rotation offset (yaw primarily)
-	FRotator RotationOffset = FRotator::ZeroRotator;
-
-	// Scale multiplier
-	float Scale = 1.0f;
-
-	// Visualization color
-	FLinearColor Color = FLinearColor::White;
-
-	// Socket names for weapon (attacker only)
-	FName WeaponStartSocket = TEXT("WeaponStart");
-	FName WeaponEndSocket = TEXT("WeaponEnd");
-
-	// Additional tracked bones
-	TArray<FName> TrackedBones;
-};
-
-/**
- * Procedural contact point with full analysis data
- */
-struct FProceduralContactPoint
-{
-	// Contact location in world space
-	FVector WorldLocation = FVector::ZeroVector;
-
-	// Normal direction (victim surface normal at contact)
-	FVector ContactNormal = FVector::UpVector;
-
-	// Impact direction (attacker approach vector)
-	FVector ImpactDirection = FVector::ForwardVector;
-
-	// Distance between attacker effector and victim surface
-	float Distance = 0.0f;
-
-	// Confidence score (0-1) based on approach velocity and alignment
-	float Confidence = 0.0f;
-
-	// Velocity of attacker bone at this point
-	FVector AttackerVelocity = FVector::ZeroVector;
-
-	// Speed magnitude
-	float ImpactSpeed = 0.0f;
-
-	// Bones/sockets involved
-	FName AttackerBone = NAME_None;
-	FName VictimBone = NAME_None;
-
-	// Timing data
-	float ContactTime = -1.0f;
-	bool bIsActiveContact = false;
-	bool bIsPredictedContact = false;  // Future contact based on trajectory
-
-	// Quality metrics
-	float AngleQuality = 0.0f;      // How perpendicular is the impact
-	float PositionQuality = 0.0f;   // How centered on victim
-};
-
-/**
- * Bone trajectory data over time
- */
-struct FBoneTrajectory
-{
-	FName BoneName;
-	TArray<FVector> Positions;       // World positions per sample
-	TArray<FVector> Velocities;      // Velocities per sample
-	TArray<float> Speeds;            // Speed magnitudes
-	float MaxSpeed = 0.0f;
-	float MaxSpeedTime = 0.0f;
-	int32 MaxSpeedSampleIndex = 0;
-	FLinearColor TrajectoryColor = FLinearColor::White;
-};
-
-/**
- * Root motion analysis data
- */
-struct FRootMotionAnalysis
-{
-	// Accumulated root motion translation
-	FVector TotalTranslation = FVector::ZeroVector;
-
-	// Accumulated root motion rotation
-	FRotator TotalRotation = FRotator::ZeroRotator;
-
-	// Per-frame deltas
-	TArray<FVector> TranslationDeltas;
-	TArray<FRotator> RotationDeltas;
-
-	// Speed profile
-	TArray<float> Speeds;
-	float MaxSpeed = 0.0f;
-	float AverageSpeed = 0.0f;
-};
-
-/**
- * Distance analysis between characters
- */
-struct FDistanceAnalysis
-{
-	// Character center distances over time
-	TArray<float> CenterDistances;
-
-	// Closest bone pair distances over time
-	TArray<float> ClosestBoneDistances;
-	TArray<TPair<FName, FName>> ClosestBonePairs;
-
-	// Statistics
-	float MinDistance = FLT_MAX;
-	float MaxDistance = 0.0f;
-	float MinDistanceTime = 0.0f;
-	float MaxDistanceTime = 0.0f;
-
-	// Optimal distance (where contact confidence is highest)
-	float OptimalStartDistance = 0.0f;
-	float OptimalDistanceConfidence = 0.0f;
-};
-
-/**
- * Timing analysis for sync points
- */
-struct FTimingAnalysis
-{
-	// Detected natural sync points (where contact is best)
-	TArray<float> NaturalSyncTimes;
-	TArray<float> SyncConfidences;
-
-	// Best sync point
-	float BestSyncTime = 0.0f;
-	float BestSyncConfidence = 0.0f;
-
-	// Phase detection
-	TArray<TPair<float, float>> HighActivityRanges;  // Start, End times of high movement
-};
-
-/**
- * Per-frame trajectory sample for holistic analysis
- */
-struct FTrajectoryFrameSample
-{
-	float Time = 0.0f;
-
-	// Activity metrics (velocity-based)
-	float AttackerVelocityMagnitude = 0.0f;
-	float VictimVelocityMagnitude = 0.0f;
-	float CombinedActivity = 0.0f;  // Normalized 0-1
-
-	// Contact metrics
-	float ClosestDistance = FLT_MAX;
-	float ContactQuality = 0.0f;
-	float AngleQuality = 0.0f;
-
-	// Weight for optimization (higher during high-activity phases)
-	float OptimizationWeight = 1.0f;
-
-	// Approach trajectory
-	FVector ApproachDirection = FVector::ForwardVector;
-	float ApproachSpeed = 0.0f;
-
-	// Phase detection
-	bool bIsHighActivityPhase = false;
-	bool bIsContactPhase = false;
-	bool bIsPeakVelocityFrame = false;
-};
-
-/**
- * Holistic timeline analysis for intelligent optimization
- */
-struct FHolisticTimelineAnalysis
-{
-	TArray<FTrajectoryFrameSample> FrameSamples;
-
-	// Peak detection
-	float PeakVelocityTime = 0.0f;
-	float PeakVelocityMagnitude = 0.0f;
-
-	// Phase boundaries
-	float HighActivityStartTime = 0.0f;
-	float HighActivityEndTime = 0.0f;
-	float ContactPhaseStartTime = 0.0f;
-	float ContactPhaseEndTime = 0.0f;
-
-	// Optimization weights (pre-computed)
-	float TotalWeight = 0.0f;
-
-	// Statistics
-	float AverageActivity = 0.0f;
-	float AverageContactQuality = 0.0f;
-	int32 HighActivityFrameCount = 0;
-	int32 ContactPhaseFrameCount = 0;
-
-	// Quality metrics (weighted by activity)
-	float WeightedContactScore = 0.0f;
-	float WeightedAlignmentScore = 0.0f;
-	float WeightedOverallScore = 0.0f;
-};
-
-/**
- * Optimization result from auto-analysis
- */
-struct FOptimizationResult
-{
-	bool bSuccess = false;
-
-	// Recommended settings
-	float RecommendedDistance = 150.0f;
-	FRotator RecommendedAttackerRotation = FRotator::ZeroRotator;
-	FRotator RecommendedVictimRotation = FRotator(0.0f, 180.0f, 0.0f);
-	float RecommendedSyncTime = 0.0f;
-
-	// Quality scores
-	float ContactQuality = 0.0f;      // 0-1, how good the contact is
-	float AlignmentQuality = 0.0f;    // 0-1, how well aligned
-	float TimingQuality = 0.0f;       // 0-1, how good the sync timing
-	float OverallScore = 0.0f;        // Combined score
-
-	// Warnings/suggestions
-	TArray<FString> Warnings;
-	TArray<FString> Suggestions;
-};
-
-/**
- * Complete per-frame analysis
- */
-struct FPairedFrameAnalysis
-{
-	float Time = 0.0f;
-
-	// Character Positioning
-	FVector AttackerLocation = FVector::ZeroVector;
-	FVector VictimLocation = FVector::ZeroVector;
-	FRotator AttackerRotation = FRotator::ZeroRotator;
-	FRotator VictimRotation = FRotator::ZeroRotator;
-	float CharacterDistance = 0.0f;
-	float FacingAngle = 0.0f;
-
-	// Root Motion
-	FVector AttackerRootMotionDelta = FVector::ZeroVector;
-	FVector VictimRootMotionDelta = FVector::ZeroVector;
-	float AttackerRootMotionSpeed = 0.0f;
-	float VictimRootMotionSpeed = 0.0f;
-
-	// Procedural Contact Points
-	TArray<FProceduralContactPoint> ContactPoints;
-	FProceduralContactPoint PrimaryContact;
-
-	// Skeleton Analysis
-	float ClosestBoneDistance = FLT_MAX;
-	FName AttackerClosestBone = NAME_None;
-	FName VictimClosestBone = NAME_None;
-
-	// Weapon state
-	FVector WeaponStartPos = FVector::ZeroVector;
-	FVector WeaponEndPos = FVector::ZeroVector;
-	FVector WeaponVelocity = FVector::ZeroVector;
-	float WeaponSpeed = 0.0f;
-
-	// Center of mass
-	FVector AttackerCOM = FVector::ZeroVector;
-	FVector VictimCOM = FVector::ZeroVector;
-
-	// Active Notifies
-	TArray<FString> AttackerActiveNotifies;
-	TArray<FString> VictimActiveNotifies;
-};
-
-/**
- * Result of inferring spatial relationship from animation data
- */
-struct FSpatialRelationshipInference
-{
-	ESpatialRelationship InferredRelationship = ESpatialRelationship::Facing;
-	float Confidence = 0.0f;  // 0-1 confidence in the inference
-
-	// Evidence that led to this inference
-	FVector PrimaryContactNormal = FVector::ForwardVector;  // Contact normal at sync point
-	FName VictimContactBone = NAME_None;  // Which bone receives the contact
-	float VictimFacingAngle = 0.0f;  // Angle between victim forward and attacker position
-
-	// Reasoning (for display)
-	FString ReasoningText;
-};
-
-/**
- * Rotation constraints based on spatial relationship
- */
-struct FSpatialRotationConstraint
-{
-	float TargetYaw = 0.0f;  // Target victim rotation relative to attacker forward
-	float Tolerance = 30.0f;  // Degrees of allowed deviation
-	bool bConstrained = false;  // Whether this relationship constrains the search
-
-	// Returns true if a rotation is within the constraint
-	bool IsWithinConstraint(float VictimYaw) const
-	{
-		if (!bConstrained) return true;
-		float Diff = FMath::Abs(FMath::FindDeltaAngleDegrees(TargetYaw, VictimYaw));
-		return Diff <= Tolerance;
-	}
-};
 
 /**
  * Paired Animation Preview Tool - Industry-Grade Editor
@@ -510,11 +64,89 @@ private:
 	UDebugSkelMeshComponent* AttackerMeshComponent = nullptr;
 	UDebugSkelMeshComponent* VictimMeshComponent = nullptr;
 
+	// Weapon mesh components (attached to character skeletons)
+	UStaticMeshComponent* AttackerWeaponMeshComponent = nullptr;
+	UStaticMeshComponent* VictimWeaponMeshComponent = nullptr;
+
 	void SetupSharedPreviewScene();
 	void UpdateAttackerMesh(USkeletalMesh* Mesh);
 	void UpdateVictimMesh(USkeletalMesh* Mesh);
 	void UpdateCharacterPositions();
 	void UpdateAnimations(float Time);
+
+	// ========================================================================
+	// WEAPON MESH CONFIGURATION
+	// ========================================================================
+
+	FWeaponMeshConfig AttackerWeaponConfig;
+	FWeaponMeshConfig VictimWeaponConfig;
+
+	/** Update attacker weapon mesh and attach to skeleton */
+	void UpdateAttackerWeaponMesh(UStaticMesh* Mesh);
+
+	/** Update victim weapon mesh and attach to skeleton */
+	void UpdateVictimWeaponMesh(UStaticMesh* Mesh);
+
+	/** Re-attach weapons to their current sockets (call after skeleton update) */
+	void ReattachWeapons();
+
+	/** Get world position of weapon contact point */
+	FVector GetWeaponContactPosition(UStaticMeshComponent* WeaponMesh, const FWeaponMeshConfig& Config, EContactPointType ContactType) const;
+
+	/** Check if weapon meshes are available for contact detection */
+	bool HasAttackerWeapon() const { return AttackerWeaponMeshComponent != nullptr && AttackerWeaponConfig.IsValid(); }
+	bool HasVictimWeapon() const { return VictimWeaponMeshComponent != nullptr && VictimWeaponConfig.IsValid(); }
+
+	// --- Weapon Socket Configuration ---
+
+	/** Get all socket names from a skeletal mesh */
+	TArray<FName> GetSkeletalMeshSockets(UDebugSkelMeshComponent* MeshComp) const;
+
+	/** Get all socket names from a static mesh */
+	TArray<FName> GetStaticMeshSockets(UStaticMesh* StaticMesh) const;
+
+	/** Refresh socket options for weapon configuration dropdowns */
+	void RefreshAttackerWeaponSocketOptions();
+	void RefreshVictimWeaponSocketOptions();
+
+	// Socket option arrays for dropdowns
+	TArray<TSharedPtr<FName>> AttackerCharacterSocketOptions;  // Sockets on attacker skeleton
+	TArray<TSharedPtr<FName>> AttackerWeaponSocketOptions;     // Sockets on attacker's weapon mesh
+	TArray<TSharedPtr<FName>> VictimCharacterSocketOptions;    // Sockets on victim skeleton
+	TArray<TSharedPtr<FName>> VictimWeaponSocketOptions;       // Sockets on victim's weapon mesh
+
+	// Socket combo boxes
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> AttackerCharacterSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> AttackerWeaponGripSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> AttackerWeaponTipSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> AttackerWeaponMidSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> AttackerWeaponBaseSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> VictimCharacterSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> VictimWeaponGripSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> VictimWeaponTipSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> VictimWeaponMidSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>> VictimWeaponBaseSocketCombo;
+
+	// Socket change handlers
+	void OnAttackerCharacterSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType);
+	void OnAttackerWeaponGripSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType);
+	void OnAttackerWeaponTipSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType);
+	void OnAttackerWeaponMidSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType);
+	void OnAttackerWeaponBaseSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType);
+	void OnVictimCharacterSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType);
+	void OnVictimWeaponGripSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType);
+	void OnVictimWeaponTipSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType);
+	void OnVictimWeaponMidSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType);
+	void OnVictimWeaponBaseSocketChanged(TSharedPtr<FName> NewSocket, ESelectInfo::Type SelectType);
+
+	// Offset change handlers
+	void OnAttackerWeaponOffsetChanged(FVector NewOffset);
+	void OnAttackerWeaponRotationChanged(FRotator NewRotation);
+	void OnVictimWeaponOffsetChanged(FVector NewOffset);
+	void OnVictimWeaponRotationChanged(FRotator NewRotation);
+
+	/** Build weapon configuration sub-panel (expandable) */
+	TSharedRef<SWidget> BuildWeaponConfigPanel();
 
 	// ========================================================================
 	// CHARACTER CONFIGURATION
@@ -559,12 +191,19 @@ private:
 
 	// Playback
 	float CurrentTime = 0.0f;
+	float MinTime = 0.0f;  // Effective start time (based on section selection)
 	float MaxDuration = 0.0f;
 	bool bIsPlaying = false;
 	float PlaybackSpeed = 1.0f;
 	bool bLoopPlayback = true;
 	bool bPingPongPlayback = false;
 	int32 PingPongDirection = 1;
+
+	// Per-character section time ranges (for looping within sections)
+	float AttackerSectionStart = 0.0f;
+	float AttackerSectionEnd = 0.0f;
+	float VictimSectionStart = 0.0f;
+	float VictimSectionEnd = 0.0f;
 
 	// Victim timing offset (positive = victim starts later)
 	float VictimTimeOffset = 0.0f;
@@ -686,6 +325,10 @@ private:
 	FRotator FindOptimalAttackerRotation(int32 Steps = 36);
 	FRotator FindOptimalVictimRotation(int32 Steps = 36);
 	float FindOptimalSyncTime();
+
+	// Evaluates configuration at a specific frame - used for Global Paired Orientation (t=0)
+	float EvaluateConfigurationAtFrame(float Distance, FRotator AttackerRot, FRotator VictimRot, float Time);
+	// Legacy wrapper - evaluates at reference frame (t=0)
 	float EvaluateConfiguration(float Distance, FRotator AttackerRot, FRotator VictimRot);
 
 	void ApplyOptimizationResult(const FOptimizationResult& Result);
@@ -726,6 +369,7 @@ private:
 	void DrawReachEnvelopes();
 	void DrawCenterOfMass();
 	void DrawCollisionBounds();
+	void DrawAxisGrid();
 
 	// ========================================================================
 	// TIMELINE & PLAYBACK
@@ -791,6 +435,11 @@ private:
 	void OnVictimMontageSelected(const FAssetData& AssetData);
 	void OnAttackerSkeletonSelected(const FAssetData& AssetData);
 	void OnVictimSkeletonSelected(const FAssetData& AssetData);
+	void OnAttackerWeaponMeshSelected(const FAssetData& AssetData);
+	void OnVictimWeaponMeshSelected(const FAssetData& AssetData);
+
+	FString GetAttackerWeaponMeshPath() const;
+	FString GetVictimWeaponMeshPath() const;
 
 	// Section Selection Widgets
 	TSharedPtr<SComboBox<TSharedPtr<FName>>> AttackerSectionCombo;
@@ -808,12 +457,21 @@ private:
 	TArray<FName> GetAvailableSockets(UDebugSkelMeshComponent* Mesh) const;
 
 	// ========================================================================
-	// PRESETS
+	// ORIENTATION PRESETS
 	// ========================================================================
 
-	void ApplyPreset_Finisher();
-	void ApplyPreset_Counter();
-	void ApplyPreset_Parry();
+	/** Apply orientation preset: Characters facing each other (180° victim yaw) */
+	void ApplyOrientationPreset_Facing();
+
+	/** Apply orientation preset: Attacker behind victim (0° victim yaw) */
+	void ApplyOrientationPreset_Behind();
+
+	/** Apply orientation preset: Attacker on victim's left side (90° victim yaw) */
+	void ApplyOrientationPreset_LeftSide();
+
+	/** Apply orientation preset: Attacker on victim's right side (-90° victim yaw) */
+	void ApplyOrientationPreset_RightSide();
+
 	void SaveCurrentAsPreset(const FString& PresetName);
 	void LoadPreset(const FString& PresetName);
 
