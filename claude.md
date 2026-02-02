@@ -115,12 +115,16 @@ Source/KatanaCombat/Public/
 │   ├── CombatInterface.h      ← Combat state contract
 │   └── TeamMemberInterface.h  ← Team/faction contract
 ├── Math/
-│   ├── CombatMathEnums.h      ← Distance formulas, bone chains, contact types
-│   └── CombatMathTypes.h      ← Skeletal hierarchy, reach, contact predictions
+│   ├── CombatMathEnums.h      ← 10 enums (distance formulas, bone chains, contact types)
+│   └── CombatMathTypes.h      ← 10 structs (skeletal hierarchy, reach, contact predictions)
 └── Utilities/
     ├── MontageUtilityLibrary.h           ← 27 montage utility functions
-    ├── PairedAnimationUtilityLibrary.h   ← Paired animation validation, contact points
-    └── CinematicEffectsUtilityLibrary.h  ← Time dilation, hitstop, camera shake
+    ├── PairedAnimationUtilityLibrary.h   ← 15 functions (validation, contact points)
+    ├── CinematicEffectsUtilityLibrary.h  ← Time dilation, hitstop, camera shake
+    ├── SkeletalAnalysisLibrary.h         ← 18 functions (bone chains, reach envelopes)
+    ├── GeometryMathLibrary.h             ← 20 functions (distance, bounding volumes)
+    ├── SpatialQueryLibrary.h             ← 15 functions (sphere/box/cone queries)
+    └── PhysicsIntegrationLibrary.h       ← 15 functions (Verlet, trajectory prediction)
 ```
 
 ## Key Default Values
@@ -401,7 +405,30 @@ Track ongoing work across sessions. This section provides detailed status of all
 
 ### Paired Animation System (Phase 5) - PRIMARY FOCUS
 
-**Overall Status**: ~95% of Finisher system complete, ready for testing
+**Overall Status**: Runtime Finisher ~95% complete | Preview Tool ~95% complete | Math Libraries 100% complete
+
+#### Phase 5c: Math & Utility Libraries - COMPLETE (83 functions, 3,128 lines)
+
+| Library | Functions | Lines | Key Capabilities |
+|---------|-----------|-------|------------------|
+| SkeletalAnalysisLibrary | 18 | 814 | Bone chains, reach envelopes, center of mass |
+| GeometryMathLibrary | 20 | 499 | Distance calculations (5 formulas), bounding volumes |
+| SpatialQueryLibrary | 15 | 706 | Sphere/box/cone queries, FOV checks |
+| PhysicsIntegrationLibrary | 15 | 610 | Verlet integration, trajectory prediction |
+| PairedAnimationUtilityLibrary | 15 | 499 | Contact points, obstacle validation |
+
+#### Phase 5d: Preview Tool Enhancements - ~95% COMPLETE (5,639+ lines)
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| PT-1: Holistic Optimization | ✅ | Consistent results across frames using Time parameter |
+| PT-2: Spatial Relationship | ✅ | Inference from neutral configuration |
+| PT-3/PT-4: Bone Trajectories | ✅ | Chain visualization with time gradient |
+| PT-5: Individual Bone Selection | ✅ | Hierarchy tree for bone selection |
+| PT-6/PT-7: Joint Constraints | ✅ | Anatomical limits framework |
+| PT-8/PT-9: Weapon Attachment | ✅ | Configurable grip sockets, mesh visualization |
+
+**Latest Commit**: 3beddea - Weapon grip socket + montage section looping fix
 
 #### Fully Implemented (Production Ready)
 | Component | Files | Description |
