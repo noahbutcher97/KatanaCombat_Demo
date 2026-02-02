@@ -154,11 +154,11 @@ public:
 	 * Find optimal rotation for a character.
 	 * Evaluates at reference frame (t=0).
 	 *
-	 * @param bOptimizeAttacker true = optimize attacker rotation, false = optimize victim rotation
+	 * @param Target PT-18: Which character to optimize (Attacker or Victim)
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Paired Animation|Optimization")
 	FRotationOptimizationResult FindOptimalRotation(
-		bool bOptimizeAttacker,
+		EOptimizationTarget Target,
 		int32 Steps = 36,
 		float ReferenceTime = 0.0f);
 
@@ -173,6 +173,61 @@ public:
 		float MaxDistance = 400.0f,
 		int32 DistanceSteps = 50,
 		int32 RotationSteps = 36,
+		float ReferenceTime = 0.0f);
+
+	/**
+	 * Run full optimization with progress dialog (PT-10).
+	 * Shows a cancellable progress bar during optimization.
+	 *
+	 * @param bOutWasCancelled Set to true if user cancelled the operation
+	 * @param MinDistance Minimum distance to test
+	 * @param MaxDistance Maximum distance to test
+	 * @param DistanceSteps Number of distance steps to evaluate
+	 * @param RotationSteps Number of rotation steps per axis
+	 * @param ReferenceTime Time to evaluate at
+	 * @return Optimization result (may be partial if cancelled)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Paired Animation|Optimization")
+	FFullOptimizationResult RunFullOptimizationWithProgress(
+		UPARAM(ref) bool& bOutWasCancelled,
+		float MinDistance = 50.0f,
+		float MaxDistance = 400.0f,
+		int32 DistanceSteps = 50,
+		int32 RotationSteps = 36,
+		float ReferenceTime = 0.0f);
+
+	/**
+	 * PT-14: Find optimal distance using golden section search.
+	 * O(log N) complexity vs O(N) for linear search.
+	 * Does NOT build a score curve - use linear search if curve data is needed.
+	 *
+	 * @param MinDistance Minimum distance to search
+	 * @param MaxDistance Maximum distance to search
+	 * @param Tolerance Convergence tolerance (default 1.0 unit)
+	 * @param ReferenceTime Time to evaluate at
+	 * @return Optimization result with optimal distance (no curve data)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Paired Animation|Optimization")
+	FDistanceOptimizationResult FindOptimalDistanceFast(
+		float MinDistance = 50.0f,
+		float MaxDistance = 400.0f,
+		float Tolerance = 1.0f,
+		float ReferenceTime = 0.0f);
+
+	/**
+	 * PT-14: Find optimal rotation using golden section search.
+	 * O(log N) complexity vs O(N) for linear search.
+	 * Does NOT build a score curve - use linear search if curve data is needed.
+	 *
+	 * @param Target Which character to optimize (Attacker or Victim)
+	 * @param Tolerance Convergence tolerance in degrees (default 1.0)
+	 * @param ReferenceTime Time to evaluate at
+	 * @return Optimization result with optimal rotation (no curve data)
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Paired Animation|Optimization")
+	FRotationOptimizationResult FindOptimalRotationFast(
+		EOptimizationTarget Target,
+		float Tolerance = 1.0f,
 		float ReferenceTime = 0.0f);
 
 	// ========================================================================
@@ -296,4 +351,45 @@ protected:
 
 	/** Invalidate cached analysis (call when context changes) */
 	void InvalidateCache();
+
+	// ========================================================================
+	// OPTIMIZATION WITH PROGRESS (PT-10)
+	// ========================================================================
+
+	/** Internal implementation of full optimization with optional progress callback */
+	FFullOptimizationResult RunFullOptimizationInternal(
+		float MinDistance,
+		float MaxDistance,
+		int32 DistanceSteps,
+		int32 RotationSteps,
+		float ReferenceTime,
+		TFunction<bool(const FText&)>* ProgressCallback);
+
+	/** Find optimal distance with progress callback */
+	FDistanceOptimizationResult FindOptimalDistanceWithProgress(
+		float MinDistance,
+		float MaxDistance,
+		int32 Steps,
+		float ReferenceTime,
+		TFunction<bool(const FText&)>* ProgressCallback);
+
+	/** Find optimal rotation with progress callback */
+	FRotationOptimizationResult FindOptimalRotationWithProgress(
+		EOptimizationTarget Target,
+		int32 Steps,
+		float ReferenceTime,
+		TFunction<bool(const FText&)>* ProgressCallback);
+
+	// ========================================================================
+	// EDITOR STATE CHANGE HANDLERS (PT-21)
+	// ========================================================================
+
+	/** Called when the editor map changes - clears context to prevent stale pointers */
+	void OnMapChange(uint32 MapChangeFlags);
+
+	/** Called before PIE begins - clears context as editor world becomes invalid */
+	void OnPreBeginPIE(bool bIsSimulating);
+
+	/** Called when PIE ends - clears context for clean return to editor */
+	void OnEndPIE(bool bIsSimulating);
 };

@@ -6,32 +6,40 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 
 ---
 
-## Recent Updates (2025-01-29)
+## Recent Updates (2026-02-02)
 
-### v3.0.0 - Architecture Consolidation & Motion Warping Unification
+### v4.0.0 - Paired Animation System (~95% Complete)
 
-**Status**: ✅ Major infrastructure refactor complete - unified combat system, modular settings, adaptive motion warping
+**Status**: Comprehensive paired animation system for finishers, counters, and parries
+
+**Key Features**:
+- **Finisher Execution**: `TryExecuteFinisher()` with vulnerability detection (guard break, stun, low health)
+- **Symmetric Warp Tracking**: Both attacker and victim continuously track each other during paired animations
+- **Cinematic Effects**: Slow motion, hitstop, camera shake via `CinematicEffectsUtilityLibrary`
+- **Death Handling**: Flag system prevents double death animations - finisher victim montage IS the death animation
+- **Preview Tool**: Editor tool for paired animation authoring (~5,639 lines) with spatial relationship inference
+
+**Math & Utility Libraries** (83 functions, 3,128 lines):
+- `SkeletalAnalysisLibrary`: Bone chains, reach envelopes, center of mass
+- `GeometryMathLibrary`: Distance calculations, bounding volumes
+- `SpatialQueryLibrary`: Sphere/box/cone queries, FOV checks
+- `PhysicsIntegrationLibrary`: Trajectory prediction, collision prediction
+
+**Documentation**: See [specs/PAIRED_ANIMATION_SPEC.md](specs/PAIRED_ANIMATION_SPEC.md) for technical specification
+
+**Next Steps**: AnimInstance Integration (Phase 5e), AI Token System (Phase 5b-5)
+
+---
+
+### v3.0.0 - Architecture Consolidation (2025-01-29)
+
+**Status**: ✅ Major infrastructure refactor complete
 
 **Key Changes**:
 - **V1 Removed**: Single unified `CombatComponent` (no more V1/V2 distinction)
 - **Character Hierarchy**: New `BaseCombatCharacter` → `PlayerCharacter` / `EnemyCharacter`
 - **Modular Settings**: `TargetingSettings` and `MotionWarpingSettings` as separate data assets
 - **Unified Motion Warping**: `AnimNotifyState_CombatWarp` auto-selects translation+rotation vs rotation-only
-
-**AnimNotifyState_CombatWarp** - Single notify replaces dual motion warping setup:
-- Detects at runtime which warp target exists (AttackTarget vs RotationTarget)
-- Enemy found → Translation + Rotation (move toward target)
-- No enemy → Rotation only (face direction, no sliding)
-- Neither → Skip warp entirely
-
-**Modular Settings Pattern** - Three-tier configuration hierarchy:
-```cpp
-1. Component->SettingsOverride      // Per-instance override (highest priority)
-2. CombatSettings->SubsystemSettings // Character-type default
-3. Hardcoded fallback               // Safe defaults (lowest priority)
-```
-
-**Next Steps**: Phase 6 (Parry & Evade systems), Phase 7 (Posture integration), Phase 8+ (Polish & AI)
 
 ---
 

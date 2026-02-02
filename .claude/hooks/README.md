@@ -450,14 +450,22 @@ $env:CLAUDE_SKIP_ON_SAVE = "1"
 
 ```
 .claude/hooks/
-├── agent-reminder.ps1          ← Complex task delegation
-├── auto-context.ps1            ← Context auto-detection
-├── after-edit.ps1              ← Documentation reminders
-├── on-file-save.ps1            ← Quick style checks
-├── pre-commit-diagnostics.ps1  ← Advisory pre-commit
-├── before-commit.ps1           ← Validation enforcer
+├── agent-reminder.ps1          ← Complex task delegation (auto-enabled)
+├── auto-context.ps1            ← Context auto-detection (auto-enabled)
+├── after-edit.ps1              ← Documentation reminders (manual)
+├── on-file-save.ps1            ← Quick style checks (disabled by default)
+├── pre-commit-diagnostics.ps1  ← Advisory pre-commit (manual/git hook)
+├── before-commit.ps1           ← Validation enforcer (manual/git hook)
+├── post-commit.ps1             ← Post-commit notifications (git hook)
+├── session-start.ps1           ← Session initialization (experimental)
 └── README.md                   ← This guide
 ```
+
+### Undocumented/Experimental Hooks
+
+**post-commit.ps1**: Git hook for post-commit notifications and cleanup tasks.
+
+**session-start.ps1**: Experimental hook for session initialization. May be used for context loading or state restoration.
 
 ---
 

@@ -105,9 +105,12 @@ private:
 	/** Get all socket names from a static mesh */
 	TArray<FName> GetStaticMeshSockets(UStaticMesh* StaticMesh) const;
 
+	/** PT-24: Consolidated helper for refreshing socket options */
+	void RefreshWeaponSocketOptionsForCharacter(bool bIsAttacker);
+
 	/** Refresh socket options for weapon configuration dropdowns */
-	void RefreshAttackerWeaponSocketOptions();
-	void RefreshVictimWeaponSocketOptions();
+	void RefreshAttackerWeaponSocketOptions() { RefreshWeaponSocketOptionsForCharacter(true); }
+	void RefreshVictimWeaponSocketOptions() { RefreshWeaponSocketOptionsForCharacter(false); }
 
 	// Socket option arrays for dropdowns
 	TArray<TSharedPtr<FName>> AttackerCharacterSocketOptions;  // Sockets on attacker skeleton
@@ -259,12 +262,26 @@ private:
 	FOptimizationResult LastOptimizationResult;
 	FHolisticTimelineAnalysis HolisticAnalysis;
 
+	// Undo/Redo support (PT-19)
+	TArray<FPreviewOptimizationState> OptimizationHistory;
+	int32 CurrentHistoryIndex = -1;
+	static constexpr int32 MaxHistorySize = 50;
+
+	void PushStateToHistory(const FString& Description = TEXT(""));
+	bool CanUndo() const { return CurrentHistoryIndex >= 0; }
+	bool CanRedo() const { return CurrentHistoryIndex < OptimizationHistory.Num() - 1; }
+	void UndoOptimization();
+	void RedoOptimization();
+	void ApplyHistoryState(const FPreviewOptimizationState& State);
+
 	// Cache validity
 	bool bAnalysisCacheDirty = true;
 	bool bHolisticCacheDirty = true;
 
 	void RebuildAnalysisCache();
 	void RebuildTrajectoryCache();
+	/** PT-22: Progress-enabled trajectory cache rebuild with cancellation support */
+	bool RebuildTrajectoryCacheWithProgress();
 	void RebuildDistanceAnalysis();
 	void RebuildTimingAnalysis();
 	void RebuildHolisticAnalysis();

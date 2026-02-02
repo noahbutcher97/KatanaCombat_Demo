@@ -297,8 +297,20 @@ EDataValidationResult UAttackData::IsDataValid(FDataValidationContext& Context) 
     const bool bDirectionalValid = ValidateDirectionalFollowUps(ValidationErrors);
     const bool bTerminalValid = ValidateTerminalTag(ValidationErrors);
 
-    // Report only errors that specifically mention THIS asset
-    // This prevents cascading duplicate errors when validating combo chains
+    // PT-17 NOTE: String-based error filtering
+    // ==========================================
+    // This pattern filters errors by checking if the message starts with the asset name.
+    // It prevents cascading duplicate errors when validating combo chains (each asset in
+    // the chain would otherwise report all errors from all downstream assets).
+    //
+    // This is a known architectural limitation. A cleaner solution would be to:
+    // 1. Have each validation function take FDataValidationContext directly
+    // 2. Use Context.AddError() with sub-object associations (Context.GetAssociatedObject())
+    // 3. Or pass a struct that tracks which asset "owns" each error
+    //
+    // The current approach works correctly but relies on error message formatting conventions.
+    // If refactoring, ensure error messages from DetectCycles, ValidateDirectionalFollowUps,
+    // and ValidateTerminalTag maintain the "AssetName: description" format.
     const FString ThisAssetName = GetName();
     for (const FText& Error : ValidationErrors)
     {

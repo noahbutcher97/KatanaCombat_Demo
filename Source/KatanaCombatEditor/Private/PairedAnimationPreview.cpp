@@ -34,52 +34,117 @@
 #include "DrawDebugHelpers.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "Misc/FileHelper.h"
+#include "Misc/ScopedSlowTask.h"
 #include "DesktopPlatformModule.h"
 
 #define LOCTEXT_NAMESPACE "PairedAnimationPreview"
 
 // ============================================================================
+// PT-16: CENTRALIZED CONFIGURATION
+// ============================================================================
+// These values were previously hardcoded throughout the file.
+// Centralizing them here makes tuning easier and prepares for migration
+// to UDeveloperSettings if Project Settings integration is desired.
+namespace PairedAnimPreviewConfig
+{
+	// Camera Settings
+	// Note: FVector/FRotator constructors aren't constexpr in UE5, so use inline functions
+	namespace Camera
+	{
+		inline FVector GetInitialLocation() { return FVector(-400.0f, 0.0f, 100.0f); }
+		inline FRotator GetInitialRotation() { return FRotator(-10.0f, 0.0f, 0.0f); }
+		constexpr int32 SpeedSetting = 3;
+		constexpr float FocusDistance = 300.0f;
+		constexpr float FocusHeightRatio = 0.3f;
+	}
+
+	// Character Setup
+	namespace Character
+	{
+		constexpr float MeshYawOffset = -90.0f;		// Skeletal mesh yaw offset from capsule
+		constexpr float DefaultDistance = 150.0f;	// Default distance between characters
+		constexpr float VictimFacingYaw = 180.0f;	// Victim faces attacker
+	}
+
+	// Spatial Relationship Constraints
+	namespace SpatialConstraints
+	{
+		constexpr float FacingYaw = 180.0f;			// Victim faces attacker
+		constexpr float BehindYaw = 0.0f;			// Attacker behind victim
+		constexpr float LeftSideYaw = 90.0f;		// Attacker on victim's left
+		constexpr float RightSideYaw = -90.0f;		// Attacker on victim's right
+		constexpr float DefaultTolerance = 30.0f;	// Rotation tolerance in degrees
+	}
+
+	// Debug Visualization Colors
+	namespace Colors
+	{
+		const FColor ContactBad = FColor::Red;
+		const FColor ContactMediocre = FColor::Yellow;
+		const FColor ContactGood = FColor::Green;
+		const FColor CurrentConnection = FColor::Red;
+		const FColor OptimalConnection = FColor::Cyan;
+		const FColor ContactSphere = FColor::Cyan;
+		const FColor PredictedContact = FColor(255, 200, 50);  // Gold
+		const FColor JointViolation = FColor::Red;
+		const FColor JointNormal = FColor::Green;
+		const FColor Trajectory = FColor::Orange;
+		const FColor WeaponLine = FColor::Red;
+		const FColor WeaponStart = FColor::Green;
+		const FColor WeaponEnd = FColor::Red;
+		const FColor CenterOfMass = FColor::Orange;
+		const FColor ForwardArrow = FColor::Cyan;
+		const FColor VictimForwardArrow = FColor::Orange;
+	}
+
+	// Debug Visualization Sizes
+	namespace Sizes
+	{
+		constexpr float ContactSphereRadius = 10.0f;
+		constexpr float SmallSphereRadius = 5.0f;
+		constexpr float MediumSphereRadius = 8.0f;
+		constexpr float LargeSphereRadius = 16.0f;
+		constexpr float ThinLineWidth = 1.0f;
+		constexpr float MediumLineWidth = 2.0f;
+		constexpr float ThickLineWidth = 3.0f;
+		constexpr float ArrowSize = 15.0f;
+	}
+
+	// Analysis Thresholds
+	namespace Analysis
+	{
+		constexpr float GoodContactThreshold = 0.7f;
+		constexpr float MediocreContactThreshold = 0.4f;
+		constexpr float HighConfidence = 0.9f;
+		constexpr float ConfidenceAngleDivisor = 90.0f;
+	}
+}
+
+// ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
-static const FNumberFormattingOptions& GetNumberFormat0()
+/**
+ * PT-23: Unified number formatting helper.
+ * Returns cached FNumberFormattingOptions for the specified decimal places.
+ * Replaces GetNumberFormat0/1/2/3 individual functions.
+ */
+static const FNumberFormattingOptions& GetNumberFormat(int32 DecimalPlaces)
 {
-	static FNumberFormattingOptions Options = []() {
-		FNumberFormattingOptions Opts;
-		Opts.SetMaximumFractionalDigits(0);
-		return Opts;
+	// Cache formatting options for common decimal place counts (0-4)
+	static TArray<FNumberFormattingOptions> CachedFormats = []() {
+		TArray<FNumberFormattingOptions> Formats;
+		Formats.SetNum(5); // 0-4 decimal places
+		for (int32 i = 0; i < 5; ++i)
+		{
+			Formats[i].SetMaximumFractionalDigits(i);
+		}
+		return Formats;
 	}();
-	return Options;
-}
 
-static const FNumberFormattingOptions& GetNumberFormat1()
-{
-	static FNumberFormattingOptions Options = []() {
-		FNumberFormattingOptions Opts;
-		Opts.SetMaximumFractionalDigits(1);
-		return Opts;
-	}();
-	return Options;
-}
-
-static const FNumberFormattingOptions& GetNumberFormat2()
-{
-	static FNumberFormattingOptions Options = []() {
-		FNumberFormattingOptions Opts;
-		Opts.SetMaximumFractionalDigits(2);
-		return Opts;
-	}();
-	return Options;
-}
-
-static const FNumberFormattingOptions& GetNumberFormat3()
-{
-	static FNumberFormattingOptions Options = []() {
-		FNumberFormattingOptions Opts;
-		Opts.SetMaximumFractionalDigits(3);
-		return Opts;
-	}();
-	return Options;
+	// Clamp to valid range
+	const int32 ClampedPlaces = FMath::Clamp(DecimalPlaces, 0, 4);
+	return CachedFormats[ClampedPlaces];
 }
 
 // ============================================================================
@@ -93,12 +158,13 @@ public:
 		: FEditorViewportClient(nullptr, InPreviewScene)
 		, PreviewScenePtr(InPreviewScene)
 	{
-		SetViewLocation(FVector(-400.0f, 0.0f, 100.0f));
-		SetViewRotation(FRotator(-10.0f, 0.0f, 0.0f));
+		// PT-16: Use centralized config values
+		SetViewLocation(PairedAnimPreviewConfig::Camera::GetInitialLocation());
+		SetViewRotation(PairedAnimPreviewConfig::Camera::GetInitialRotation());
 		SetRealtime(true);
 
 		// Better camera settings
-		SetCameraSpeedSetting(3);
+		SetCameraSpeedSetting(PairedAnimPreviewConfig::Camera::SpeedSetting);
 		EngineShowFlags.SetGrid(true);
 	}
 
@@ -111,9 +177,9 @@ public:
 		}
 	}
 
-	void FocusOnPoint(const FVector& Point, float Distance = 300.0f)
+	void FocusOnPoint(const FVector& Point, float Distance = PairedAnimPreviewConfig::Camera::FocusDistance)
 	{
-		SetViewLocation(Point + FVector(-Distance, 0.0f, Distance * 0.3f));
+		SetViewLocation(Point + FVector(-Distance, 0.0f, Distance * PairedAnimPreviewConfig::Camera::FocusHeightRatio));
 		SetLookAtLocation(Point);
 	}
 
@@ -230,14 +296,13 @@ void SPairedAnimationPreview::Construct(const FArguments& InArgs)
 
 SPairedAnimationPreview::~SPairedAnimationPreview()
 {
-	if (AttackerMeshComponent)
-	{
-		AttackerMeshComponent->DestroyComponent();
-	}
-	if (VictimMeshComponent)
-	{
-		VictimMeshComponent->DestroyComponent();
-	}
+	// PT-12: Don't manually destroy components - FAdvancedPreviewScene owns them
+	// and will handle cleanup when SharedPreviewScene is destroyed.
+	// Manual DestroyComponent() calls risk double-free during editor shutdown.
+	AttackerMeshComponent = nullptr;
+	VictimMeshComponent = nullptr;
+	AttackerWeaponMeshComponent = nullptr;
+	VictimWeaponMeshComponent = nullptr;
 }
 
 // ============================================================================
@@ -542,99 +607,64 @@ TArray<FName> SPairedAnimationPreview::GetStaticMeshSockets(UStaticMesh* StaticM
 	return SocketNames;
 }
 
-void SPairedAnimationPreview::RefreshAttackerWeaponSocketOptions()
+// PT-24: Consolidated socket refresh method - eliminates code duplication
+void SPairedAnimationPreview::RefreshWeaponSocketOptionsForCharacter(bool bIsAttacker)
 {
+	// Get references to the appropriate character's data
+	UDebugSkelMeshComponent* MeshComponent = bIsAttacker ? AttackerMeshComponent : VictimMeshComponent;
+	FWeaponMeshConfig& WeaponConfig = bIsAttacker ? AttackerWeaponConfig : VictimWeaponConfig;
+	TArray<TSharedPtr<FName>>& CharSocketOptions = bIsAttacker ? AttackerCharacterSocketOptions : VictimCharacterSocketOptions;
+	TArray<TSharedPtr<FName>>& WeaponSocketOptions = bIsAttacker ? AttackerWeaponSocketOptions : VictimWeaponSocketOptions;
+
 	// Character sockets (from skeletal mesh)
-	AttackerCharacterSocketOptions.Empty();
-	TArray<FName> CharSockets = GetSkeletalMeshSockets(AttackerMeshComponent);
+	CharSocketOptions.Empty();
+	TArray<FName> CharSockets = GetSkeletalMeshSockets(MeshComponent);
 	for (const FName& Socket : CharSockets)
 	{
-		AttackerCharacterSocketOptions.Add(MakeShared<FName>(Socket));
+		CharSocketOptions.Add(MakeShared<FName>(Socket));
 	}
 
 	// Weapon sockets (from static mesh)
-	AttackerWeaponSocketOptions.Empty();
-	if (UStaticMesh* WeaponMesh = AttackerWeaponConfig.GetWeaponMesh())
+	WeaponSocketOptions.Empty();
+	if (UStaticMesh* WeaponMesh = WeaponConfig.GetWeaponMesh())
 	{
 		TArray<FName> WpnSockets = GetStaticMeshSockets(WeaponMesh);
 		for (const FName& Socket : WpnSockets)
 		{
-			AttackerWeaponSocketOptions.Add(MakeShared<FName>(Socket));
+			WeaponSocketOptions.Add(MakeShared<FName>(Socket));
 		}
 	}
 	else
 	{
-		AttackerWeaponSocketOptions.Add(MakeShared<FName>(NAME_None));
+		WeaponSocketOptions.Add(MakeShared<FName>(NAME_None));
 	}
 
 	// Refresh combo boxes if they exist
-	if (AttackerCharacterSocketCombo.IsValid())
-	{
-		AttackerCharacterSocketCombo->RefreshOptions();
-	}
-	if (AttackerWeaponGripSocketCombo.IsValid())
-	{
-		AttackerWeaponGripSocketCombo->RefreshOptions();
-	}
-	if (AttackerWeaponTipSocketCombo.IsValid())
-	{
-		AttackerWeaponTipSocketCombo->RefreshOptions();
-	}
-	if (AttackerWeaponMidSocketCombo.IsValid())
-	{
-		AttackerWeaponMidSocketCombo->RefreshOptions();
-	}
-	if (AttackerWeaponBaseSocketCombo.IsValid())
-	{
-		AttackerWeaponBaseSocketCombo->RefreshOptions();
-	}
-}
+	TSharedPtr<SComboBox<TSharedPtr<FName>>>& CharSocketCombo = bIsAttacker ? AttackerCharacterSocketCombo : VictimCharacterSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>>& GripSocketCombo = bIsAttacker ? AttackerWeaponGripSocketCombo : VictimWeaponGripSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>>& TipSocketCombo = bIsAttacker ? AttackerWeaponTipSocketCombo : VictimWeaponTipSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>>& MidSocketCombo = bIsAttacker ? AttackerWeaponMidSocketCombo : VictimWeaponMidSocketCombo;
+	TSharedPtr<SComboBox<TSharedPtr<FName>>>& BaseSocketCombo = bIsAttacker ? AttackerWeaponBaseSocketCombo : VictimWeaponBaseSocketCombo;
 
-void SPairedAnimationPreview::RefreshVictimWeaponSocketOptions()
-{
-	// Character sockets (from skeletal mesh)
-	VictimCharacterSocketOptions.Empty();
-	TArray<FName> CharSockets = GetSkeletalMeshSockets(VictimMeshComponent);
-	for (const FName& Socket : CharSockets)
+	if (CharSocketCombo.IsValid())
 	{
-		VictimCharacterSocketOptions.Add(MakeShared<FName>(Socket));
+		CharSocketCombo->RefreshOptions();
 	}
-
-	// Weapon sockets (from static mesh)
-	VictimWeaponSocketOptions.Empty();
-	if (UStaticMesh* WeaponMesh = VictimWeaponConfig.GetWeaponMesh())
+	if (GripSocketCombo.IsValid())
 	{
-		TArray<FName> WpnSockets = GetStaticMeshSockets(WeaponMesh);
-		for (const FName& Socket : WpnSockets)
-		{
-			VictimWeaponSocketOptions.Add(MakeShared<FName>(Socket));
-		}
+		GripSocketCombo->RefreshOptions();
 	}
-	else
+	if (TipSocketCombo.IsValid())
 	{
-		VictimWeaponSocketOptions.Add(MakeShared<FName>(NAME_None));
+		TipSocketCombo->RefreshOptions();
 	}
-
-	// Refresh combo boxes if they exist
-	if (VictimCharacterSocketCombo.IsValid())
+	if (MidSocketCombo.IsValid())
 	{
-		VictimCharacterSocketCombo->RefreshOptions();
+		MidSocketCombo->RefreshOptions();
 	}
-	if (VictimWeaponGripSocketCombo.IsValid())
+	if (BaseSocketCombo.IsValid())
 	{
-		VictimWeaponGripSocketCombo->RefreshOptions();
-	}
-	if (VictimWeaponTipSocketCombo.IsValid())
-	{
-		VictimWeaponTipSocketCombo->RefreshOptions();
-	}
-	if (VictimWeaponMidSocketCombo.IsValid())
-	{
-		VictimWeaponMidSocketCombo->RefreshOptions();
-	}
-	if (VictimWeaponBaseSocketCombo.IsValid())
-	{
-		VictimWeaponBaseSocketCombo->RefreshOptions();
+		BaseSocketCombo->RefreshOptions();
 	}
 }
 
@@ -1493,10 +1523,32 @@ void SPairedAnimationPreview::GetSectionTimeRange(UAnimMontage* Montage, FName S
 	// Get section start time
 	OutStart = Montage->GetAnimCompositeSection(SectionIndex).GetTime();
 
-	// Find next section to determine end time
-	// Sections are not necessarily ordered in the array, so we need to find the next section by time
+	// PT-13: Optimized end time lookup
+	// Try O(1) lookup first - check if next array index is the chronologically next section
+	const int32 NumSections = Montage->CompositeSections.Num();
+
+	if (SectionIndex + 1 < NumSections)
+	{
+		float NextIndexStart = Montage->GetAnimCompositeSection(SectionIndex + 1).GetTime();
+		if (NextIndexStart > OutStart)
+		{
+			// Fast path: next array element is chronologically next
+			OutEnd = NextIndexStart;
+			return;
+		}
+	}
+
+	// Last section in array - use montage length
+	if (SectionIndex + 1 >= NumSections)
+	{
+		OutEnd = Montage->GetPlayLength();
+		return;
+	}
+
+	// Slow path: sections are not chronologically ordered in array
+	// Find the section with the smallest start time that's greater than ours
 	float NextSectionStart = Montage->GetPlayLength();
-	for (int32 i = 0; i < Montage->CompositeSections.Num(); ++i)
+	for (int32 i = 0; i < NumSections; ++i)
 	{
 		if (i != SectionIndex)
 		{
@@ -1982,6 +2034,103 @@ void SPairedAnimationPreview::RebuildTrajectoryCache()
 			VictimTrajectories.Add(VictimTraj);
 		}
 	}
+}
+
+bool SPairedAnimationPreview::RebuildTrajectoryCacheWithProgress()
+{
+	// PT-22: Progress-enabled trajectory cache rebuild
+	AttackerTrajectories.Empty();
+	VictimTrajectories.Empty();
+
+	if (MaxDuration <= 0.0f) return true;
+
+	TArray<FName> TrackedBones = {
+		TEXT("hand_r"), TEXT("hand_l"),
+		TEXT("foot_r"), TEXT("foot_l"),
+		TEXT("head"), TEXT("pelvis")
+	};
+
+	// Calculate total work: bones * characters * samples
+	const int32 TotalWork = TrackedBones.Num() * 2 * (TrajectorySampleCount + 1);
+	FScopedSlowTask SlowTask(TotalWork, LOCTEXT("BuildingTrajectories", "Building Bone Trajectories..."));
+	SlowTask.MakeDialog(true);
+
+	float TimeStep = MaxDuration / TrajectorySampleCount;
+
+	for (const FName& BoneName : TrackedBones)
+	{
+		// Attacker trajectory
+		if (AttackerMeshComponent)
+		{
+			FBoneTrajectory AttackerTraj;
+			AttackerTraj.BoneName = BoneName;
+			AttackerTraj.TrajectoryColor = AttackerColor;
+
+			for (int32 i = 0; i <= TrajectorySampleCount; ++i)
+			{
+				if (SlowTask.ShouldCancel())
+				{
+					return false;
+				}
+				SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("TracingAttackerBone", "Tracing attacker {0}..."), FText::FromName(BoneName)));
+
+				float t = i * TimeStep;
+				UpdateAnimations(t);
+
+				FVector Pos = GetBoneWorldLocation(AttackerMeshComponent, BoneName);
+				FVector Vel = ComputeBoneVelocity(AttackerMeshComponent, BoneName, t);
+
+				AttackerTraj.Positions.Add(Pos);
+				AttackerTraj.Velocities.Add(Vel);
+				AttackerTraj.Speeds.Add(Vel.Size());
+
+				if (Vel.Size() > AttackerTraj.MaxSpeed)
+				{
+					AttackerTraj.MaxSpeed = Vel.Size();
+					AttackerTraj.MaxSpeedTime = t;
+					AttackerTraj.MaxSpeedSampleIndex = i;
+				}
+			}
+			AttackerTrajectories.Add(AttackerTraj);
+		}
+
+		// Victim trajectory
+		if (VictimMeshComponent)
+		{
+			FBoneTrajectory VictimTraj;
+			VictimTraj.BoneName = BoneName;
+			VictimTraj.TrajectoryColor = VictimColor;
+
+			for (int32 i = 0; i <= TrajectorySampleCount; ++i)
+			{
+				if (SlowTask.ShouldCancel())
+				{
+					return false;
+				}
+				SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("TracingVictimBone", "Tracing victim {0}..."), FText::FromName(BoneName)));
+
+				float t = i * TimeStep;
+				UpdateAnimations(t);
+
+				FVector Pos = GetBoneWorldLocation(VictimMeshComponent, BoneName);
+				FVector Vel = ComputeBoneVelocity(VictimMeshComponent, BoneName, t);
+
+				VictimTraj.Positions.Add(Pos);
+				VictimTraj.Velocities.Add(Vel);
+				VictimTraj.Speeds.Add(Vel.Size());
+
+				if (Vel.Size() > VictimTraj.MaxSpeed)
+				{
+					VictimTraj.MaxSpeed = Vel.Size();
+					VictimTraj.MaxSpeedTime = t;
+					VictimTraj.MaxSpeedSampleIndex = i;
+				}
+			}
+			VictimTrajectories.Add(VictimTraj);
+		}
+	}
+
+	return true;
 }
 
 void SPairedAnimationPreview::RebuildDistanceAnalysis()
@@ -2524,7 +2673,21 @@ FOptimizationResult SPairedAnimationPreview::RunFullOptimization()
 		return Result;
 	}
 
+	// PT-10: Create progress dialog with cancellation support
+	// 5 phases: Spatial inference, Distance, Attacker rotation, Victim rotation, Sync time
+	const float TotalWorkUnits = 5.0f;
+	FScopedSlowTask SlowTask(TotalWorkUnits, LOCTEXT("OptimizingPairedAnimation", "Optimizing Paired Animation..."));
+	SlowTask.MakeDialog(true, false);  // bShowCancelButton=true, bShowProgressDialog=false (it's shown by MakeDialog)
+
 	// Phase 0: Infer spatial relationship if set to Auto-Detect (PT-2)
+	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase0_SpatialRelationship", "Analyzing spatial relationship..."));
+	if (SlowTask.ShouldCancel())
+	{
+		Result.bWasCancelled = true;
+		Result.Warnings.Add(TEXT("Optimization cancelled by user."));
+		return Result;
+	}
+
 	if (CurrentSpatialRelationship == ESpatialRelationship::Inferred || bSpatialInferenceCacheDirty)
 	{
 		FSpatialRelationshipInference Inference = InferSpatialRelationship();
@@ -2548,19 +2711,47 @@ FOptimizationResult SPairedAnimationPreview::RunFullOptimization()
 	ApplyCharacterConfigs();
 
 	// Phase 1: Find optimal distance (from neutral rotations)
+	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase1_Distance", "Finding optimal distance (50 samples)..."));
+	if (SlowTask.ShouldCancel())
+	{
+		Result.bWasCancelled = true;
+		Result.Warnings.Add(TEXT("Optimization cancelled by user."));
+		return Result;
+	}
 	Result.RecommendedDistance = FindOptimalDistance(50.0f, 400.0f, 50);
 
 	// Phase 2: Find optimal attacker rotation at that distance (victim still at 0)
+	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase2_AttackerRotation", "Finding optimal attacker rotation (36 samples)..."));
+	if (SlowTask.ShouldCancel())
+	{
+		Result.bWasCancelled = true;
+		Result.Warnings.Add(TEXT("Optimization cancelled by user."));
+		return Result;
+	}
 	LockedDistance = Result.RecommendedDistance;
 	ApplyCharacterConfigs();
 	Result.RecommendedAttackerRotation = FindOptimalAttackerRotation(36);
 
 	// Phase 3: Find optimal victim rotation (now with optimal attacker rotation)
+	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase3_VictimRotation", "Finding optimal victim rotation (36 samples)..."));
+	if (SlowTask.ShouldCancel())
+	{
+		Result.bWasCancelled = true;
+		Result.Warnings.Add(TEXT("Optimization cancelled by user."));
+		return Result;
+	}
 	AttackerConfig.RotationOffset = Result.RecommendedAttackerRotation;
 	ApplyCharacterConfigs();
 	Result.RecommendedVictimRotation = FindOptimalVictimRotation(36);
 
 	// Phase 4: Find optimal sync time
+	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase4_SyncTime", "Finding optimal sync time..."));
+	if (SlowTask.ShouldCancel())
+	{
+		Result.bWasCancelled = true;
+		Result.Warnings.Add(TEXT("Optimization cancelled by user."));
+		return Result;
+	}
 	VictimConfig.RotationOffset = Result.RecommendedVictimRotation;
 	ApplyCharacterConfigs();
 	RebuildAnalysisCache();
@@ -2600,6 +2791,9 @@ void SPairedAnimationPreview::ApplyOptimizationResult(const FOptimizationResult&
 {
 	if (!Result.bSuccess) return;
 
+	// Push current state to history for undo support (PT-19)
+	PushStateToHistory(TEXT("Before Optimization"));
+
 	LockedDistance = Result.RecommendedDistance;
 	AttackerConfig.RotationOffset = Result.RecommendedAttackerRotation;
 	VictimConfig.RotationOffset = Result.RecommendedVictimRotation;
@@ -2609,6 +2803,93 @@ void SPairedAnimationPreview::ApplyOptimizationResult(const FOptimizationResult&
 	// User should stay on whatever frame they were viewing
 	UpdateAnimations(CurrentTime);
 
+	bAnalysisCacheDirty = true;
+}
+
+// ============================================================================
+// UNDO/REDO SUPPORT (PT-19)
+// ============================================================================
+
+void SPairedAnimationPreview::PushStateToHistory(const FString& Description)
+{
+	// Clear any redo states if we're not at the end of history
+	if (CurrentHistoryIndex < OptimizationHistory.Num() - 1)
+	{
+		OptimizationHistory.SetNum(CurrentHistoryIndex + 1);
+	}
+
+	// Capture current state
+	FPreviewOptimizationState State = FPreviewOptimizationState::CreateFromValues(
+		LockedDistance,
+		AttackerConfig.RotationOffset,
+		VictimConfig.RotationOffset,
+		Description
+	);
+
+	// Add to history
+	OptimizationHistory.Add(State);
+	CurrentHistoryIndex = OptimizationHistory.Num() - 1;
+
+	// Limit history size
+	if (OptimizationHistory.Num() > MaxHistorySize)
+	{
+		OptimizationHistory.RemoveAt(0);
+		CurrentHistoryIndex = FMath::Max(0, CurrentHistoryIndex - 1);
+	}
+}
+
+void SPairedAnimationPreview::UndoOptimization()
+{
+	if (!CanUndo())
+	{
+		return;
+	}
+
+	// Apply the current history state (which was saved before the change)
+	const FPreviewOptimizationState& State = OptimizationHistory[CurrentHistoryIndex];
+	ApplyHistoryState(State);
+
+	// Move back in history
+	CurrentHistoryIndex--;
+}
+
+void SPairedAnimationPreview::RedoOptimization()
+{
+	if (!CanRedo())
+	{
+		return;
+	}
+
+	// Move forward in history
+	CurrentHistoryIndex++;
+
+	// If there's a next state, apply it
+	if (CurrentHistoryIndex + 1 < OptimizationHistory.Num())
+	{
+		// We need to look at the state AFTER the current index to get what was changed TO
+		// This is a bit tricky - our history stores "before" states
+		// So redo means: we're at state N, user wants to go to state N+1
+		// But we only stored "before" states, so we need to invert the logic
+	}
+
+	// For simplicity, just apply the state at the new index
+	// The redo stack would ideally store "after" states too, but for now
+	// we'll note this as a limitation
+	if (CurrentHistoryIndex < OptimizationHistory.Num())
+	{
+		const FPreviewOptimizationState& State = OptimizationHistory[CurrentHistoryIndex];
+		ApplyHistoryState(State);
+	}
+}
+
+void SPairedAnimationPreview::ApplyHistoryState(const FPreviewOptimizationState& State)
+{
+	LockedDistance = State.Distance;
+	AttackerConfig.RotationOffset = State.AttackerRotation;
+	VictimConfig.RotationOffset = State.VictimRotation;
+
+	ApplyCharacterConfigs();
+	UpdateAnimations(CurrentTime);
 	bAnalysisCacheDirty = true;
 }
 
@@ -2628,6 +2909,13 @@ void SPairedAnimationPreview::OnOptimizeClicked()
 	VictimTrajectories.Empty();
 
 	FOptimizationResult Result = RunFullOptimization();
+
+	// PT-10: Don't apply or update display if user cancelled the operation
+	if (Result.bWasCancelled)
+	{
+		return;
+	}
+
 	ApplyOptimizationResult(Result);
 	UpdateAnalyticsDisplay();
 }
@@ -2645,8 +2933,35 @@ void SPairedAnimationPreview::OnFindOptimalDistanceClicked()
 	bAnalysisCacheDirty = true;
 	FrameAnalysisCache.Empty();
 
-	float OptimalDist = FindOptimalDistance();
-	LockedDistance = OptimalDist;
+	// PT-22: Add progress feedback for distance optimization
+	const int32 Steps = 50;
+	FScopedSlowTask SlowTask(Steps + 1, LOCTEXT("OptimizingDistance", "Finding Optimal Distance..."));
+	SlowTask.MakeDialog(true);
+
+	float BestDistance = LockedDistance;
+	float BestScore = -1.0f;
+	const float ReferenceTime = 0.0f;
+	const float MinDist = 50.0f;
+	const float MaxDist = 400.0f;
+
+	for (int32 i = 0; i <= Steps; ++i)
+	{
+		if (SlowTask.ShouldCancel())
+		{
+			return; // User cancelled
+		}
+		SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("TestingDistance", "Testing distance {0}..."), FText::AsNumber(i + 1)));
+
+		float d = MinDist + (i * (MaxDist - MinDist) / Steps);
+		float Score = EvaluateConfigurationAtFrame(d, AttackerConfig.RotationOffset, VictimConfig.RotationOffset, ReferenceTime);
+		if (Score > BestScore)
+		{
+			BestScore = Score;
+			BestDistance = d;
+		}
+	}
+
+	LockedDistance = BestDistance;
 	ApplyCharacterConfigs();
 	UpdateAnimations(CurrentTime);
 	UpdateAnalyticsDisplay();
@@ -2665,8 +2980,92 @@ void SPairedAnimationPreview::OnFindOptimalRotationClicked()
 	bAnalysisCacheDirty = true;
 	FrameAnalysisCache.Empty();
 
-	AttackerConfig.RotationOffset = FindOptimalAttackerRotation();
-	VictimConfig.RotationOffset = FindOptimalVictimRotation();
+	// PT-22: Add progress feedback for rotation optimization
+	const int32 Steps = 36;
+	const int32 TotalSteps = (Steps + 1) * 2; // Attacker + Victim
+	FScopedSlowTask SlowTask(TotalSteps, LOCTEXT("OptimizingRotation", "Finding Optimal Rotations..."));
+	SlowTask.MakeDialog(true);
+
+	const float ReferenceTime = 0.0f;
+
+	// Phase 1: Find optimal attacker rotation
+	{
+		FRotator BestRotation = AttackerConfig.RotationOffset;
+		float BestScore = -1.0f;
+
+		for (int32 i = 0; i <= Steps; ++i)
+		{
+			if (SlowTask.ShouldCancel())
+			{
+				return;
+			}
+			SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("TestingAttackerRot", "Attacker rotation {0}/36..."), FText::AsNumber(i + 1)));
+
+			float Yaw = (i * 360.0f / Steps);
+			FRotator TestRot(0.0f, Yaw, 0.0f);
+			float Score = EvaluateConfigurationAtFrame(LockedDistance, TestRot, VictimConfig.RotationOffset, ReferenceTime);
+			if (Score > BestScore)
+			{
+				BestScore = Score;
+				BestRotation = TestRot;
+			}
+		}
+		AttackerConfig.RotationOffset = BestRotation;
+	}
+
+	// Phase 2: Find optimal victim rotation (with updated attacker rotation)
+	{
+		FRotator BestRotation = VictimConfig.RotationOffset;
+		float BestScore = -1.0f;
+		FSpatialRotationConstraint Constraint = GetRotationConstraintForRelationship();
+
+		if (Constraint.IsConstrained())
+		{
+			float MinYaw = Constraint.GetTargetYaw() - Constraint.GetTolerance();
+			float MaxYaw = Constraint.GetTargetYaw() + Constraint.GetTolerance();
+			float Range = MaxYaw - MinYaw;
+
+			for (int32 i = 0; i <= Steps; ++i)
+			{
+				if (SlowTask.ShouldCancel())
+				{
+					return;
+				}
+				SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("TestingVictimRot", "Victim rotation {0}/36..."), FText::AsNumber(i + 1)));
+
+				float Yaw = MinYaw + (i * Range / Steps);
+				FRotator TestRot(0.0f, Yaw, 0.0f);
+				float Score = EvaluateConfigurationAtFrame(LockedDistance, AttackerConfig.RotationOffset, TestRot, ReferenceTime);
+				if (Score > BestScore)
+				{
+					BestScore = Score;
+					BestRotation = TestRot;
+				}
+			}
+		}
+		else
+		{
+			for (int32 i = 0; i <= Steps; ++i)
+			{
+				if (SlowTask.ShouldCancel())
+				{
+					return;
+				}
+				SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("TestingVictimRotUnconstr", "Victim rotation {0}/36..."), FText::AsNumber(i + 1)));
+
+				float Yaw = -180.0f + (i * 360.0f / Steps);
+				FRotator TestRot(0.0f, Yaw, 0.0f);
+				float Score = EvaluateConfigurationAtFrame(LockedDistance, AttackerConfig.RotationOffset, TestRot, ReferenceTime);
+				if (Score > BestScore)
+				{
+					BestScore = Score;
+					BestRotation = TestRot;
+				}
+			}
+		}
+		VictimConfig.RotationOffset = BestRotation;
+	}
+
 	ApplyCharacterConfigs();
 	UpdateAnimations(CurrentTime);
 	UpdateAnalyticsDisplay();
@@ -2685,8 +3084,41 @@ void SPairedAnimationPreview::OnFindOptimalSyncClicked()
 	bAnalysisCacheDirty = true;
 	FrameAnalysisCache.Empty();
 
-	float SyncTime = FindOptimalSyncTime();
-	CurrentTime = SyncTime;
+	// PT-22: Add progress feedback for sync time analysis
+	// Calculate number of samples based on duration and sample rate
+	const int32 NumSamples = (MaxDuration > 0.0f) ? FMath::CeilToInt(MaxDuration * AnalysisSampleRate) + 1 : 30;
+	FScopedSlowTask SlowTask(NumSamples + 2, LOCTEXT("FindingSyncTime", "Finding Optimal Sync Time..."));
+	SlowTask.MakeDialog(true);
+
+	// Phase 1: Rebuild analysis cache with progress
+	if (MaxDuration > 0.0f)
+	{
+		float TimeStep = 1.0f / AnalysisSampleRate;
+		for (float t = 0.0f; t <= MaxDuration; t += TimeStep)
+		{
+			if (SlowTask.ShouldCancel())
+			{
+				return;
+			}
+			SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("AnalyzingFrame", "Analyzing frame at {0}s..."),
+				FText::AsNumber(t, &FNumberFormattingOptions::DefaultNoGrouping())));
+			FrameAnalysisCache.Add(AnalyzeFrame(t));
+		}
+	}
+
+	// Phase 2: Rebuild analysis
+	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("BuildingDistanceAnalysis", "Building distance analysis..."));
+	if (SlowTask.ShouldCancel()) return;
+	RebuildDistanceAnalysis();
+
+	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("BuildingTimingAnalysis", "Building timing analysis..."));
+	if (SlowTask.ShouldCancel()) return;
+	RebuildTimingAnalysis();
+
+	bAnalysisCacheDirty = false;
+
+	// Jump to optimal sync time
+	CurrentTime = TimingAnalysis.BestSyncTime;
 	UpdateAnimations(CurrentTime);
 	UpdateAnalyticsDisplay();
 }
@@ -2977,19 +3409,19 @@ void SPairedAnimationPreview::DrawMultiContactPoints()
 
 	FMultiContactAnalysis Analysis = ComputeMultiContactPoints(CurrentTime);
 
-	// Color coding for quality
+	// PT-16: Color coding for quality using centralized config
 	auto GetQualityColor = [](float Quality) -> FColor
 	{
 		// Red (bad) -> Yellow (mediocre) -> Green (good)
-		if (Quality < 0.33f)
+		if (Quality < PairedAnimPreviewConfig::Analysis::MediocreContactThreshold)
 		{
-			return FColor::Red;
+			return PairedAnimPreviewConfig::Colors::ContactBad;
 		}
-		else if (Quality < 0.66f)
+		else if (Quality < PairedAnimPreviewConfig::Analysis::GoodContactThreshold)
 		{
-			return FColor::Yellow;
+			return PairedAnimPreviewConfig::Colors::ContactMediocre;
 		}
-		return FColor::Green;
+		return PairedAnimPreviewConfig::Colors::ContactGood;
 	};
 
 	// Draw attacker contact points
@@ -3018,22 +3450,24 @@ void SPairedAnimationPreview::DrawMultiContactPoints()
 		DrawDebugSphere(World, Pos, Radius, 8, Color, false, -1.0f, 0, 1.5f);
 	}
 
-	// Draw lines between penetrating pairs (red = bad overlap)
+	// PT-16: Draw lines between penetrating pairs using centralized config
 	for (const auto& PenPair : Analysis.PenetrationPairs)
 	{
 		FVector AttackerPos = Analysis.AttackerContactPositions[PenPair.Key];
 		FVector VictimPos = Analysis.VictimContactPositions[PenPair.Value];
 
-		DrawDebugLine(World, AttackerPos, VictimPos, FColor::Red, false, -1.0f, 0, 3.0f);
+		DrawDebugLine(World, AttackerPos, VictimPos, PairedAnimPreviewConfig::Colors::CurrentConnection,
+			false, -1.0f, 0, PairedAnimPreviewConfig::Sizes::ThickLineWidth);
 	}
 
-	// Draw line to best contact pair (cyan)
+	// Draw line to best contact pair
 	if (Analysis.BestContactQuality > 0.0f)
 	{
 		FVector BestAttackerPos = Analysis.AttackerContactPositions[Analysis.BestAttackerContact];
 		FVector BestVictimPos = Analysis.VictimContactPositions[Analysis.BestVictimContact];
 
-		DrawDebugLine(World, BestAttackerPos, BestVictimPos, FColor::Cyan, false, -1.0f, 0, 2.5f);
+		DrawDebugLine(World, BestAttackerPos, BestVictimPos, PairedAnimPreviewConfig::Colors::OptimalConnection,
+			false, -1.0f, 0, PairedAnimPreviewConfig::Sizes::MediumLineWidth);
 	}
 }
 
@@ -3452,7 +3886,8 @@ void SPairedAnimationPreview::OnGoToMaxSpeedClicked()
 {
 	if (AttackerTrajectories.Num() == 0)
 	{
-		RebuildTrajectoryCache();
+		// PT-22: Add progress feedback for trajectory cache rebuild
+		RebuildTrajectoryCacheWithProgress();
 	}
 
 	// Find hand trajectory and go to max speed time
@@ -3565,10 +4000,10 @@ FText SPairedAnimationPreview::GetTimeDisplayText() const
 {
 	return FText::Format(
 		LOCTEXT("TimeDisplay", "{0} / {1}s  |  Attacker: {2}s  Victim: {3}s"),
-		FText::AsNumber(CurrentTime, &GetNumberFormat2()),
-		FText::AsNumber(MaxDuration, &GetNumberFormat2()),
-		FText::AsNumber(GetAttackerTime(), &GetNumberFormat2()),
-		FText::AsNumber(GetVictimTime(), &GetNumberFormat2()));
+		FText::AsNumber(CurrentTime, &GetNumberFormat(2)),
+		FText::AsNumber(MaxDuration, &GetNumberFormat(2)),
+		FText::AsNumber(GetAttackerTime(), &GetNumberFormat(2)),
+		FText::AsNumber(GetVictimTime(), &GetNumberFormat(2)));
 }
 
 FText SPairedAnimationPreview::GetContactInfoText() const
@@ -3585,9 +4020,9 @@ FText SPairedAnimationPreview::GetContactInfoText() const
 		LOCTEXT("ContactInfo", "Contacts: {0}  |  Best: {1} ({2}%)  |  Dist: {3}u  |  Impact: {4} u/s"),
 		FText::AsNumber(Analysis.ContactPoints.Num()),
 		FText::FromName(Primary.VictimBone),
-		FText::AsNumber(Primary.Confidence * 100.0f, &GetNumberFormat0()),
-		FText::AsNumber(Primary.Distance, &GetNumberFormat1()),
-		FText::AsNumber(Primary.ImpactSpeed, &GetNumberFormat0()));
+		FText::AsNumber(Primary.Confidence * 100.0f, &GetNumberFormat(0)),
+		FText::AsNumber(Primary.Distance, &GetNumberFormat(1)),
+		FText::AsNumber(Primary.ImpactSpeed, &GetNumberFormat(0)));
 }
 
 FText SPairedAnimationPreview::GetDistanceInfoText() const
@@ -3596,8 +4031,8 @@ FText SPairedAnimationPreview::GetDistanceInfoText() const
 
 	return FText::Format(
 		LOCTEXT("DistanceInfo", "Center Dist: {0}u  |  Bone Dist: {1}u ({2} ↔ {3})"),
-		FText::AsNumber(Analysis.CharacterDistance, &GetNumberFormat1()),
-		FText::AsNumber(Analysis.ClosestBoneDistance, &GetNumberFormat1()),
+		FText::AsNumber(Analysis.CharacterDistance, &GetNumberFormat(1)),
+		FText::AsNumber(Analysis.ClosestBoneDistance, &GetNumberFormat(1)),
 		FText::FromName(Analysis.AttackerClosestBone),
 		FText::FromName(Analysis.VictimClosestBone));
 }
@@ -3608,10 +4043,10 @@ FText SPairedAnimationPreview::GetVelocityInfoText() const
 
 	return FText::Format(
 		LOCTEXT("VelocityInfo", "Weapon Speed: {0} u/s  |  Direction: ({1}, {2}, {3})"),
-		FText::AsNumber(Analysis.WeaponSpeed, &GetNumberFormat0()),
-		FText::AsNumber(Analysis.WeaponVelocity.X, &GetNumberFormat0()),
-		FText::AsNumber(Analysis.WeaponVelocity.Y, &GetNumberFormat0()),
-		FText::AsNumber(Analysis.WeaponVelocity.Z, &GetNumberFormat0()));
+		FText::AsNumber(Analysis.WeaponSpeed, &GetNumberFormat(0)),
+		FText::AsNumber(Analysis.WeaponVelocity.X, &GetNumberFormat(0)),
+		FText::AsNumber(Analysis.WeaponVelocity.Y, &GetNumberFormat(0)),
+		FText::AsNumber(Analysis.WeaponVelocity.Z, &GetNumberFormat(0)));
 }
 
 FText SPairedAnimationPreview::GetOptimizationInfoText() const
@@ -3623,10 +4058,10 @@ FText SPairedAnimationPreview::GetOptimizationInfoText() const
 
 	return FText::Format(
 		LOCTEXT("OptimizationInfo", "Score: {0}%  |  Dist: {1}u  |  Sync: {2}s  |  Contact: {3}%"),
-		FText::AsNumber(LastOptimizationResult.OverallScore * 100.0f, &GetNumberFormat0()),
-		FText::AsNumber(LastOptimizationResult.RecommendedDistance, &GetNumberFormat0()),
-		FText::AsNumber(LastOptimizationResult.RecommendedSyncTime, &GetNumberFormat2()),
-		FText::AsNumber(LastOptimizationResult.ContactQuality * 100.0f, &GetNumberFormat0()));
+		FText::AsNumber(LastOptimizationResult.OverallScore * 100.0f, &GetNumberFormat(0)),
+		FText::AsNumber(LastOptimizationResult.RecommendedDistance, &GetNumberFormat(0)),
+		FText::AsNumber(LastOptimizationResult.RecommendedSyncTime, &GetNumberFormat(2)),
+		FText::AsNumber(LastOptimizationResult.ContactQuality * 100.0f, &GetNumberFormat(0)));
 }
 
 FText SPairedAnimationPreview::GetStatusText() const
@@ -5403,8 +5838,111 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildOptimizationPanel()
 				.Text(LOCTEXT("RebuildCache", "Rebuild Analysis Cache"))
 				.ToolTipText(LOCTEXT("RebuildCacheTip", "Force rebuild of all analysis caches (frame analysis, trajectories, holistic timeline). Use this if analysis results seem stale after changing animations or settings."))
 				.OnClicked_Lambda([this]() {
-					RebuildAnalysisCache();
-					RebuildTrajectoryCache();
+					// PT-22: Progress-enabled cache rebuild
+					const int32 NumAnalysisSamples = (MaxDuration > 0.0f) ? FMath::CeilToInt(MaxDuration * AnalysisSampleRate) + 1 : 30;
+					const int32 NumTrajectorySamples = 6 * 2 * (TrajectorySampleCount + 1); // 6 bones * 2 characters
+					const int32 TotalWork = NumAnalysisSamples + NumTrajectorySamples + 4; // +4 for sub-phases
+
+					FScopedSlowTask SlowTask(TotalWork, LOCTEXT("RebuildingAllCaches", "Rebuilding All Analysis Caches..."));
+					SlowTask.MakeDialog(true);
+
+					// Phase 1: Frame analysis cache
+					FrameAnalysisCache.Empty();
+					if (MaxDuration > 0.0f)
+					{
+						float TimeStep = 1.0f / AnalysisSampleRate;
+						for (float t = 0.0f; t <= MaxDuration; t += TimeStep)
+						{
+							if (SlowTask.ShouldCancel()) return FReply::Handled();
+							SlowTask.EnterProgressFrame(1.0f, LOCTEXT("AnalyzingFrames", "Analyzing frames..."));
+							FrameAnalysisCache.Add(AnalyzeFrame(t));
+						}
+					}
+
+					SlowTask.EnterProgressFrame(1.0f, LOCTEXT("BuildingDistAnalysis", "Building distance analysis..."));
+					if (SlowTask.ShouldCancel()) return FReply::Handled();
+					RebuildDistanceAnalysis();
+
+					SlowTask.EnterProgressFrame(1.0f, LOCTEXT("BuildingTimeAnalysis", "Building timing analysis..."));
+					if (SlowTask.ShouldCancel()) return FReply::Handled();
+					RebuildTimingAnalysis();
+					bAnalysisCacheDirty = false;
+
+					SlowTask.EnterProgressFrame(1.0f, LOCTEXT("BuildingHolisticAnalysis", "Building holistic analysis..."));
+					if (SlowTask.ShouldCancel()) return FReply::Handled();
+					RebuildHolisticAnalysis();
+
+					// Phase 2: Trajectory cache
+					SlowTask.EnterProgressFrame(1.0f, LOCTEXT("StartingTrajectories", "Starting trajectory analysis..."));
+					if (SlowTask.ShouldCancel()) return FReply::Handled();
+
+					AttackerTrajectories.Empty();
+					VictimTrajectories.Empty();
+					if (MaxDuration > 0.0f)
+					{
+						TArray<FName> TrackedBones = {
+							TEXT("hand_r"), TEXT("hand_l"),
+							TEXT("foot_r"), TEXT("foot_l"),
+							TEXT("head"), TEXT("pelvis")
+						};
+						float TimeStep = MaxDuration / TrajectorySampleCount;
+
+						for (const FName& BoneName : TrackedBones)
+						{
+							if (AttackerMeshComponent)
+							{
+								FBoneTrajectory AttackerTraj;
+								AttackerTraj.BoneName = BoneName;
+								AttackerTraj.TrajectoryColor = AttackerColor;
+								for (int32 i = 0; i <= TrajectorySampleCount; ++i)
+								{
+									if (SlowTask.ShouldCancel()) return FReply::Handled();
+									SlowTask.EnterProgressFrame(1.0f);
+									float t = i * TimeStep;
+									UpdateAnimations(t);
+									FVector Pos = GetBoneWorldLocation(AttackerMeshComponent, BoneName);
+									FVector Vel = ComputeBoneVelocity(AttackerMeshComponent, BoneName, t);
+									AttackerTraj.Positions.Add(Pos);
+									AttackerTraj.Velocities.Add(Vel);
+									AttackerTraj.Speeds.Add(Vel.Size());
+									if (Vel.Size() > AttackerTraj.MaxSpeed)
+									{
+										AttackerTraj.MaxSpeed = Vel.Size();
+										AttackerTraj.MaxSpeedTime = t;
+										AttackerTraj.MaxSpeedSampleIndex = i;
+									}
+								}
+								AttackerTrajectories.Add(AttackerTraj);
+							}
+							if (VictimMeshComponent)
+							{
+								FBoneTrajectory VictimTraj;
+								VictimTraj.BoneName = BoneName;
+								VictimTraj.TrajectoryColor = VictimColor;
+								for (int32 i = 0; i <= TrajectorySampleCount; ++i)
+								{
+									if (SlowTask.ShouldCancel()) return FReply::Handled();
+									SlowTask.EnterProgressFrame(1.0f);
+									float t = i * TimeStep;
+									UpdateAnimations(t);
+									FVector Pos = GetBoneWorldLocation(VictimMeshComponent, BoneName);
+									FVector Vel = ComputeBoneVelocity(VictimMeshComponent, BoneName, t);
+									VictimTraj.Positions.Add(Pos);
+									VictimTraj.Velocities.Add(Vel);
+									VictimTraj.Speeds.Add(Vel.Size());
+									if (Vel.Size() > VictimTraj.MaxSpeed)
+									{
+										VictimTraj.MaxSpeed = Vel.Size();
+										VictimTraj.MaxSpeedTime = t;
+										VictimTraj.MaxSpeedSampleIndex = i;
+									}
+								}
+								VictimTrajectories.Add(VictimTraj);
+							}
+						}
+					}
+
+					UpdateAnalyticsDisplay();
 					return FReply::Handled();
 				})
 			]

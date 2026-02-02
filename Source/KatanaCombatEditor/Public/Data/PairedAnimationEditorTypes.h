@@ -85,6 +85,17 @@ enum class ESpatialRelationship : uint8
 	Custom			// No constraints - full search space
 };
 
+/**
+ * PT-18: Target character for optimization operations.
+ * Replaces boolean trap pattern (bOptimizeAttacker) with explicit enum.
+ */
+UENUM(BlueprintType)
+enum class EOptimizationTarget : uint8
+{
+	Attacker,		// Optimize attacker rotation/position
+	Victim			// Optimize victim rotation/position
+};
+
 // ============================================================================
 // PREVIEW CONFIGURATION STRUCTS
 // ============================================================================
@@ -1271,6 +1282,10 @@ public: // Fields - public for backward compatibility, getters/setters available
 	UPROPERTY()
 	bool bSuccess = false;
 
+	/** Set to true if the user cancelled the optimization operation (PT-10) */
+	UPROPERTY()
+	bool bWasCancelled = false;
+
 	UPROPERTY()
 	float RecommendedDistance = 150.0f;
 
@@ -1301,6 +1316,7 @@ public: // Fields - public for backward compatibility, getters/setters available
 public:
 	// === Getters ===
 	bool IsSuccess() const { return bSuccess; }
+	bool WasCancelled() const { return bWasCancelled; }
 	float GetRecommendedDistance() const { return RecommendedDistance; }
 	FRotator GetRecommendedAttackerRotation() const { return RecommendedAttackerRotation; }
 	FRotator GetRecommendedVictimRotation() const { return RecommendedVictimRotation; }
@@ -1314,6 +1330,7 @@ public:
 
 	// === Setters ===
 	void SetSuccess(bool bInSuccess) { bSuccess = bInSuccess; }
+	void SetCancelled(bool bInCancelled) { bWasCancelled = bInCancelled; }
 	void SetRecommendedDistance(float InDistance) { RecommendedDistance = InDistance; }
 	void SetRecommendedAttackerRotation(const FRotator& InRotation) { RecommendedAttackerRotation = InRotation; }
 	void SetRecommendedVictimRotation(const FRotator& InRotation) { RecommendedVictimRotation = InRotation; }
@@ -1792,4 +1809,42 @@ public:
 
 	// === Factory ===
 	static FContactAnalysisTimeline CreateDefault() { return FContactAnalysisTimeline(); }
+};
+
+// ============================================================================
+// UNDO/REDO SUPPORT
+// ============================================================================
+
+/**
+ * Captures the optimization state for undo/redo support.
+ * Stores everything modified by ApplyOptimizationResult.
+ */
+USTRUCT()
+struct KATANACOMBATEDITOR_API FPreviewOptimizationState
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY()
+	float Distance = 150.0f;
+
+	UPROPERTY()
+	FRotator AttackerRotation = FRotator::ZeroRotator;
+
+	UPROPERTY()
+	FRotator VictimRotation = FRotator(0.0f, 180.0f, 0.0f);
+
+	UPROPERTY()
+	FString Description;
+
+	// === Factory ===
+	static FPreviewOptimizationState CreateFromValues(float InDistance, const FRotator& InAttackerRot, const FRotator& InVictimRot, const FString& InDescription = TEXT(""))
+	{
+		FPreviewOptimizationState State;
+		State.Distance = InDistance;
+		State.AttackerRotation = InAttackerRot;
+		State.VictimRotation = InVictimRot;
+		State.Description = InDescription;
+		return State;
+	}
 };
