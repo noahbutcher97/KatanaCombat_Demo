@@ -55,7 +55,16 @@ public:
 
 private:
 	// ========================================================================
-	// SHARED PREVIEW SCENE
+	// MODEL (PT-11: Centralized State)
+	// ========================================================================
+	// All preview state is managed through this Model struct.
+	// UI widgets observe/modify Model state, analysis reads from it.
+	// This enables: testable state management, potential undo system, serialization.
+
+	FPairedAnimationPreviewModel Model;
+
+	// ========================================================================
+	// SHARED PREVIEW SCENE (Runtime UObjects - NOT in Model)
 	// ========================================================================
 
 	TSharedPtr<FAdvancedPreviewScene> SharedPreviewScene;
@@ -74,13 +83,6 @@ private:
 	void UpdateCharacterPositions();
 	void UpdateAnimations(float Time);
 
-	// ========================================================================
-	// WEAPON MESH CONFIGURATION
-	// ========================================================================
-
-	FWeaponMeshConfig AttackerWeaponConfig;
-	FWeaponMeshConfig VictimWeaponConfig;
-
 	/** Update attacker weapon mesh and attach to skeleton */
 	void UpdateAttackerWeaponMesh(UStaticMesh* Mesh);
 
@@ -94,8 +96,8 @@ private:
 	FVector GetWeaponContactPosition(UStaticMeshComponent* WeaponMesh, const FWeaponMeshConfig& Config, EContactPointType ContactType) const;
 
 	/** Check if weapon meshes are available for contact detection */
-	bool HasAttackerWeapon() const { return AttackerWeaponMeshComponent != nullptr && AttackerWeaponConfig.IsValid(); }
-	bool HasVictimWeapon() const { return VictimWeaponMeshComponent != nullptr && VictimWeaponConfig.IsValid(); }
+	bool HasAttackerWeapon() const { return AttackerWeaponMeshComponent != nullptr && Model.AttackerWeaponConfig.IsValid(); }
+	bool HasVictimWeapon() const { return VictimWeaponMeshComponent != nullptr && Model.VictimWeaponConfig.IsValid(); }
 
 	// --- Weapon Socket Configuration ---
 
@@ -152,15 +154,8 @@ private:
 	TSharedRef<SWidget> BuildWeaponConfigPanel();
 
 	// ========================================================================
-	// CHARACTER CONFIGURATION
+	// CHARACTER CONFIGURATION (State in Model)
 	// ========================================================================
-
-	FCharacterPreviewConfig AttackerConfig;
-	FCharacterPreviewConfig VictimConfig;
-
-	// Lock victim position relative to attacker
-	bool bLockVictimToAttacker = true;
-	float LockedDistance = 150.0f;
 
 	void ApplyCharacterConfigs();
 	void OnAttackerPositionChanged(FVector NewPosition);
@@ -170,17 +165,10 @@ private:
 	void OnLockedDistanceChanged(float NewDistance);
 
 	// ========================================================================
-	// ANIMATION DATA
+	// ANIMATION DATA (State in Model, UI arrays here)
 	// ========================================================================
 
-	TWeakObjectPtr<UAnimMontage> AttackerMontage;
-	TWeakObjectPtr<UAnimMontage> VictimMontage;
-	TWeakObjectPtr<USkeletalMesh> AttackerSkeleton;
-	TWeakObjectPtr<USkeletalMesh> VictimSkeleton;
-
-	// Montage section selection (NAME_None = entire montage)
-	FName AttackerMontageSection = NAME_None;
-	FName VictimMontageSection = NAME_None;
+	// Section options for dropdown UI (populated from montages)
 	TArray<TSharedPtr<FName>> AttackerSectionOptions;
 	TArray<TSharedPtr<FName>> VictimSectionOptions;
 
@@ -192,39 +180,18 @@ private:
 	float GetSectionDuration(UAnimMontage* Montage, FName SectionName) const;
 	void GetSectionTimeRange(UAnimMontage* Montage, FName SectionName, float& OutStart, float& OutEnd) const;
 
-	// Playback
-	float CurrentTime = 0.0f;
-	float MinTime = 0.0f;  // Effective start time (based on section selection)
-	float MaxDuration = 0.0f;
-	bool bIsPlaying = false;
-	float PlaybackSpeed = 1.0f;
-	bool bLoopPlayback = true;
-	bool bPingPongPlayback = false;
+	void RecalculateMaxDuration();
+
+	// Playback direction for ping-pong mode (not in Model - runtime playback state)
 	int32 PingPongDirection = 1;
 
-	// Per-character section time ranges (for looping within sections)
-	float AttackerSectionStart = 0.0f;
-	float AttackerSectionEnd = 0.0f;
-	float VictimSectionStart = 0.0f;
-	float VictimSectionEnd = 0.0f;
-
-	// Victim timing offset (positive = victim starts later)
-	float VictimTimeOffset = 0.0f;
-
-	void RecalculateMaxDuration();
-	float GetAttackerTime() const { return CurrentTime; }
-	float GetVictimTime() const { return FMath::Max(0.0f, CurrentTime - VictimTimeOffset); }
+	// Time accessors delegating to Model
+	float GetAttackerTime() const { return Model.GetAttackerTime(); }
+	float GetVictimTime() const { return Model.GetVictimTime(); }
 
 	// ========================================================================
-	// SPATIAL RELATIONSHIP (PT-2)
+	// SPATIAL RELATIONSHIP (PT-2, State in Model)
 	// ========================================================================
-
-	// User-selected spatial relationship (Inferred = auto-detect)
-	ESpatialRelationship CurrentSpatialRelationship = ESpatialRelationship::Inferred;
-
-	// Cached inference result (updated when montages change or on demand)
-	FSpatialRelationshipInference InferredRelationship;
-	bool bSpatialInferenceCacheDirty = true;
 
 	// Infer spatial relationship from animation data at peak contact time
 	FSpatialRelationshipInference InferSpatialRelationship();
@@ -242,41 +209,27 @@ private:
 	static FString GetRelationshipDisplayName(ESpatialRelationship Relationship);
 
 	// ========================================================================
-	// PROCEDURAL ANALYSIS ENGINE
+	// PROCEDURAL ANALYSIS ENGINE (Caches in Model, settings here for now)
 	// ========================================================================
 
-	// Analysis settings
-	float ContactThreshold = 50.0f;
+	// Analysis settings not yet in Model
 	float ContactPredictionWindow = 0.2f;
 	int32 AnalysisSampleRate = 60;
 	int32 TrajectorySampleCount = 120;
 
-	// Analysis cache
-	TArray<FPairedFrameAnalysis> FrameAnalysisCache;
-	TArray<FBoneTrajectory> AttackerTrajectories;
-	TArray<FBoneTrajectory> VictimTrajectories;
+	// Analysis results not yet in Model (consider migrating later)
 	FRootMotionAnalysis AttackerRootMotion;
 	FRootMotionAnalysis VictimRootMotion;
 	FDistanceAnalysis DistanceAnalysis;
 	FTimingAnalysis TimingAnalysis;
-	FOptimizationResult LastOptimizationResult;
-	FHolisticTimelineAnalysis HolisticAnalysis;
 
-	// Undo/Redo support (PT-19)
-	TArray<FPreviewOptimizationState> OptimizationHistory;
-	int32 CurrentHistoryIndex = -1;
-	static constexpr int32 MaxHistorySize = 50;
-
+	// Undo/Redo (PT-19) - delegating to Model
 	void PushStateToHistory(const FString& Description = TEXT(""));
-	bool CanUndo() const { return CurrentHistoryIndex >= 0; }
-	bool CanRedo() const { return CurrentHistoryIndex < OptimizationHistory.Num() - 1; }
+	bool CanUndo() const { return Model.CanUndo(); }
+	bool CanRedo() const { return Model.CanRedo(); }
 	void UndoOptimization();
 	void RedoOptimization();
 	void ApplyHistoryState(const FPreviewOptimizationState& State);
-
-	// Cache validity
-	bool bAnalysisCacheDirty = true;
-	bool bHolisticCacheDirty = true;
 
 	void RebuildAnalysisCache();
 	void RebuildTrajectoryCache();
@@ -309,16 +262,15 @@ private:
 	TArray<FString> GetActiveNotifies(UAnimMontage* Montage, float Time) const;
 
 	// ========================================================================
-	// MULTI-CONTACT POINT ANALYSIS
+	// MULTI-CONTACT POINT ANALYSIS (Weights in Model)
 	// ========================================================================
 
-	// Bone configurations for multi-contact tracking
+	// Bone configurations for multi-contact tracking (not yet unified in Model)
 	FMultiContactBoneConfig AttackerBoneConfig;
 	FMultiContactBoneConfig VictimBoneConfig;
 
-	// Contact type importance weights for optimization scoring
-	TMap<EContactPointType, float> ContactTypeWeights;
-	void InitializeContactTypeWeights();
+	// InitializeContactTypeWeights delegates to Model
+	void InitializeContactTypeWeights() { Model.InitializeContactTypeWeights(); }
 
 	// Multi-contact analysis functions
 	FMultiContactAnalysis ComputeMultiContactPoints(float Time);
@@ -355,15 +307,10 @@ private:
 	void OnFindOptimalSyncClicked();
 
 	// ========================================================================
-	// VISUALIZATION
+	// VISUALIZATION (Layers in Model, colors here for UI)
 	// ========================================================================
 
-	EVisualizationLayer ActiveVisualizationLayers = EVisualizationLayer::ContactPoints |
-													EVisualizationLayer::WeaponTrace |
-													EVisualizationLayer::DistanceLines |
-													EVisualizationLayer::MultiContact;
-
-	// Colors
+	// Colors for visualization (UI-specific, not in Model)
 	FLinearColor AttackerColor = FLinearColor(0.2f, 0.6f, 1.0f);      // Blue
 	FLinearColor VictimColor = FLinearColor(1.0f, 0.4f, 0.2f);        // Orange
 	FLinearColor ContactColor = FLinearColor(1.0f, 1.0f, 0.0f);       // Yellow

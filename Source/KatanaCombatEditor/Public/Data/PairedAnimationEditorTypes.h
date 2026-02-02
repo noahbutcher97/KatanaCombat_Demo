@@ -2055,6 +2055,10 @@ public:
 	UPROPERTY()
 	bool bHolisticCacheDirty = true;
 
+	/** Whether spatial relationship inference cache needs rebuild */
+	UPROPERTY()
+	bool bSpatialInferenceCacheDirty = true;
+
 	// ========================================================================
 	// CACHED ANALYSIS RESULTS
 	// Note: These are populated by analysis operations and consumed by UI/visualization
