@@ -177,6 +177,16 @@ jobs:
     name: 🏗️ Build & Test (Self-Hosted)
     needs: detect-environment
     if: needs.detect-environment.outputs.use-self-hosted == 'true'
+    # Runner label requirements:
+    # - 'self-hosted': Identifies this as a self-hosted runner (auto-assigned)
+    # - 'Windows': Ensures Windows OS for UE5.6 build tools (auto-assigned on Windows)
+    # - 'ue5': Custom label to distinguish UE5-capable runners (MUST be manually added via --labels flag during runner configuration)
+    # 
+    # To configure your runner with these labels:
+    #   ./config.cmd --url https://github.com/YOUR_ORG/REPO --token TOKEN --labels self-hosted,Windows,ue5
+    #
+    # Alternative: If you want to use only default labels, change this to: [self-hosted, Windows]
+    # (Useful if you don't have other Windows runners that shouldn't handle UE5 builds)
     runs-on: [self-hosted, Windows, ue5]
     timeout-minutes: 30  # Increased timeout to accommodate 15–25 minute cold builds while still enabling fallback
     continue-on-error: ${{ needs.detect-environment.outputs.runner-type == 'auto' }}  # Enable fallback when runner unavailable

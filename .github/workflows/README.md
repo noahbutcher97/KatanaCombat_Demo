@@ -107,8 +107,9 @@ TARGET: KatanaCombatEditor
    Invoke-WebRequest -Uri https://github.com/actions/runner/releases/download/v2.311.0/actions-runner-win-x64-2.311.0.zip -OutFile actions-runner.zip
    Expand-Archive -Path actions-runner.zip -DestinationPath .
    
-   # Configure runner
-   .\config.cmd --url https://github.com/YOUR_ORG/KatanaCombat_Demo --token YOUR_TOKEN --labels self-hosted,Windows,X64
+   # Configure runner WITH REQUIRED LABELS
+   # IMPORTANT: The 'ue5' label is required for the workflow to match this runner
+   .\config.cmd --url https://github.com/YOUR_ORG/KatanaCombat_Demo --token YOUR_TOKEN --labels self-hosted,Windows,ue5
    
    # Install and start as service
    .\svc.cmd install
@@ -331,6 +332,57 @@ gh run download $(gh run list --limit 1 --json databaseId -q '.[0].databaseId')
 ---
 
 ## Troubleshooting
+
+### Issue: Self-Hosted Runner Not Picking Up Jobs
+**Symptom:** 
+- Job shows `Waiting for a runner to pick up this job...`
+- Runner is online but jobs timeout
+- Detect job runs on Ubuntu but build job never starts
+
+**Error in logs:** 
+```
+Requested labels: self-hosted, Windows, ue5
+Waiting for a runner to pick up this job...
+```
+
+**Root Cause:** Runner is missing the required `ue5` label.
+
+**Solution:**
+1. Check your runner's current labels:
+   - Go to: `Repository Settings → Actions → Runners`
+   - Click on your runner name
+   - Verify labels include: `self-hosted`, `Windows`, AND `ue5`
+
+2. If `ue5` label is missing, reconfigure the runner:
+   ```powershell
+   cd D:\actions-runner  # Or wherever your runner is installed
+   
+   # Stop the service if running
+   .\svc.cmd stop
+   .\svc.cmd uninstall
+   
+   # Remove old configuration
+   .\config.cmd remove --token YOUR_REMOVAL_TOKEN
+   
+   # Reconfigure with correct labels (get new token from GitHub)
+   .\config.cmd --url https://github.com/noahbutcher97/KatanaCombat_Demo --token YOUR_NEW_TOKEN --labels self-hosted,Windows,ue5
+   
+   # Reinstall and start service
+   .\svc.cmd install
+   .\svc.cmd start
+   
+   # Verify service is running
+   .\svc.cmd status
+   ```
+
+3. Verify in GitHub:
+   - Refresh the Runners page
+   - Your runner should show all three labels: `self-hosted`, `Windows`, `ue5`
+   - Status should be "Idle" (green)
+
+4. Re-run the workflow to test
+
+**Why this happens:** When configuring a runner without the `--labels` parameter, GitHub only assigns default labels (`self-hosted`, `Windows`). The workflow specifically requires the custom `ue5` label to match this project's runner requirements.
 
 ### Issue: UE5.6 Not Found
 **Error:** `Unreal Engine 5.6 not found!`
