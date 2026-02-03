@@ -1,5 +1,21 @@
 # KatanaCombat System - Comprehensive AI Assistant Prompt
 
+> **DEPRECATED (Last updated: Oct 2025)**
+>
+> This document is kept for historical reference only. For current system context, use:
+> - **`CLAUDE.md`** (project root) - Primary working memory for AI agents
+> - **`docs/ARCHITECTURE.md`** - Full architecture deep dive
+> - **`docs/specs/PAIRED_ANIMATION_SPEC.md`** - Paired animation technical spec
+>
+> Key changes since this document:
+> - Paired animation system added (~95% complete) with finishers, counters
+> - Preview tool added (6,000+ lines editor tooling)
+> - Math libraries added (83 functions across 4 libraries)
+> - Death system implemented with directional animations
+> - Comprehensive test suite (14 suites, 126 tests)
+
+---
+
 ## Project Overview
 
 **KatanaCombat** is an Unreal Engine 5.6 C++ combat system project focused on creating a deep, technical melee combat framework inspired by character action games (Devil May Cry, Bayonetta) and precision timing systems (Sekiro, Sifu). The system emphasizes:

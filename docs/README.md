@@ -275,17 +275,13 @@ Combo chains or return to Idle
 - **[ROADMAP.md](ROADMAP.md)** - Planned features and system status
 - **[Source/KatanaCombatTest/README.md](../Source/KatanaCombatTest/README.md)** - C++ unit test suite documentation
 
-### Quality Assurance & Audits
-- **[GAP_AUDIT_EXECUTIVE_SUMMARY.md](GAP_AUDIT_EXECUTIVE_SUMMARY.md)** - ⭐ **START HERE** - Quick overview of all gaps and fixes
-- **[EXPANDED_GAP_AUDIT_2026-01-31.md](EXPANDED_GAP_AUDIT_2026-01-31.md)** - Full detailed audit (178 gaps analyzed)
-- **[EDITOR_MODULE_GAP_ANALYSIS_2026-01-31.md](EDITOR_MODULE_GAP_ANALYSIS_2026-01-31.md)** - Editor module second-pass (12 gaps)
-- **[COMPREHENSIVE_GAP_AUDIT_2026-01-31.md](COMPREHENSIVE_GAP_AUDIT_2026-01-31.md)** - Initial audit scope (36 gaps)
-- **[CRITICAL_FIXES_ACTION_CARD.md](CRITICAL_FIXES_ACTION_CARD.md)** - Immediate action items (3 critical fixes)
-- **[Notes/V2_SYSTEM_AUDIT_2025-11-11.md](Notes/V2_SYSTEM_AUDIT_2025-11-11.md)** - Combat system architectural audit
-- **[plans/AUDIT_SYNTHESIS_2026-01-30.md](plans/AUDIT_SYNTHESIS_2026-01-30.md)** - Documentation completeness audit
-- **[plans/LOG_ANALYSIS_2026-01-30.md](plans/LOG_ANALYSIS_2026-01-30.md)** - Bug pattern analysis
+### Specifications & Plans
+- **[specs/PAIRED_ANIMATION_SPEC.md](specs/PAIRED_ANIMATION_SPEC.md)** - Paired animation technical specification
+- **[plans/paired-animation-plan.md](plans/paired-animation-plan.md)** - Active implementation plan with gap tracking
+- **[plans/archive/](plans/archive/)** - Completed plans with dates
 
-**Note**: References to "V2" in audit documents refer to document versions or historical context, not current code naming. All components use standard naming (`CombatComponent`).
+### Archived Audits
+Historical audit documents are preserved in `archive/2026-01-31-audits/` for reference.
 
 ---
 
@@ -488,12 +484,13 @@ slomo 0.3            // Slow motion for timing verification
 ## Future Features
 
 Planned expansions:
-- Finisher system for guard-broken enemies
+- ~~Finisher system for guard-broken enemies~~ **IMPLEMENTED** (v4.0.0)
+- AI attack token system for coordinated group combat
 - Special attacks with resource management
 - Weapon switching with unique movesets
 - Aerial combat (launchers, air combos)
 - Frame-tight cancels into special moves
-- Multiplayer support (server-authoritative)
+- Network replication (server-authoritative)
 
 ---
 

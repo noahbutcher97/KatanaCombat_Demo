@@ -54,6 +54,9 @@ env/
 __pycache__/
 *.pyc
 
+# Documentation temporary files (logs, scratch)
+docs/Logs/
+
 # Ignore generated project files
 *.xcodeproj
 *.xcworkspace
