@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "PairedAnimationPreviewConfig.h"
 #include "PairedAnimationEditorTypes.generated.h"
 
 class UDebugSkelMeshComponent;
@@ -1846,5 +1847,630 @@ public:
 		State.VictimRotation = InVictimRot;
 		State.Description = InDescription;
 		return State;
+	}
+};
+
+// ============================================================================
+// PREVIEW MODEL (PT-11 REFACTOR)
+// ============================================================================
+
+/**
+ * Model struct for paired animation preview state.
+ *
+ * PT-11: Extracted from SPairedAnimationPreview "God Widget" to enable:
+ * - Testable state management without UI coupling
+ * - Clear separation between state (Model) and presentation (Widget)
+ * - Reusable state across different view implementations
+ *
+ * This struct holds all preview state that was previously scattered across
+ * widget member variables. The widget now owns a single Model instance.
+ *
+ * Usage:
+ *   FPairedAnimationPreviewModel Model = FPairedAnimationPreviewModel::CreateDefault();
+ *   Model.SetAttackerMontage(MyMontage);
+ *   Model.InvalidateCaches();
+ */
+USTRUCT()
+struct KATANACOMBATEDITOR_API FPairedAnimationPreviewModel
+{
+	GENERATED_BODY()
+
+public:
+	// ========================================================================
+	// ASSET REFERENCES
+	// Note: TWeakObjectPtr fields use direct assignment (e.g., Model.AttackerMontage = Montage)
+	// ========================================================================
+
+	/** Animation montage for the attacker character */
+	UPROPERTY()
+	TWeakObjectPtr<UAnimMontage> AttackerMontage;
+
+	/** Animation montage for the victim character */
+	UPROPERTY()
+	TWeakObjectPtr<UAnimMontage> VictimMontage;
+
+	/** Skeletal mesh for the attacker character */
+	UPROPERTY()
+	TWeakObjectPtr<USkeletalMesh> AttackerSkeleton;
+
+	/** Skeletal mesh for the victim character */
+	UPROPERTY()
+	TWeakObjectPtr<USkeletalMesh> VictimSkeleton;
+
+	// ========================================================================
+	// CHARACTER CONFIGURATION
+	// ========================================================================
+
+	/** Configuration for attacker character (position, rotation, color, tracked bones) */
+	UPROPERTY()
+	FCharacterPreviewConfig AttackerConfig;
+
+	/** Configuration for victim character */
+	UPROPERTY()
+	FCharacterPreviewConfig VictimConfig;
+
+	/** Weapon mesh configuration for attacker */
+	UPROPERTY()
+	FWeaponMeshConfig AttackerWeaponConfig;
+
+	/** Weapon mesh configuration for victim */
+	UPROPERTY()
+	FWeaponMeshConfig VictimWeaponConfig;
+
+	/** Bone configuration for multi-contact tracking */
+	UPROPERTY()
+	FMultiContactBoneConfig ContactBoneConfig;
+
+	// ========================================================================
+	// POSITIONING
+	// ========================================================================
+
+	/** Whether victim position is locked relative to attacker */
+	UPROPERTY()
+	bool bLockVictimToAttacker = true;
+
+	/** Distance between attacker and victim when locked */
+	UPROPERTY()
+	float LockedDistance = PairedAnimPreviewConfig::Defaults::Distance;
+
+	/** Current spatial relationship constraint for optimization */
+	UPROPERTY()
+	ESpatialRelationship SpatialRelationship = ESpatialRelationship::Inferred;
+
+	/** Last inferred spatial relationship from animation analysis */
+	UPROPERTY()
+	FSpatialRelationshipInference LastInferredRelationship;
+
+	// ========================================================================
+	// PLAYBACK STATE
+	// ========================================================================
+
+	/** Current playback time in seconds */
+	UPROPERTY()
+	float CurrentTime = 0.0f;
+
+	/** Minimum time (usually 0.0) */
+	UPROPERTY()
+	float MinTime = 0.0f;
+
+	/** Maximum duration based on selected montage sections */
+	UPROPERTY()
+	float MaxDuration = 0.0f;
+
+	/** Whether animation is currently playing */
+	UPROPERTY()
+	bool bIsPlaying = false;
+
+	/** Playback speed multiplier (1.0 = normal speed) */
+	UPROPERTY()
+	float PlaybackSpeed = 1.0f;
+
+	/** Whether to loop playback at end */
+	UPROPERTY()
+	bool bLoopPlayback = true;
+
+	/** Whether to ping-pong (reverse at ends) */
+	UPROPERTY()
+	bool bPingPongPlayback = false;
+
+	/** Current ping-pong direction (true = forward, false = backward) */
+	UPROPERTY()
+	bool bPingPongForward = true;
+
+	// ========================================================================
+	// MONTAGE SECTION SELECTION
+	// ========================================================================
+
+	/** Selected section name for attacker montage (NAME_None = full montage) */
+	UPROPERTY()
+	FName AttackerMontageSection = NAME_None;
+
+	/** Selected section name for victim montage (NAME_None = full montage) */
+	UPROPERTY()
+	FName VictimMontageSection = NAME_None;
+
+	/** Start time of selected attacker section */
+	UPROPERTY()
+	float AttackerSectionStart = 0.0f;
+
+	/** End time of selected attacker section */
+	UPROPERTY()
+	float AttackerSectionEnd = 0.0f;
+
+	/** Start time of selected victim section */
+	UPROPERTY()
+	float VictimSectionStart = 0.0f;
+
+	/** End time of selected victim section */
+	UPROPERTY()
+	float VictimSectionEnd = 0.0f;
+
+	/**
+	 * Timing offset for victim montage relative to attacker.
+	 * Positive = victim starts later, Negative = victim starts earlier.
+	 * Range: -2.0 to 2.0 seconds.
+	 */
+	UPROPERTY()
+	float VictimTimeOffset = 0.0f;
+
+	// ========================================================================
+	// ANALYSIS SETTINGS
+	// ========================================================================
+
+	/** Active visualization layers (bitfield) */
+	UPROPERTY()
+	EVisualizationLayer VisualizationLayers = EVisualizationLayer::Skeletons | EVisualizationLayer::ContactPoints;
+
+	/** Threshold distance for contact detection */
+	UPROPERTY()
+	float ContactThreshold = PairedAnimPreviewConfig::Defaults::ContactThreshold;
+
+	/** Number of samples for trajectory/timeline analysis */
+	UPROPERTY()
+	int32 AnalysisSampleCount = PairedAnimPreviewConfig::Defaults::AnalysisSampleCount;
+
+	/**
+	 * Weights for multi-contact scoring by contact point type.
+	 * Higher weights mean that contact point type is more important for optimization.
+	 *
+	 * Note: Default values synchronized with PairedAnimPreviewConfig::Weights namespace.
+	 * If modifying defaults, update both locations.
+	 */
+	UPROPERTY()
+	TMap<EContactPointType, float> ContactTypeWeights;
+
+	// ========================================================================
+	// CACHE STATE FLAGS
+	// ========================================================================
+
+	/** Whether frame analysis cache needs rebuild */
+	UPROPERTY()
+	bool bFrameAnalysisCacheDirty = true;
+
+	/** Whether trajectory cache needs rebuild */
+	UPROPERTY()
+	bool bTrajectoryCacheDirty = true;
+
+	/** Whether holistic analysis cache needs rebuild */
+	UPROPERTY()
+	bool bHolisticCacheDirty = true;
+
+	/** Whether spatial relationship inference cache needs rebuild */
+	UPROPERTY()
+	bool bSpatialInferenceCacheDirty = true;
+
+	// ========================================================================
+	// CACHED ANALYSIS RESULTS
+	// Note: These are populated by analysis operations and consumed by UI/visualization
+	// ========================================================================
+
+	/** Per-frame analysis results (bone positions, contacts, etc.) */
+	TArray<FPairedFrameAnalysis> FrameAnalysisCache;
+
+	/** Bone trajectories for attacker */
+	TArray<FBoneTrajectory> AttackerTrajectories;
+
+	/** Bone trajectories for victim */
+	TArray<FBoneTrajectory> VictimTrajectories;
+
+	/** Holistic timeline analysis results */
+	UPROPERTY()
+	FHolisticTimelineAnalysis HolisticAnalysis;
+
+	/** Last optimization result for display */
+	UPROPERTY()
+	FOptimizationResult LastOptimizationResult;
+
+	// ========================================================================
+	// UNDO/REDO HISTORY (PT-19)
+	// ========================================================================
+
+	/** History stack for optimization undo/redo */
+	TArray<FPreviewOptimizationState> OptimizationHistory;
+
+	/** Current position in history stack (-1 = no history) */
+	UPROPERTY()
+	int32 CurrentHistoryIndex = -1;
+
+	/** Maximum history entries to keep */
+	UPROPERTY()
+	int32 MaxHistorySize = PairedAnimPreviewConfig::Defaults::HistoryMaxSize;
+
+public:
+	// ========================================================================
+	// INITIALIZATION
+	// ========================================================================
+
+	/**
+	 * Initialize contact type weights with default values from config.
+	 * Values sourced from PairedAnimPreviewConfig::Weights namespace.
+	 */
+	void InitializeContactTypeWeights()
+	{
+		ContactTypeWeights.Empty();
+		ContactTypeWeights.Add(EContactPointType::Head, PairedAnimPreviewConfig::Weights::Head);
+		ContactTypeWeights.Add(EContactPointType::LeftHand, PairedAnimPreviewConfig::Weights::LeftHand);
+		ContactTypeWeights.Add(EContactPointType::RightHand, PairedAnimPreviewConfig::Weights::RightHand);
+		ContactTypeWeights.Add(EContactPointType::LeftFoot, PairedAnimPreviewConfig::Weights::LeftFoot);
+		ContactTypeWeights.Add(EContactPointType::RightFoot, PairedAnimPreviewConfig::Weights::RightFoot);
+		ContactTypeWeights.Add(EContactPointType::Pelvis, PairedAnimPreviewConfig::Weights::Pelvis);
+		ContactTypeWeights.Add(EContactPointType::WeaponTip, PairedAnimPreviewConfig::Weights::WeaponTip);
+		ContactTypeWeights.Add(EContactPointType::WeaponMid, PairedAnimPreviewConfig::Weights::WeaponMid);
+		ContactTypeWeights.Add(EContactPointType::WeaponBase, PairedAnimPreviewConfig::Weights::WeaponBase);
+	}
+
+	// ========================================================================
+	// ASSET ACCESSORS
+	// ========================================================================
+
+	UAnimMontage* GetAttackerMontage() const { return AttackerMontage.Get(); }
+	UAnimMontage* GetVictimMontage() const { return VictimMontage.Get(); }
+	USkeletalMesh* GetAttackerSkeleton() const { return AttackerSkeleton.Get(); }
+	USkeletalMesh* GetVictimSkeleton() const { return VictimSkeleton.Get(); }
+
+	bool HasValidAttackerMontage() const { return AttackerMontage.IsValid(); }
+	bool HasValidVictimMontage() const { return VictimMontage.IsValid(); }
+	bool HasValidAttackerSkeleton() const { return AttackerSkeleton.IsValid(); }
+	bool HasValidVictimSkeleton() const { return VictimSkeleton.IsValid(); }
+
+	/** Returns true if both characters have montages assigned */
+	bool HasBothMontages() const { return HasValidAttackerMontage() && HasValidVictimMontage(); }
+
+	/** Returns true if minimum required assets are present for preview */
+	bool CanPreview() const { return HasValidAttackerSkeleton() && HasValidVictimSkeleton(); }
+
+	// ========================================================================
+	// TIME CALCULATIONS
+	// ========================================================================
+
+	/**
+	 * Get the effective attacker time within section bounds.
+	 * Clamps CurrentTime to [AttackerSectionStart, AttackerSectionEnd].
+	 */
+	float GetAttackerTime() const
+	{
+		if (!FMath::IsNearlyEqual(AttackerSectionStart, AttackerSectionEnd, KINDA_SMALL_NUMBER))
+		{
+			return FMath::Clamp(CurrentTime + AttackerSectionStart, AttackerSectionStart, AttackerSectionEnd);
+		}
+		return CurrentTime;
+	}
+
+	/**
+	 * Get the effective victim time, accounting for offset and section bounds.
+	 *
+	 * Time Offset Semantics:
+	 * - Positive VictimTimeOffset: Victim animation starts LATER than attacker
+	 *   (e.g., VictimTimeOffset=1.0 means at CurrentTime=0, victim is at time -1.0 → clamped to 0)
+	 * - Negative VictimTimeOffset: Victim animation starts EARLIER than attacker
+	 *   (e.g., VictimTimeOffset=-1.0 means at CurrentTime=0, victim is at time 1.0)
+	 *
+	 * The FMath::Max(0.0f, ...) ensures we never request a negative animation time.
+	 */
+	float GetVictimTime() const
+	{
+		const float BaseVictimTime = FMath::Max(0.0f, CurrentTime - VictimTimeOffset);
+		if (!FMath::IsNearlyEqual(VictimSectionStart, VictimSectionEnd, KINDA_SMALL_NUMBER))
+		{
+			return FMath::Clamp(BaseVictimTime + VictimSectionStart, VictimSectionStart, VictimSectionEnd);
+		}
+		return BaseVictimTime;
+	}
+
+	/** Get playback progress as 0-1 ratio */
+	float GetPlaybackProgress() const
+	{
+		if (MaxDuration > KINDA_SMALL_NUMBER)
+		{
+			return FMath::Clamp(CurrentTime / MaxDuration, 0.0f, 1.0f);
+		}
+		return 0.0f;
+	}
+
+	// ========================================================================
+	// CACHE MANAGEMENT
+	// ========================================================================
+
+	/** Invalidate all analysis caches (call when configuration changes) */
+	void InvalidateAllCaches()
+	{
+		bFrameAnalysisCacheDirty = true;
+		bTrajectoryCacheDirty = true;
+		bHolisticCacheDirty = true;
+	}
+
+	/** Invalidate only position-dependent caches (call when distance/rotation changes) */
+	void InvalidatePositionCaches()
+	{
+		bFrameAnalysisCacheDirty = true;
+		bHolisticCacheDirty = true;
+	}
+
+	/** Invalidate frame analysis cache only */
+	void InvalidateFrameAnalysis()
+	{
+		bFrameAnalysisCacheDirty = true;
+	}
+
+	/** Invalidate holistic analysis cache only */
+	void InvalidateHolisticAnalysis()
+	{
+		bHolisticCacheDirty = true;
+	}
+
+	/** Invalidate trajectory cache only */
+	void InvalidateTrajectoryCache()
+	{
+		bTrajectoryCacheDirty = true;
+	}
+
+	/** Check if frame analysis needs rebuild */
+	bool NeedsFrameAnalysisRebuild() const { return bFrameAnalysisCacheDirty; }
+
+	/** Check if holistic analysis needs rebuild */
+	bool NeedsHolisticRebuild() const { return bHolisticCacheDirty; }
+
+	/** Check if trajectory cache needs rebuild */
+	bool NeedsTrajectoryRebuild() const { return bTrajectoryCacheDirty; }
+
+	/** Mark frame analysis as current (call after rebuild) */
+	void MarkFrameAnalysisCurrent() { bFrameAnalysisCacheDirty = false; }
+
+	/** Mark holistic analysis as current (call after rebuild) */
+	void MarkHolisticAnalysisCurrent() { bHolisticCacheDirty = false; }
+
+	/** Mark trajectory cache as current (call after rebuild) */
+	void MarkTrajectoryCacheCurrent() { bTrajectoryCacheDirty = false; }
+
+	/** Clear all cached data */
+	void ClearCaches()
+	{
+		FrameAnalysisCache.Empty();
+		AttackerTrajectories.Empty();
+		VictimTrajectories.Empty();
+		HolisticAnalysis = FHolisticTimelineAnalysis::CreateDefault();
+		InvalidateAllCaches();
+	}
+
+	// ========================================================================
+	// UNDO/REDO SUPPORT (PT-19)
+	// ========================================================================
+
+	/**
+	 * Push current optimization state to history.
+	 * Truncates any redo states ahead of current position.
+	 */
+	void PushStateToHistory(const FString& Description = TEXT(""))
+	{
+		// Truncate any redo states
+		if (CurrentHistoryIndex < OptimizationHistory.Num() - 1)
+		{
+			OptimizationHistory.SetNum(CurrentHistoryIndex + 1);
+		}
+
+		// Create and push new state
+		FPreviewOptimizationState State = FPreviewOptimizationState::CreateFromValues(
+			LockedDistance,
+			AttackerConfig.GetRotationOffset(),
+			VictimConfig.GetRotationOffset(),
+			Description
+		);
+		OptimizationHistory.Add(State);
+		CurrentHistoryIndex = OptimizationHistory.Num() - 1;
+
+		// Enforce max history size
+		if (OptimizationHistory.Num() > MaxHistorySize)
+		{
+			OptimizationHistory.RemoveAt(0, OptimizationHistory.Num() - MaxHistorySize);
+			CurrentHistoryIndex = OptimizationHistory.Num() - 1;
+		}
+	}
+
+	/** Returns true if undo is available */
+	bool CanUndo() const { return CurrentHistoryIndex > 0; }
+
+	/** Returns true if redo is available */
+	bool CanRedo() const { return CurrentHistoryIndex < OptimizationHistory.Num() - 1; }
+
+	/**
+	 * Get the undo state (state before current).
+	 * Returns nullptr if undo is not available.
+	 */
+	const FPreviewOptimizationState* GetUndoState() const
+	{
+		if (!CanUndo())
+		{
+			return nullptr;
+		}
+		const int32 UndoIndex = CurrentHistoryIndex - 1;
+		// Defensive bounds check (should always pass if CanUndo() returned true)
+		if (!OptimizationHistory.IsValidIndex(UndoIndex))
+		{
+			return nullptr;
+		}
+		return &OptimizationHistory[UndoIndex];
+	}
+
+	/**
+	 * Get the redo state (state after current).
+	 * Returns nullptr if redo is not available.
+	 */
+	const FPreviewOptimizationState* GetRedoState() const
+	{
+		if (!CanRedo())
+		{
+			return nullptr;
+		}
+		const int32 RedoIndex = CurrentHistoryIndex + 1;
+		// Defensive bounds check (should always pass if CanRedo() returned true)
+		if (!OptimizationHistory.IsValidIndex(RedoIndex))
+		{
+			return nullptr;
+		}
+		return &OptimizationHistory[RedoIndex];
+	}
+
+	/** Move to undo state (decrements history index) */
+	void ApplyUndo()
+	{
+		if (CanUndo())
+		{
+			CurrentHistoryIndex--;
+		}
+	}
+
+	/** Move to redo state (increments history index) */
+	void ApplyRedo()
+	{
+		if (CanRedo())
+		{
+			CurrentHistoryIndex++;
+		}
+	}
+
+	/** Get current state from history, or nullptr if no history */
+	const FPreviewOptimizationState* GetCurrentHistoryState() const
+	{
+		if (!OptimizationHistory.IsValidIndex(CurrentHistoryIndex))
+		{
+			return nullptr;
+		}
+		return &OptimizationHistory[CurrentHistoryIndex];
+	}
+
+	// ========================================================================
+	// VISUALIZATION LAYER HELPERS
+	// ========================================================================
+
+	bool IsVisualizationLayerEnabled(EVisualizationLayer Layer) const
+	{
+		return EnumHasAnyFlags(VisualizationLayers, Layer);
+	}
+
+	void SetVisualizationLayerEnabled(EVisualizationLayer Layer, bool bEnabled)
+	{
+		if (bEnabled)
+		{
+			VisualizationLayers |= Layer;
+		}
+		else
+		{
+			VisualizationLayers &= ~Layer;
+		}
+	}
+
+	void ToggleVisualizationLayer(EVisualizationLayer Layer)
+	{
+		VisualizationLayers ^= Layer;
+	}
+
+	// ========================================================================
+	// WEIGHT ACCESSORS
+	// ========================================================================
+
+	/** Get weight for a contact point type (returns 1.0 if not found) */
+	float GetContactTypeWeight(EContactPointType Type) const
+	{
+		const float* Weight = ContactTypeWeights.Find(Type);
+		return Weight ? *Weight : 1.0f;
+	}
+
+	/** Set weight for a contact point type */
+	void SetContactTypeWeight(EContactPointType Type, float Weight)
+	{
+		ContactTypeWeights.Add(Type, Weight);
+	}
+
+	// ========================================================================
+	// RESET
+	// ========================================================================
+
+	/** Reset to default state (clears all references and caches) */
+	void Reset()
+	{
+		// Clear asset references
+		AttackerMontage.Reset();
+		VictimMontage.Reset();
+		AttackerSkeleton.Reset();
+		VictimSkeleton.Reset();
+
+		// Reset configs to defaults
+		AttackerConfig = FCharacterPreviewConfig::CreateAttacker();
+		VictimConfig = FCharacterPreviewConfig::CreateVictim();
+		AttackerWeaponConfig = FWeaponMeshConfig::CreateDefault();
+		VictimWeaponConfig = FWeaponMeshConfig::CreateDefault();
+		ContactBoneConfig = FMultiContactBoneConfig::CreateDefault();
+
+		// Reset positioning
+		bLockVictimToAttacker = true;
+		LockedDistance = PairedAnimPreviewConfig::Defaults::Distance;
+		SpatialRelationship = ESpatialRelationship::Inferred;
+		LastInferredRelationship = FSpatialRelationshipInference::CreateDefault();
+
+		// Reset playback
+		CurrentTime = 0.0f;
+		MinTime = 0.0f;
+		MaxDuration = 0.0f;
+		bIsPlaying = false;
+		PlaybackSpeed = PairedAnimPreviewConfig::Defaults::PlaybackSpeed;
+		bLoopPlayback = true;
+		bPingPongPlayback = false;
+		bPingPongForward = true;
+
+		// Reset section selection
+		AttackerMontageSection = NAME_None;
+		VictimMontageSection = NAME_None;
+		AttackerSectionStart = 0.0f;
+		AttackerSectionEnd = 0.0f;
+		VictimSectionStart = 0.0f;
+		VictimSectionEnd = 0.0f;
+		VictimTimeOffset = 0.0f;
+
+		// Reset analysis settings
+		VisualizationLayers = EVisualizationLayer::Skeletons | EVisualizationLayer::ContactPoints;
+		ContactThreshold = PairedAnimPreviewConfig::Defaults::ContactThreshold;
+		AnalysisSampleCount = PairedAnimPreviewConfig::Defaults::AnalysisSampleCount;
+		InitializeContactTypeWeights();
+
+		// Clear caches
+		ClearCaches();
+
+		// Clear history
+		OptimizationHistory.Empty();
+		CurrentHistoryIndex = -1;
+		LastOptimizationResult = FOptimizationResult::CreateDefault();
+	}
+
+	// ========================================================================
+	// FACTORY
+	// ========================================================================
+
+	static FPairedAnimationPreviewModel CreateDefault()
+	{
+		FPairedAnimationPreviewModel Model;
+		Model.AttackerConfig = FCharacterPreviewConfig::CreateAttacker();
+		Model.VictimConfig = FCharacterPreviewConfig::CreateVictim();
+		Model.InitializeContactTypeWeights();
+		return Model;
 	}
 };

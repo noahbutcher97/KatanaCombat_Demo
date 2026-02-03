@@ -53,8 +53,22 @@ void UAttackData::GetSectionTimeRange(float& OutStart, float& OutEnd) const
     
     // Find next section or end of montage
     OutEnd = AttackMontage->CalculateSequenceLength();
-    
-    for (int32 i = 0; i < AttackMontage->CompositeSections.Num(); ++i)
+
+    // PT-13 FIX: O(1) fast path - check if next section exists and is chronologically ordered
+    const int32 NumSections = AttackMontage->CompositeSections.Num();
+    if (SectionIndex + 1 < NumSections)
+    {
+        const float NextSectionStart = AttackMontage->CompositeSections[SectionIndex + 1].GetTime();
+        if (NextSectionStart > OutStart)
+        {
+            // Sections are chronologically ordered - use O(1) lookup
+            OutEnd = NextSectionStart;
+            return;
+        }
+    }
+
+    // Fallback: O(N) search for non-chronological section ordering (rare)
+    for (int32 i = 0; i < NumSections; ++i)
     {
         if (i != SectionIndex)
         {

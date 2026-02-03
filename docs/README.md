@@ -6,18 +6,20 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 
 ---
 
-## Recent Updates (2026-02-02)
+## Recent Updates (2026-02-03)
 
-### v4.0.0 - Paired Animation System (~95% Complete)
+### v4.0.0 - Paired Animation System (Active Development ~50%)
 
-**Status**: Comprehensive paired animation system for finishers, counters, and parries
+**Status**: Foundation laid, significant work remaining
 
-**Key Features**:
+The **Paired Animation System** is the heart of KatanaCombat - enabling cinematic finishers, counters, and parries that define the combat feel. This system is our primary development focus with substantial work ahead.
+
+**Foundation Laid**:
 - **Finisher Execution**: `TryExecuteFinisher()` with vulnerability detection (guard break, stun, low health)
 - **Symmetric Warp Tracking**: Both attacker and victim continuously track each other during paired animations
 - **Cinematic Effects**: Slow motion, hitstop, camera shake via `CinematicEffectsUtilityLibrary`
-- **Death Handling**: Flag system prevents double death animations - finisher victim montage IS the death animation
-- **Preview Tool**: Editor tool for paired animation authoring (~5,639 lines) with spatial relationship inference
+- **Death Handling**: Flag system prevents double death animations
+- **Preview Tool**: Editor tool for paired animation authoring (~6,000 lines)
 
 **Math & Utility Libraries** (83 functions, 3,128 lines):
 - `SkeletalAnalysisLibrary`: Bone chains, reach envelopes, center of mass
@@ -25,9 +27,15 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 - `SpatialQueryLibrary`: Sphere/box/cone queries, FOV checks
 - `PhysicsIntegrationLibrary`: Trajectory prediction, collision prediction
 
-**Documentation**: See [specs/PAIRED_ANIMATION_SPEC.md](specs/PAIRED_ANIMATION_SPEC.md) for technical specification
+**Significant Work Remaining**:
+- Parry system implementation
+- Counter system implementation
+- Parry → Counter → Finisher combat flow
+- VFX/Audio wiring (slots exist, not connected)
+- Editor/Runtime logic unification (see Priority 1.5 below)
+- Regular attack system parity with paired animations
 
-**Next Steps**: AnimInstance Integration (Phase 5e), AI Token System (Phase 5b-5)
+**Documentation**: See [specs/PAIRED_ANIMATION_SPEC.md](specs/PAIRED_ANIMATION_SPEC.md) for technical specification
 
 ---
 
@@ -275,17 +283,13 @@ Combo chains or return to Idle
 - **[ROADMAP.md](ROADMAP.md)** - Planned features and system status
 - **[Source/KatanaCombatTest/README.md](../Source/KatanaCombatTest/README.md)** - C++ unit test suite documentation
 
-### Quality Assurance & Audits
-- **[GAP_AUDIT_EXECUTIVE_SUMMARY.md](GAP_AUDIT_EXECUTIVE_SUMMARY.md)** - ⭐ **START HERE** - Quick overview of all gaps and fixes
-- **[EXPANDED_GAP_AUDIT_2026-01-31.md](EXPANDED_GAP_AUDIT_2026-01-31.md)** - Full detailed audit (178 gaps analyzed)
-- **[EDITOR_MODULE_GAP_ANALYSIS_2026-01-31.md](EDITOR_MODULE_GAP_ANALYSIS_2026-01-31.md)** - Editor module second-pass (12 gaps)
-- **[COMPREHENSIVE_GAP_AUDIT_2026-01-31.md](COMPREHENSIVE_GAP_AUDIT_2026-01-31.md)** - Initial audit scope (36 gaps)
-- **[CRITICAL_FIXES_ACTION_CARD.md](CRITICAL_FIXES_ACTION_CARD.md)** - Immediate action items (3 critical fixes)
-- **[Notes/V2_SYSTEM_AUDIT_2025-11-11.md](Notes/V2_SYSTEM_AUDIT_2025-11-11.md)** - Combat system architectural audit
-- **[plans/AUDIT_SYNTHESIS_2026-01-30.md](plans/AUDIT_SYNTHESIS_2026-01-30.md)** - Documentation completeness audit
-- **[plans/LOG_ANALYSIS_2026-01-30.md](plans/LOG_ANALYSIS_2026-01-30.md)** - Bug pattern analysis
+### Specifications & Plans
+- **[specs/PAIRED_ANIMATION_SPEC.md](specs/PAIRED_ANIMATION_SPEC.md)** - Paired animation technical specification
+- **[plans/paired-animation-plan.md](plans/paired-animation-plan.md)** - Active implementation plan with gap tracking
+- **[plans/archive/](plans/archive/)** - Completed plans with dates
 
-**Note**: References to "V2" in audit documents refer to document versions or historical context, not current code naming. All components use standard naming (`CombatComponent`).
+### Archived Audits
+Historical audit documents are preserved in `archive/2026-01-31-audits/` for reference.
 
 ---
 
@@ -485,15 +489,75 @@ slomo 0.3            // Slow motion for timing verification
 
 ---
 
-## Future Features
+## Roadmap & Priorities
 
-Planned expansions:
-- Finisher system for guard-broken enemies
-- Special attacks with resource management
+The **Paired Animation System** (finishers, counters, parries) is the heart and soul of this project. Our development priorities are structured around completing and polishing this core system. Current estimate: **~50% complete** with significant work remaining.
+
+### Priority 1: Core Combat Flow (Active Development)
+
+**Finisher System Enhancement**
+- VFX/Audio wiring (property slots exist, need connection)
+- AnimInstance integration for seamless blending
+- Multi-victim finisher support
+- Environmental finisher variants
+
+**Parry System Implementation**
+- Perfect parry detection during enemy windup
+- Parry feedback (visual/audio cues, time dilation)
+- Parry window configuration per attack type
+
+**Counter System Implementation**
+- Counter window opening on successful parry
+- Counter attack execution with damage multipliers
+
+**Parry → Counter → Finisher Flow**
+- Seamless transition through combat loop
+- Full cinematic combat experience
+
+### Priority 1.5: Editor/Runtime Unification (Critical Architecture)
+
+> **Note**: Further inquiry needed on unification strategy. The following gaps were identified in a prior audit.
+
+**Schema Parity** (Step 1)
+- `FAttackWarpConfig` (regular attacks) lacks `WarpTargetOffset` that `FPairedWarpConfig` has
+- Need offset support for optimizing regular single-character attacks
+
+**Runtime Parity** (Step 2)
+- `SetupAttackWarp()` (standard version) ignores offsets
+- Paired animation warps correctly apply offsets; regular attacks do not
+- Need to update `SetupAttackWarp` to apply `WarpTargetOffset` rotated by target direction
+
+**Logic Injection for WYSIWYG** (Step 3)
+- `WeaponComponent::PerformWeaponTrace` is private
+- Editor tool cannot simulate hits without duplicating trace math
+- Violates "Twin Simulation" mandate (editor preview must match runtime exactly)
+- Proposed: Extract trace logic to public static function for shared use
+
+**Goal**: Editor preview tools and runtime systems use identical logic paths - what you see in the editor IS what happens at runtime.
+
+### Priority 2: Tooling & Productivity
+
+**Editor Tool Enhancement**
+- Preview tool refinements (PT-11 refactor ongoing)
+- Bone trajectory visualization improvements
+- Contact point analysis tools
+- Montage authoring workflow improvements
+
+**AI Source Query Integration**
+- UE5 codebase query system integration
+- Workflow automation for common tasks
+- Documentation cross-referencing
+
+### Priority 3: Future Expansions
+
+- AI attack token system for group combat coordination
 - Weapon switching with unique movesets
 - Aerial combat (launchers, air combos)
-- Frame-tight cancels into special moves
-- Multiplayer support (server-authoritative)
+- Network replication (server-authoritative)
+
+---
+
+**Current Status**: See [plans/paired-animation-plan.md](plans/paired-animation-plan.md) for detailed implementation tracking.
 
 ---
 

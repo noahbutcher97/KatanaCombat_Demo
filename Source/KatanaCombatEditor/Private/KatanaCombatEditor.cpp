@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "KatanaCombatEditor.h"
 #include "PropertyEditorModule.h"
@@ -6,8 +6,6 @@
 #include "Customizations/HitReactionDataCustomization.h"
 #include "Customizations/HitReactionEntryCustomization.h"
 #include "Customizations/ReactionMontageVariantCustomization.h"
-#include "MontageAnalyzerWindow.h"
-#include "MontageAnalysisDashboard.h"
 #include "PairedAnimationPreview.h"
 #include "Data/AttackData.h"
 #include "Data/HitReactionData.h"
@@ -18,24 +16,12 @@ void FKatanaCombatEditorModule::StartupModule()
 {
 	RegisterCustomizations();
 
-	// Register Montage Analyzer window (Window > Montage Analyzer)
-	SMontageAnalyzerWindow::RegisterTabSpawner();
-
-	// Register Montage Analysis Dashboard (Window > Montage Analysis Dashboard)
-	SMontageAnalysisDashboard::RegisterTabSpawner();
-
 	// Register Paired Animation Preview (Window > Paired Animation Preview)
 	SPairedAnimationPreview::RegisterTabSpawner();
 }
 
 void FKatanaCombatEditorModule::ShutdownModule()
 {
-	// Unregister Montage Analyzer window
-	SMontageAnalyzerWindow::UnregisterTabSpawner();
-
-	// Unregister Montage Analysis Dashboard
-	SMontageAnalysisDashboard::UnregisterTabSpawner();
-
 	// Unregister Paired Animation Preview
 	SPairedAnimationPreview::UnregisterTabSpawner();
 
