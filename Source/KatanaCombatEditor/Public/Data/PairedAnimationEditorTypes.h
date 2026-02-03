@@ -2206,6 +2206,42 @@ public:
 		bHolisticCacheDirty = true;
 	}
 
+	/** Invalidate frame analysis cache only */
+	void InvalidateFrameAnalysis()
+	{
+		bFrameAnalysisCacheDirty = true;
+	}
+
+	/** Invalidate holistic analysis cache only */
+	void InvalidateHolisticAnalysis()
+	{
+		bHolisticCacheDirty = true;
+	}
+
+	/** Invalidate trajectory cache only */
+	void InvalidateTrajectoryCache()
+	{
+		bTrajectoryCacheDirty = true;
+	}
+
+	/** Check if frame analysis needs rebuild */
+	bool NeedsFrameAnalysisRebuild() const { return bFrameAnalysisCacheDirty; }
+
+	/** Check if holistic analysis needs rebuild */
+	bool NeedsHolisticRebuild() const { return bHolisticCacheDirty; }
+
+	/** Check if trajectory cache needs rebuild */
+	bool NeedsTrajectoryRebuild() const { return bTrajectoryCacheDirty; }
+
+	/** Mark frame analysis as current (call after rebuild) */
+	void MarkFrameAnalysisCurrent() { bFrameAnalysisCacheDirty = false; }
+
+	/** Mark holistic analysis as current (call after rebuild) */
+	void MarkHolisticAnalysisCurrent() { bHolisticCacheDirty = false; }
+
+	/** Mark trajectory cache as current (call after rebuild) */
+	void MarkTrajectoryCacheCurrent() { bTrajectoryCacheDirty = false; }
+
 	/** Clear all cached data */
 	void ClearCaches()
 	{

@@ -267,7 +267,7 @@ void SPairedAnimationPreview::UpdateAttackerMesh(USkeletalMesh* Mesh)
 	{
 		AttackerMeshComponent->SetSkeletalMesh(Mesh);
 		AttackerMeshComponent->SetForcedLOD(1);
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 
 		// PT-11: Sync subsystem context when mesh changes
 		SyncSubsystemContext();
@@ -280,7 +280,7 @@ void SPairedAnimationPreview::UpdateVictimMesh(USkeletalMesh* Mesh)
 	{
 		VictimMeshComponent->SetSkeletalMesh(Mesh);
 		VictimMeshComponent->SetForcedLOD(1);
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 		// Re-attach weapons to new skeleton
 		ReattachWeapons();
 
@@ -337,7 +337,7 @@ void SPairedAnimationPreview::UpdateAttackerWeaponMesh(UStaticMesh* Mesh)
 		RefreshAttackerWeaponSocketOptions();
 	}
 
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::UpdateVictimWeaponMesh(UStaticMesh* Mesh)
@@ -388,7 +388,7 @@ void SPairedAnimationPreview::UpdateVictimWeaponMesh(UStaticMesh* Mesh)
 		RefreshVictimWeaponSocketOptions();
 	}
 
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::ReattachWeapons()
@@ -443,7 +443,7 @@ void SPairedAnimationPreview::ReattachWeapons()
 		}
 	}
 
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 FVector SPairedAnimationPreview::GetWeaponContactPosition(UStaticMeshComponent* WeaponMesh, const FWeaponMeshConfig& Config, EContactPointType ContactType) const
@@ -608,7 +608,7 @@ void SPairedAnimationPreview::OnAttackerCharacterSocketChanged(TSharedPtr<FName>
 	{
 		Model.AttackerWeaponConfig.SetAttachmentSocket(*NewSocket);
 		ReattachWeapons();
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 	}
 }
 
@@ -618,7 +618,7 @@ void SPairedAnimationPreview::OnAttackerWeaponGripSocketChanged(TSharedPtr<FName
 	{
 		Model.AttackerWeaponConfig.SetWeaponGripSocket(*NewSocket);
 		ReattachWeapons();
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 	}
 }
 
@@ -627,7 +627,7 @@ void SPairedAnimationPreview::OnAttackerWeaponTipSocketChanged(TSharedPtr<FName>
 	if (NewSocket.IsValid())
 	{
 		Model.AttackerWeaponConfig.SetWeaponTipSocket(*NewSocket);
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 	}
 }
 
@@ -636,7 +636,7 @@ void SPairedAnimationPreview::OnAttackerWeaponMidSocketChanged(TSharedPtr<FName>
 	if (NewSocket.IsValid())
 	{
 		Model.AttackerWeaponConfig.SetWeaponMidSocket(*NewSocket);
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 	}
 }
 
@@ -645,7 +645,7 @@ void SPairedAnimationPreview::OnAttackerWeaponBaseSocketChanged(TSharedPtr<FName
 	if (NewSocket.IsValid())
 	{
 		Model.AttackerWeaponConfig.SetWeaponBaseSocket(*NewSocket);
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 	}
 }
 
@@ -655,7 +655,7 @@ void SPairedAnimationPreview::OnVictimCharacterSocketChanged(TSharedPtr<FName> N
 	{
 		Model.VictimWeaponConfig.SetAttachmentSocket(*NewSocket);
 		ReattachWeapons();
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 	}
 }
 
@@ -665,7 +665,7 @@ void SPairedAnimationPreview::OnVictimWeaponGripSocketChanged(TSharedPtr<FName> 
 	{
 		Model.VictimWeaponConfig.SetWeaponGripSocket(*NewSocket);
 		ReattachWeapons();
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 	}
 }
 
@@ -674,7 +674,7 @@ void SPairedAnimationPreview::OnVictimWeaponTipSocketChanged(TSharedPtr<FName> N
 	if (NewSocket.IsValid())
 	{
 		Model.VictimWeaponConfig.SetWeaponTipSocket(*NewSocket);
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 	}
 }
 
@@ -683,7 +683,7 @@ void SPairedAnimationPreview::OnVictimWeaponMidSocketChanged(TSharedPtr<FName> N
 	if (NewSocket.IsValid())
 	{
 		Model.VictimWeaponConfig.SetWeaponMidSocket(*NewSocket);
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 	}
 }
 
@@ -692,7 +692,7 @@ void SPairedAnimationPreview::OnVictimWeaponBaseSocketChanged(TSharedPtr<FName> 
 	if (NewSocket.IsValid())
 	{
 		Model.VictimWeaponConfig.SetWeaponBaseSocket(*NewSocket);
-		Model.bFrameAnalysisCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
 	}
 }
 
@@ -702,7 +702,7 @@ void SPairedAnimationPreview::OnAttackerWeaponOffsetChanged(FVector NewOffset)
 	CurrentOffset.SetLocation(NewOffset);
 	Model.AttackerWeaponConfig.SetAttachmentOffset(CurrentOffset);
 	ReattachWeapons();
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::OnAttackerWeaponRotationChanged(FRotator NewRotation)
@@ -711,7 +711,7 @@ void SPairedAnimationPreview::OnAttackerWeaponRotationChanged(FRotator NewRotati
 	CurrentOffset.SetRotation(NewRotation.Quaternion());
 	Model.AttackerWeaponConfig.SetAttachmentOffset(CurrentOffset);
 	ReattachWeapons();
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::OnVictimWeaponOffsetChanged(FVector NewOffset)
@@ -720,7 +720,7 @@ void SPairedAnimationPreview::OnVictimWeaponOffsetChanged(FVector NewOffset)
 	CurrentOffset.SetLocation(NewOffset);
 	Model.VictimWeaponConfig.SetAttachmentOffset(CurrentOffset);
 	ReattachWeapons();
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::OnVictimWeaponRotationChanged(FRotator NewRotation)
@@ -729,7 +729,7 @@ void SPairedAnimationPreview::OnVictimWeaponRotationChanged(FRotator NewRotation
 	CurrentOffset.SetRotation(NewRotation.Quaternion());
 	Model.VictimWeaponConfig.SetAttachmentOffset(CurrentOffset);
 	ReattachWeapons();
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::ApplyCharacterConfigs()
@@ -790,7 +790,7 @@ void SPairedAnimationPreview::ApplyCharacterConfigs()
 		VictimMeshComponent->SetRelativeTransform(VictimTransform);
 	}
 
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 
 	// PT-11: Sync subsystem configuration when character config changes
 	SyncSubsystemConfiguration();
@@ -938,8 +938,8 @@ void SPairedAnimationPreview::OnAttackerMontageSelected(const FAssetData& AssetD
 	RefreshAttackerSectionOptions();
 
 	RecalculateMaxDuration();
-	Model.bFrameAnalysisCacheDirty = true;
-	Model.bHolisticCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
+	Model.InvalidateHolisticAnalysis();
 
 	// Clear caches when montage changes
 	Model.FrameAnalysisCache.Empty();
@@ -971,8 +971,8 @@ void SPairedAnimationPreview::OnVictimMontageSelected(const FAssetData& AssetDat
 	RefreshVictimSectionOptions();
 
 	RecalculateMaxDuration();
-	Model.bFrameAnalysisCacheDirty = true;
-	Model.bHolisticCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
+	Model.InvalidateHolisticAnalysis();
 
 	// Clear caches when montage changes
 	Model.FrameAnalysisCache.Empty();
@@ -1072,7 +1072,7 @@ FSpatialRelationshipInference SPairedAnimationPreview::InferSpatialRelationship(
 	}
 
 	// Ensure holistic analysis is up to date
-	if (Model.bHolisticCacheDirty)
+	if (Model.NeedsHolisticRebuild())
 	{
 		RebuildHolisticAnalysis();
 	}
@@ -1282,7 +1282,7 @@ void SPairedAnimationPreview::OnSpatialRelationshipChanged(ESpatialRelationship 
 	}
 
 	// Mark holistic cache dirty since optimization constraints changed
-	Model.bHolisticCacheDirty = true;
+	Model.InvalidateHolisticAnalysis();
 }
 
 FString SPairedAnimationPreview::GetRelationshipDisplayName(ESpatialRelationship Relationship)
@@ -1377,8 +1377,8 @@ void SPairedAnimationPreview::OnAttackerSectionChanged(TSharedPtr<FName> NewSele
 	{
 		Model.AttackerMontageSection = *NewSelection;
 		RecalculateMaxDuration();
-		Model.bFrameAnalysisCacheDirty = true;
-		Model.bHolisticCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
+		Model.InvalidateHolisticAnalysis();
 
 		// Reset to section start
 		float SectionStart = 0.0f;
@@ -1395,8 +1395,8 @@ void SPairedAnimationPreview::OnVictimSectionChanged(TSharedPtr<FName> NewSelect
 	{
 		Model.VictimMontageSection = *NewSelection;
 		RecalculateMaxDuration();
-		Model.bFrameAnalysisCacheDirty = true;
-		Model.bHolisticCacheDirty = true;
+		Model.InvalidateFrameAnalysis();
+		Model.InvalidateHolisticAnalysis();
 		UpdateAnimations(Model.CurrentTime);
 	}
 }
@@ -1513,13 +1513,13 @@ void SPairedAnimationPreview::GetSectionTimeRange(UAnimMontage* Montage, FName S
 void SPairedAnimationPreview::OnWeaponStartSocketChanged(const FText& NewText, ETextCommit::Type CommitType)
 {
 	Model.AttackerConfig.SetWeaponStartSocket(FName(*NewText.ToString()));
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::OnWeaponEndSocketChanged(const FText& NewText, ETextCommit::Type CommitType)
 {
 	Model.AttackerConfig.SetWeaponEndSocket(FName(*NewText.ToString()));
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 TArray<FName> SPairedAnimationPreview::GetAvailableSockets(UDebugSkelMeshComponent* Mesh) const
@@ -1898,7 +1898,7 @@ void SPairedAnimationPreview::RebuildAnalysisCache()
 
 	RebuildDistanceAnalysis();
 	RebuildTimingAnalysis();
-	Model.bFrameAnalysisCacheDirty = false;
+	Model.MarkFrameAnalysisCurrent();  // PT-11: Use Model's cache management
 }
 
 void SPairedAnimationPreview::RebuildTrajectoryCache()
@@ -2147,7 +2147,7 @@ void SPairedAnimationPreview::RebuildHolisticAnalysis()
 
 	if (Model.MaxDuration <= 0.0f || !AttackerMeshComponent || !VictimMeshComponent)
 	{
-		Model.bHolisticCacheDirty = false;
+		Model.MarkHolisticAnalysisCurrent();  // PT-11: Use Model's cache management
 		return;
 	}
 
@@ -2170,7 +2170,7 @@ void SPairedAnimationPreview::RebuildHolisticAnalysis()
 	// Compute optimization weights based on activity and contact phases
 	ComputeOptimizationWeights();
 
-	Model.bHolisticCacheDirty = false;
+	Model.MarkHolisticAnalysisCurrent();  // PT-11: Use Model's cache management
 }
 
 FTrajectoryFrameSample SPairedAnimationPreview::SampleTrajectoryFrame(float Time)
@@ -2819,7 +2819,7 @@ void SPairedAnimationPreview::ApplyOptimizationResult(const FOptimizationResult&
 	// User should stay on whatever frame they were viewing
 	UpdateAnimations(Model.CurrentTime);
 
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 // ============================================================================
@@ -2906,7 +2906,7 @@ void SPairedAnimationPreview::ApplyHistoryState(const FPreviewOptimizationState&
 
 	ApplyCharacterConfigs();
 	UpdateAnimations(Model.CurrentTime);
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::OnOptimizeClicked()
@@ -2919,7 +2919,7 @@ void SPairedAnimationPreview::OnOptimizeClicked()
 	}
 
 	// Clear all caches for fresh optimization
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 	Model.FrameAnalysisCache.Empty();
 	Model.AttackerTrajectories.Empty();
 	Model.VictimTrajectories.Empty();
@@ -2959,7 +2959,7 @@ void SPairedAnimationPreview::OnFindOptimalDistanceClicked()
 	}
 
 	// Clear caches to ensure fresh evaluation
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 	Model.FrameAnalysisCache.Empty();
 
 	// PT-22: Show progress dialog
@@ -3004,7 +3004,7 @@ void SPairedAnimationPreview::OnFindOptimalRotationClicked()
 	}
 
 	// Clear caches to ensure fresh evaluation
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 	Model.FrameAnalysisCache.Empty();
 
 	// PT-22: Show progress dialog
@@ -3046,7 +3046,7 @@ void SPairedAnimationPreview::OnFindOptimalSyncClicked()
 	}
 
 	// Force rebuild of analysis cache
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 	Model.FrameAnalysisCache.Empty();
 
 	// PT-22: Add progress feedback for sync time analysis
@@ -3080,7 +3080,7 @@ void SPairedAnimationPreview::OnFindOptimalSyncClicked()
 	if (SlowTask.ShouldCancel()) return;
 	RebuildTimingAnalysis();
 
-	Model.bFrameAnalysisCacheDirty = false;
+	Model.MarkFrameAnalysisCurrent();
 
 	// Jump to optimal sync time
 	Model.CurrentTime = TimingAnalysis.BestSyncTime;
@@ -3811,7 +3811,7 @@ void SPairedAnimationPreview::OnResetClicked()
 	ApplyCharacterConfigs();
 
 	// Clear caches to force rebuild
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 	Model.FrameAnalysisCache.Empty();
 	Model.AttackerTrajectories.Empty();
 	Model.VictimTrajectories.Empty();
@@ -3822,7 +3822,7 @@ void SPairedAnimationPreview::OnResetClicked()
 
 void SPairedAnimationPreview::OnGoToMaxContactClicked()
 {
-	if (Model.bFrameAnalysisCacheDirty)
+	if (Model.NeedsFrameAnalysisRebuild())
 	{
 		RebuildAnalysisCache();
 	}
@@ -4038,7 +4038,7 @@ void SPairedAnimationPreview::ApplyOrientationPreset_Facing()
 	Model.SpatialRelationship = ESpatialRelationship::Facing;
 	Model.bSpatialInferenceCacheDirty = true;
 	ApplyCharacterConfigs();
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::ApplyOrientationPreset_Behind()
@@ -4049,7 +4049,7 @@ void SPairedAnimationPreview::ApplyOrientationPreset_Behind()
 	Model.SpatialRelationship = ESpatialRelationship::Behind;
 	Model.bSpatialInferenceCacheDirty = true;
 	ApplyCharacterConfigs();
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::ApplyOrientationPreset_LeftSide()
@@ -4060,7 +4060,7 @@ void SPairedAnimationPreview::ApplyOrientationPreset_LeftSide()
 	Model.SpatialRelationship = ESpatialRelationship::LeftSide;
 	Model.bSpatialInferenceCacheDirty = true;
 	ApplyCharacterConfigs();
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::ApplyOrientationPreset_RightSide()
@@ -4071,7 +4071,7 @@ void SPairedAnimationPreview::ApplyOrientationPreset_RightSide()
 	Model.SpatialRelationship = ESpatialRelationship::RightSide;
 	Model.bSpatialInferenceCacheDirty = true;
 	ApplyCharacterConfigs();
-	Model.bFrameAnalysisCacheDirty = true;
+	Model.InvalidateFrameAnalysis();
 }
 
 void SPairedAnimationPreview::SaveCurrentAsPreset(const FString& PresetName)
@@ -4090,7 +4090,7 @@ void SPairedAnimationPreview::LoadPreset(const FString& PresetName)
 
 void SPairedAnimationPreview::ExportAnalysisToCSV()
 {
-	if (Model.bFrameAnalysisCacheDirty)
+	if (Model.NeedsFrameAnalysisRebuild())
 	{
 		RebuildAnalysisCache();
 	}
@@ -5668,7 +5668,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildTimelineControls()
 					.OnValueChanged_Lambda([this](float Val) {
 						Model.VictimTimeOffset = Val;
 						RecalculateMaxDuration();
-						Model.bFrameAnalysisCacheDirty = true;
+						Model.InvalidateFrameAnalysis();
 					})
 				]
 			]
@@ -5815,7 +5815,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildOptimizationPanel()
 					SlowTask.EnterProgressFrame(1.0f, LOCTEXT("BuildingTimeAnalysis", "Building timing analysis..."));
 					if (SlowTask.ShouldCancel()) return FReply::Handled();
 					RebuildTimingAnalysis();
-					Model.bFrameAnalysisCacheDirty = false;
+					Model.MarkFrameAnalysisCurrent();
 
 					SlowTask.EnterProgressFrame(1.0f, LOCTEXT("BuildingModel.HolisticAnalysis", "Building holistic analysis..."));
 					if (SlowTask.ShouldCancel()) return FReply::Handled();
@@ -6082,7 +6082,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildSettingsPanel()
 					.Value_Lambda([this]() { return Model.ContactThreshold; })
 					.OnValueChanged_Lambda([this](float Val) {
 						Model.ContactThreshold = Val;
-						Model.bFrameAnalysisCacheDirty = true;
+						Model.InvalidateFrameAnalysis();
 					})
 					.ToolTipText(LOCTEXT("Model.ContactThresholdTip", "Maximum distance (in Unreal units) between bones to be considered a contact. Lower values = stricter contact detection."))
 				]
@@ -6109,7 +6109,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildSettingsPanel()
 					.Value_Lambda([this]() { return AnalysisSampleRate; })
 					.OnValueChanged_Lambda([this](int32 Val) {
 						AnalysisSampleRate = Val;
-						Model.bFrameAnalysisCacheDirty = true;
+						Model.InvalidateFrameAnalysis();
 					})
 					.ToolTipText(LOCTEXT("SampleRateTip", "Frames per second to sample during analysis. Higher = more accurate but slower. 60 is typically sufficient."))
 				]
