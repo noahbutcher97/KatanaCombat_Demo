@@ -302,10 +302,25 @@ jobs:
         run: |
           Write-Host "📦 Generating Visual Studio project files..."
           
+          $ueRoot = "${{ steps.ue-detect.outputs.ue-root }}"
           $uprojectFile = Join-Path $PWD "${{ env.PROJECT_NAME }}.uproject"
-          $generateScript = Join-Path "${{ steps.ue-detect.outputs.ue-root }}" "Engine\Build\BatchFiles\GenerateProjectFiles.bat"
+          $generateScript = Join-Path $ueRoot "Engine\Build\BatchFiles\GenerateProjectFiles.bat"
+          $unrealBuildTool = Join-Path $ueRoot "Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.exe"
           
-          & $generateScript -projectfiles -project="$uprojectFile" -game -rocket -progress
+          # Try batch file first (for source builds), fallback to UnrealBuildTool (for binary/launcher installs)
+          if (Test-Path $generateScript) {
+            Write-Host "Using GenerateProjectFiles.bat..."
+            & $generateScript -projectfiles -project="$uprojectFile" -game -rocket -progress
+          } elseif (Test-Path $unrealBuildTool) {
+            Write-Host "GenerateProjectFiles.bat not found, using UnrealBuildTool.exe directly..."
+            & $unrealBuildTool -mode=GenerateProjectFiles -project="$uprojectFile" -game -rocket -progress
+          } else {
+            Write-Error "❌ Neither GenerateProjectFiles.bat nor UnrealBuildTool.exe found!"
+            Write-Host "Searched paths:"
+            Write-Host "  Batch file: $generateScript"
+            Write-Host "  UBT: $unrealBuildTool"
+            exit 1
+          }
           
           if ($LASTEXITCODE -ne 0) {
             Write-Error "❌ Failed to generate project files"
