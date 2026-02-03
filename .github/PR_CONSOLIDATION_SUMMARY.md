@@ -318,7 +318,7 @@ The workflow includes clear extension points:
 - [PR #8](https://github.com/noahbutcher97/KatanaCombat_Demo/pull/8) - Cloud Independence
 
 ### Documentation
-- `.github/README.md` - CI/CD overview
+- `.github/CI_CD.md` - CI/CD overview
 - `.github/CONSOLIDATION_GUIDE.md` - Consolidation details
 - `.github/SETUP_GUIDE.md` - Setup instructions
 - `docs/CI_CD_GUIDE.md` - Comprehensive CI/CD guide

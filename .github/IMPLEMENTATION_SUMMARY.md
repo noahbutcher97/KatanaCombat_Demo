@@ -115,7 +115,7 @@ This document summarizes the complete GitHub Actions CI/CD implementation for th
 
 ### Documentation Files (60+ pages)
 
-2. **`.github/README.md`** - Documentation index
+2. **`.github/CI_CD.md`** - Documentation index
    - Complete overview
    - Role-based navigation
    - Architecture diagrams

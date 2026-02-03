@@ -24,7 +24,7 @@ This document describes the consolidated CI/CD pipeline that merges functionalit
 - `.github/workflows/ue5-ci.yml` (496 lines)
 - `.clang-tidy` (UE5-optimized configuration)
 - Documentation: SETUP_GUIDE, QUICK_REFERENCE, SECRETS_TEMPLATE, IMPLEMENTATION_SUMMARY
-- `.github/README.md`, `workflows/README.md`
+- `.github/CI_CD.md`, `workflows/README.md`
 
 #### PR #7: Dual-Runner Support
 **Focus**: Self-hosted + GitHub-hosted with automatic fallback
