@@ -2,7 +2,9 @@
 
 #include "PairedAnimationPreview.h"
 #include "PairedAnimationPreviewConfig.h"
+#include "Subsystems/PairedAnimationAnalysisSubsystem.h"
 #include "Animation/AnimMontage.h"
+#include "Editor.h"
 #include "Animation/DebugSkelMeshComponent.h"
 #include "Animation/AnimNotifies/AnimNotify.h"
 #include "Animation/AnimNotifies/AnimNotifyState.h"
@@ -266,6 +268,9 @@ void SPairedAnimationPreview::UpdateAttackerMesh(USkeletalMesh* Mesh)
 		AttackerMeshComponent->SetSkeletalMesh(Mesh);
 		AttackerMeshComponent->SetForcedLOD(1);
 		Model.bFrameAnalysisCacheDirty = true;
+
+		// PT-11: Sync subsystem context when mesh changes
+		SyncSubsystemContext();
 	}
 }
 
@@ -278,6 +283,9 @@ void SPairedAnimationPreview::UpdateVictimMesh(USkeletalMesh* Mesh)
 		Model.bFrameAnalysisCacheDirty = true;
 		// Re-attach weapons to new skeleton
 		ReattachWeapons();
+
+		// PT-11: Sync subsystem context when mesh changes
+		SyncSubsystemContext();
 	}
 }
 
@@ -783,6 +791,9 @@ void SPairedAnimationPreview::ApplyCharacterConfigs()
 	}
 
 	Model.bFrameAnalysisCacheDirty = true;
+
+	// PT-11: Sync subsystem configuration when character config changes
+	SyncSubsystemConfiguration();
 }
 
 void SPairedAnimationPreview::UpdateCharacterPositions()
@@ -938,6 +949,9 @@ void SPairedAnimationPreview::OnAttackerMontageSelected(const FAssetData& AssetD
 	Model.CurrentTime = 0.0f;
 	Model.bIsPlaying = false;
 	UpdateAnimations(Model.CurrentTime);
+
+	// PT-11: Sync subsystem context when montage changes
+	SyncSubsystemContext();
 }
 
 void SPairedAnimationPreview::OnVictimMontageSelected(const FAssetData& AssetData)
@@ -968,6 +982,9 @@ void SPairedAnimationPreview::OnVictimMontageSelected(const FAssetData& AssetDat
 	Model.CurrentTime = 0.0f;
 	Model.bIsPlaying = false;
 	UpdateAnimations(Model.CurrentTime);
+
+	// PT-11: Sync subsystem context when montage changes
+	SyncSubsystemContext();
 }
 
 void SPairedAnimationPreview::OnAttackerSkeletonSelected(const FAssetData& AssetData)
@@ -2588,6 +2605,79 @@ float SPairedAnimationPreview::FindOptimalSyncTime()
 	return TimingAnalysis.BestSyncTime;
 }
 
+// ============================================================================
+// PT-11: SUBSYSTEM INTEGRATION
+// ============================================================================
+
+UPairedAnimationAnalysisSubsystem* SPairedAnimationPreview::GetAnalysisSubsystem() const
+{
+	if (!GEditor)
+	{
+		return nullptr;
+	}
+	return GEditor->GetEditorSubsystem<UPairedAnimationAnalysisSubsystem>();
+}
+
+bool SPairedAnimationPreview::SyncSubsystemContext()
+{
+	UPairedAnimationAnalysisSubsystem* Subsystem = GetAnalysisSubsystem();
+	if (!Subsystem)
+	{
+		return false;
+	}
+
+	// Setup the subsystem context with our mesh components and montages
+	if (!Subsystem->SetupContext(
+		AttackerMeshComponent,
+		VictimMeshComponent,
+		Model.GetAttackerMontage(),
+		Model.GetVictimMontage()))
+	{
+		return false;
+	}
+
+	// Sync current configuration parameters
+	Subsystem->UpdateContextConfiguration(
+		Model.LockedDistance,
+		Model.AttackerConfig.RotationOffset,
+		Model.VictimConfig.RotationOffset,
+		Model.VictimTimeOffset,
+		Model.ContactThreshold);
+
+	// Sync spatial relationship constraint
+	if (Model.SpatialRelationship != ESpatialRelationship::Inferred)
+	{
+		Subsystem->SetSpatialRelationshipConstraint(Model.SpatialRelationship);
+	}
+
+	return true;
+}
+
+void SPairedAnimationPreview::SyncSubsystemConfiguration()
+{
+	// PT-11: Update just the configuration parameters without full context setup
+	// This is called when configuration changes (distance, rotation) to keep
+	// the subsystem in sync for accurate analysis
+	UPairedAnimationAnalysisSubsystem* Subsystem = GetAnalysisSubsystem();
+	if (!Subsystem || !Subsystem->IsContextValid())
+	{
+		return;
+	}
+
+	Subsystem->UpdateContextConfiguration(
+		Model.LockedDistance,
+		Model.AttackerConfig.RotationOffset,
+		Model.VictimConfig.RotationOffset,
+		Model.VictimTimeOffset,
+		Model.ContactThreshold);
+
+	// Also sync spatial relationship constraint if set
+	if (Model.SpatialRelationship != ESpatialRelationship::Inferred)
+	{
+		Subsystem->SetSpatialRelationshipConstraint(Model.SpatialRelationship);
+	}
+}
+
 FOptimizationResult SPairedAnimationPreview::RunFullOptimization()
 {
 	FOptimizationResult Result;
@@ -2855,39 +2945,37 @@ void SPairedAnimationPreview::OnFindOptimalDistanceClicked()
 		return;
 	}
 
+	// PT-11: Use subsystem for optimization
+	UPairedAnimationAnalysisSubsystem* Subsystem = GetAnalysisSubsystem();
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	// Sync context before optimization
+	if (!SyncSubsystemContext())
+	{
+		return;
+	}
+
 	// Clear caches to ensure fresh evaluation
 	Model.bFrameAnalysisCacheDirty = true;
 	Model.FrameAnalysisCache.Empty();
 
-	// PT-22: Add progress feedback for distance optimization
+	// PT-22: Show progress dialog
 	const int32 Steps = 50;
-	FScopedSlowTask SlowTask(Steps + 1, LOCTEXT("OptimizingDistance", "Finding Optimal Distance..."));
+	FScopedSlowTask SlowTask(1.0f, LOCTEXT("OptimizingDistance", "Finding Optimal Distance..."));
 	SlowTask.MakeDialog(true);
 
-	float BestDistance = Model.LockedDistance;
-	float BestScore = -1.0f;
-	const float ReferenceTime = 0.0f;
+	// Use subsystem's optimization method (PT-11)
 	const float MinDist = 50.0f;
 	const float MaxDist = 400.0f;
+	const float ReferenceTime = 0.0f;
 
-	for (int32 i = 0; i <= Steps; ++i)
-	{
-		if (SlowTask.ShouldCancel())
-		{
-			return; // User cancelled
-		}
-		SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("TestingDistance", "Testing distance {0}..."), FText::AsNumber(i + 1)));
+	FDistanceOptimizationResult Result = Subsystem->FindOptimalDistance(MinDist, MaxDist, Steps, ReferenceTime);
 
-		float d = MinDist + (i * (MaxDist - MinDist) / Steps);
-		float Score = EvaluateConfigurationAtFrame(d, Model.AttackerConfig.RotationOffset, Model.VictimConfig.RotationOffset, ReferenceTime);
-		if (Score > BestScore)
-		{
-			BestScore = Score;
-			BestDistance = d;
-		}
-	}
-
-	Model.LockedDistance = BestDistance;
+	// Apply result to Model
+	Model.LockedDistance = Result.GetOptimalDistance();
 	ApplyCharacterConfigs();
 	UpdateAnimations(Model.CurrentTime);
 	UpdateAnalyticsDisplay();
@@ -2902,94 +2990,45 @@ void SPairedAnimationPreview::OnFindOptimalRotationClicked()
 		return;
 	}
 
+	// PT-11: Use subsystem for optimization
+	UPairedAnimationAnalysisSubsystem* Subsystem = GetAnalysisSubsystem();
+	if (!Subsystem)
+	{
+		return;
+	}
+
+	// Sync context before optimization
+	if (!SyncSubsystemContext())
+	{
+		return;
+	}
+
 	// Clear caches to ensure fresh evaluation
 	Model.bFrameAnalysisCacheDirty = true;
 	Model.FrameAnalysisCache.Empty();
 
-	// PT-22: Add progress feedback for rotation optimization
-	const int32 Steps = 36;
-	const int32 TotalSteps = (Steps + 1) * 2; // Attacker + Victim
-	FScopedSlowTask SlowTask(TotalSteps, LOCTEXT("OptimizingRotation", "Finding Optimal Rotations..."));
+	// PT-22: Show progress dialog
+	FScopedSlowTask SlowTask(2.0f, LOCTEXT("OptimizingRotation", "Finding Optimal Rotations..."));
 	SlowTask.MakeDialog(true);
 
+	const int32 Steps = 36;
 	const float ReferenceTime = 0.0f;
 
-	// Phase 1: Find optimal attacker rotation
+	// Phase 1: Find optimal attacker rotation (PT-11)
+	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase1_AttackerRotation", "Finding optimal attacker rotation..."));
 	{
-		FRotator BestRotation = Model.AttackerConfig.RotationOffset;
-		float BestScore = -1.0f;
-
-		for (int32 i = 0; i <= Steps; ++i)
-		{
-			if (SlowTask.ShouldCancel())
-			{
-				return;
-			}
-			SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("TestingAttackerRot", "Attacker rotation {0}/36..."), FText::AsNumber(i + 1)));
-
-			float Yaw = (i * 360.0f / Steps);
-			FRotator TestRot(0.0f, Yaw, 0.0f);
-			float Score = EvaluateConfigurationAtFrame(Model.LockedDistance, TestRot, Model.VictimConfig.RotationOffset, ReferenceTime);
-			if (Score > BestScore)
-			{
-				BestScore = Score;
-				BestRotation = TestRot;
-			}
-		}
-		Model.AttackerConfig.RotationOffset = BestRotation;
+		FRotationOptimizationResult AttackerResult = Subsystem->FindOptimalRotation(EOptimizationTarget::Attacker, Steps, ReferenceTime);
+		Model.AttackerConfig.RotationOffset = AttackerResult.GetOptimalRotation();
+		// Update subsystem config so victim optimization uses the new attacker rotation
+		SyncSubsystemConfiguration();
 	}
 
-	// Phase 2: Find optimal victim rotation (with updated attacker rotation)
+	// Phase 2: Find optimal victim rotation with updated attacker rotation (PT-11)
+	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase2_VictimRotation", "Finding optimal victim rotation..."));
 	{
-		FRotator BestRotation = Model.VictimConfig.RotationOffset;
-		float BestScore = -1.0f;
-		FSpatialRotationConstraint Constraint = GetRotationConstraintForRelationship();
-
-		if (Constraint.IsConstrained())
-		{
-			float MinYaw = Constraint.GetTargetYaw() - Constraint.GetTolerance();
-			float MaxYaw = Constraint.GetTargetYaw() + Constraint.GetTolerance();
-			float Range = MaxYaw - MinYaw;
-
-			for (int32 i = 0; i <= Steps; ++i)
-			{
-				if (SlowTask.ShouldCancel())
-				{
-					return;
-				}
-				SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("TestingVictimRot", "Victim rotation {0}/36..."), FText::AsNumber(i + 1)));
-
-				float Yaw = MinYaw + (i * Range / Steps);
-				FRotator TestRot(0.0f, Yaw, 0.0f);
-				float Score = EvaluateConfigurationAtFrame(Model.LockedDistance, Model.AttackerConfig.RotationOffset, TestRot, ReferenceTime);
-				if (Score > BestScore)
-				{
-					BestScore = Score;
-					BestRotation = TestRot;
-				}
-			}
-		}
-		else
-		{
-			for (int32 i = 0; i <= Steps; ++i)
-			{
-				if (SlowTask.ShouldCancel())
-				{
-					return;
-				}
-				SlowTask.EnterProgressFrame(1.0f, FText::Format(LOCTEXT("TestingVictimRotUnconstr", "Victim rotation {0}/36..."), FText::AsNumber(i + 1)));
-
-				float Yaw = -180.0f + (i * 360.0f / Steps);
-				FRotator TestRot(0.0f, Yaw, 0.0f);
-				float Score = EvaluateConfigurationAtFrame(Model.LockedDistance, Model.AttackerConfig.RotationOffset, TestRot, ReferenceTime);
-				if (Score > BestScore)
-				{
-					BestScore = Score;
-					BestRotation = TestRot;
-				}
-			}
-		}
-		Model.VictimConfig.RotationOffset = BestRotation;
+		// Subsystem respects the spatial relationship constraint set via SetSpatialRelationshipConstraint
+		FRotationOptimizationResult VictimResult = Subsystem->FindOptimalRotation(EOptimizationTarget::Victim, Steps, ReferenceTime);
+		Model.VictimConfig.RotationOffset = VictimResult.GetOptimalRotation();
 	}
 
 	ApplyCharacterConfigs();

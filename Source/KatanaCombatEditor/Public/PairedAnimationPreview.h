@@ -12,6 +12,7 @@ class USkeletalMesh;
 class UStaticMesh;
 class UDebugSkelMeshComponent;
 class UStaticMeshComponent;
+class UPairedAnimationAnalysisSubsystem;
 class FAdvancedPreviewScene;
 class SSlider;
 class SCheckBox;
@@ -288,6 +289,11 @@ private:
 	// ========================================================================
 	// OPTIMIZATION ENGINE
 	// ========================================================================
+
+	// PT-11: Subsystem integration for optimization
+	UPairedAnimationAnalysisSubsystem* GetAnalysisSubsystem() const;
+	bool SyncSubsystemContext();
+	void SyncSubsystemConfiguration();
 
 	FOptimizationResult RunFullOptimization();
 	float FindOptimalDistance(float MinDist = 50.0f, float MaxDist = 400.0f, int32 Steps = 50);
