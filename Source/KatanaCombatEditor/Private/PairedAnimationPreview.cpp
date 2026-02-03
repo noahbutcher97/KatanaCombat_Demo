@@ -2,6 +2,7 @@
 
 #include "PairedAnimationPreview.h"
 #include "PairedAnimationPreviewConfig.h"
+#include "Views/SPairedAnimPreviewViewport.h"
 #include "Subsystems/PairedAnimationAnalysisSubsystem.h"
 #include "Animation/AnimMontage.h"
 #include "Editor.h"
@@ -74,76 +75,6 @@ static const FNumberFormattingOptions& GetNumberFormat(int32 DecimalPlaces)
 	const int32 ClampedPlaces = FMath::Clamp(DecimalPlaces, 0, 4);
 	return CachedFormats[ClampedPlaces];
 }
-
-// ============================================================================
-// CUSTOM VIEWPORT CLIENT FOR SHARED SCENE
-// ============================================================================
-
-class FPairedPreviewViewportClient : public FEditorViewportClient
-{
-public:
-	FPairedPreviewViewportClient(FAdvancedPreviewScene* InPreviewScene)
-		: FEditorViewportClient(nullptr, InPreviewScene)
-		, PreviewScenePtr(InPreviewScene)
-	{
-		// PT-16: Use centralized config values
-		SetViewLocation(PairedAnimPreviewConfig::Camera::GetInitialLocation());
-		SetViewRotation(PairedAnimPreviewConfig::Camera::GetInitialRotation());
-		SetRealtime(true);
-
-		// Better camera settings
-		SetCameraSpeedSetting(PairedAnimPreviewConfig::Camera::SpeedSetting);
-		EngineShowFlags.SetGrid(true);
-	}
-
-	virtual void Tick(float DeltaSeconds) override
-	{
-		FEditorViewportClient::Tick(DeltaSeconds);
-		if (PreviewScenePtr)
-		{
-			PreviewScenePtr->GetWorld()->Tick(LEVELTICK_All, DeltaSeconds);
-		}
-	}
-
-	void FocusOnPoint(const FVector& Point, float Distance = PairedAnimPreviewConfig::Camera::FocusDistance)
-	{
-		SetViewLocation(Point + FVector(-Distance, 0.0f, Distance * PairedAnimPreviewConfig::Camera::FocusHeightRatio));
-		SetLookAtLocation(Point);
-	}
-
-private:
-	FAdvancedPreviewScene* PreviewScenePtr;
-};
-
-// ============================================================================
-// CUSTOM VIEWPORT WIDGET
-// ============================================================================
-
-class SPairedPreviewViewport : public SEditorViewport
-{
-public:
-	SLATE_BEGIN_ARGS(SPairedPreviewViewport) {}
-		SLATE_ARGUMENT(FAdvancedPreviewScene*, PreviewScene)
-	SLATE_END_ARGS()
-
-	void Construct(const FArguments& InArgs)
-	{
-		PreviewScene = InArgs._PreviewScene;
-		SEditorViewport::Construct(SEditorViewport::FArguments());
-	}
-
-	virtual TSharedRef<FEditorViewportClient> MakeEditorViewportClient() override
-	{
-		ViewportClient = MakeShareable(new FPairedPreviewViewportClient(PreviewScene));
-		return ViewportClient.ToSharedRef();
-	}
-
-	TSharedPtr<FPairedPreviewViewportClient> GetViewportClient() const { return ViewportClient; }
-
-private:
-	FAdvancedPreviewScene* PreviewScene = nullptr;
-	TSharedPtr<FPairedPreviewViewportClient> ViewportClient;
-};
 
 // ============================================================================
 // TAB REGISTRATION
