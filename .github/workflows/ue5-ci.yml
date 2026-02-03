@@ -336,14 +336,14 @@ jobs:
         id: build
         shell: pwsh
         run: |
-          Write-Host "🏗️ Building ${{ env.TARGET }} ${{ env.PLATFORM }} ${{ env.BUILD_CONFIG }}Editor..."
+          Write-Host "🏗️ Building ${{ env.TARGET }} ${{ env.PLATFORM }} ${{ env.BUILD_CONFIG }}..."
           
           $buildBat = "$env:UE_BUILD_BAT"
           $target = "${{ env.TARGET }}"
           $platform = "${{ env.PLATFORM }}"
-          $config = "${{ env.BUILD_CONFIG }}Editor"
+          $config = "${{ env.BUILD_CONFIG }}"
           $uprojectFile = Join-Path $PWD "${{ env.PROJECT_NAME }}.uproject"
-          
+
           & $buildBat $target $platform $config -Project="$uprojectFile" -Progress -NoHotReload
           
           if ($LASTEXITCODE -ne 0) {
