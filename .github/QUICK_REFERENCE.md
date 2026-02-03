@@ -170,6 +170,30 @@ At the end of each workflow run, a summary is generated:
 
 ## 🐛 Troubleshooting
 
+### Self-Hosted Runner Not Picking Up Jobs
+
+**Symptoms:**
+- Workflow shows "Waiting for a runner to pick up this job..."
+- Jobs timeout after 30 minutes
+- Runner appears online in GitHub settings
+
+**Cause:** Missing `ue5` label on your runner
+
+**Quick Fix:**
+```powershell
+cd D:\actions-runner  # Your runner location
+.\svc.cmd stop
+.\svc.cmd uninstall
+.\config.cmd remove --token YOUR_REMOVAL_TOKEN
+.\config.cmd --url https://github.com/noahbutcher97/KatanaCombat_Demo --token YOUR_TOKEN --labels self-hosted,Windows,ue5
+.\svc.cmd install
+.\svc.cmd start
+```
+
+**Verify:** Check Settings → Actions → Runners → Your runner shows labels: `self-hosted`, `Windows`, `ue5`
+
+See [Setup Guide](.github/SETUP_GUIDE.md) for detailed instructions.
+
 ### Build Fails: "Unreal Engine not found"
 
 **Cause:** Runner doesn't have UE5.6 installed or path is wrong

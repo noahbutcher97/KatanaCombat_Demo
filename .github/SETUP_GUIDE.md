@@ -111,9 +111,14 @@ This guide provides step-by-step instructions for setting up the CI/CD pipeline 
    Add-Type -AssemblyName System.IO.Compression.FileSystem ; 
    [System.IO.Compression.ZipFile]::ExtractToDirectory("$PWD/actions-runner-win-x64-2.311.0.zip", "$PWD")
    
-   # Configure the runner
-   ./config.cmd --url https://github.com/noahbutcher97/KatanaCombat_Demo --token YOUR_TOKEN
+   # Configure the runner WITH REQUIRED LABELS
+   # IMPORTANT: The workflow requires the 'ue5' label to match jobs to this runner
+   ./config.cmd --url https://github.com/noahbutcher97/KatanaCombat_Demo --token YOUR_TOKEN --labels self-hosted,Windows,ue5
    ```
+   
+   > **⚠️ CRITICAL:** You **MUST** include the `--labels self-hosted,Windows,ue5` parameter.
+   > The workflow specifically looks for runners with the `ue5` label. Without it, your runner
+   > will not pick up build jobs and they will timeout waiting for a matching runner.
 
 3. **Configure as a Service (Recommended)**
    ```powershell
@@ -132,6 +137,19 @@ This guide provides step-by-step instructions for setting up the CI/CD pipeline 
 1. Return to GitHub repository settings
 2. Navigate to: Settings → Actions → Runners
 3. Verify your runner shows as "Idle" (green)
+4. **IMPORTANT:** Click on your runner name and verify it has these labels:
+   - `self-hosted`
+   - `Windows`
+   - `ue5` ← **This is critical!**
+   
+   If the `ue5` label is missing, you need to reconfigure your runner:
+   ```powershell
+   cd C:\actions-runner
+   ./config.cmd remove --token YOUR_REMOVAL_TOKEN
+   ./config.cmd --url https://github.com/noahbutcher97/KatanaCombat_Demo --token YOUR_TOKEN --labels self-hosted,Windows,ue5
+   ./svc.cmd install
+   ./svc.cmd start
+   ```
 
 ---
 
@@ -368,6 +386,51 @@ Get-PSDrive -PSProvider FileSystem | Where-Object {$_.Used -gt 0} |
 ```
 
 ### Troubleshooting Common Issues
+
+#### Issue: Runner Not Picking Up Workflow Jobs
+
+**Symptoms:**
+- Runner shows as "Idle" (green) in GitHub
+- Workflow jobs show "Waiting for a runner to pick up this job..."
+- Jobs eventually timeout after 30 minutes
+- Detect job runs but build job never starts
+
+**Root Cause:** Missing `ue5` label on runner configuration
+
+**Solution:**
+```powershell
+# 1. Check current labels (via GitHub web UI):
+#    Go to: Repository Settings → Actions → Runners → Click your runner name
+#    Verify labels: Should show 'self-hosted', 'Windows', 'ue5'
+
+# 2. If 'ue5' label is missing, reconfigure the runner:
+cd D:\actions-runner  # Or your runner installation path
+
+# Stop and uninstall service
+./svc.cmd stop
+./svc.cmd uninstall
+
+# Remove configuration
+./config.cmd remove --token YOUR_REMOVAL_TOKEN
+
+# Reconfigure with ALL required labels
+# Get a new token from: https://github.com/noahbutcher97/KatanaCombat_Demo/settings/actions/runners/new
+./config.cmd --url https://github.com/noahbutcher97/KatanaCombat_Demo --token YOUR_NEW_TOKEN --labels self-hosted,Windows,ue5
+
+# Reinstall and restart service
+./svc.cmd install
+./svc.cmd start
+
+# Verify
+./svc.cmd status
+```
+
+**Verification:**
+1. Go to: `Repository Settings → Actions → Runners`
+2. Your runner should show:
+   - Status: Idle (green circle)
+   - Labels: `self-hosted`, `Windows`, `ue5`
+3. Trigger a workflow run to test
 
 #### Issue: Runner Goes Offline
 
