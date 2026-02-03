@@ -3,6 +3,7 @@
 #include "PairedAnimationPreview.h"
 #include "PairedAnimationPreviewConfig.h"
 #include "Views/SPairedAnimPreviewViewport.h"
+#include "Views/SPairedAnimTimelineView.h"
 #include "Subsystems/PairedAnimationAnalysisSubsystem.h"
 #include "Animation/AnimMontage.h"
 #include "Editor.h"
@@ -3733,12 +3734,10 @@ void SPairedAnimationPreview::Tick(const FGeometry& AllottedGeometry, const doub
 	// Always draw visualization
 	DrawDebugVisualization();
 
-	// Update slider position
-	if (TimelineSlider.IsValid() && Model.MaxDuration > Model.MinTime)
+	// PT-11: Update slider position via timeline view
+	if (TimelineView.IsValid())
 	{
-		// Normalize slider value within section range (Model.MinTime to Model.MaxDuration)
-		float Range = Model.MaxDuration - Model.MinTime;
-		TimelineSlider->SetValue((Model.CurrentTime - Model.MinTime) / Range);
+		TimelineView->SyncSliderToModel();
 	}
 }
 
@@ -5337,165 +5336,48 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildPositioningPanel()
 
 TSharedRef<SWidget> SPairedAnimationPreview::BuildTimelineControls()
 {
-	return SNew(SBorder)
-		.BorderImage(FAppStyle::GetBrush("ToolPanel.GroupBorder"))
-		.Padding(4.0f)
+	// PT-11: Use extracted timeline view widget
+	return SNew(SVerticalBox)
+		// Timeline view (slider, playback controls, speed, loop)
+		+ SVerticalBox::Slot()
+		.AutoHeight()
 		[
-			SNew(SVerticalBox)
+			SAssignNew(TimelineView, SPairedAnimTimelineView)
+			.Model(&Model)
+			.OnTimelineValueChanged(this, &SPairedAnimationPreview::OnTimelineValueChanged)
+			.OnPlayPauseClicked(this, &SPairedAnimationPreview::OnPlayPauseClicked)
+			.OnStepForward(this, &SPairedAnimationPreview::OnStepForward)
+			.OnStepBackward(this, &SPairedAnimationPreview::OnStepBackward)
+			.OnStepForwardLarge(this, &SPairedAnimationPreview::OnStepForwardLarge)
+			.OnStepBackwardLarge(this, &SPairedAnimationPreview::OnStepBackwardLarge)
+			.OnResetClicked(this, &SPairedAnimationPreview::OnResetClicked)
+		]
 
-			// Time display
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f)
+		// Victim offset (kept in main widget since it calls RecalculateMaxDuration)
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(4.0f, 2.0f)
+		[
+			SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
 			[
-				SAssignNew(TimeDisplayText, STextBlock)
-				.Text(GetTimeDisplayText())
-				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 11))
+				SNew(STextBlock).Text(LOCTEXT("VictimOffset", "Victim Time Offset"))
 			]
-
-			// Timeline slider
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f)
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			.Padding(4.0f, 0.0f)
 			[
-				SAssignNew(TimelineSlider, SSlider)
-				.Value(0.0f)
-				.OnValueChanged(this, &SPairedAnimationPreview::OnTimelineValueChanged)
-			]
-
-			// Playback controls
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f)
-			[
-				SNew(SHorizontalBox)
-
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("StepBackLarge", "<<"))
-					.ToolTipText(LOCTEXT("StepBackLargeTip", "Step back 0.1s"))
-					.OnClicked_Lambda([this]() { OnStepBackwardLarge(); return FReply::Handled(); })
-				]
-
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("StepBack", "<"))
-					.ToolTipText(LOCTEXT("StepBackTip", "Step back 1 frame"))
-					.OnClicked_Lambda([this]() { OnStepBackward(); return FReply::Handled(); })
-				]
-
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text_Lambda([this]() { return Model.bIsPlaying ? LOCTEXT("Pause", "||") : LOCTEXT("Play", ">"); })
-					.OnClicked_Lambda([this]() { OnPlayPauseClicked(); return FReply::Handled(); })
-				]
-
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("StepFwd", ">"))
-					.ToolTipText(LOCTEXT("StepFwdTip", "Step forward 1 frame"))
-					.OnClicked_Lambda([this]() { OnStepForward(); return FReply::Handled(); })
-				]
-
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("StepFwdLarge", ">>"))
-					.ToolTipText(LOCTEXT("StepFwdLargeTip", "Step forward 0.1s"))
-					.OnClicked_Lambda([this]() { OnStepForwardLarge(); return FReply::Handled(); })
-				]
-
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(2.0f)
-				[
-					SNew(SButton)
-					.Text(LOCTEXT("Reset", "Reset"))
-					.OnClicked_Lambda([this]() { OnResetClicked(); return FReply::Handled(); })
-				]
-
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				[
-					SNullWidget::NullWidget
-				]
-
-				// Speed control
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				.Padding(8.0f, 0.0f, 2.0f, 0.0f)
-				[
-					SNew(STextBlock).Text(LOCTEXT("Speed", "Speed"))
-				]
-
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(2.0f)
-				[
-					SNew(SSpinBox<float>)
-					.MinValue(0.1f)
-					.MaxValue(2.0f)
-					.Value_Lambda([this]() { return Model.PlaybackSpeed; })
-					.OnValueChanged_Lambda([this](float Val) { Model.PlaybackSpeed = Val; })
-					.MinDesiredWidth(60.0f)
-				]
-
-				// Loop toggle
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.Padding(8.0f, 0.0f, 2.0f, 0.0f)
-				[
-					SNew(SCheckBox)
-					.IsChecked_Lambda([this]() { return Model.bLoopPlayback ? ECheckBoxState::Checked : ECheckBoxState::Unchecked; })
-					.OnCheckStateChanged_Lambda([this](ECheckBoxState State) { Model.bLoopPlayback = (State == ECheckBoxState::Checked); })
-					.ToolTipText(LOCTEXT("LoopTip", "Loop playback"))
-					[
-						SNew(STextBlock).Text(LOCTEXT("Loop", "Loop"))
-					]
-				]
-			]
-
-			// Victim offset
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				[
-					SNew(STextBlock).Text(LOCTEXT("VictimOffset", "Victim Time Offset"))
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(4.0f, 0.0f)
-				[
-					SNew(SSpinBox<float>)
-					.MinValue(-2.0f)
-					.MaxValue(2.0f)
-					.Value_Lambda([this]() { return Model.VictimTimeOffset; })
-					.OnValueChanged_Lambda([this](float Val) {
-						Model.VictimTimeOffset = Val;
-						RecalculateMaxDuration();
-						Model.InvalidateFrameAnalysis();
-					})
-				]
+				SNew(SSpinBox<float>)
+				.MinValue(-2.0f)
+				.MaxValue(2.0f)
+				.Value_Lambda([this]() { return Model.VictimTimeOffset; })
+				.OnValueChanged_Lambda([this](float Val) {
+					Model.VictimTimeOffset = Val;
+					RecalculateMaxDuration();
+					Model.InvalidateFrameAnalysis();
+				})
 			]
 		];
 }

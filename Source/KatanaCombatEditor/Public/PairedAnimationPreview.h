@@ -16,6 +16,7 @@ class UPairedAnimationAnalysisSubsystem;
 class FAdvancedPreviewScene;
 class SSlider;
 class SCheckBox;
+class SPairedAnimTimelineView;
 class SExpandableArea;
 class SEditableTextBox;
 class SObjectPropertyEntryBox;
@@ -338,11 +339,12 @@ private:
 	void DrawAxisGrid();
 
 	// ========================================================================
-	// TIMELINE & PLAYBACK
+	// TIMELINE & PLAYBACK (PT-11: Extracted to SPairedAnimTimelineView)
 	// ========================================================================
 
-	TSharedPtr<SSlider> TimelineSlider;
+	TSharedPtr<SPairedAnimTimelineView> TimelineView;
 
+	// Timeline event handlers (delegated from TimelineView)
 	void OnTimelineValueChanged(float NewValue);
 	void OnPlayPauseClicked();
 	void OnStepForward();
