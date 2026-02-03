@@ -145,8 +145,7 @@ Source/KatanaCombat/Public/
 
 | Task | Documentation |
 |------|--------------|
-| **First read** | `docs/SYSTEM_PROMPT.md` (full system context) |
-| Quick reference | `docs/ARCHITECTURE_QUICK.md` |
+| **Quick reference** | `docs/ARCHITECTURE_QUICK.md` (start here for deeper context) |
 | Deep dive | `docs/ARCHITECTURE.md` |
 | Add new attack | `docs/ATTACK_CREATION.md` |
 | API reference | `docs/API_REFERENCE.md` |
@@ -180,7 +179,7 @@ Detailed technical specifications for major systems. Read when working on that s
 **Level 3 - Architecture Docs (`docs/`)**
 Deep dives into component design and API details. Read when understanding or modifying architecture.
 
-**Level 4 - Implementation Plans (`.claude/plans/`)**
+**Level 4 - Implementation Plans (`docs/plans/`)**
 Active development plans with gap tracking. Read when continuing phased implementation work.
 
 | Need | Start Here |
@@ -189,7 +188,7 @@ Active development plans with gap tracking. Read when continuing phased implemen
 | Paired animation spec | `docs/specs/PAIRED_ANIMATION_SPEC.md` |
 | Component architecture | `docs/ARCHITECTURE.md` |
 | API details | `docs/API_REFERENCE.md` |
-| Active plan status | `.claude/plans/synthetic-painting-ritchie.md` |
+| Active plan status | `docs/plans/paired-animation-plan.md` |
 | Troubleshooting | `docs/TROUBLESHOOTING.md` |
 
 ## Common Mistakes to Avoid
@@ -372,7 +371,7 @@ bool IsWithinConstraint(float TestYaw) const { ... }
 ## Claude CLI Best Practices
 
 ### Session Continuity
-- **Plan files persist**: Check `.claude/plans/` for active work from previous sessions
+- **Plan files persist**: Check `docs/plans/` for active work from previous sessions
 - **CLAUDE.md is working memory**: This file provides context loaded automatically for every session
 - **Use specs for detail**: Store detailed specifications in `docs/specs/` to keep CLAUDE.md scannable
 
@@ -405,7 +404,10 @@ Track ongoing work across sessions. This section provides detailed status of all
 
 ### Paired Animation System (Phase 5) - PRIMARY FOCUS
 
-**Overall Status**: Runtime Finisher ~95% complete | Preview Tool ~95% complete | Math Libraries 100% complete
+**Overall Status**: ~50% complete | Foundation laid, significant work remaining
+
+> The Paired Animation System (finishers, counters, parries) is the heart and soul of this project.
+> Math libraries are complete, but core combat flow (parry, counter, finisher chain) needs implementation.
 
 #### Phase 5c: Math & Utility Libraries - COMPLETE (83 functions, 3,128 lines)
 
@@ -417,7 +419,7 @@ Track ongoing work across sessions. This section provides detailed status of all
 | PhysicsIntegrationLibrary | 15 | 610 | Verlet integration, trajectory prediction |
 | PairedAnimationUtilityLibrary | 15 | 499 | Contact points, obstacle validation |
 
-#### Phase 5d: Preview Tool Enhancements - ~95% COMPLETE (5,639+ lines)
+#### Phase 5d: Preview Tool Enhancements - Foundation Complete, Ongoing (6,000+ lines)
 
 | Feature | Status | Description |
 |---------|--------|-------------|
@@ -459,10 +461,30 @@ Track ongoing work across sessions. This section provides detailed status of all
 #### Planned (Not Yet Started)
 | Component | Priority | Blocker |
 |-----------|----------|---------|
+| Parry System | P1 | Core combat flow - needs design |
+| Counter System | P1 | Depends on parry system |
+| Parry → Counter → Finisher Flow | P1 | Full cinematic combat loop |
 | Montage Section Support (Gap 3.3) | P1 | Need `AttackerMontageSection`, `VictimMontageSection` fields |
 | Counter-Specific Fields | P2 | Awaiting parry→counter system design |
 | Parry-Specific Fields | P2 | Awaiting parry→counter system design |
 | AI Attack Token System | P2 | Phase 5b-5 - `UCombatTokenSubsystem` |
+
+#### Editor/Runtime Unification Gap (Needs Further Inquiry)
+
+> **Critical Architecture Issue**: Editor preview tools and runtime systems should use identical logic paths (WYSIWYG principle). Currently they diverge in several areas.
+
+| Gap | Location | Issue |
+|-----|----------|-------|
+| **Schema Parity** | `CombatTypes.h` | `FAttackWarpConfig` (regular attacks) lacks `WarpTargetOffset` that `FPairedWarpConfig` has |
+| **Runtime Parity** | `TargetingComponent.cpp` | `SetupAttackWarp()` ignores offsets; paired animation warps correctly apply them |
+| **Logic Injection** | `WeaponComponent.cpp` | `PerformWeaponTrace` is private; editor cannot simulate hits without duplicating trace math |
+
+**Proposed Solutions** (pending further investigation):
+1. Add `FVector WarpTargetOffset` to `FAttackWarpConfig`
+2. Update `SetupAttackWarp()` to apply offset rotated by target direction
+3. Extract `PerformWeaponTrace` to public static function for shared editor/runtime use
+
+**Goal**: What you see in the editor preview IS what happens at runtime.
 
 #### Key Design Decisions
 1. **SoftAimRange for Finisher Distance**: Intentional. Finisher-specific detection wasn't working. SoftAimRange is proven to work.
@@ -508,7 +530,7 @@ Player Input → CombatComponent::TryExecuteFinisher()
 
 **Documentation**:
 - **Technical Spec**: `docs/specs/PAIRED_ANIMATION_SPEC.md` - Complete system specification
-- **Active Plan**: `.claude/plans/synthetic-painting-ritchie.md` - Implementation plan with gap tracking
+- **Active Plan**: `docs/plans/paired-animation-plan.md` - Implementation plan with gap tracking
 - **Archived Plans**: `docs/plans/archive/` - Previous plan versions with dates
 
 ## Test Suite
