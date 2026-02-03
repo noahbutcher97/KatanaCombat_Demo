@@ -1439,39 +1439,6 @@ void SPairedAnimationPreview::GetSectionTimeRange(UAnimMontage* Montage, FName S
 }
 
 // ============================================================================
-// SOCKET CONFIGURATION
-// ============================================================================
-
-void SPairedAnimationPreview::OnWeaponStartSocketChanged(const FText& NewText, ETextCommit::Type CommitType)
-{
-	Model.AttackerConfig.SetWeaponStartSocket(FName(*NewText.ToString()));
-	Model.InvalidateFrameAnalysis();
-}
-
-void SPairedAnimationPreview::OnWeaponEndSocketChanged(const FText& NewText, ETextCommit::Type CommitType)
-{
-	Model.AttackerConfig.SetWeaponEndSocket(FName(*NewText.ToString()));
-	Model.InvalidateFrameAnalysis();
-}
-
-TArray<FName> SPairedAnimationPreview::GetAvailableSockets(UDebugSkelMeshComponent* Mesh) const
-{
-	TArray<FName> Sockets;
-	if (Mesh && Mesh->GetSkeletalMeshAsset())
-	{
-		const TArray<USkeletalMeshSocket*>& MeshSockets = Mesh->GetSkeletalMeshAsset()->GetActiveSocketList();
-		for (const USkeletalMeshSocket* Socket : MeshSockets)
-		{
-			if (Socket)
-			{
-				Sockets.Add(Socket->SocketName);
-			}
-		}
-	}
-	return Sockets;
-}
-
-// ============================================================================
 // PROCEDURAL ANALYSIS ENGINE
 // ============================================================================
 
@@ -5703,60 +5670,6 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildSettingsPanel()
 		.BodyContent()
 		[
 			SNew(SVerticalBox)
-
-			// Weapon sockets
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f)
-			[
-				SNew(STextBlock)
-				.Text(LOCTEXT("WeaponSockets", "Weapon Sockets"))
-				.Font(FCoreStyle::GetDefaultFontStyle("Bold", 9))
-			]
-
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				[
-					SNew(STextBlock).Text(LOCTEXT("StartSocket", "Start"))
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(4.0f, 0.0f)
-				[
-					SAssignNew(WeaponStartSocketInput, SEditableTextBox)
-					.Text(FText::FromName(Model.AttackerConfig.WeaponStartSocket))
-					.OnTextCommitted(this, &SPairedAnimationPreview::OnWeaponStartSocketChanged)
-					.ToolTipText(LOCTEXT("StartSocketTip", "Socket name for the weapon's base/handle (e.g., 'WeaponStart'). Used for weapon trace visualization and contact detection."))
-				]
-			]
-
-			+ SVerticalBox::Slot()
-			.AutoHeight()
-			.Padding(2.0f)
-			[
-				SNew(SHorizontalBox)
-				+ SHorizontalBox::Slot()
-				.AutoWidth()
-				.VAlign(VAlign_Center)
-				[
-					SNew(STextBlock).Text(LOCTEXT("EndSocket", "End"))
-				]
-				+ SHorizontalBox::Slot()
-				.FillWidth(1.0f)
-				.Padding(4.0f, 0.0f)
-				[
-					SAssignNew(WeaponEndSocketInput, SEditableTextBox)
-					.Text(FText::FromName(Model.AttackerConfig.WeaponEndSocket))
-					.OnTextCommitted(this, &SPairedAnimationPreview::OnWeaponEndSocketChanged)
-					.ToolTipText(LOCTEXT("EndSocketTip", "Socket name for the weapon's tip/end (e.g., 'WeaponEnd'). Used for weapon trace visualization and contact detection."))
-				]
-			]
 
 			// Contact threshold
 			+ SVerticalBox::Slot()

@@ -414,17 +414,6 @@ private:
 	TSharedPtr<SComboBox<TSharedPtr<FName>>> VictimSectionCombo;
 
 	// ========================================================================
-	// SOCKET CONFIGURATION
-	// ========================================================================
-
-	TSharedPtr<SEditableTextBox> WeaponStartSocketInput;
-	TSharedPtr<SEditableTextBox> WeaponEndSocketInput;
-
-	void OnWeaponStartSocketChanged(const FText& NewText, ETextCommit::Type CommitType);
-	void OnWeaponEndSocketChanged(const FText& NewText, ETextCommit::Type CommitType);
-	TArray<FName> GetAvailableSockets(UDebugSkelMeshComponent* Mesh) const;
-
-	// ========================================================================
 	// ORIENTATION PRESETS
 	// ========================================================================
 
