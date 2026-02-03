@@ -2502,109 +2502,6 @@ float SPairedAnimationPreview::EvaluateConfiguration(float Distance, FRotator At
 	return EvaluateConfigurationAtFrame(Distance, AttackerRot, VictimRot, 0.0f);
 }
 
-float SPairedAnimationPreview::FindOptimalDistance(float MinDist, float MaxDist, int32 Steps)
-{
-	float BestDistance = Model.LockedDistance;
-	float BestScore = -1.0f;
-
-	// Evaluate at reference frame (t=0) for Global Paired Orientation.
-	// The starting distance doesn't depend on what frame you're viewing -
-	// it's the setup position before the animation plays.
-	const float ReferenceTime = 0.0f;
-
-	for (int32 i = 0; i <= Steps; ++i)
-	{
-		float d = MinDist + (i * (MaxDist - MinDist) / Steps);
-		float Score = EvaluateConfigurationAtFrame(d, Model.AttackerConfig.RotationOffset, Model.VictimConfig.RotationOffset, ReferenceTime);
-		if (Score > BestScore)
-		{
-			BestScore = Score;
-			BestDistance = d;
-		}
-	}
-
-	return BestDistance;
-}
-
-FRotator SPairedAnimationPreview::FindOptimalAttackerRotation(int32 Steps)
-{
-	FRotator BestRotation = Model.AttackerConfig.RotationOffset;
-	float BestScore = -1.0f;
-
-	// Evaluate at reference frame (t=0) for Global Paired Orientation
-	const float ReferenceTime = 0.0f;
-
-	// Search full 360 degree range
-	for (int32 i = 0; i <= Steps; ++i)
-	{
-		float Yaw = (i * 360.0f / Steps);
-		FRotator TestRot(0.0f, Yaw, 0.0f);
-		float Score = EvaluateConfigurationAtFrame(Model.LockedDistance, TestRot, Model.VictimConfig.RotationOffset, ReferenceTime);
-		if (Score > BestScore)
-		{
-			BestScore = Score;
-			BestRotation = TestRot;
-		}
-	}
-
-	return BestRotation;
-}
-
-FRotator SPairedAnimationPreview::FindOptimalVictimRotation(int32 Steps)
-{
-	FRotator BestRotation = Model.VictimConfig.RotationOffset;
-	float BestScore = -1.0f;
-
-	// Evaluate at reference frame (t=0) for Global Paired Orientation
-	const float ReferenceTime = 0.0f;
-
-	// Get rotation constraint from spatial relationship (PT-2)
-	FSpatialRotationConstraint Constraint = GetRotationConstraintForRelationship();
-
-	if (Constraint.IsConstrained())
-	{
-		// Constrained search: only search within the valid range for this relationship
-		float MinYaw = Constraint.GetTargetYaw() - Constraint.GetTolerance();
-		float MaxYaw = Constraint.GetTargetYaw() + Constraint.GetTolerance();
-		float Range = MaxYaw - MinYaw;
-
-		for (int32 i = 0; i <= Steps; ++i)
-		{
-			float Yaw = MinYaw + (i * Range / Steps);
-			FRotator TestRot(0.0f, Yaw, 0.0f);
-			float Score = EvaluateConfigurationAtFrame(Model.LockedDistance, Model.AttackerConfig.RotationOffset, TestRot, ReferenceTime);
-			if (Score > BestScore)
-			{
-				BestScore = Score;
-				BestRotation = TestRot;
-			}
-		}
-	}
-	else
-	{
-		// Unconstrained search: full 360 degree range
-		for (int32 i = 0; i <= Steps; ++i)
-		{
-			float Yaw = -180.0f + (i * 360.0f / Steps);
-			FRotator TestRot(0.0f, Yaw, 0.0f);
-			float Score = EvaluateConfigurationAtFrame(Model.LockedDistance, Model.AttackerConfig.RotationOffset, TestRot, ReferenceTime);
-			if (Score > BestScore)
-			{
-				BestScore = Score;
-				BestRotation = TestRot;
-			}
-		}
-	}
-
-	return BestRotation;
-}
-
-float SPairedAnimationPreview::FindOptimalSyncTime()
-{
-	RebuildAnalysisCache();
-	return TimingAnalysis.BestSyncTime;
-}
-
 // ============================================================================
 // PT-11: SUBSYSTEM INTEGRATION
 // ============================================================================
@@ -2689,87 +2586,80 @@ FOptimizationResult SPairedAnimationPreview::RunFullOptimization()
 		return Result;
 	}
 
-	// PT-10: Create progress dialog with cancellation support
-	// 5 phases: Spatial inference, Distance, Attacker rotation, Victim rotation, Sync time
-	const float TotalWorkUnits = 5.0f;
-	FScopedSlowTask SlowTask(TotalWorkUnits, LOCTEXT("OptimizingPairedAnimation", "Optimizing Paired Animation..."));
-	SlowTask.MakeDialog(true, false);  // bShowCancelButton=true, bShowProgressDialog=false (it's shown by MakeDialog)
-
-	// Phase 0: Infer spatial relationship if set to Auto-Detect (PT-2)
-	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase0_SpatialRelationship", "Analyzing spatial relationship..."));
-	if (SlowTask.ShouldCancel())
+	// PT-11: Use subsystem for core optimization
+	UPairedAnimationAnalysisSubsystem* Subsystem = GetAnalysisSubsystem();
+	if (!Subsystem)
 	{
-		Result.bWasCancelled = true;
-		Result.Warnings.Add(TEXT("Optimization cancelled by user."));
+		Result.bSuccess = false;
+		Result.Warnings.Add(TEXT("Analysis subsystem not available"));
 		return Result;
-	}
-
-	if (Model.SpatialRelationship == ESpatialRelationship::Inferred || Model.bSpatialInferenceCacheDirty)
-	{
-		FSpatialRelationshipInference Inference = InferSpatialRelationship();
-		Result.Suggestions.Add(FString::Printf(TEXT("Spatial relationship: %s (%.0f%% confidence) - %s"),
-			*GetRelationshipDisplayName(Inference.InferredRelationship),
-			Inference.Confidence * 100.0f,
-			*Inference.ReasoningText));
-	}
-	else
-	{
-		// Report the user-selected relationship
-		Result.Suggestions.Add(FString::Printf(TEXT("Using spatial relationship: %s (user-selected)"),
-			*GetRelationshipDisplayName(Model.SpatialRelationship)));
 	}
 
 	// CRITICAL: Reset to neutral baseline before optimization to ensure deterministic results.
 	// Without this, sequential optimization flip-flops because each phase depends on previous state.
+	// The subsystem operates on context state, so we must reset the Model and sync to subsystem.
 	Model.AttackerConfig.RotationOffset = FRotator::ZeroRotator;
 	Model.VictimConfig.RotationOffset = FRotator::ZeroRotator;
 	Model.LockedDistance = 150.0f;  // Neutral starting distance
 	ApplyCharacterConfigs();
 
-	// Phase 1: Find optimal distance (from neutral rotations)
-	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase1_Distance", "Finding optimal distance (50 samples)..."));
-	if (SlowTask.ShouldCancel())
+	// Sync context to subsystem (mesh components + montages)
+	if (!SyncSubsystemContext())
 	{
-		Result.bWasCancelled = true;
-		Result.Warnings.Add(TEXT("Optimization cancelled by user."));
+		Result.bSuccess = false;
+		Result.Warnings.Add(TEXT("Failed to sync subsystem context"));
 		return Result;
 	}
-	Result.RecommendedDistance = FindOptimalDistance(50.0f, 400.0f, 50);
 
-	// Phase 2: Find optimal attacker rotation at that distance (victim still at 0)
-	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase2_AttackerRotation", "Finding optimal attacker rotation (36 samples)..."));
-	if (SlowTask.ShouldCancel())
+	// Sync configuration (distance, rotations, spatial relationship)
+	SyncSubsystemConfiguration();
+
+	// Run subsystem optimization with progress dialog (handles spatial, distance, rotations)
+	bool bWasCancelled = false;
+	FFullOptimizationResult SubsystemResult = Subsystem->RunFullOptimizationWithProgress(
+		bWasCancelled,
+		50.0f,   // MinDistance
+		400.0f,  // MaxDistance
+		50,      // DistanceSteps
+		36,      // RotationSteps
+		0.0f);   // ReferenceTime
+
+	if (bWasCancelled)
 	{
 		Result.bWasCancelled = true;
 		Result.Warnings.Add(TEXT("Optimization cancelled by user."));
 		return Result;
 	}
+
+	if (!SubsystemResult.IsSuccess())
+	{
+		Result.bSuccess = false;
+		Result.Warnings = SubsystemResult.GetWarnings();
+		return Result;
+	}
+
+	// Map subsystem result to widget result
+	Result.RecommendedDistance = SubsystemResult.GetOptimalDistance();
+	Result.RecommendedAttackerRotation = SubsystemResult.GetOptimalAttackerRotation();
+	Result.RecommendedVictimRotation = SubsystemResult.GetOptimalVictimRotation();
+
+	// Add spatial relationship suggestion from subsystem result
+	const FSpatialRelationshipInference& SpatialInference = SubsystemResult.GetSpatialRelationship();
+	if (SpatialInference.GetConfidence() > 0.0f)
+	{
+		Result.Suggestions.Add(FString::Printf(TEXT("Spatial relationship: %s (%.0f%% confidence) - %s"),
+			*GetRelationshipDisplayName(SpatialInference.GetInferredRelationship()),
+			SpatialInference.GetConfidence() * 100.0f,
+			*SpatialInference.GetReasoningText()));
+	}
+
+	// Apply optimal configuration to Model
 	Model.LockedDistance = Result.RecommendedDistance;
-	ApplyCharacterConfigs();
-	Result.RecommendedAttackerRotation = FindOptimalAttackerRotation(36);
-
-	// Phase 3: Find optimal victim rotation (now with optimal attacker rotation)
-	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase3_VictimRotation", "Finding optimal victim rotation (36 samples)..."));
-	if (SlowTask.ShouldCancel())
-	{
-		Result.bWasCancelled = true;
-		Result.Warnings.Add(TEXT("Optimization cancelled by user."));
-		return Result;
-	}
 	Model.AttackerConfig.RotationOffset = Result.RecommendedAttackerRotation;
-	ApplyCharacterConfigs();
-	Result.RecommendedVictimRotation = FindOptimalVictimRotation(36);
-
-	// Phase 4: Find optimal sync time
-	SlowTask.EnterProgressFrame(1.0f, LOCTEXT("Phase4_SyncTime", "Finding optimal sync time..."));
-	if (SlowTask.ShouldCancel())
-	{
-		Result.bWasCancelled = true;
-		Result.Warnings.Add(TEXT("Optimization cancelled by user."));
-		return Result;
-	}
 	Model.VictimConfig.RotationOffset = Result.RecommendedVictimRotation;
 	ApplyCharacterConfigs();
+
+	// Find optimal sync time (widget-specific - uses local TimingAnalysis)
 	RebuildAnalysisCache();
 	Result.RecommendedSyncTime = TimingAnalysis.BestSyncTime;
 
@@ -2785,7 +2675,11 @@ FOptimizationResult SPairedAnimationPreview::RunFullOptimization()
 	Result.OverallScore = (Result.ContactQuality + Result.AlignmentQuality + Result.TimingQuality) / 3.0f;
 	Result.bSuccess = true;
 
-	// Generate suggestions
+	// Copy warnings/suggestions from subsystem
+	Result.Warnings.Append(SubsystemResult.GetWarnings());
+	Result.Suggestions.Append(SubsystemResult.GetSuggestions());
+
+	// Generate additional widget-specific suggestions
 	if (Result.ContactQuality < 0.5f)
 	{
 		Result.Suggestions.Add(TEXT("Contact confidence is low. Consider adjusting weapon sockets or using different animations."));

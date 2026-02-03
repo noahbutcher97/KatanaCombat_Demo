@@ -296,10 +296,6 @@ private:
 	void SyncSubsystemConfiguration();
 
 	FOptimizationResult RunFullOptimization();
-	float FindOptimalDistance(float MinDist = 50.0f, float MaxDist = 400.0f, int32 Steps = 50);
-	FRotator FindOptimalAttackerRotation(int32 Steps = 36);
-	FRotator FindOptimalVictimRotation(int32 Steps = 36);
-	float FindOptimalSyncTime();
 
 	// Evaluates configuration at a specific frame - used for Global Paired Orientation (t=0)
 	float EvaluateConfigurationAtFrame(float Distance, FRotator AttackerRot, FRotator VictimRot, float Time);
