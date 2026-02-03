@@ -6,18 +6,20 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 
 ---
 
-## Recent Updates (2026-02-02)
+## Recent Updates (2026-02-03)
 
-### v4.0.0 - Paired Animation System (~95% Complete)
+### v4.0.0 - Paired Animation System (Active Development)
 
-**Status**: Comprehensive paired animation system for finishers, counters, and parries
+**Status**: Core infrastructure complete, active refinement ongoing
 
-**Key Features**:
+The **Paired Animation System** is the heart of KatanaCombat - enabling cinematic finishers, counters, and parries that define the combat feel. This system is our primary development focus.
+
+**Foundation Complete**:
 - **Finisher Execution**: `TryExecuteFinisher()` with vulnerability detection (guard break, stun, low health)
 - **Symmetric Warp Tracking**: Both attacker and victim continuously track each other during paired animations
 - **Cinematic Effects**: Slow motion, hitstop, camera shake via `CinematicEffectsUtilityLibrary`
 - **Death Handling**: Flag system prevents double death animations - finisher victim montage IS the death animation
-- **Preview Tool**: Editor tool for paired animation authoring (~5,639 lines) with spatial relationship inference
+- **Preview Tool**: Editor tool for paired animation authoring (~6,000 lines) with spatial relationship inference
 
 **Math & Utility Libraries** (83 functions, 3,128 lines):
 - `SkeletalAnalysisLibrary`: Bone chains, reach envelopes, center of mass
@@ -25,9 +27,13 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 - `SpatialQueryLibrary`: Sphere/box/cone queries, FOV checks
 - `PhysicsIntegrationLibrary`: Trajectory prediction, collision prediction
 
-**Documentation**: See [specs/PAIRED_ANIMATION_SPEC.md](specs/PAIRED_ANIMATION_SPEC.md) for technical specification
+**Active Work**:
+- Parry system implementation
+- Parry → Counter → Finisher combat flow
+- VFX/Audio integration
+- Editor tooling enhancements
 
-**Next Steps**: AnimInstance Integration (Phase 5e), AI Token System (Phase 5b-5)
+**Documentation**: See [specs/PAIRED_ANIMATION_SPEC.md](specs/PAIRED_ANIMATION_SPEC.md) for technical specification
 
 ---
 
@@ -481,16 +487,52 @@ slomo 0.3            // Slow motion for timing verification
 
 ---
 
-## Future Features
+## Roadmap & Priorities
 
-Planned expansions:
-- ~~Finisher system for guard-broken enemies~~ **IMPLEMENTED** (v4.0.0)
-- AI attack token system for coordinated group combat
-- Special attacks with resource management
+The **Paired Animation System** (finishers, counters, parries) is the heart and soul of this project. Our development priorities are structured around completing and polishing this core system.
+
+### Priority 1: Core Combat Flow (Active Development)
+
+**Finisher System Enhancement** (~95% foundation, ongoing refinement)
+- VFX/Audio integration (property slots exist, need wiring)
+- AnimInstance integration for seamless blending
+- Multi-victim finisher support
+- Environmental finisher variants
+
+**Parry System Implementation**
+- Perfect parry detection during enemy windup
+- Parry feedback (visual/audio cues, time dilation)
+- Parry window configuration per attack type
+
+**Parry → Counter → Finisher Flow**
+- Counter window opening on successful parry
+- Counter attack execution with damage multipliers
+- Seamless transition from counter to finisher opportunity
+- Full cinematic combat loop completion
+
+### Priority 2: Tooling & Productivity
+
+**Editor Tool Enhancement**
+- Preview tool refinements (PT-11 refactor ongoing)
+- Bone trajectory visualization improvements
+- Contact point analysis tools
+- Montage authoring workflow improvements
+
+**AI Source Query Integration**
+- UE5 codebase query system integration
+- Workflow automation for common tasks
+- Documentation cross-referencing
+
+### Priority 3: Future Expansions
+
+- AI attack token system for group combat coordination
 - Weapon switching with unique movesets
 - Aerial combat (launchers, air combos)
-- Frame-tight cancels into special moves
 - Network replication (server-authoritative)
+
+---
+
+**Current Status**: See [plans/paired-animation-plan.md](plans/paired-animation-plan.md) for detailed implementation tracking.
 
 ---
 
