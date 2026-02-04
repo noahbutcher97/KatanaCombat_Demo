@@ -8,6 +8,27 @@ A deep, technical combat framework emphasizing responsive attack chains, precisi
 
 ## Recent Updates (2026-02-03)
 
+### 🆕 Comprehensive Project Audit (2026-02-03)
+
+**Status**: Full codebase audit complete - 4 detailed documents created
+
+A comprehensive audit of the entire KatanaCombat project has been completed, comparing current implementation (65% complete) against the Batman Arkham + Assassin's Creed 3 combat vision. The audit provides:
+
+- **Full Analysis**: System-by-system evaluation with ratings and gap identification
+- **Implementation Roadmap**: 3-4 week plan to achieve vision alignment
+- **Action Checklists**: Step-by-step tasks with code examples
+- **Visual Guides**: Dependency graphs, state machines, priority matrices
+
+**Audit Documents**:
+- **[COMPREHENSIVE_AUDIT_2026-02-03.md](COMPREHENSIVE_AUDIT_2026-02-03.md)** (62KB) - Complete 50+ page analysis
+- **[AUDIT_EXECUTIVE_SUMMARY.md](AUDIT_EXECUTIVE_SUMMARY.md)** (13KB) - 15-page quick reference
+- **[AUDIT_ACTION_CHECKLIST.md](AUDIT_ACTION_CHECKLIST.md)** (12KB) - Implementation task list
+- **[AUDIT_VISUAL_ROADMAP.md](AUDIT_VISUAL_ROADMAP.md)** (15KB) - Visual implementation guide
+
+**Key Findings**: Core systems are excellent (95%+), but parry→counter→finisher flow needs wiring. See audit documents for detailed analysis and implementation plan.
+
+---
+
 ### v4.0.0 - Paired Animation System (Active Development ~50%)
 
 **Status**: Foundation laid, significant work remaining
@@ -273,6 +294,10 @@ Combo chains or return to Idle
 
 ### Core Documentation
 - **[README.md](README.md)** (this file) - Project overview
+- **[COMPREHENSIVE_AUDIT_2026-02-03.md](COMPREHENSIVE_AUDIT_2026-02-03.md)** - Complete project audit (50+ pages)
+- **[AUDIT_EXECUTIVE_SUMMARY.md](AUDIT_EXECUTIVE_SUMMARY.md)** - Audit quick reference (15 pages)
+- **[AUDIT_ACTION_CHECKLIST.md](AUDIT_ACTION_CHECKLIST.md)** - Implementation task checklist
+- **[AUDIT_VISUAL_ROADMAP.md](AUDIT_VISUAL_ROADMAP.md)** - Visual implementation guide
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Complete technical deep dive
 - **[ARCHITECTURE_QUICK.md](ARCHITECTURE_QUICK.md)** - Quick reference for developers
 - **[GETTING_STARTED.md](GETTING_STARTED.md)** - Step-by-step setup guide
