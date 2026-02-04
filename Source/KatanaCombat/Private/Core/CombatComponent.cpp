@@ -53,7 +53,8 @@ void UCombatComponent::BeginPlay()
 		CombatSettings = OwnerCharacter->CombatSettings;
 
 		// Bind to montage event delegates for event-driven phase transitions
-		if (UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance())
+		if (USkeletalMeshComponent* OwnerMesh = OwnerCharacter->GetMesh())
+		if (UAnimInstance* AnimInstance = OwnerMesh->GetAnimInstance())
 		{
 			AnimInstance->OnMontageBlendingOut.AddDynamic(this, &UCombatComponent::OnMontageBlendingOut);
 			AnimInstance->OnMontageEnded.AddDynamic(this, &UCombatComponent::OnMontageEnded);
@@ -1161,8 +1162,16 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 	// Get target's combat component for partner tracking
 	UCombatComponent* TargetCombatComp = TargetActor->FindComponentByClass<UCombatComponent>();
 
-	// Mark target as finisher target (prevents stacking) - will rollback if execution fails
-	TargetHitReaction->SetFinisherTarget(true);
+	// Enter paired animation state on victim — suppresses all reactions, marks as finisher
+	// target, and (for lethal finishers) registers the victim montage as the death montage.
+	// This is a single lifecycle call that replaces separate SetFinisherTarget + SetupPendingDeath.
+	// Will rollback via ExitPairedAnimationState if montage execution fails.
+	TargetHitReaction->EnterPairedAnimationState(
+		AttackData->FinisherData->VictimMontage,
+		AttackData->FinisherData->VictimDeathOutcome,
+		AttackData->FinisherData->RagdollBlendTime,
+		AttackData->FinisherData->bIsLethal,
+		GetOwner());  // Pass attacker as partner — their damage passes through
 
 	// Store victim reference for damage application at completion
 	CurrentFinisherVictim = TargetActor;
@@ -1277,33 +1286,8 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 					VictimTargeting->SetupVictimWarp(GetOwner(), AttackData->FinisherData->VictimWarpConfig);
 				}
 
-				// ================================================================
-				// SET UP PENDING DEATH FROM FINISHER (Same Pattern as Normal Death)
-				// ================================================================
-				// For lethal finishers, register the victim montage as the "death montage"
-				// using the same pattern as normal death handling. When the montage
-				// ends/blends-out, OnAnyMontageBlendingOut will apply the outcome.
-				//
-				// This ensures consistent behavior:
-				// - Normal death: Death montage plays → blends out → outcome applied
-				// - Finisher death: Victim montage plays → blends out → outcome applied
-				//
-				// The victim is "dead" the moment damage is applied (during finisher),
-				// but the victim montage continues playing as the death animation.
-				if (AttackData->FinisherData->bIsLethal)
-				{
-					TargetHitReaction->SetupPendingDeathFromFinisher(
-						AttackData->FinisherData->VictimMontage,
-						AttackData->FinisherData->VictimDeathOutcome,
-						AttackData->FinisherData->RagdollBlendTime);
-
-					if (GetDebugDraw())
-					{
-						UE_LOG(LogCombat, Log, TEXT("[FINISHER] Set up pending death: Outcome=%s, BlendTime=%.2f"),
-							*UEnum::GetValueAsString(AttackData->FinisherData->VictimDeathOutcome),
-							AttackData->FinisherData->RagdollBlendTime);
-					}
-				}
+				// NOTE: Pending death state was already set up by EnterPairedAnimationState() above.
+				// No separate SetupPendingDeathFromFinisher call needed.
 
 				if (GetDebugDraw())
 				{
@@ -1326,8 +1310,8 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 			bAttackerMontageSuccess ? TEXT("OK") : TEXT("FAILED"),
 			bVictimMontageSuccess ? TEXT("OK") : TEXT("FAILED"));
 
-		// Clear finisher target flag
-		TargetHitReaction->SetFinisherTarget(false);
+		// Exit paired animation state (clears suppression, finisher target, death handling)
+		TargetHitReaction->ExitPairedAnimationState();
 
 		// Clear victim reference
 		CurrentFinisherVictim.Reset();
@@ -1343,14 +1327,14 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 		EndPairedAnimation();
 
 		// Stop any partial montages
-		if (bAttackerMontageSuccess && AttackerChar)
+		if (bAttackerMontageSuccess && AttackerChar && AttackerChar->GetMesh())
 		{
 			if (UAnimInstance* AnimInst = AttackerChar->GetMesh()->GetAnimInstance())
 			{
 				AnimInst->Montage_Stop(0.1f);
 			}
 		}
-		if (bVictimMontageSuccess && VictimChar)
+		if (bVictimMontageSuccess && VictimChar && VictimChar->GetMesh())
 		{
 			if (UAnimInstance* AnimInst = VictimChar->GetMesh()->GetAnimInstance())
 			{
@@ -1957,7 +1941,7 @@ void UCombatComponent::DeactivateHold()
 			}
 
 			// If no directional follow-up found, blend to idle
-			if (!FollowUpAttack && Character)
+			if (!FollowUpAttack && Character && Character->GetMesh())
 			{
 				UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance();
 				if (AnimInstance)
@@ -2356,6 +2340,19 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		DirectionalInputBuffer.Reset();
 		ClearHoldState();
 
+		// Defensive phase reset on abnormal interrupt (death, stun, paired anim entry).
+		// Normal flow self-corrects via checkpoint notifies, but abnormal interrupts
+		// can leave phase stuck on Active/Windup since no more notifies will fire.
+		if (CurrentPhase != EAttackPhase::None)
+		{
+			if (GetDebugDraw())
+			{
+				UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Interrupted while phase=%s - forcing phase reset to None"),
+					*UEnum::GetValueAsString(CurrentPhase));
+			}
+			SetPhase(EAttackPhase::None);
+		}
+
 		if (GetDebugDraw())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Interrupted - input state reset"));
@@ -2381,6 +2378,7 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		float MontageEndTime = 0.0f;
 		if (ACharacter* Character = Cast<ACharacter>(GetOwner()))
 		{
+			if (Character->GetMesh())
 			if (UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance())
 			{
 				MontageEndTime = AnimInstance->Montage_GetPosition(Montage);
@@ -2850,7 +2848,12 @@ int32 UCombatComponent::GetPendingActionCount() const
 
 float UCombatComponent::GetHoldDuration() const
 {
-	return HoldState.GetHoldDuration(GetWorld()->GetTimeSeconds());
+	const UWorld* World = GetWorld();
+	if (!World)
+	{
+		return 0.0f;
+	}
+	return HoldState.GetHoldDuration(World->GetTimeSeconds());
 }
 
 // ============================================================================
@@ -2971,12 +2974,11 @@ void UCombatComponent::DrawDebugInfo() const
 			150.0f  // Y offset above character
 		);
 
-		// Log checkpoints if they changed
-		static int32 LastCheckpointCount = 0;
-		if (Checkpoints.Num() != LastCheckpointCount)
+		// Log checkpoints if they changed (per-instance tracking, not static)
+		if (Checkpoints.Num() != DebugLastCheckpointCount)
 		{
 			UMontageUtilityLibrary::LogCheckpoints(Checkpoints, TEXT("DEBUG"));
-			LastCheckpointCount = Checkpoints.Num();
+			DebugLastCheckpointCount = Checkpoints.Num();
 		}
 	}
 
@@ -3181,12 +3183,12 @@ UAttackData* UCombatComponent::GetAttackForInput(EInputType InputType)
 	// Kept for backward compatibility, will be removed when LastDirectionalInput fully deprecated
 	if (Result.Path == EResolutionPath::DirectionalFollowUp)
 	{
-		const_cast<UCombatComponent*>(this)->bDirectionalInputConsumed = true;
+		bDirectionalInputConsumed = true;
 	}
 
 	// DEPRECATED: bCurrentAttackIsDirectionalFollowUp flag no longer needed
 	// Keeping for backward compatibility only
-	const_cast<UCombatComponent*>(this)->bCurrentAttackIsDirectionalFollowUp =
+	bCurrentAttackIsDirectionalFollowUp =
 		(Result.Path == EResolutionPath::DirectionalFollowUp);
 
 	return Result.Attack;
@@ -3724,15 +3726,14 @@ void UCombatComponent::CancelPairedAnimation(float BlendOutTime)
 				}
 			}
 
-			// Clear finisher target flag and death handling flag (prevents permanently blocking re-targeting)
+			// Exit paired animation state (clears suppression, finisher target, death handling)
 			if (UHitReactionComponent* PartnerHitReaction = Partner->FindComponentByClass<UHitReactionComponent>())
 			{
-				PartnerHitReaction->SetFinisherTarget(false);
-				PartnerHitReaction->ClearPairedAnimationDeathHandling();
+				PartnerHitReaction->ExitPairedAnimationState();
 
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] Cleared finisher target flag and death handling on %s"),
+					UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] Exited paired animation state on %s"),
 						*Partner->GetName());
 				}
 			}
@@ -3744,6 +3745,7 @@ void UCombatComponent::CancelPairedAnimation(float BlendOutTime)
 	{
 		if (ACharacter* Character = Cast<ACharacter>(Owner))
 		{
+			if (Character->GetMesh())
 			if (UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance())
 			{
 				// Stop montage with blend out
@@ -3851,19 +3853,11 @@ void UCombatComponent::CompletePairedAnimation()
 						HitInfo.Damage, CurrentHealth, MaxHealth);
 				}
 
-				// ================================================================
-				// DEATH HANDLING: Uses Same Pattern as Normal Death
-				// ================================================================
-				// The pending death state was set up in TryExecuteFinisher() via
-				// SetupPendingDeathFromFinisher(). This registered the victim montage
-				// as the "death montage" using the same pattern as normal death.
-				//
-				// When the victim montage ends/blends-out, OnAnyMontageBlendingOut
-				// will detect it and apply the configured outcome (ragdoll/freeze).
-				//
-				// We do NOT stop the montage here - let it play through naturally.
-				// This ensures consistent behavior with normal deaths and prevents
-				// the AnimBP state machine from ever reaching idle.
+				// DEATH HANDLING: Pending death was set up by EnterPairedAnimationState()
+				// in TryExecuteFinisher(). The victim montage is registered as the
+				// "death montage" — when it ends, OnAnyMontageBlendingOut will apply
+				// the outcome (ragdoll/freeze) and call ExitPairedAnimationState().
+				// We do NOT stop the montage here — let it play through naturally.
 				if (GetDebugDraw())
 				{
 					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Death will be handled when victim montage ends (via OnAnyMontageBlendingOut)"));
@@ -3923,14 +3917,16 @@ void UCombatComponent::CompletePairedAnimation()
 				}
 			}
 
-			// Clear finisher target flag
+			// Exit paired animation state if not already exited by death outcome.
+			// For lethal finishers, OnAnyMontageBlendingOut may have already called
+			// ExitPairedAnimationState — this is safe to call again (idempotent clear).
 			if (UHitReactionComponent* PartnerHitReaction = Partner->FindComponentByClass<UHitReactionComponent>())
 			{
-				PartnerHitReaction->SetFinisherTarget(false);
+				PartnerHitReaction->ExitPairedAnimationState();
 
 				if (GetDebugDraw())
 				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Cleared finisher target flag on %s"),
+					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Exited paired animation state on %s"),
 						*Partner->GetName());
 				}
 			}

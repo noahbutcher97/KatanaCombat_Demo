@@ -131,6 +131,7 @@ public:
 
     /**
      * Freeze multiple actors simultaneously (for paired animation hitstop).
+     * Sets CustomTimeDilation to 0.0001f (near-zero, avoids division-by-zero).
      *
      * @param Actors - Array of actors to freeze
      */
@@ -138,10 +139,28 @@ public:
     static void FreezeActors(const TArray<AActor*>& Actors);
 
     /**
-     * Restore multiple actors simultaneously.
+     * Restore multiple actors simultaneously (hardcodes to 1.0f).
+     * Prefer RestoreActorsFromSaved() for overlapping slow-mo scenarios.
      *
      * @param Actors - Array of actors to restore
      */
     UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Time")
     static void RestoreActors(const TArray<AActor*>& Actors);
+
+    /**
+     * Freeze multiple actors and save their pre-freeze time dilations.
+     * Use with RestoreActorsFromSaved() to correctly restore overlapping slow-mo.
+     *
+     * @param Actors - Array of actors to freeze
+     * @return Map of actor -> saved CustomTimeDilation before freeze
+     */
+    static TMap<TWeakObjectPtr<AActor>, float> FreezeActorsWithSave(const TArray<AActor*>& Actors);
+
+    /**
+     * Restore multiple actors to their saved pre-freeze time dilations.
+     * Counterpart to FreezeActorsWithSave().
+     *
+     * @param SavedDilations - Map returned by FreezeActorsWithSave()
+     */
+    static void RestoreActorsFromSaved(const TMap<TWeakObjectPtr<AActor>, float>& SavedDilations);
 };

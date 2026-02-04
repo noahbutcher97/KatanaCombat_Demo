@@ -39,7 +39,7 @@ void UHitReactionComponent::BeginPlay()
     OwnerCharacter = Cast<ACharacter>(GetOwner());
     if (OwnerCharacter)
     {
-        AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
+        AnimInstance = OwnerCharacter->GetMesh() ? OwnerCharacter->GetMesh()->GetAnimInstance() : nullptr;
 
         // Bind to GLOBAL montage blending out delegate
         // This is more reliable than per-montage delegates
@@ -151,6 +151,16 @@ float UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
         return 0.0f;
     }
 
+    // Block non-partner damage during paired animations.
+    // The paired animation partner (attacker) must be able to deal damage
+    // for sync point health tracking. All other sources are blocked.
+    if (bReactionsSuppressed && HitInfo.Attacker != PairedAnimationPartner.Get())
+    {
+        UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s BLOCKED: In paired animation, attacker %s is not the partner"),
+            *OwnerName, *AttackerName);
+        return 0.0f;
+    }
+
     // Check i-frames
     if (IsInIFrames())
     {
@@ -191,6 +201,18 @@ void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
 
     // Use helper for lazy initialization (works in test environments)
     ACharacter* CharOwner = GetOwnerCharacterCached();
+
+    // Paired animation state suppresses all hit reactions.
+    // The victim montage IS the reaction — interrupting it with a hit reaction
+    // would cause OnAnyMontageBlendingOut to fire prematurely, applying the
+    // death outcome (freeze/ragdoll) at the moment of damage instead of at
+    // the end of the animation.
+    if (bReactionsSuppressed)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s PlayHitReaction SUPPRESSED: In paired animation state (damage still applies, reaction skipped)"),
+            CharOwner ? *CharOwner->GetName() : TEXT("Unknown"));
+        return;
+    }
 
     // Check if owner is alive - don't play hit reactions on dead characters
     if (CharOwner && CharOwner->Implements<UDamageableInterface>())
@@ -266,11 +288,17 @@ void UHitReactionComponent::ApplyHitStun(float Duration)
     {
         return;
     }
-    
+
+    // Paired animation state suppresses stun application
+    if (bReactionsSuppressed)
+    {
+        return;
+    }
+
     bIsStunned = true;
     StunTimeRemaining = Duration;
     SetComponentTickEnabled(true);
-    
+
     OnStunBegin.Broadcast(Duration);
 }
 
@@ -280,7 +308,13 @@ void UHitReactionComponent::PlayGuardBrokenReaction()
     {
         return;
     }
-    
+
+    // Paired animation state suppresses guard break reactions
+    if (bReactionsSuppressed)
+    {
+        return;
+    }
+
     AnimInstance->Montage_Play(GuardBrokenMontage);
 }
 
@@ -622,58 +656,56 @@ bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
     // If death was caused by a paired animation (finisher, lethal counter),
     // the victim montage IS the death animation. Don't play another one.
     //
-    // With SetupPendingDeathFromFinisher(), the pending death state is set up
-    // BEFORE damage is applied. The victim montage continues playing as the
-    // death animation, and OnAnyMontageBlendingOut will apply the outcome
-    // when it ends. This uses the SAME pattern as normal death handling.
+    // EnterPairedAnimationState() set up the pending death state BEFORE damage
+    // was applied. The victim montage continues playing as the death animation,
+    // and OnAnyMontageBlendingOut will call ExitPairedAnimationState() and
+    // apply the outcome when it ends.
     // ========================================================================
     if (bDeathHandledByPairedAnimation)
     {
-        // Check if we're using the new pending death pattern (montage still playing)
-        // vs the old immediate pattern (montage already stopped)
         if (bDeathOutcomePending && PendingDeathMontage)
         {
-            // New pattern: The victim montage is still playing as the death animation.
-            // Do NOT apply the outcome now - let the montage continue playing.
-            // OnAnyMontageBlendingOut will catch it when it ends and apply the outcome.
-            UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s PlayDeathReaction: Finisher victim montage is playing as death animation - waiting for blend-out (Montage=%s, Outcome=%s)"),
+            // The victim montage is still playing as the death animation.
+            // Do NOT apply the outcome now — let the montage continue playing.
+            // OnAnyMontageBlendingOut will catch it when it ends and apply the outcome,
+            // then call ExitPairedAnimationState() to clean up all flags.
+            UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s PlayDeathReaction: Victim montage playing as death animation - deferring to blend-out (Montage=%s, Outcome=%s)"),
                 OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
                 PendingDeathMontage ? *PendingDeathMontage->GetName() : TEXT("nullptr"),
                 *UEnum::GetValueAsString(PairedAnimationDeathOutcome));
 
-            // Clear the flag so we don't re-enter this path
+            // Clear only the death routing flag so we don't re-enter this path
+            // (reaction suppression stays active until ExitPairedAnimationState)
             bDeathHandledByPairedAnimation = false;
 
-            // Return true - death is being handled, just not immediately
             return true;
         }
         else
         {
-            // Old pattern fallback: Apply outcome directly (shouldn't happen with new flow)
-            UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s PlayDeathReaction: Death handled by paired animation, applying outcome directly (Outcome=%s, BlendTime=%.2f)"),
+            // Fallback: Montage already stopped or no pending state. Apply outcome directly.
+            UE_LOG(LogTemp, Warning, TEXT("[HitReaction] %s PlayDeathReaction: Paired animation death with no pending montage - applying outcome directly (Outcome=%s, BlendTime=%.2f)"),
                 OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
                 *UEnum::GetValueAsString(PairedAnimationDeathOutcome),
                 PairedAnimationRagdollBlendTime);
 
-            // Clear the flag
-            bDeathHandledByPairedAnimation = false;
+            const EReactionOutcome OutcomeToApply = PairedAnimationDeathOutcome;
+            const float BlendTime = PairedAnimationRagdollBlendTime;
 
-            // Apply the outcome directly (victim montage is already playing/ending)
-            switch (PairedAnimationDeathOutcome)
+            // Clean up all paired animation state
+            ExitPairedAnimationState();
+
+            switch (OutcomeToApply)
             {
                 case EReactionOutcome::Death:
-                    // Freeze at current pose (end of finisher victim animation)
                     FreezeAtCurrentPose();
                     break;
 
                 case EReactionOutcome::Ragdoll:
-                    // Activate ragdoll from current pose
-                    ActivateRagdoll(PairedAnimationRagdollBlendTime);
+                    ActivateRagdoll(BlendTime);
                     break;
 
                 case EReactionOutcome::StandardRecovery:
                 default:
-                    // This shouldn't happen for lethal paired animations, but handle gracefully
                     UE_LOG(LogTemp, Warning, TEXT("[HitReaction] %s StandardRecovery outcome for paired animation death - this is unusual"),
                         OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
                     ActivateRagdoll(0.2f);
@@ -749,19 +781,20 @@ void UHitReactionComponent::OnAnyMontageBlendingOut(UAnimMontage* Montage, bool 
         Montage ? *Montage->GetName() : TEXT("nullptr"),
         bInterrupted ? TEXT("YES") : TEXT("NO"));
 
-    // Clear ALL death-related flags to prevent double application
-    // This is critical: if PlayDeathReaction is called later (after damage is applied),
-    // it must NOT re-apply the outcome. Clearing bDeathHandledByPairedAnimation ensures
-    // PlayDeathReaction will either skip (if already finalized) or fall through to normal path.
-    bDeathOutcomePending = false;
-    PendingDeathMontage = nullptr;
-    bDeathHandledByPairedAnimation = false;  // CRITICAL: Prevents double outcome application
+    // Capture the outcome before ExitPairedAnimationState clears it
+    const EReactionOutcome OutcomeToApply = PendingDeathOutcome;
+    const float RagdollBlendTime = PendingRagdollBlendTime;
+
+    // Exit paired animation state — clears all flags (suppression, finisher target,
+    // death handling, pending state). This prevents double application if
+    // PlayDeathReaction is called later after damage is applied.
+    ExitPairedAnimationState();
 
     UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s Applying death outcome: %s"),
         OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
-        *UEnum::GetValueAsString(PendingDeathOutcome));
+        *UEnum::GetValueAsString(OutcomeToApply));
 
-    switch (PendingDeathOutcome)
+    switch (OutcomeToApply)
     {
         case EReactionOutcome::Death:
             // Freeze animation at current pose - character stays in death pose permanently
@@ -770,7 +803,7 @@ void UHitReactionComponent::OnAnyMontageBlendingOut(UAnimMontage* Montage, bool 
 
         case EReactionOutcome::Ragdoll:
             // Activate ragdoll - physics will take over from current pose
-            ActivateRagdoll(PendingRagdollBlendTime);
+            ActivateRagdoll(RagdollBlendTime);
             break;
 
         case EReactionOutcome::StandardRecovery:
@@ -1103,67 +1136,74 @@ bool UHitReactionComponent::IsGuardBroken() const
     return IDamageableInterface::Execute_IsGuardBroken(CombatChar);
 }
 
-void UHitReactionComponent::SetDeathHandledByPairedAnimation(EReactionOutcome Outcome, float RagdollBlendTime)
-{
-    bDeathHandledByPairedAnimation = true;
-    PairedAnimationDeathOutcome = Outcome;
-    PairedAnimationRagdollBlendTime = RagdollBlendTime;
+// ============================================================================
+// PAIRED ANIMATION VICTIM STATE (Lifecycle API)
+// ============================================================================
 
-    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s SetDeathHandledByPairedAnimation: Outcome=%s, BlendTime=%.2f"),
-        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
-        *UEnum::GetValueAsString(Outcome),
+void UHitReactionComponent::EnterPairedAnimationState(UAnimMontage* VictimMontage, EReactionOutcome DeathOutcome, float RagdollBlendTime, bool bIsLethal, AActor* Partner)
+{
+    const FString OwnerName = OwnerCharacter ? OwnerCharacter->GetName() : TEXT("Unknown");
+
+    // Take exclusive ownership of the reaction pipeline
+    bReactionsSuppressed = true;
+    bIsFinisherTarget = true;
+
+    // Store partner reference for damage filtering
+    // Damage from the partner (attacker) passes through; all other damage is blocked
+    PairedAnimationPartner = Partner;
+
+    if (bIsLethal)
+    {
+        // Register the victim montage as the "death montage" using the same
+        // pattern as normal death handling. When the montage ends/blends-out,
+        // OnAnyMontageBlendingOut will apply the configured outcome.
+        PendingDeathMontage = VictimMontage;
+        PendingDeathOutcome = DeathOutcome;
+        PendingRagdollBlendTime = RagdollBlendTime;
+        bDeathOutcomePending = true;
+
+        // Set the paired animation flag so PlayDeathReaction knows to skip
+        // playing a new animation (the victim montage IS the death animation)
+        bDeathHandledByPairedAnimation = true;
+        PairedAnimationDeathOutcome = DeathOutcome;
+        PairedAnimationRagdollBlendTime = RagdollBlendTime;
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s EnterPairedAnimationState: Lethal=%s, Montage=%s, Outcome=%s, BlendTime=%.2f"),
+        *OwnerName,
+        bIsLethal ? TEXT("YES") : TEXT("NO"),
+        VictimMontage ? *VictimMontage->GetName() : TEXT("nullptr"),
+        *UEnum::GetValueAsString(DeathOutcome),
         RagdollBlendTime);
 }
 
-void UHitReactionComponent::ClearPairedAnimationDeathHandling()
+void UHitReactionComponent::ExitPairedAnimationState()
 {
-    if (bDeathHandledByPairedAnimation || bDeathOutcomePending)
+    // Only log if we were actually in paired animation state
+    if (bReactionsSuppressed || bIsFinisherTarget || bDeathHandledByPairedAnimation)
     {
-        UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s ClearPairedAnimationDeathHandling: Clearing all death flags (PairedFlag=%s, PendingOutcome=%s)"),
+        UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s ExitPairedAnimationState: Releasing reaction pipeline (Suppressed=%s, FinisherTarget=%s, DeathHandled=%s, PendingOutcome=%s)"),
             OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+            bReactionsSuppressed ? TEXT("true") : TEXT("false"),
+            bIsFinisherTarget ? TEXT("true") : TEXT("false"),
             bDeathHandledByPairedAnimation ? TEXT("true") : TEXT("false"),
             bDeathOutcomePending ? TEXT("true") : TEXT("false"));
     }
 
-    // Clear the old immediate-apply flags
+    // Release reaction pipeline ownership
+    bReactionsSuppressed = false;
+    bIsFinisherTarget = false;
+    PairedAnimationPartner.Reset();
+
+    // Clear death handling flags
     bDeathHandledByPairedAnimation = false;
     PairedAnimationDeathOutcome = EReactionOutcome::Ragdoll;
     PairedAnimationRagdollBlendTime = 0.2f;
 
-    // Also clear the new pending death state (for finisher cancellation scenarios)
-    // If a finisher is cancelled before the victim montage ends, we need to
-    // prevent OnAnyMontageBlendingOut from applying the death outcome
+    // Clear pending death state (prevents OnAnyMontageBlendingOut from applying
+    // outcome after a cancelled paired animation)
     bDeathOutcomePending = false;
     PendingDeathMontage = nullptr;
     PendingDeathOutcome = EReactionOutcome::Ragdoll;
     PendingRagdollBlendTime = 0.2f;
-}
-
-void UHitReactionComponent::SetupPendingDeathFromFinisher(UAnimMontage* FinisherVictimMontage, EReactionOutcome Outcome, float RagdollBlendTime)
-{
-    // Use the SAME pattern as normal death handling:
-    // - Register the finisher victim montage as the "death montage"
-    // - Set up pending outcome
-    // - When the montage ends/blends-out, OnAnyMontageBlendingOut will apply the outcome
-    //
-    // This is called at FINISHER START when the victim montage begins.
-    // The victim is considered "dead" when damage is applied (during finisher),
-    // but the finisher victim montage continues as the death animation.
-    // When it ends, the outcome (ragdoll/freeze) is applied automatically.
-
-    PendingDeathMontage = FinisherVictimMontage;
-    PendingDeathOutcome = Outcome;
-    PendingRagdollBlendTime = RagdollBlendTime;
-    bDeathOutcomePending = true;
-
-    // Also set the paired animation flag so PlayDeathReaction knows to skip playing a new animation
-    bDeathHandledByPairedAnimation = true;
-    PairedAnimationDeathOutcome = Outcome;
-    PairedAnimationRagdollBlendTime = RagdollBlendTime;
-
-    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s SetupPendingDeathFromFinisher: Montage=%s, Outcome=%s, BlendTime=%.2f"),
-        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
-        FinisherVictimMontage ? *FinisherVictimMontage->GetName() : TEXT("nullptr"),
-        *UEnum::GetValueAsString(Outcome),
-        RagdollBlendTime);
 }

@@ -268,20 +268,6 @@ public:
     EFinisherTriggerReason GetFinisherTriggerReason() const;
 
     /**
-     * Whether this character is currently the target of an active finisher.
-     * Prevents multiple finishers from targeting the same victim.
-     */
-    UPROPERTY(BlueprintReadOnly, Category = "Hit Reaction|Finisher")
-    bool bIsFinisherTarget = false;
-
-    /**
-     * Mark this character as a finisher target (prevents stacking).
-     * Called when finisher begins, cleared when finisher ends.
-     */
-    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Finisher")
-    void SetFinisherTarget(bool bIsTarget) { bIsFinisherTarget = bIsTarget; }
-
-    /**
      * Check if this character is currently a finisher target.
      * Used for mutex prevention (only one finisher can target at a time).
      */
@@ -295,39 +281,64 @@ public:
     UFUNCTION(BlueprintPure, Category = "Hit Reaction|Finisher")
     bool IsGuardBroken() const;
 
-    /**
-     * Mark that death will be handled by a paired animation (finisher, lethal counter).
-     * When this is set, PlayDeathReaction() will skip playing a new animation and instead
-     * apply the specified outcome directly. The paired animation victim montage IS the death
-     * animation, so we don't want to play another one.
-     *
-     * @param Outcome - What happens after death (Ragdoll or Death/freeze pose)
-     * @param RagdollBlendTime - Blend time for ragdoll transition (only used if Outcome == Ragdoll)
-     */
-    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Finisher")
-    void SetDeathHandledByPairedAnimation(EReactionOutcome Outcome, float RagdollBlendTime = 0.2f);
+    // ============================================================================
+    // PAIRED ANIMATION VICTIM STATE (Lifecycle API)
+    // ============================================================================
+    //
+    // When a character enters a paired animation as the victim (finisher, counter),
+    // the paired animation system takes exclusive ownership of their reaction pipeline.
+    // This prevents hit reactions, stun, and guard-break reactions from interrupting
+    // the victim montage, which would trigger premature death outcomes.
+    //
+    // Usage:
+    //   EnterPairedAnimationState()  - Called at paired animation start
+    //   ExitPairedAnimationState()   - Called at completion, cancel, or death outcome
+    //
+    // While in paired animation state:
+    //   - PlayHitReaction() is suppressed (victim montage IS the reaction)
+    //   - ApplyHitStun() is suppressed (victim is in scripted state)
+    //   - PlayGuardBrokenReaction() is suppressed
+    //   - PlayDeathReaction() routes through paired animation death handling
+    //   - Damage numbers still apply normally (only visual reactions are suppressed)
+    // ============================================================================
 
     /**
-     * Clear paired animation death handling (call if paired animation is cancelled before death).
-     */
-    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Finisher")
-    void ClearPairedAnimationDeathHandling();
-
-    /**
-     * Set up pending death state for a finisher victim montage.
-     * Uses the same pattern as normal death handling - when the montage ends/blends-out,
-     * OnAnyMontageBlendingOut will apply the configured outcome (ragdoll/freeze).
+     * Enter paired animation victim state.
+     * Takes exclusive ownership of the reaction pipeline for the duration of
+     * the paired animation. All hit reactions, stun, and guard-break reactions
+     * are suppressed until ExitPairedAnimationState() is called.
      *
-     * This is called at finisher START (when victim montage begins playing).
-     * The victim is considered "dead" when damage is applied, but the finisher victim
-     * montage continues playing as the death animation until it ends.
+     * For lethal paired animations, also registers the victim montage as the
+     * death montage so OnAnyMontageBlendingOut applies the correct outcome.
      *
-     * @param FinisherVictimMontage - The victim's montage to track (becomes PendingDeathMontage)
-     * @param Outcome - What happens when montage ends (Ragdoll or Death/freeze)
+     * @param VictimMontage - The victim's paired animation montage
+     * @param DeathOutcome - What happens when montage ends (Ragdoll or Death/freeze)
      * @param RagdollBlendTime - Blend time for ragdoll (if Outcome == Ragdoll)
+     * @param bIsLethal - If true, sets up pending death handling for the victim montage
+     * @param Partner - The attacker/partner in the paired animation (damage from this actor passes through)
      */
-    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Finisher")
-    void SetupPendingDeathFromFinisher(UAnimMontage* FinisherVictimMontage, EReactionOutcome Outcome, float RagdollBlendTime = 0.2f);
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Paired Animation")
+    void EnterPairedAnimationState(UAnimMontage* VictimMontage, EReactionOutcome DeathOutcome, float RagdollBlendTime = 0.2f, bool bIsLethal = true, AActor* Partner = nullptr);
+
+    /**
+     * Exit paired animation victim state.
+     * Releases ownership of the reaction pipeline. Clears all paired animation
+     * flags including reaction suppression, finisher target, and death handling.
+     *
+     * Called automatically when:
+     * - Death outcome is applied (OnAnyMontageBlendingOut)
+     * - Paired animation is cancelled (CancelPairedAnimation)
+     * - Paired animation completes (CompletePairedAnimation cleanup)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Paired Animation")
+    void ExitPairedAnimationState();
+
+    /**
+     * Is this character currently in a paired animation as the victim?
+     * When true, all reactions are suppressed - the paired animation owns the pipeline.
+     */
+    UFUNCTION(BlueprintPure, Category = "Hit Reaction|Paired Animation")
+    bool IsInPairedAnimationState() const { return bReactionsSuppressed; }
 
     // ============================================================================
     // EVENTS
@@ -498,13 +509,27 @@ private:
     bool bDeathOutcomePending = false;
 
     // ============================================================================
-    // PAIRED ANIMATION DEATH HANDLING
+    // PAIRED ANIMATION VICTIM STATE (internal flags managed by lifecycle API)
     // ============================================================================
 
     /**
+     * When true, all reactions (hit, stun, guard break) are suppressed.
+     * Set by EnterPairedAnimationState(), cleared by ExitPairedAnimationState().
+     * This is the authoritative flag — all reaction entry points check this.
+     */
+    bool bReactionsSuppressed = false;
+
+    /**
+     * Whether this character is currently the target of an active finisher.
+     * Prevents multiple finishers from targeting the same victim.
+     * Managed by EnterPairedAnimationState() / ExitPairedAnimationState().
+     */
+    bool bIsFinisherTarget = false;
+
+    /**
      * When true, PlayDeathReaction() will skip playing a new animation and instead
-     * apply the stored outcome directly. This is used when the paired animation
-     * (finisher, lethal counter) IS the death animation.
+     * let the victim montage continue as the death animation.
+     * Managed by EnterPairedAnimationState() / ExitPairedAnimationState().
      */
     bool bDeathHandledByPairedAnimation = false;
 
@@ -513,6 +538,14 @@ private:
 
     /** Blend time for ragdoll transition from paired animation */
     float PairedAnimationRagdollBlendTime = 0.2f;
+
+    /**
+     * The partner (attacker) in the paired animation.
+     * Damage from this actor passes through during paired animations;
+     * damage from all other actors is blocked.
+     * Managed by EnterPairedAnimationState() / ExitPairedAnimationState().
+     */
+    TWeakObjectPtr<AActor> PairedAnimationPartner;
 
     /** Blend time for pending ragdoll transition */
     float PendingRagdollBlendTime = 0.2f;

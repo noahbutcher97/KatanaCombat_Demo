@@ -178,7 +178,7 @@ void UCinematicEffectsUtilityLibrary::SetActorTimeDilation(AActor* Actor, float 
         return;
     }
 
-    Actor->CustomTimeDilation = FMath::Max(0.0f, TimeDilation);
+    Actor->CustomTimeDilation = FMath::Max(0.0001f, TimeDilation);
 
     UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Actor %s time dilation set to: %.2f"),
         *Actor->GetName(), Actor->CustomTimeDilation);
@@ -205,7 +205,7 @@ void UCinematicEffectsUtilityLibrary::FreezeActors(const TArray<AActor*>& Actors
     {
         if (Actor)
         {
-            Actor->CustomTimeDilation = 0.0f;
+            Actor->CustomTimeDilation = 0.0001f;
         }
     }
 
@@ -223,4 +223,37 @@ void UCinematicEffectsUtilityLibrary::RestoreActors(const TArray<AActor*>& Actor
     }
 
     UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Restored %d actors"), Actors.Num());
+}
+
+TMap<TWeakObjectPtr<AActor>, float> UCinematicEffectsUtilityLibrary::FreezeActorsWithSave(const TArray<AActor*>& Actors)
+{
+    TMap<TWeakObjectPtr<AActor>, float> SavedDilations;
+    SavedDilations.Reserve(Actors.Num());
+
+    for (AActor* Actor : Actors)
+    {
+        if (Actor)
+        {
+            SavedDilations.Add(Actor, Actor->CustomTimeDilation);
+            Actor->CustomTimeDilation = 0.0001f;
+        }
+    }
+
+    UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Froze %d actors (with save)"), Actors.Num());
+    return SavedDilations;
+}
+
+void UCinematicEffectsUtilityLibrary::RestoreActorsFromSaved(const TMap<TWeakObjectPtr<AActor>, float>& SavedDilations)
+{
+    int32 RestoredCount = 0;
+    for (const auto& Pair : SavedDilations)
+    {
+        if (AActor* Actor = Pair.Key.Get())
+        {
+            Actor->CustomTimeDilation = Pair.Value;
+            RestoredCount++;
+        }
+    }
+
+    UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Restored %d actors from saved dilations"), RestoredCount);
 }

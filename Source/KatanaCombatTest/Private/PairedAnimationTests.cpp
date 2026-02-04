@@ -162,15 +162,15 @@ bool FFinisherTargetMutexTest::RunTest(const FString& Parameters)
 	HitReactionComp->ApplyHitStun(1.0f);
 	TestTrue("Enemy should be vulnerable to finisher", HitReactionComp->IsVulnerableToFinisher());
 
-	// Set as finisher target (simulating first attacker claiming)
-	HitReactionComp->SetFinisherTarget(true);
+	// Enter paired animation state (simulating first attacker claiming)
+	HitReactionComp->EnterPairedAnimationState(nullptr, EReactionOutcome::Ragdoll, 0.2f, false);
 
 	// Now should not be vulnerable (already a finisher target)
 	TestFalse("Enemy already targeted by finisher should not be vulnerable", HitReactionComp->IsVulnerableToFinisher());
 
-	// Clear the flag
-	HitReactionComp->SetFinisherTarget(false);
-	TestTrue("Enemy should be vulnerable again after flag cleared", HitReactionComp->IsVulnerableToFinisher());
+	// Exit paired animation state
+	HitReactionComp->ExitPairedAnimationState();
+	TestTrue("Enemy should be vulnerable again after paired animation state cleared", HitReactionComp->IsVulnerableToFinisher());
 
 	World->DestroyActor(Enemy);
 	FCombatTestHelpers::DestroyTestWorld(World);
@@ -853,8 +853,8 @@ bool FDoubleFinisherPreventionTest::RunTest(const FString& Parameters)
 	EnemyHitReaction->ApplyHitStun(1.0f);
 	TestTrue("Enemy should be vulnerable initially", EnemyHitReaction->IsVulnerableToFinisher());
 
-	// First "finisher" claims the target
-	EnemyHitReaction->SetFinisherTarget(true);
+	// First "finisher" claims the target via paired animation state
+	EnemyHitReaction->EnterPairedAnimationState(nullptr, EReactionOutcome::Ragdoll, 0.2f, false);
 
 	// Second vulnerability check should fail (target already claimed)
 	TestFalse("Enemy should not be vulnerable when already a finisher target", EnemyHitReaction->IsVulnerableToFinisher());

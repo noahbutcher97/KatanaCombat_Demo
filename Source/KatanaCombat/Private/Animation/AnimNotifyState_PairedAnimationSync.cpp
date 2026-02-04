@@ -161,11 +161,17 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
             }
         }
 
+        // Save pre-freeze time dilation for each actor (supports overlapping slow-mo)
+        // This ensures hitstop restores to the actor's PREVIOUS dilation, not hardcoded 1.0f
+        TMap<TWeakObjectPtr<AActor>, float> SavedTimeDilations;
+        SavedTimeDilations.Reserve(ActorsToFreeze.Num());
+
         // Freeze all participants using CustomTimeDilation
         // This is per-actor, so background/particles/other actors continue
         for (AActor* ActorToFreeze : ActorsToFreeze)
         {
-            ActorToFreeze->CustomTimeDilation = 0.0f;
+            SavedTimeDilations.Add(ActorToFreeze, ActorToFreeze->CustomTimeDilation);
+            ActorToFreeze->CustomTimeDilation = 0.0001f;
         }
 
         UE_LOG(LogCombat, Log, TEXT("[HITSTOP] %s: Freezing %d actors for %.3fs at sync point '%s'"),
@@ -181,31 +187,23 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
 
         const double HitstopEndTime = FPlatformTime::Seconds() + static_cast<double>(HitPauseDuration);
 
-        // Convert raw pointers to weak references for safe capture
-        TArray<TWeakObjectPtr<AActor>> WeakActorsToRestore;
-        WeakActorsToRestore.Reserve(ActorsToFreeze.Num());
-        for (AActor* Actor : ActorsToFreeze)
-        {
-            WeakActorsToRestore.Add(Actor);
-        }
-
         // Use FTSTicker (thread-safe ticker) to check platform time each frame
         // Returns true to continue ticking, false to remove the ticker
         FTSTicker::GetCoreTicker().AddTicker(
-            FTickerDelegate::CreateLambda([WeakActorsToRestore, HitstopEndTime](float DeltaTime) -> bool
+            FTickerDelegate::CreateLambda([SavedTimeDilations, HitstopEndTime](float DeltaTime) -> bool
             {
                 // Check if enough REAL time has elapsed (unaffected by any time dilation)
                 if (FPlatformTime::Seconds() >= HitstopEndTime)
                 {
-                    // Restore time dilation for all frozen actors
-                    for (const TWeakObjectPtr<AActor>& WeakActor : WeakActorsToRestore)
+                    // Restore time dilation to pre-freeze values (not hardcoded 1.0f)
+                    for (const auto& Pair : SavedTimeDilations)
                     {
-                        if (AActor* Actor = WeakActor.Get())
+                        if (AActor* Actor = Pair.Key.Get())
                         {
-                            Actor->CustomTimeDilation = 1.0f;
+                            Actor->CustomTimeDilation = Pair.Value;
 
-                            UE_LOG(LogCombat, Verbose, TEXT("[HITSTOP] Restored time dilation for %s"),
-                                *Actor->GetName());
+                            UE_LOG(LogCombat, Verbose, TEXT("[HITSTOP] Restored time dilation for %s to %.4f"),
+                                *Actor->GetName(), Pair.Value);
                         }
                     }
 

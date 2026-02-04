@@ -827,6 +827,9 @@ protected:
 	 */
 	void ClearHoldState();
 
+	/** Debug: Last checkpoint count for DrawDebugInfo (per-instance, not static) */
+	mutable int32 DebugLastCheckpointCount = 0;
+
 	/**
 	 * Setup motion warp for attack based on context
 	 * Uses soft aim assist to find best target in direction - if found, uses translation+rotation warp

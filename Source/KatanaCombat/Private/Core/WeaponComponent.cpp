@@ -355,10 +355,10 @@ bool UWeaponComponent::PlayEquipAnimation()
         return false;
     }
 
-    UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
+    UAnimInstance* AnimInstance = OwnerCharacter->GetMesh() ? OwnerCharacter->GetMesh()->GetAnimInstance() : nullptr;
     if (!AnimInstance)
     {
-        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Cannot play equip animation - no AnimInstance"),
+        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Cannot play equip animation - no AnimInstance or Mesh"),
             *GetNameSafe(GetOwner()));
         return false;
     }
@@ -383,10 +383,10 @@ bool UWeaponComponent::PlayHolsterAnimation()
         return false;
     }
 
-    UAnimInstance* AnimInstance = OwnerCharacter->GetMesh()->GetAnimInstance();
+    UAnimInstance* AnimInstance = OwnerCharacter->GetMesh() ? OwnerCharacter->GetMesh()->GetAnimInstance() : nullptr;
     if (!AnimInstance)
     {
-        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Cannot play holster animation - no AnimInstance"),
+        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Cannot play holster animation - no AnimInstance or Mesh"),
             *GetNameSafe(GetOwner()));
         return false;
     }
