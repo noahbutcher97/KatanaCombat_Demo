@@ -4,7 +4,7 @@
 >
 > This document is kept for historical reference only. For current system context, use:
 > - **`CLAUDE.md`** (project root) - Primary working memory for AI agents
-> - **`docs/ARCHITECTURE.md`** - Full architecture deep dive
+> - **`docs/architecture/ARCHITECTURE.md`** - Full architecture deep dive
 > - **`docs/specs/PAIRED_ANIMATION_SPEC.md`** - Paired animation technical spec
 >
 > Key changes since this document:
@@ -23,7 +23,7 @@
 - **Hybrid Combo System**: Blending responsive (input buffering) and snappy (animation canceling) attack chains
 - **Posture-Based Defense**: Guard meter management with guard breaks, parries, and counter windows
 - **Data-Driven Design**: AttackData assets with montage section support for reusable animations
-- **Animation-Driven Timing**: AnimNotify events control phase transitions, AnimNotifyStates control windows (combo, hold, parry)
+- **Animation-Driven Timing**: `AnimNotify_AttackPhaseTransition` checkpoints implicitly infer attack phases (Windup, Active, Recovery). AnimNotifyStates control overlapping windows (combo, hold, parry).
 - **Component-Based Architecture**: Modular, reusable components for combat, targeting, weapons, and hit reactions
 
 ---
@@ -330,9 +330,9 @@ Each AttackData reads timing from notifies **within its section**, allowing prec
 - **Enums**: `ECombatState`, `EAttackType`, `EAttackPhase`
 - **Structs**: `FHitReactionInfo`, `FAttackPhaseTiming`
 - **Delegates**: `FOnCombatStateChanged`, `FOnPostureChanged`
-- **AnimNotifies (Phases)**: `AnimNotify_AttackPhaseTransition`
-- **AnimNotifies (Windows)**: `AnimNotifyState_ComboWindow`, `AnimNotifyState_HoldWindow`, `AnimNotifyState_ParryWindow`
-- **AnimNotifies (Deprecated)**: `AnimNotifyState_AttackPhase`, `AnimNotify_ToggleHitDetection`
+- **AnimNotifies (Phase Checkpoints)**: `AnimNotify_AttackPhaseTransition` — point notifies that mark phase boundaries; phases are implicitly inferred between checkpoints
+- **AnimNotifies (Windows)**: `AnimNotifyState_ComboWindow`, `AnimNotifyState_HoldWindow`, `AnimNotifyState_ParryWindow` — range notifies for overlapping windows
+- **AnimNotifies (Deprecated)**: `AnimNotifyState_AttackPhase`, `AnimNotify_ToggleHitDetection` — replaced by implicit inference system
 
 ### Code Organization
 ```

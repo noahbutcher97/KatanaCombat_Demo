@@ -86,51 +86,27 @@ AM_LightAttacks Montage:
 
 ### Required Notifies (Minimum)
 
-Every attack needs these 5 notifies:
+Every attack needs these checkpoint notifies. Phases are **implicitly inferred** between checkpoints — no bespoke AnimNotifyState per phase needed:
 
-#### 1. Windup Phase
-```
-AnimNotifyState_AttackPhase
-├─ Start: 0.0s
-├─ End: 0.3s
-└─ Phase: Windup
-```
+#### Phase Checkpoints (AnimNotify_AttackPhaseTransition)
 
-**Purpose**: Startup frames, motion warping active, **parryable**
+Place point notifies at each phase boundary. The system infers each phase's duration from the time between checkpoints.
 
-#### 2. Active Phase
 ```
-AnimNotifyState_AttackPhase
-├─ Start: 0.3s
-├─ End: 0.5s
-└─ Phase: Active
+AnimNotify_AttackPhaseTransition (Windup)    @ 0.0s
+AnimNotify_AttackPhaseTransition (Active)    @ 0.3s   ← Windup was 0.0-0.3s
+AnimNotify_AttackPhaseTransition (Recovery)  @ 0.5s   ← Active was 0.3-0.5s
+[montage ends]                               @ 1.0s   ← Recovery was 0.5-1.0s
 ```
 
-**Purpose**: Damage-dealing frames, hit detection enabled
+**Hit detection** is automatically enabled during Active phase and disabled when it ends — no separate `AnimNotify_ToggleHitDetection` needed.
 
-#### 3. Hit Detection Toggle (Enable)
-```
-AnimNotify_ToggleHitDetection
-├─ Time: 0.3s (Active start)
-└─ bEnable: true
-```
+#### Optional Windows (AnimNotifyStates — still use range notifies)
 
-#### 4. Hit Detection Toggle (Disable)
-```
-AnimNotify_ToggleHitDetection
-├─ Time: 0.5s (Active end)
-└─ bEnable: false
-```
-
-#### 5. Recovery Phase
-```
-AnimNotifyState_AttackPhase
-├─ Start: 0.5s
-├─ End: 1.0s
-└─ Phase: Recovery
-```
-
-**Purpose**: End lag, combo window opens here
+Windows overlap phases and use AnimNotifyStates as before:
+- `AnimNotifyState_ComboWindow` — recovery phase combo input window
+- `AnimNotifyState_HoldWindow` — hold detection window
+- `AnimNotifyState_ParryWindow` — parry detection window (on ATTACKER's montage)
 
 ### Optional Notifies
 
@@ -287,7 +263,7 @@ bUseAnimNotifyTiming: true
 TimingFallbackMode: AutoCalculate
 ```
 
-System reads timing from `AnimNotifyState_AttackPhase` in montage.
+System reads timing from `AnimNotify_AttackPhaseTransition` checkpoints in montage (phases implicitly inferred between checkpoints).
 
 **Option 2: Manual Timing**
 ```

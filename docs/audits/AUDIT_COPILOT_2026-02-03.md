@@ -48,7 +48,7 @@ KatanaCombat has a **solid foundation** with 4-component architecture, robust in
 
 **Strengths**:
 - Clean separation of concerns with event-driven communication
-- FIFO input queue with timestamped press/release matching
+- Last-input-wins (LIFO) queue with timestamped press/release matching
 - Timer-based checkpoints discovered from AnimNotifyStates
 - Comprehensive debugging CVars (`Combat.Debug.*`)
 

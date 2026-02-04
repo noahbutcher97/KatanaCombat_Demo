@@ -11,7 +11,7 @@ Current implementation status and planned features for the combat system.
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Input System | Complete | Timestamped queue with press/release matching |
-| Action Queue | Complete | FIFO execution with snap/responsive/immediate modes |
+| Action Queue | Complete | Last-input-wins execution with snap/responsive/immediate modes |
 | Phase Management | Complete | Event-driven transitions (Windup→Active→Recovery→None) |
 | Combo System | Complete | Light→Light, Light→Heavy, Heavy branching |
 | Hold Mechanics | Complete | Light (ease slowdown), Heavy (charge loop) |

@@ -26,8 +26,8 @@ KatanaCombat is a deep, technical combat system emphasizing:
 
 ### Technical Highlights
 - 🏗️ **Component-Based** - Combat, Targeting, Weapon, HitReaction modules
-- ⚡ **Event-Driven Architecture** - FIFO input queue with dual execution modes
-- 🎬 **Animation-Driven Timing** - AnimNotifyStates control phases and windows
+- ⚡ **Event-Driven Architecture** - Last-input-wins queue with dual execution modes
+- 🎬 **Animation-Driven Timing** - Checkpoint AnimNotifies infer phases, AnimNotifyStates control windows
 - 🔧 **Modular Settings** - Three-tier configuration hierarchy for flexibility
 - 📦 **Production-Ready** - Comprehensive testing, documentation, and CI/CD
 
@@ -218,7 +218,7 @@ When self-hosted runners are unavailable, GitHub-hosted runners execute **compre
 # View status: https://github.com/noahbutcher97/KatanaCombat_Demo/actions
 ```
 
-See [.github/CI_CD.md](.github/CI_CD.md) for comprehensive CI/CD documentation.
+See [.github/README.md](.github/README.md) for comprehensive CI/CD documentation.
 
 ## 🧪 Testing
 
@@ -371,4 +371,4 @@ Special thanks to the UE5 community and action game developers who inspired this
 **Version**: v3.0.0  
 **Last Updated**: 2026-01-31
 
-[View Full Documentation](docs/README.md) | [CI/CD Guide](.github/CI_CD.md) | [API Reference](docs/API_REFERENCE.md)
+[View Full Documentation](docs/README.md) | [CI/CD Guide](.github/README.md) | [API Reference](docs/API_REFERENCE.md)

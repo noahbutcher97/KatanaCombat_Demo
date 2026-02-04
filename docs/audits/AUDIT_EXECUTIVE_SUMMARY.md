@@ -1,6 +1,6 @@
 # KatanaCombat: Executive Audit Summary
 **Date**: February 3, 2026  
-**Full Report**: See `COMPREHENSIVE_AUDIT_2026-02-03.md`
+**Full Report**: See `AUDIT_COPILOT_2026-02-03.md`
 
 ---
 
@@ -455,4 +455,4 @@ KatanaCombat has a **solid foundation** with excellent architecture, comprehensi
 
 ---
 
-**Full detailed audit**: See `COMPREHENSIVE_AUDIT_2026-02-03.md` (50+ pages)
+**Full detailed audit**: See `AUDIT_COPILOT_2026-02-03.md` (50+ pages)

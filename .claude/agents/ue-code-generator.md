@@ -115,7 +115,8 @@ Provide justification for any score below 95%.
 - **Properties**: `bIsAttacking`, `CurrentCombatState`, `MaxPosture`
 - **Delegates**: `FOnCombatStateChanged`, `OnAttackExecuted`
 - **Enums**: `ECombatState`, `EAttackType`
-- **AnimNotifies**: `AnimNotifyState_AttackPhase`, `AnimNotify_ToggleHitDetection`
+- **AnimNotifies (Phase Checkpoints)**: `AnimNotify_AttackPhaseTransition` — phases implicitly inferred between checkpoints
+- **AnimNotifies (Deprecated)**: `AnimNotifyState_AttackPhase`, `AnimNotify_ToggleHitDetection` — do NOT use
 
 # Critical Design Patterns to Enforce
 

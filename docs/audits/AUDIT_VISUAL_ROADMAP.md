@@ -415,8 +415,10 @@ Week 1          Week 2          Week 3          Week 4
 ---
 
 **For detailed implementation instructions, see**:
-- `docs/AUDIT_ACTION_CHECKLIST.md` - Step-by-step tasks
-- `docs/COMPREHENSIVE_AUDIT_2026-02-03.md` - Full analysis
-- `docs/AUDIT_EXECUTIVE_SUMMARY.md` - Quick overview
+- `docs/audits/AUDIT_ACTION_CHECKLIST.md` - Step-by-step tasks
+- `docs/audits/AUDIT_COPILOT_2026-02-03.md` - Copilot full analysis
+- `docs/audits/AUDIT_CLAUDE_2026-02-03.md` - Claude full analysis
+- `docs/audits/AUDIT_SYNTHESIS_2026-02-03.md` - Unified synthesis
+- `docs/audits/AUDIT_EXECUTIVE_SUMMARY.md` - Quick overview
 
 **Last Updated**: 2026-02-03

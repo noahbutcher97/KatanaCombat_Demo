@@ -162,12 +162,12 @@ Phases (Exclusive):
 Properties:
 - Only ONE phase active at a time
 - Sequential progression (no skipping)
-- Defined by AnimNotifyState_AttackPhase in montage
+- Defined by `AnimNotify_AttackPhaseTransition` checkpoints in montage (phases implicitly inferred between checkpoints)
 ```
 
 ### Phase Callbacks
 ```cpp
-// Called by AnimNotifyState_AttackPhase
+// Called by AnimNotify_AttackPhaseTransition (checkpoint-based, phases inferred between checkpoints)
 void UCombatComponent::OnAttackPhaseBegin(EAttackPhase Phase)
 {
     CurrentPhase = Phase;
@@ -1743,8 +1743,8 @@ public:
 
 ### Adding a New Attack
 1. Open montage in Animation Editor
-2. Add AnimNotifyState_AttackPhase (Windup, Active, Recovery)
-3. Add AnimNotify_ToggleHitDetection (Enable/Disable)
+2. Add `AnimNotify_AttackPhaseTransition` checkpoints at phase boundaries (phases inferred implicitly between checkpoints)
+3. Hit detection is automatic during Active phase (no separate notify needed)
 4. Create AttackData asset
 5. Configure damage, posture, timing mode
 6. Link to combo chain via NextComboAttack/HeavyComboAttack
@@ -1929,7 +1929,7 @@ Tests validate all **Critical Design Corrections** from system architecture:
 1. **Hybrid combo system** (responsive + snappy paths)
 2. **Posture-based defense** (guard breaks, parries, counters)
 3. **Data-driven configuration** (AttackData, CombatSettings)
-4. **Animation-driven timing** (AnimNotifyStates control phases)
+4. **Animation-driven timing** (checkpoint AnimNotifies infer phases, AnimNotifyStates control windows)
 5. **Modular components** (4 core components, reusable)
 
 **Design Principles**:

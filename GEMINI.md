@@ -69,7 +69,7 @@ To work efficiently, adopt one of the following "Modes" based on the task.
 | Mode | Focus Area | Relevant Files | Key Mental Model |
 | :--- | :--- | :--- | :--- |
 | **`combat-logic`** | Core Mechanics | `CombatComponent`, `CombatTypes`, `Interfaces` | Focus on State Machine, Input Buffering, and C++ logic flow. |
-| **`animation`** | Visuals & Timing | `AnimInstance`, `AnimNotify`, `Montages` | Focus on `AnimNotifyState_AttackPhase`, blending, and slot management. |
+| **`animation`** | Visuals & Timing | `AnimInstance`, `AnimNotify`, `Montages` | Focus on `AnimNotify_AttackPhaseTransition` checkpoints (implicit phase inference), blending, and slot management. |
 | **`data-assets`** | Content Design | `AttackData`, `CombatSettings` | Focus on properties, UPROPERTY settings, and data validation. |
 | **`testing`** | QA & Stability | `KatanaCombatTest`, `Automation` | Focus on writing assertions, ensuring coverage, and regression testing. |
 | **`full`** | Architecture | All Files | Use for cross-cutting refactors or understanding system dependencies. |
@@ -90,7 +90,7 @@ To work efficiently, adopt one of the following "Modes" based on the task.
 ### B. Creating a New Attack
 1.  **Context:** Switch to `data-assets` and `animation` mode.
 2.  **Asset:** Create `UAttackData` (e.g., `DA_Heavy_Overhead`).
-3.  **Montage:** Setup sections and `AnimNotifyState_AttackPhase`.
+3.  **Montage:** Setup sections and `AnimNotify_AttackPhaseTransition` checkpoints (phases inferred implicitly between checkpoints).
 4.  **Link:** Assign to `CombatComponent` or chain from an existing attack.
 
 ### C. Fixing a Bug (e.g., "Parry not triggering")

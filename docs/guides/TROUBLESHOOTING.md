@@ -204,9 +204,9 @@ void UCombatComponent::OnAttackPhaseEnd(EAttackPhase Phase)
 
 **If not**:
 1. Open attack montage in Animation Editor
-2. Check AnimNotifyState_AttackPhase notifies exist
-3. Verify Phase property is set correctly on each notify
-4. Ensure notifies don't overlap
+2. Check `AnimNotify_AttackPhaseTransition` checkpoint notifies exist at phase boundaries
+3. Verify Phase property is set correctly on each checkpoint (phases inferred implicitly between checkpoints)
+4. Ensure checkpoints are in sequential order (Windup → Active → Recovery)
 5. Check AnimInstance routes callbacks to CombatComponent
 
 ### Combos Not Chaining
@@ -276,7 +276,7 @@ void UCombatComponent::ProcessQueuedCombo()
 - State not transitioning from Attacking to Recovery
 - Timer issue with combo window closure
 
-**Fix**: Ensure Recovery phase AnimNotifyState exists and ends correctly.
+**Fix**: Ensure Recovery phase checkpoint (`AnimNotify_AttackPhaseTransition`) exists and montage ends after recovery completes.
 
 #### Symptom: Combo Resets Too Quickly
 
@@ -374,7 +374,7 @@ void UWeaponComponent::EnableHitDetection()
 2. Add AnimNotify_ToggleHitDetection at start of Active phase (bEnable = true)
 3. Add AnimNotify_ToggleHitDetection at end of Active phase (bEnable = false)
 
-**Alternative**: Use AnimNotifyState_AttackPhase with Phase = Active (automatically enables/disables).
+**Preferred**: Use `AnimNotify_AttackPhaseTransition` checkpoints — hit detection is automatically enabled during Active phase and disabled when it ends (no separate toggle notify needed).
 
 **Check 2: Weapon Sockets Missing**
 ```cpp
@@ -609,8 +609,8 @@ bCanHoldAtEnd = true;  // Must be true for holds
 
 **Fix**:
 1. Open attack montage
-2. Add AnimNotifyState_AttackPhase with Phase = HoldWindow
-3. Place after Active phase ends
+2. Add `AnimNotifyState_HoldWindow` (the dedicated hold window AnimNotifyState)
+3. Place during the appropriate phase (hold window overlaps phases, it's not a phase itself)
 4. Duration ~0.2-0.5s (time to check if button still held)
 
 **Check 4: Button Released Too Early**
@@ -760,9 +760,9 @@ void UAnimNotify_ToggleHitDetection::Notify(USkeletalMeshComponent* MeshComp, UA
 
 **Check 3: AnimNotifyState Overlap**
 
-**Problem**: Multiple AnimNotifyState_AttackPhase overlapping.
+**Problem**: Multiple `AnimNotify_AttackPhaseTransition` checkpoints at the same time, or out of sequential order.
 
-**Symptom**: Phases begin/end in wrong order, state machine confusion.
+**Symptom**: Phases inferred incorrectly, state machine confusion.
 
 **Fix**: Ensure phases don't overlap:
 ```
@@ -1238,8 +1238,8 @@ UE_LOG(LogCombat, Warning, TEXT("Attack executing: %s"),
 - [ ] CombatSettings assigned to CombatComponent?
 - [ ] DefaultLightAttack assigned?
 - [ ] AttackData has AttackMontage assigned?
-- [ ] AttackMontage has AnimNotifyState_AttackPhase notifies?
-- [ ] AnimNotifyStates have correct Phase set (Windup/Active/Recovery)?
+- [ ] AttackMontage has `AnimNotify_AttackPhaseTransition` checkpoint notifies?
+- [ ] Checkpoints have correct Phase set (Windup/Active/Recovery) in sequential order?
 - [ ] Character has AnimInstance?
 - [ ] AnimInstance routes notifies to CombatComponent?
 - [ ] CanAttack() returns true?

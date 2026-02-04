@@ -84,7 +84,7 @@ Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 
 5. **Movement ≠ Attack Input**: Direction sampled ONLY at hold release (context-aware), never continuously from movement stick.
 
-6. **Delegates in CombatTypes.h**: System-wide delegates declared ONCE in CombatTypes.h. Components use `UPROPERTY` only.
+6. **Delegates (Two-Tier Rule)**: Cross-component delegates (used by multiple components or external systems) declared in CombatTypes.h. Component-internal delegates (only meaningful within one component) stay in that component's header. Components use `UPROPERTY` for delegate members.
 
 ## File Structure
 
@@ -92,7 +92,7 @@ Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 Source/KatanaCombat/Public/
 ├── CombatTypes.h              ← ALL enums, structs, system-wide delegates
 ├── Core/
-│   ├── CombatComponent.h      ← Combat state, attack execution, FIFO queue
+│   ├── CombatComponent.h      ← Combat state, attack execution, last-input-wins queue
 │   ├── TargetingComponent.h   ← Soft-lock targeting, aim assist
 │   ├── WeaponComponent.h      ← Hit detection, weapon state
 │   └── HitReactionComponent.h ← Damage reception, hit reactions, death
@@ -145,15 +145,16 @@ Source/KatanaCombat/Public/
 
 | Task | Documentation |
 |------|--------------|
-| **Quick reference** | `docs/ARCHITECTURE_QUICK.md` (start here for deeper context) |
-| Deep dive | `docs/ARCHITECTURE.md` |
-| Add new attack | `docs/ATTACK_CREATION.md` |
-| API reference | `docs/API_REFERENCE.md` |
+| **Quick reference** | `docs/architecture/ARCHITECTURE_QUICK.md` (start here for deeper context) |
+| Deep dive | `docs/architecture/ARCHITECTURE.md` |
+| Add new attack | `docs/guides/ATTACK_CREATION.md` |
+| API reference | `docs/architecture/API_REFERENCE.md` |
 | Paired animation spec | `docs/specs/PAIRED_ANIMATION_SPEC.md` |
-| Debugging | `docs/TROUBLESHOOTING.md` |
-| Change history | `docs/CHANGELOG.md` (bug fixes, feature history) |
-| Future plans | `docs/ROADMAP.md` (planned features, system status) |
+| Debugging | `docs/guides/TROUBLESHOOTING.md` |
+| Change history | `docs/reference/CHANGELOG.md` (bug fixes, feature history) |
+| Future plans | `docs/reference/ROADMAP.md` (planned features, system status) |
 | Implementation plans | `docs/plans/` (active and archived feature plans) |
+| Audit findings | `docs/audits/AUDIT_SYNTHESIS_2026-02-03.md` (unified audit synthesis) |
 
 ### AI Infrastructure Docs (`.claude/`)
 
@@ -176,7 +177,7 @@ Essential rules, patterns, and quick references loaded automatically for every i
 **Level 2 - Specification Files (`docs/specs/`)**
 Detailed technical specifications for major systems. Read when working on that specific system.
 
-**Level 3 - Architecture Docs (`docs/`)**
+**Level 3 - Architecture Docs (`docs/architecture/`)**
 Deep dives into component design and API details. Read when understanding or modifying architecture.
 
 **Level 4 - Implementation Plans (`docs/plans/`)**
@@ -186,10 +187,11 @@ Active development plans with gap tracking. Read when continuing phased implemen
 |------|------------|
 | Quick combat system rules | `CLAUDE.md` (this file) |
 | Paired animation spec | `docs/specs/PAIRED_ANIMATION_SPEC.md` |
-| Component architecture | `docs/ARCHITECTURE.md` |
-| API details | `docs/API_REFERENCE.md` |
-| Active plan status | `docs/plans/paired-animation-plan.md` |
-| Troubleshooting | `docs/TROUBLESHOOTING.md` |
+| Component architecture | `docs/architecture/ARCHITECTURE.md` |
+| API details | `docs/architecture/API_REFERENCE.md` |
+| Active plan status | `docs/plans/gap-tracker.md` |
+| Troubleshooting | `docs/guides/TROUBLESHOOTING.md` |
+| Audit findings | `docs/audits/AUDIT_SYNTHESIS_2026-02-03.md` |
 
 ## Common Mistakes to Avoid
 
@@ -197,7 +199,7 @@ Active development plans with gap tracking. Read when continuing phased implemen
 - Gating input with combo window (input always buffered)
 - Tracking hold duration (check button state at window start)
 - ParryWindow on defender animation (goes on attacker's montage)
-- Declaring delegates in component headers (use CombatTypes.h)
+- Declaring cross-component delegates in component headers (use CombatTypes.h for cross-component delegates; component-internal delegates stay in the component header)
 - Using TArray for cancel inputs (use bitmask)
 - Calling `BlueprintNativeEvent` interface methods directly (use `Execute_` pattern):
   ```cpp
@@ -511,7 +513,7 @@ Player Input → CombatComponent::TryExecuteFinisher()
 | Component | Status | Notes |
 |-----------|--------|-------|
 | 4-Component Architecture | ✅ Stable | Combat, Targeting, Weapon, HitReaction |
-| Input Buffering | ✅ Stable | FIFO queue, input always captured |
+| Input Buffering | ✅ Stable | Last-input-wins queue, input always captured |
 | Combo System | ✅ Stable | ComboWindow-based chaining |
 | Posture/Guard | ✅ Stable | Guard break mechanics NOT yet implemented |
 | Hit Detection | ✅ Stable | Socket-based weapon traces |
@@ -530,7 +532,9 @@ Player Input → CombatComponent::TryExecuteFinisher()
 
 **Documentation**:
 - **Technical Spec**: `docs/specs/PAIRED_ANIMATION_SPEC.md` - Complete system specification
-- **Active Plan**: `docs/plans/paired-animation-plan.md` - Implementation plan with gap tracking
+- **Gap Tracker**: `docs/plans/gap-tracker.md` - 149 gaps tracked across all systems
+- **Combat Polish Plan**: `docs/plans/combat-polish-plan.md` - Normal attack effects (active)
+- **Audit Synthesis**: `docs/audits/AUDIT_SYNTHESIS_2026-02-03.md` - Unified audit findings
 - **Archived Plans**: `docs/plans/archive/` - Previous plan versions with dates
 
 ## Test Suite

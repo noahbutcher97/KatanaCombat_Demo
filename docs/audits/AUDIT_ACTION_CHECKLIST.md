@@ -306,13 +306,14 @@ Copy this to track progress:
 
 ---
 
-## 📚 Reference Documents
+## Reference Documents
 
-- **Full Audit**: `docs/COMPREHENSIVE_AUDIT_2026-02-03.md` (50+ pages)
-- **Summary**: `docs/AUDIT_EXECUTIVE_SUMMARY.md` (15 pages)
-- **Architecture**: `docs/ARCHITECTURE.md`
+- **Unified Synthesis**: `docs/audits/AUDIT_SYNTHESIS_2026-02-03.md` (cross-referenced findings)
+- **Claude Audit**: `docs/audits/AUDIT_CLAUDE_2026-02-03.md` (code-level analysis)
+- **Copilot Audit**: `docs/audits/AUDIT_COPILOT_2026-02-03.md` (system-level analysis)
+- **Architecture**: `docs/architecture/ARCHITECTURE.md`
 - **Best Practices**: `CLAUDE.md`
-- **Troubleshooting**: `docs/TROUBLESHOOTING.md`
+- **Troubleshooting**: `docs/guides/TROUBLESHOOTING.md`
 
 ---
 
@@ -334,7 +335,7 @@ Copy this to track progress:
 → Verify fields in PairedAnimationData are set
 
 **Need Help?**
-→ Check `docs/TROUBLESHOOTING.md` or `docs/COMPREHENSIVE_AUDIT_2026-02-03.md`
+→ Check `docs/guides/TROUBLESHOOTING.md` or `docs/audits/AUDIT_SYNTHESIS_2026-02-03.md`
 
 ---
 

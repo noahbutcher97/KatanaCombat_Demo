@@ -114,7 +114,7 @@ This distinction keeps system-wide events centralized while allowing components 
 ```
 BaseCombatCharacter
 ├── CombatComponent (~800 lines) - Core combat system
-│   ├── Timestamped input queue (FIFO)
+│   ├── Timestamped input queue (last-input-wins)
 │   ├── Action queue with checkpoints
 │   ├── Phase management (via AnimNotify events)
 │   ├── Procedural easing (10 types)
@@ -257,7 +257,7 @@ Source/KatanaCombat/Public/
 ├── CombatTypes.h                    # Enums, structs, DELEGATES
 ├── ActionQueueTypes.h               # Input/action queue structures
 ├── Core/
-│   ├── CombatComponent.h            # Combat state, attack execution, FIFO queue
+│   ├── CombatComponent.h            # Combat state, attack execution, last-input-wins queue
 │   ├── TargetingComponent.h         # Soft-lock targeting, aim assist
 │   ├── WeaponComponent.h            # Hit detection, weapon state
 │   └── HitReactionComponent.h       # Damage reception, hit reactions, death
@@ -386,7 +386,7 @@ KatanaCombat includes a comprehensive **C++ unit test suite** (`KatanaCombatTest
 
 ## Combat System Quick Reference
 
-### Input Queue (FIFO)
+### Input Queue (Last-Input-Wins)
 ```cpp
 struct FInputEvent
 {

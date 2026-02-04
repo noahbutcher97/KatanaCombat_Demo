@@ -153,7 +153,7 @@ If code changes conflict with these principles, flag them for discussion. The vi
 Source/KatanaCombat/Public/
 ├── CombatTypes.h              # ALL enums, structs, system-wide delegates
 ├── Core/
-│   ├── CombatComponent.h      # Combat state, attack execution, FIFO queue (~4000 lines)
+│   ├── CombatComponent.h      # Combat state, attack execution, last-input-wins queue (~4000 lines)
 │   ├── TargetingComponent.h   # Soft-lock targeting, aim assist
 │   ├── WeaponComponent.h      # Hit detection, weapon state
 │   └── HitReactionComponent.h # Damage reception, hit reactions, death
