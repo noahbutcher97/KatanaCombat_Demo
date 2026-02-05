@@ -872,15 +872,12 @@ struct FImpactAudioConfig
 };
 
 // ============================================================================
-// IMPACT VFX CONFIG (Scaffold for U-16)
+// IMPACT VFX CONFIG (U-16)
 // ============================================================================
 
 /**
  * Per-attack impact VFX configuration.
  * Supports Niagara effects with surface alignment and scale options.
- *
- * [SCAFFOLD] - SpawnImpactVFX() not yet implemented. Fields exist for
- * editor configuration; wiring ships with U-16.
  */
 USTRUCT(BlueprintType)
 struct FImpactVFXConfig
@@ -961,7 +958,7 @@ struct FImpactSoundEntry
 
 /**
  * Single VFX entry in an FX pool.
- * [SCAFFOLD] - VFX spawning not wired until U-16.
+ * Pooled VFX allows random selection for visual variety.
  */
 USTRUCT(BlueprintType)
 struct FImpactVFXEntry
@@ -1003,7 +1000,7 @@ struct FImpactFXPool
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
 	TArray<FImpactSoundEntry> ImpactSounds;
 
-	/** Pool of impact VFX (random selection at runtime) [SCAFFOLD] */
+	/** Pool of impact VFX (random selection at runtime) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
 	TArray<FImpactVFXEntry> ImpactVFX;
 

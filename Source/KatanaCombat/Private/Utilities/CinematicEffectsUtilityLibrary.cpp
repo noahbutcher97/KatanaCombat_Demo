@@ -9,6 +9,8 @@
 #include "Kismet/GameplayStatics.h"
 #include "Containers/Ticker.h"
 #include "HAL/PlatformTime.h"
+#include "NiagaraFunctionLibrary.h"
+#include "NiagaraComponent.h"
 #include "KatanaCombat.h"
 #include "Data/CombatFXData.h"
 
@@ -418,7 +420,7 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
 }
 
 // ============================================================================
-// IMPACT VFX (Scaffold for U-16)
+// IMPACT VFX (U-16)
 // ============================================================================
 
 bool UCinematicEffectsUtilityLibrary::SpawnImpactVFX(
@@ -429,10 +431,62 @@ bool UCinematicEffectsUtilityLibrary::SpawnImpactVFX(
     const FVector& ImpactNormal,
     FName BoneName)
 {
-    // SCAFFOLD FOR U-16
-    // TODO: Implement Niagara system spawning with surface alignment
-    // UNiagaraSystem* VFXToSpawn = Config.ImpactVFX ? Config.ImpactVFX : (Config.bUseWeaponFallback ? WeaponFallbackVFX : nullptr);
-    // if (VFXToSpawn) { UNiagaraFunctionLibrary::SpawnSystemAtLocation(...) }
+    if (!World)
+    {
+        UE_LOG(LogCombatFX, Warning, TEXT("[VFX] SpawnImpactVFX failed: null World"));
+        return false;
+    }
+
+    // Resolve which VFX to spawn
+    UNiagaraSystem* VFXToSpawn = Config.ImpactVFX;
+    if (!VFXToSpawn && Config.bUseWeaponFallback)
+    {
+        VFXToSpawn = WeaponFallbackVFX;
+    }
+
+    if (!VFXToSpawn)
+    {
+        // No VFX configured - this is valid, just means no VFX for this attack
+        return false;
+    }
+
+    // Calculate rotation: align to surface normal or use world up
+    FRotator VFXRotation;
+    if (Config.bAlignToSurface && !ImpactNormal.IsNearlyZero())
+    {
+        // Create rotation from surface normal (VFX "up" aligns with normal)
+        VFXRotation = ImpactNormal.Rotation();
+    }
+    else
+    {
+        VFXRotation = FRotator::ZeroRotator;
+    }
+
+    // Spawn the Niagara system
+    UNiagaraComponent* SpawnedVFX = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
+        World,
+        VFXToSpawn,
+        ImpactLocation,
+        VFXRotation,
+        FVector(Config.ScaleMultiplier),  // Scale
+        true,   // bAutoDestroy
+        true,   // bAutoActivate
+        ENCPoolMethod::AutoRelease,
+        true    // bPreCullCheck
+    );
+
+    if (SpawnedVFX)
+    {
+        UE_LOG(LogCombatFX, Verbose, TEXT("[VFX] Impact VFX spawned: %s at %s (scale: %.2f, aligned: %s)"),
+            *VFXToSpawn->GetName(),
+            *ImpactLocation.ToString(),
+            Config.ScaleMultiplier,
+            Config.bAlignToSurface ? TEXT("YES") : TEXT("NO"));
+        return true;
+    }
+
+    UE_LOG(LogCombatFX, Warning, TEXT("[VFX] SpawnImpactVFX failed to spawn Niagara system: %s"),
+        *VFXToSpawn->GetName());
     return false;
 }
 
@@ -447,10 +501,71 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
     bool bWasBlocked,
     FName BoneName)
 {
-    // SCAFFOLD FOR U-16
-    // Same 4-tier resolution as audio, but for VFX.
-    // TODO: Implement when U-16 ships
-    UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] ResolveAndSpawnImpactVFX not yet implemented (U-16)"));
+    if (!World)
+    {
+        UE_LOG(LogCombatFX, Warning, TEXT("[POOL] ResolveAndSpawnImpactVFX failed: null World"));
+        return false;
+    }
+
+    // ================================================================
+    // TIER 1: Per-attack override (AttackData.ImpactVFXConfig.ImpactVFX)
+    // ================================================================
+    if (VFXConfig.ImpactVFX)
+    {
+        UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 1: Per-attack VFX override used (VFX: %s)"),
+            *VFXConfig.ImpactVFX->GetName());
+
+        return SpawnImpactVFX(World, VFXConfig, nullptr, ImpactLocation, ImpactNormal, BoneName);
+    }
+
+    // ================================================================
+    // TIER 2: CombatFXData pool (random from pool)
+    // ================================================================
+    if (CombatFXData)
+    {
+        const FImpactFXPool* Pool = CombatFXData->ResolvePool(AttackType, bWasBlocked);
+        if (Pool && Pool->HasVFX())
+        {
+            const FImpactVFXEntry* Entry = Pool->GetRandomVFX();
+            if (Entry && Entry->IsValid())
+            {
+                // Build config from pool entry
+                FImpactVFXConfig PoolConfig;
+                PoolConfig.ImpactVFX = Entry->VFX;
+                PoolConfig.ScaleMultiplier = Entry->ScaleMultiplier;
+                PoolConfig.bAlignToSurface = Pool->bAlignVFXToSurface;
+                PoolConfig.bUseWeaponFallback = false; // Pool resolved; don't chain
+
+                UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 2: Pool VFX selection (type: %d, selected: %s)"),
+                    static_cast<uint8>(AttackType), *Entry->VFX->GetName());
+
+                return SpawnImpactVFX(World, PoolConfig, nullptr, ImpactLocation, ImpactNormal, BoneName);
+            }
+        }
+    }
+
+    // ================================================================
+    // TIER 3: Weapon fallback
+    // ================================================================
+    if (VFXConfig.bUseWeaponFallback && WeaponFallbackVFX)
+    {
+        FImpactVFXConfig FallbackConfig;
+        FallbackConfig.ImpactVFX = WeaponFallbackVFX;
+        FallbackConfig.ScaleMultiplier = VFXConfig.ScaleMultiplier;
+        FallbackConfig.bAlignToSurface = VFXConfig.bAlignToSurface;
+        FallbackConfig.bUseWeaponFallback = false;
+
+        UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 3: Weapon VFX fallback used (VFX: %s)"),
+            *WeaponFallbackVFX->GetName());
+
+        return SpawnImpactVFX(World, FallbackConfig, nullptr, ImpactLocation, ImpactNormal, BoneName);
+    }
+
+    // ================================================================
+    // TIER 4: Nothing
+    // ================================================================
+    UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 4: No VFX available for attack type %d"),
+        static_cast<uint8>(AttackType));
     return false;
 }
 

@@ -196,14 +196,12 @@ public:
         AActor* Attacker = nullptr);
 
     // ========================================================================
-    // IMPACT VFX (Scaffold for U-16)
+    // IMPACT VFX (U-16)
     // ========================================================================
 
     /**
      * Spawn impact VFX at hit location with surface alignment.
      * Supports per-attack configuration with weapon fallback.
-     *
-     * [NOT YET IMPLEMENTED] - Stub returns false. Ships with U-16.
      *
      * @param World - World context for VFX spawning
      * @param Config - VFX configuration from AttackData
@@ -224,9 +222,7 @@ public:
 
     /**
      * Resolve and spawn impact VFX through 4-tier resolution chain.
-     * New pooled FX system with per-weapon random selection.
-     *
-     * [NOT YET IMPLEMENTED] - Stub returns false. Ships with U-16.
+     * Pooled FX system with per-weapon random selection.
      *
      * Resolution order (first valid wins):
      *   1. AttackData.ImpactVFXConfig.ImpactVFX (per-attack override)

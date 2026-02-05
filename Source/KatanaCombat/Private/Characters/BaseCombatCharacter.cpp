@@ -542,24 +542,40 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         // ============================================================
         // IMPACT AUDIO (Hit Sound) - 4-Tier Resolution
         // ============================================================
+        // Gather FX data once for both audio and VFX
+        const UCombatFXData* FXData = nullptr;
+        USoundBase* WeaponAudioFallback = nullptr;
+        UNiagaraSystem* WeaponVFXFallback = nullptr;
+        if (WeaponComponent && WeaponComponent->WeaponData)
         {
-            USoundBase* WeaponFallback = nullptr;
-            const UCombatFXData* FXData = nullptr;
-            if (WeaponComponent && WeaponComponent->WeaponData)
-            {
-                WeaponFallback = WeaponComponent->WeaponData->HitSound;
-                FXData = WeaponComponent->WeaponData->CombatFXData;
-            }
-            UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
-                GetWorld(),
-                AttackData->ImpactAudioConfig,
-                FXData,
-                AttackData->AttackType,
-                WeaponFallback,
-                HitResult.ImpactPoint,
-                bWasBlocked,
-                this);
+            FXData = WeaponComponent->WeaponData->CombatFXData;
+            WeaponAudioFallback = WeaponComponent->WeaponData->HitSound;
+            WeaponVFXFallback = WeaponComponent->WeaponData->HitVFX;
         }
+
+        UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
+            GetWorld(),
+            AttackData->ImpactAudioConfig,
+            FXData,
+            AttackData->AttackType,
+            WeaponAudioFallback,
+            HitResult.ImpactPoint,
+            bWasBlocked,
+            this);
+
+        // ============================================================
+        // IMPACT VFX (Hit Effect) - 4-Tier Resolution
+        // ============================================================
+        UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
+            GetWorld(),
+            AttackData->ImpactVFXConfig,
+            FXData,
+            AttackData->AttackType,
+            WeaponVFXFallback,
+            HitResult.ImpactPoint,
+            HitResult.ImpactNormal,
+            bWasBlocked,
+            HitInfo.BoneName);
 
         // ============================================================
         // BROADCAST HIT DELEGATE

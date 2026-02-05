@@ -415,3 +415,184 @@ bool FCombatSurfaceTypeEnumTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+
+// ============================================================================
+// IMPACT VFX CONFIG TESTS (U-16)
+// ============================================================================
+
+/**
+ * Test: FImpactVFXConfig defaults are correct.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FImpactVFXConfigDefaultsTest, "KatanaCombat.ImpactFXPool.VFXConfig.DefaultValues", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FImpactVFXConfigDefaultsTest::RunTest(const FString& Parameters)
+{
+	FImpactVFXConfig Config;
+
+	TestTrue("ImpactVFX defaults to nullptr", Config.ImpactVFX == nullptr);
+	TestEqual("ScaleMultiplier defaults to 1.0", Config.ScaleMultiplier, 1.0f);
+	TestTrue("bAlignToSurface defaults to true", Config.bAlignToSurface);
+	TestTrue("bUseWeaponFallback defaults to true", Config.bUseWeaponFallback);
+
+	return true;
+}
+
+/**
+ * Test: FImpactVFXConfig::IsActive returns correct results.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FImpactVFXConfigIsActiveTest, "KatanaCombat.ImpactFXPool.VFXConfig.IsActive", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FImpactVFXConfigIsActiveTest::RunTest(const FString& Parameters)
+{
+	FImpactVFXConfig DefaultConfig;
+	TestTrue("Default config is active (bUseWeaponFallback = true)", DefaultConfig.IsActive());
+
+	FImpactVFXConfig NoFallbackConfig;
+	NoFallbackConfig.bUseWeaponFallback = false;
+	TestFalse("No VFX and no fallback is inactive", NoFallbackConfig.IsActive());
+
+	// Note: Can't test with actual VFX asset without loading one
+
+	return true;
+}
+
+/**
+ * Test: FImpactFXPool::GetRandomVFX returns nullptr for empty pool.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FImpactFXPoolEmptyVFXRandomTest, "KatanaCombat.ImpactFXPool.Pool.GetRandomVFX.EmptyPool", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FImpactFXPoolEmptyVFXRandomTest::RunTest(const FString& Parameters)
+{
+	FImpactFXPool Pool;
+	TestTrue("Empty pool returns nullptr", Pool.GetRandomVFX() == nullptr);
+
+	// Pool with entries but all invalid (null VFX)
+	FImpactFXPool PoolWithNulls;
+	PoolWithNulls.ImpactVFX.Add(FImpactVFXEntry());
+	PoolWithNulls.ImpactVFX.Add(FImpactVFXEntry());
+	TestTrue("Pool with only null entries returns nullptr", PoolWithNulls.GetRandomVFX() == nullptr);
+
+	return true;
+}
+
+// ============================================================================
+// VFX RESOLUTION CHAIN TESTS (U-16)
+// ============================================================================
+
+/**
+ * Test: ResolveAndSpawnImpactVFX handles null world safely.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVFXResolutionNullSafetyTest, "KatanaCombat.ImpactFXPool.VFX.Resolution.NullSafety", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FVFXResolutionNullSafetyTest::RunTest(const FString& Parameters)
+{
+	FImpactVFXConfig Config;
+	Config.bUseWeaponFallback = false;
+
+	// Null world should return false
+	bool Result = UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
+		nullptr, Config, nullptr, EAttackType::Light, nullptr,
+		FVector::ZeroVector, FVector::UpVector, false, NAME_None);
+	TestFalse("Null world returns false", Result);
+
+	return true;
+}
+
+/**
+ * Test: ResolveAndSpawnImpactVFX with null CombatFXData falls through correctly.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVFXResolutionNullFXDataTest, "KatanaCombat.ImpactFXPool.VFX.Resolution.NullCombatFXData", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FVFXResolutionNullFXDataTest::RunTest(const FString& Parameters)
+{
+	FImpactVFXConfig Config;
+	Config.bUseWeaponFallback = false; // No fallback, no per-attack VFX
+
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	if (World)
+	{
+		// No per-attack VFX, no CombatFXData, no weapon fallback = nothing (Tier 4)
+		bool Result = UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
+			World, Config, nullptr, EAttackType::Light, nullptr,
+			FVector::ZeroVector, FVector::UpVector, false, NAME_None);
+		TestFalse("No VFX sources returns false", Result);
+
+		FCombatTestHelpers::DestroyTestWorld(World);
+	}
+
+	return true;
+}
+
+/**
+ * Test: SpawnImpactVFX handles null world safely.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSpawnImpactVFXNullWorldTest, "KatanaCombat.ImpactFXPool.VFX.SpawnImpactVFX.NullWorld", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSpawnImpactVFXNullWorldTest::RunTest(const FString& Parameters)
+{
+	FImpactVFXConfig Config;
+
+	bool Result = UCinematicEffectsUtilityLibrary::SpawnImpactVFX(
+		nullptr, Config, nullptr, FVector::ZeroVector, FVector::UpVector, NAME_None);
+	TestFalse("Null world returns false", Result);
+
+	return true;
+}
+
+/**
+ * Test: SpawnImpactVFX with no VFX configured returns false gracefully.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSpawnImpactVFXNoVFXTest, "KatanaCombat.ImpactFXPool.VFX.SpawnImpactVFX.NoVFX", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSpawnImpactVFXNoVFXTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	if (World)
+	{
+		FImpactVFXConfig Config;
+		Config.bUseWeaponFallback = false; // No VFX, no fallback
+
+		bool Result = UCinematicEffectsUtilityLibrary::SpawnImpactVFX(
+			World, Config, nullptr, FVector::ZeroVector, FVector::UpVector, NAME_None);
+		TestFalse("No VFX configured returns false", Result);
+
+		FCombatTestHelpers::DestroyTestWorld(World);
+	}
+
+	return true;
+}
+
+// ============================================================================
+// WEAPON DATA VFX INTEGRATION TESTS (U-16)
+// ============================================================================
+
+/**
+ * Test: UWeaponData has HitVFX field.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWeaponDataHasHitVFXTest, "KatanaCombat.ImpactFXPool.WeaponData.HasHitVFXField", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FWeaponDataHasHitVFXTest::RunTest(const FString& Parameters)
+{
+	// Verify via reflection that HitVFX property exists
+	UClass* WeaponClass = UWeaponData::StaticClass();
+	FProperty* HitVFXProp = WeaponClass->FindPropertyByName(FName("HitVFX"));
+	TestNotNull("HitVFX property exists via reflection", HitVFXProp);
+
+	return true;
+}
+
+/**
+ * Test: UWeaponData HitVFX defaults to nullptr.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FWeaponDataHitVFXDefaultsTest, "KatanaCombat.ImpactFXPool.WeaponData.HitVFXDefaultsToNull", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FWeaponDataHitVFXDefaultsTest::RunTest(const FString& Parameters)
+{
+	UWeaponData* Weapon = NewObject<UWeaponData>();
+	TestNotNull("WeaponData created", Weapon);
+	if (!Weapon) return false;
+
+	TestTrue("HitVFX defaults to nullptr", Weapon->HitVFX == nullptr);
+
+	return true;
+}

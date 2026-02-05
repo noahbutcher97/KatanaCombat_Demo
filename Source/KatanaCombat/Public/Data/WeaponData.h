@@ -11,6 +11,7 @@ class UAnimMontage;
 class UAttackConfiguration;
 class USoundBase;
 class UCombatFXData;
+class UNiagaraSystem;
 
 /**
  * Defines a weapon's visual, combat, and configuration properties
@@ -188,9 +189,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
     TObjectPtr<UCombatFXData> CombatFXData;
 
-    // TODO: Uncomment when VFX system ships (U-16)
-    // UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
-    // TObjectPtr<UNiagaraSystem> HitVFX;
+    /** Default hit VFX for this weapon (fallback when AttackData has no VFX) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
+    TObjectPtr<UNiagaraSystem> HitVFX;
 
     // TODO: Uncomment when weapon swing/trail system ships
     // UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
