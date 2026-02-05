@@ -289,6 +289,11 @@ public:
      * @param Target - Character to damage
      * @param Attacker - Actor dealing the damage
      * @return True if character died
+     *
+     * NOTE: In tests, the animation system isn't running, so death montages never
+     * complete. We manually call FinalizeDeath() to transition from DYING to DEAD
+     * state after applying lethal damage. This is appropriate for unit tests that
+     * don't need to verify animation playback.
      */
     static bool DealLethalDamage(ABaseCombatCharacter* Target, AActor* Attacker = nullptr)
     {
@@ -306,6 +311,14 @@ public:
             IDamageableInterface::Execute_ApplyDamage(Target, LethalHit);
         }
 
+        // In tests, animation system isn't running, so death montages never complete.
+        // Manually finalize death if character entered DYING state (health <= 0).
+        // This transitions bIsDying -> bIsDead, which is what tests expect.
+        if (Target->bIsDying && !Target->bIsDead)
+        {
+            Target->FinalizeDeath();
+        }
+
         return Target->bIsDead;
     }
 
@@ -316,6 +329,25 @@ public:
      */
     static bool IsCharacterDead(ABaseCombatCharacter* Character)
     {
+        return Character ? Character->bIsDead : false;
+    }
+
+    /**
+     * Finalize death for a dying character (test utility)
+     *
+     * In tests, animation systems don't run, so the death montage completion
+     * that normally calls FinalizeDeath() never happens. Call this after
+     * ApplyDamage when you expect the character to die.
+     *
+     * @param Character - Character that may be dying
+     * @return True if character is now dead (bIsDead = true)
+     */
+    static bool FinalizeDeathIfDying(ABaseCombatCharacter* Character)
+    {
+        if (Character && Character->bIsDying && !Character->bIsDead)
+        {
+            Character->FinalizeDeath();
+        }
         return Character ? Character->bIsDead : false;
     }
 

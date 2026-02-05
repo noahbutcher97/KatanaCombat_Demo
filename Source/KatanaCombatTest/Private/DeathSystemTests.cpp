@@ -306,6 +306,9 @@ bool FExactLethalDamageTest::RunTest(const FString& Parameters)
 	FHitReactionInfo ExactDamage = FCombatTestHelpers::CreateTestHitInfo(nullptr, TestHealth);
 	IDamageableInterface::Execute_ApplyDamage(Enemy, ExactDamage);
 
+	// In tests, animation system isn't running, so manually finalize death
+	FCombatTestHelpers::FinalizeDeathIfDying(Enemy);
+
 	TestTrue("Enemy should be dead with exact damage", Enemy->bIsDead);
 	TestEqual("Health should be exactly 0", Enemy->CurrentHealth, 0.0f);
 
@@ -383,6 +386,9 @@ bool FOverkillDamageClampsTest::RunTest(const FString& Parameters)
 	// Deal massive overkill damage
 	FHitReactionInfo OverkillDamage = FCombatTestHelpers::CreateTestHitInfo(nullptr, 99999.0f);
 	IDamageableInterface::Execute_ApplyDamage(Enemy, OverkillDamage);
+
+	// In tests, animation system isn't running, so manually finalize death
+	FCombatTestHelpers::FinalizeDeathIfDying(Enemy);
 
 	TestTrue("Enemy should be dead", Enemy->bIsDead);
 	TestEqual("Health should be clamped to 0", Enemy->CurrentHealth, 0.0f);

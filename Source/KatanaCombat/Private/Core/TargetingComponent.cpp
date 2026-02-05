@@ -524,6 +524,12 @@ bool UTargetingComponent::SetupVictimWarp(AActor* Attacker, const FPairedWarpCon
 {
     ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
 
+    // Lazy init for test compatibility: if BeginPlay hasn't run yet, find MotionWarpingComponent now
+    if (!MotionWarpingComponent && Owner)
+    {
+        MotionWarpingComponent = Owner->FindComponentByClass<UMotionWarpingComponent>();
+    }
+
     // Gap 19.1 fix: Log warnings for specific failure conditions instead of silent failure
     if (!MotionWarpingComponent)
     {
@@ -706,6 +712,12 @@ void UTargetingComponent::StopVictimWarpTracking()
 bool UTargetingComponent::SetupAttackerPairedWarp(AActor* Victim, const FPairedWarpConfig& Config)
 {
     ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+
+    // Lazy init for test compatibility: if BeginPlay hasn't run yet, find MotionWarpingComponent now
+    if (!MotionWarpingComponent && Owner)
+    {
+        MotionWarpingComponent = Owner->FindComponentByClass<UMotionWarpingComponent>();
+    }
 
     // Gap 19.1 fix: Log warnings for specific failure conditions instead of silent failure
     if (!MotionWarpingComponent)
