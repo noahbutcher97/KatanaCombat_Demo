@@ -11,6 +11,7 @@ class UAttackData;
 class UHitReactionData;
 class UAnimMontage;
 class AActor;
+class UCameraShakeBase;
 
 // ============================================================================
 // ENUMS
@@ -725,6 +726,88 @@ struct FAttackWarpConfig
 // Backwards compatibility typedef - remove after updating all references
 using FDirectionalWarpConfig = FAttackWarpConfig;
 using FMotionWarpingConfig = FAttackWarpConfig;
+
+// ============================================================================
+// HITSTOP CONFIGURATION
+// ============================================================================
+
+/**
+ * Per-attack hitstop configuration.
+ * Controls the momentary freeze on hit impact that sells attack weight.
+ *
+ * Industry standard (Sakurai-style): Both attacker and defender freeze via
+ * per-actor CustomTimeDilation. Camera, particles, and background actors
+ * continue during hitstop.
+ *
+ * Duration guidelines (60fps reference):
+ * - Light:   2-3 frames (0.033-0.050s)
+ * - Heavy:   4-6 frames (0.067-0.100s)
+ * - Special: 6-10 frames (0.100-0.167s)
+ */
+USTRUCT(BlueprintType)
+struct FHitstopConfig
+{
+	GENERATED_BODY()
+
+	/** Enable hitstop on hit */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop")
+	bool bEnabled = true;
+
+	/** Duration of hitstop freeze in seconds (real wall-clock time, unaffected by time dilation) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop",
+		meta = (EditCondition = "bEnabled", ClampMin = "0.0", ClampMax = "0.3", UIMin = "0.0", UIMax = "0.2"))
+	float Duration = 0.05f;
+
+	/** Camera shake to play on the player during hitstop (nullptr = no shake) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop",
+		meta = (EditCondition = "bEnabled"))
+	TSubclassOf<UCameraShakeBase> CameraShake;
+
+	/** Camera shake intensity scale (1.0 = full intensity) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop",
+		meta = (EditCondition = "bEnabled", ClampMin = "0.0", ClampMax = "3.0"))
+	float CameraShakeScale = 1.0f;
+
+	/** Whether to apply hitstop when the attack is blocked (reduced duration) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop|Block",
+		meta = (EditCondition = "bEnabled"))
+	bool bApplyOnBlock = true;
+
+	/** Duration multiplier when attack is blocked (0.5 = half the normal hitstop) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop|Block",
+		meta = (EditCondition = "bEnabled && bApplyOnBlock", ClampMin = "0.0", ClampMax = "1.0"))
+	float BlockedDurationMultiplier = 0.5f;
+
+	/** Create default hitstop config based on attack type */
+	static FHitstopConfig CreateDefault(EAttackType AttackType)
+	{
+		FHitstopConfig Config;
+		Config.bEnabled = true;
+		switch (AttackType)
+		{
+		case EAttackType::Light:
+			Config.Duration = 0.04f;    // ~2.4 frames at 60fps
+			Config.CameraShakeScale = 0.5f;
+			break;
+		case EAttackType::Heavy:
+			Config.Duration = 0.083f;   // ~5 frames at 60fps
+			Config.CameraShakeScale = 1.0f;
+			break;
+		case EAttackType::Special:
+			Config.Duration = 0.1f;     // ~6 frames at 60fps
+			Config.CameraShakeScale = 1.5f;
+			break;
+		default:
+			Config.Duration = 0.05f;    // ~3 frames at 60fps
+			Config.CameraShakeScale = 0.5f;
+			break;
+		}
+		return Config;
+	}
+
+	/** Is this config active (enabled with positive duration)? */
+	bool IsActive() const { return bEnabled && Duration > 0.0f; }
+};
 
 #if WITH_AUTOMATION_TESTS
 /**

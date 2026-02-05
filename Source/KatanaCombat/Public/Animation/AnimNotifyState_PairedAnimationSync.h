@@ -97,14 +97,14 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effects")
     bool bTriggerCameraShake = true;
 
-    /** Apply hit pause/stop at this sync point */
+    /** Apply hitstop at this sync point */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effects")
-    bool bApplyHitPause = false;
+    bool bApplyHitstop = false;
 
-    /** Hit pause duration in seconds (actual time, not game time) */
+    /** Hitstop duration in seconds (real wall-clock time, unaffected by time dilation) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effects",
-        meta = (EditCondition = "bApplyHitPause", ClampMin = "0.0", ClampMax = "0.5"))
-    float HitPauseDuration = 0.05f;
+        meta = (EditCondition = "bApplyHitstop", ClampMin = "0.0", ClampMax = "0.5"))
+    float HitstopDuration = 0.05f;
 
     /** End slow motion at this sync point (if slow-mo was active) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Effects")

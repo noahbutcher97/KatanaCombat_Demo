@@ -66,6 +66,14 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage")
     float HitStunDuration = 0.0f;
 
+    // ============================================================================
+    // HITSTOP (Per-Attack Impact Freeze)
+    // ============================================================================
+
+    /** Hitstop configuration for this attack (freeze on hit impact) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|Hitstop")
+    FHitstopConfig HitstopConfig;
+
     /** [NOT YET IMPLEMENTED] Posture damage dealt when this attack is blocked */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Future|Damage")
     float PostureDamage = 10.0f;

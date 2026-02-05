@@ -143,7 +143,7 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
     // Background, particles, and other actors continue (selective freeze)
     // Emphasizes impact power and gives player's eyes time to process
 
-    if (bApplyHitPause && HitPauseDuration > 0.0f && bIsPrimarySyncPoint)
+    if (bApplyHitstop && HitstopDuration > 0.0f && bIsPrimarySyncPoint)
     {
         // Collect actors to freeze (attacker + all paired partners)
         TArray<AActor*> ActorsToFreeze;
@@ -175,7 +175,7 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
         }
 
         UE_LOG(LogCombat, Log, TEXT("[HITSTOP] %s: Freezing %d actors for %.3fs at sync point '%s'"),
-            *Owner->GetName(), ActorsToFreeze.Num(), HitPauseDuration, *SyncPointName.ToString());
+            *Owner->GetName(), ActorsToFreeze.Num(), HitstopDuration, *SyncPointName.ToString());
 
         // ====================================================================
         // PLATFORM TIME-BASED RESTORATION (Sakurai Hitstop)
@@ -185,7 +185,7 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
         // actor time dilation effects. The ticker runs every frame and checks
         // if enough real time has elapsed.
 
-        const double HitstopEndTime = FPlatformTime::Seconds() + static_cast<double>(HitPauseDuration);
+        const double HitstopEndTime = FPlatformTime::Seconds() + static_cast<double>(HitstopDuration);
 
         // Use FTSTicker (thread-safe ticker) to check platform time each frame
         // Returns true to continue ticking, false to remove the ticker

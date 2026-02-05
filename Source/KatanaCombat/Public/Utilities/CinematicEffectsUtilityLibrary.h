@@ -4,16 +4,16 @@
 
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
+#include "CombatTypes.h"
 #include "CinematicEffectsUtilityLibrary.generated.h"
-
-class UCameraShakeBase;
 
 /**
  * Cinematic Effects Utility Library
  *
  * Static utility functions for cinematic effects during combat:
- * - Time dilation (slow motion, hit pause)
+ * - Time dilation (slow motion, hitstop)
  * - Camera shake triggering
+ * - Per-hit hitstop (Sakurai-style freeze)
  * - Future: VFX spawning, post-process effects, screen effects
  *
  * Design: Separated from PairedAnimationUtilityLibrary to allow reuse
@@ -106,6 +106,34 @@ public:
         float InnerRadius = 0.0f,
         float OuterRadius = 1000.0f,
         float Falloff = 1.0f);
+
+    // ========================================================================
+    // HITSTOP (Per-Hit Impact Freeze)
+    // ========================================================================
+
+    /**
+     * Apply Sakurai-style hitstop to attacker and victim.
+     * Both actors freeze for the configured duration via per-actor CustomTimeDilation.
+     * Camera shake fires immediately (camera is unaffected by actor freeze).
+     * Uses FPlatformTime::Seconds() + FTSTicker for wall-clock accurate restoration.
+     *
+     * Industry standard technique (DMC5, Sekiro, Ghost of Tsushima):
+     * - Per-actor freeze (background continues)
+     * - Camera and particles continue during hitstop
+     * - Duration scales with attack weight, not damage
+     *
+     * @param Attacker - Actor performing the attack (frozen during hitstop)
+     * @param Victim - Actor receiving the hit (frozen during hitstop)
+     * @param Config - Hitstop configuration (duration, camera shake, etc.)
+     * @param bWasBlocked - Whether the hit was blocked (applies BlockedDurationMultiplier)
+     * @return True if hitstop was applied
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Hitstop")
+    static bool ApplyHitstop(
+        AActor* Attacker,
+        AActor* Victim,
+        const FHitstopConfig& Config,
+        bool bWasBlocked = false);
 
     // ========================================================================
     // ACTOR TIME DILATION (Per-Actor Effects)

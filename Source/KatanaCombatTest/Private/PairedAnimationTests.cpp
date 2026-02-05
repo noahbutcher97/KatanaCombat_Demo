@@ -909,7 +909,7 @@ bool FSyncPointEffectPropertiesTest::RunTest(const FString& Parameters)
 	// Verify effect properties exist
 	TestTrue("bApplyDamage should exist", SyncNotify->bApplyDamage);
 	TestTrue("bTriggerCameraShake should default to true", SyncNotify->bTriggerCameraShake);
-	TestFalse("bApplyHitPause should default to false", SyncNotify->bApplyHitPause);
+	TestFalse("bApplyHitstop should default to false", SyncNotify->bApplyHitstop);
 	TestFalse("bEndSlowMotion should default to false", SyncNotify->bEndSlowMotion);
 
 	return true;

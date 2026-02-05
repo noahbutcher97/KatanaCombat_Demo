@@ -7,8 +7,10 @@
 #include "Core/HitReactionComponent.h"
 #include "Data/AttackData.h"
 #include "Data/CombatSettings.h"
+#include "Utilities/CinematicEffectsUtilityLibrary.h"
 #include "MotionWarpingComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Components/CapsuleComponent.h"
 
 ABaseCombatCharacter::ABaseCombatCharacter()
 {
@@ -171,7 +173,16 @@ void ABaseCombatCharacter::FinalizeDeath()
     // Transition to DEAD state
     bIsDead = true;
 
-    UE_LOG(LogTemp, Log, TEXT("[DEATH] %s entering DEAD state (death finalized)"),
+    // Disable capsule collision so other characters can walk over the corpse.
+    // The mesh collision is handled separately by the death outcome:
+    // - Ragdoll: mesh gets PhysicsOnly collision (ActivateRagdoll)
+    // - Freeze: mesh keeps its collision but capsule is the blocking culprit
+    if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+    {
+        Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+    }
+
+    UE_LOG(LogTemp, Log, TEXT("[DEATH] %s entering DEAD state (death finalized, capsule collision disabled)"),
         *GetName());
 
     // Broadcast death event - character is now truly dead
@@ -519,6 +530,21 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
 
         // Apply damage via interface
         IDamageableInterface::Execute_ApplyDamage(HitActor, HitInfo);
+
+        // ============================================================
+        // HITSTOP (Per-Hit Impact Freeze)
+        // ============================================================
+        // Apply after damage so victim's hit reaction montage has started.
+        // Both attacker and victim freeze; camera and VFX continue.
+        if (AttackData->HitstopConfig.IsActive())
+        {
+            const bool bWasBlocked = IDamageableInterface::Execute_IsBlocking(HitActor);
+            UCinematicEffectsUtilityLibrary::ApplyHitstop(
+                this,       // Attacker
+                HitActor,   // Victim
+                AttackData->HitstopConfig,
+                bWasBlocked);
+        }
     }
     else
     {
