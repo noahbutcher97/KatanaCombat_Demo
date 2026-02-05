@@ -56,12 +56,15 @@ Both audits identify the parry -> counter -> finisher -> flow chain as THE prima
 
 **Unified Assessment**: P0 blocker for core combat loop. Both audits agree on the same entry points (`BaseCombatCharacter.cpp:622-635` TODO stubs).
 
-### 2.2 VFX/SFX Scaffolded But Not Wired
+### 2.2 VFX/SFX ~~Scaffolded But Not Wired~~ ✅ NOW FULLY WIRED
 
-Both audits independently found that `PairedAnimationData` has audio/VFX property slots (ImpactSound, ImpactVFX, etc.) but no code calls `PlaySoundAtLocation()` or spawns Niagara systems at sync points.
+~~Both audits independently found that `PairedAnimationData` has audio/VFX property slots (ImpactSound, ImpactVFX, etc.) but no code calls `PlaySoundAtLocation()` or spawns Niagara systems at sync points.~~
 
-- **Claude**: Identified as scaffolded in gap tracker, confirmed no trigger calls exist
-- **Copilot**: Rated VFX/SFX at 40% complete; provided implementation code for `AnimNotifyState_PairedAnimationSync::NotifyBegin()`
+**UPDATE (2026-02-05)**: VFX/SFX now fully wired across both discrete hits and paired animations:
+
+- **Discrete Hits** (0e6ae4e, 3038b21, 150cd3a): `BaseCombatCharacter::OnWeaponHitTarget()` now calls `ResolveAndPlayImpactSound()` and `ResolveAndSpawnImpactVFX()` using 4-tier resolution (AttackData → CombatFXData → WeaponData → silent)
+- **Paired Animations** (f27a068): `TriggerSyncPointEffects()` now plays ImpactSound, VictimReactionSound, AttackerVoiceLine, and spawns ImpactVFX at contact midpoint
+- **Pooled FX System** (150cd3a): New `UCombatFXData` data asset enables random selection from FX pools per attack type
 
 ### 2.3 Interface Call Pattern Risk
 
@@ -263,6 +266,8 @@ Copilot identified procedural animation gaps:
 |---|--------|---------|------------|
 | Overall | 4.5% for CombatComponent | "~70%" overall | **Different measurements.** Copilot likely counts test suites passing vs total. Claude measures test lines vs code lines for specific components. Both are valid metrics but answer different questions. The 4.5% CombatComponent ratio is the actionable concern. |
 
+**UPDATE (2026-02-05)**: Test infrastructure fully fixed — 207 tests now pass across 14 suites (45e3ec2). Test fixture issues resolved (two-stage death system, MotionWarpingComponent lazy init). New tests added for hitstop (9), audio (7), VFX (9), pooled FX (18), paired animation FX (4).
+
 ### 4.4 Interface Call Crash Sites
 
 | | Claude | Copilot | Resolution |
@@ -291,10 +296,10 @@ Combining both audits into a single definitive priority list, ordered by risk an
 
 | # | Action | Source | Effort |
 |---|--------|--------|--------|
-| U-1 | Add null checks on all `GetMesh()` chains (5 locations) | Claude P0-1/2/4 | Low |
-| U-2 | Add null check on `GetWorld()` in `GetHoldDuration()` | Claude P0-3 | Trivial |
-| U-3 | Change `CustomTimeDilation = 0.0f` to `0.0001f` in sync notify | Claude Research | Trivial |
-| U-4 | Add null check on `ActivePairedAnimData` in `TriggerSyncPointEffects` | Claude P2-6 | Trivial |
+| ~~U-1~~ | ~~Add null checks on all `GetMesh()` chains (5 locations)~~ | ~~Claude P0-1/2/4~~ | ~~Low~~ | **FIXED** in a57eedd — 9 locations across CombatComponent, HitReactionComponent, WeaponComponent |
+| ~~U-2~~ | ~~Add null check on `GetWorld()` in `GetHoldDuration()`~~ | ~~Claude P0-3~~ | ~~Trivial~~ | **FIXED** in a57eedd |
+| ~~U-3~~ | ~~Change `CustomTimeDilation = 0.0f` to `0.0001f` in sync notify~~ | ~~Claude Research~~ | ~~Trivial~~ | **FIXED** in a57eedd — 3 locations: PairedAnimationSync, CinematicEffectsUtilityLibrary (SetActorTimeDilation, FreezeActors) |
+| ~~U-4~~ | ~~Add null check on `ActivePairedAnimData` in `TriggerSyncPointEffects`~~ | ~~Claude P2-6~~ | ~~Trivial~~ | **FALSE POSITIVE** — already guarded at line 3608 |
 
 ### Tier 1: Core Logic Fixes (Next Work Session)
 
@@ -302,10 +307,10 @@ Combining both audits into a single definitive priority list, ordered by risk an
 |---|--------|--------|--------|--------|
 | ~~U-5~~ | ~~Fix ActionQueue LIFO -> FIFO iteration~~ | ~~Claude P1-4~~ | ~~Low~~ | **REMOVED: LIFO is intentional design.** Documentation updated to say "last-input-wins" instead of "FIFO". |
 | U-6 | Wire `BaseCombatCharacter` interface stubs (`GetCombatState`, `CanPerformAttack`) to CombatComponent | Claude P0-5, Copilot | Low | **DEFERRED** until AI work begins. Parry window approach TBD (AnimNotifyState vs implicit phase inference vs Windup==ParryWindow). Wire combat state/attack stubs when AI behavior trees need them. |
-| U-7 | Fix phase stuck on Active after abnormal montage interrupt | Claude P1-5 | Low | Add defensive `SetPhase(None)` in montage-ended for edge cases (death, stun, paired anim). Normal flow self-corrects. |
-| U-8 | Save/restore `CustomTimeDilation` (don't hardcode 1.0f restore) | Claude P1-6 | Low | **CONFIRMED**: Slow-mo counter windows will overlap with hitstop. Save before freeze, restore after. |
-| U-9 | Block **non-partner** damage during paired animations | Claude P1-2 | Low | **CLARIFIED**: Attacker damage must pass through for sync point health tracking. Only block damage from characters NOT in the paired sequence. |
-| U-10 | Remove `const_cast` UB in `GetAttackForInput` — make function non-const | Claude P0-6 | Low | Eliminates undefined behavior. Check if deprecated `LastDirectionalInput`/`bDirectionalInputConsumed` are read by any Blueprint before removing. |
+| ~~U-7~~ | ~~Fix phase stuck on Active after abnormal montage interrupt~~ | ~~Claude P1-5~~ | ~~Low~~ | **FIXED** in a57eedd — Defensive `SetPhase(None)` in OnMontageEnded interrupt handler |
+| ~~U-8~~ | ~~Save/restore `CustomTimeDilation` (don't hardcode 1.0f restore)~~ | ~~Claude P1-6~~ | ~~Low~~ | **FIXED** in a57eedd — TMap save/restore pattern in PairedAnimationSync + new FreezeActorsWithSave/RestoreActorsFromSaved utility functions |
+| ~~U-9~~ | ~~Block **non-partner** damage during paired animations~~ | ~~Claude P1-2~~ | ~~Low~~ | **FIXED** in a57eedd — PairedAnimationPartner tracked in HitReactionComponent, non-partner damage blocked in ApplyDamage |
+| ~~U-10~~ | ~~Remove `const_cast` UB in `GetAttackForInput`~~ | ~~Claude P0-6~~ | ~~Low~~ | **FIXED** in a57eedd — Removed unnecessary const_cast leftovers (function already non-const). Not UB, just dead code. |
 
 ### Tier 2: Core Combat Loop (Primary Feature Work)
 
@@ -314,9 +319,9 @@ Combining both audits into a single definitive priority list, ordered by risk an
 | U-11 | Implement parry detection logic | Both audits | Medium | Enables parry gameplay |
 | U-12 | Implement counter window tracking | Both audits | Medium | Enables counter attacks |
 | U-13 | Wire counter attack execution | Both audits, Copilot design | Medium | Parry -> Counter loop |
-| U-14 | Implement per-hit hitstop | Claude Research | Low | **MASSIVE game-feel improvement** |
-| U-15 | Wire hit audio (PlaySoundAtLocation) | Both audits | Low-Med | Major game-feel improvement |
-| U-16 | Wire hit VFX (Niagara burst at impact) | Both audits | Medium | Major game-feel improvement |
+| ~~U-14~~ | ~~Implement per-hit hitstop~~ | ~~Claude Research~~ | ~~Low~~ | **FIXED** in 879d1c2 — FHitstopConfig struct, ApplyHitstop() with FTSTicker, wired in OnWeaponHitTarget |
+| ~~U-15~~ | ~~Wire hit audio (PlaySoundAtLocation)~~ | ~~Both audits~~ | ~~Low-Med~~ | **FIXED** in 0e6ae4e — FImpactAudioConfig, PlayImpactSound(), 4-tier resolution chain, paired animation audio wiring |
+| ~~U-16~~ | ~~Wire hit VFX (Niagara burst at impact)~~ | ~~Both audits~~ | ~~Medium~~ | **FIXED** in 3038b21 — SpawnImpactVFX(), ResolveAndSpawnImpactVFX(), 4-tier resolution, surface alignment |
 
 ### Tier 3: Combat Systems (Feature Expansion)
 
@@ -325,7 +330,7 @@ Combining both audits into a single definitive priority list, ordered by risk an
 | U-17 | Build Attack Token Subsystem | Both audits, Copilot design | Medium-High | AI coordination |
 | U-18 | Create Attack Telegraph Widget | Both audits, Copilot design | Medium | Parry timing visibility |
 | U-19 | Implement Flow State system | Copilot design | Medium | Kill chain mechanic |
-| U-20 | Wire paired animation VFX/SFX at sync points | Both audits | Low-Med | Finisher polish |
+| ~~U-20~~ | ~~Wire paired animation VFX/SFX at sync points~~ | ~~Both audits~~ | ~~Low-Med~~ | **FIXED** in f27a068 — TriggerSyncPointEffects now plays ImpactSound, VictimReactionSound, AttackerVoiceLine; spawns ImpactVFX at contact midpoint |
 
 ### Tier 4: Architecture Quality
 
@@ -358,7 +363,7 @@ Combining both audits into a single definitive priority list, ordered by risk an
 | U-35 | Foot IK integration | Copilot | High |
 | U-36 | Socket-based paired animation alignment | Copilot | Medium |
 | U-37 | Add empty Tick() safeguard or disable tick on BaseCombatCharacter (verify Blueprint subclass dependency first) | Claude P2-2 | Trivial |
-| U-38 | Fix static variable in DrawDebugInfo | Claude P1-1 | Trivial |
+| ~~U-38~~ | ~~Fix static variable in DrawDebugInfo~~ | ~~Claude P1-1~~ | ~~Trivial~~ | **FIXED** in a57eedd — Replaced with `mutable int32 DebugLastCheckpointCount` member |
 
 ---
 

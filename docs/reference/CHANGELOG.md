@@ -14,14 +14,94 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Phase 5b-1: Collision & Warp Infrastructure ✅ COMPLETE
   - Phase 5b-2: Delegate Wiring & Effects ✅ COMPLETE
   - Phase 5b-3: State & Safety ✅ COMPLETE
-  - Phase 5b-4: Validation & Polish (IN PROGRESS)
+  - Phase 5b-4: Validation & Polish ✅ COMPLETE
   - Phase 5b-5: AI Coordination (PENDING)
+  - Phase 5c: Math & Utility Libraries ✅ COMPLETE (83 functions)
+  - Phase 5d: Preview Tool Enhancements ✅ COMPLETE (6,000+ lines)
 
 ### Planned
-- Phase 6: IK & Context Enhancement (Contact Point IK, Tag-Based Selection)
-- Phase 7: VFX Implementation
-- Phase 8+: Polish (AI tokens, UI/UX)
+- Phase 6: Parry/Counter System (Core combat flow)
+- Phase 7: Flow State System
+- Phase 8+: Polish (AI tokens, UI/UX, IK)
 - Future: Predictive terrain analysis, foot IK integration
+
+---
+
+## [3.5.0] - 2026-02-05
+
+### Added: Combat Polish - Impact Effects & Test Infrastructure
+
+Major implementation of per-hit impact effects (audio, VFX, hitstop) and comprehensive test fixture fixes. All 207 tests now pass.
+
+**Per-Hit Hitstop System (U-14)** `879d1c2`:
+- `FHitstopConfig` struct with per-attack-type factory defaults (Light: 0.04s, Heavy: 0.083s, Special: 0.1s)
+- `ApplyHitstop()` using `FTSTicker` + `FPlatformTime::Seconds()` for wall-clock accurate restoration
+- Both attacker AND victim freeze via `CustomTimeDilation`; camera/VFX continue
+- Wired into `BaseCombatCharacter::OnWeaponHitTarget()` after damage application
+- BlockedDurationMultiplier scaffolded for future guard system
+
+**Hit Audio System (U-15)** `0e6ae4e`:
+- `FImpactAudioConfig` struct (sound, volume, pitch variation, weapon fallback)
+- `PlayImpactSound()` in CinematicEffectsUtilityLibrary
+- 4-tier resolution: AttackData override → CombatFXData pool → WeaponData fallback → silent
+- Upgraded `FOnAttackHit` delegate to `(AActor*, const FHitReactionInfo&)` with UPROPERTY
+
+**Pooled Impact FX System** `150cd3a`:
+- `UCombatFXData` data asset on WeaponData for per-weapon FX character
+- `FImpactFXPool` with TArray<FImpactSoundEntry/FImpactVFXEntry> for random selection
+- `ECombatSurfaceType` enum scaffolded for surface-specific FX
+- `ResolveAndPlayImpactSound()` with 4-tier resolution chain
+- `LogCombatFX` dedicated log category
+
+**Impact VFX System (U-16)** `3038b21`:
+- `SpawnImpactVFX()` with Niagara spawning and surface normal alignment
+- `ResolveAndSpawnImpactVFX()` with same 4-tier resolution as audio
+- Wired into `OnWeaponHitTarget()` alongside audio
+
+**Paired Animation FX Wiring** `f27a068`:
+- `TriggerSyncPointEffects()` now plays ImpactSound, VictimReactionSound, AttackerVoiceLine
+- ImpactVFX spawned at calculated contact midpoint
+- Removed scaffold comments from PairedAnimationData.h
+
+**Combo Hit Detection Bug Fix** `0e6ae4e`:
+- Fixed enemies not reacting to 2nd/3rd hits in combo chains
+- Root cause: `EnableHitDetection()` early-returned during combo blends, leaving stale HitActors
+- Fix: Always clear HitActors at top of `EnableHitDetection()`
+
+### Fixed: 8 Audit-Identified Bugs `a57eedd`
+
+| ID | Fix |
+|----|-----|
+| U-1 | Add null checks on `GetMesh()` chains (9 locations) |
+| U-2 | Add `GetWorld()` null guard in `GetHoldDuration()` |
+| U-3 | Change `CustomTimeDilation` freeze from 0.0f to 0.0001f (prevents engine division-by-zero) |
+| U-7 | Add defensive `SetPhase(None)` in `OnMontageEnded` interrupt handler |
+| U-8 | Save/restore `CustomTimeDilation` in hitstop instead of hardcoding 1.0f |
+| U-9 | Block non-partner damage during paired animations |
+| U-10 | Remove unnecessary const_cast leftovers |
+| U-38 | Replace static variable in `DrawDebugInfo` with mutable member |
+
+### Fixed: Test Infrastructure `45e3ec2`
+
+All 207 tests now pass (was 18 failures).
+
+**Root Causes Fixed**:
+1. **Death tests**: Two-stage death system (`bIsDying` → `bIsDead`) wasn't completing in tests because animation system doesn't run. Added `FinalizeDeathIfDying()` helper.
+2. **Paired animation tests**: `MotionWarpingComponent` not lazily initialized in warp methods. Added lazy init pattern.
+
+**New Test Helpers**:
+- `FCombatTestHelpers::FinalizeDeathIfDying()` - Manually finalizes death for test environments
+- Updated `DealLethalDamage()` to auto-finalize death
+
+**Test Coverage**: 207 tests across 14 suites (Attack, Combo, Death, HitReaction, Integration, Hitstop, Audio, VFX, PairedAnimation, etc.)
+
+### Changed: Documentation Reorganization `9eaf2ca`
+
+- Moved docs/ files into architecture/, guides/, reference/ subdirectories
+- docs/README.md now serves as navigation hub
+- Archived completed plans to docs/plans/archive/
+- Created AUDIT_SYNTHESIS_2026-02-03.md unifying Claude + Copilot audits
+- Fixed FIFO → last-input-wins terminology across 14 files
 
 ---
 
@@ -618,7 +698,8 @@ ASamuraiCharacter → CombatSettings (combat style) → AttackConfiguration (att
 ## Quality Metrics
 
 ### Test Coverage
-- 7 test files, 45+ assertions, all passing
+- 19 test files, 207 tests, all passing (as of 2026-02-05)
+- 14 test suites: Attack, Combo, Death, Damage, HitReaction, Weapon, Targeting, Integration, Memory, Debug, PairedAnimation, Hitstop, Audio, VFX
 - 96% design specification compliance (validated via audit)
 
 ### Performance

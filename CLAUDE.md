@@ -453,11 +453,22 @@ Track ongoing work across sessions. This section provides detailed status of all
 | Debug Visualization | CombatDebugHUD.cpp, DebugUtils.cpp | CVars for warp targets, partner connections, sync points |
 | Test Suite | PairedAnimationTests.cpp | 34 tests covering core functionality |
 
+#### Wired FX Systems (Commit f27a068, 3038b21, 0e6ae4e, 150cd3a)
+| Component | Files | Status |
+|-----------|-------|--------|
+| Impact Audio | CinematicEffectsUtilityLibrary.h, CombatFXData.h | ✅ `ResolveAndPlayImpactSound()` with 4-tier resolution |
+| Impact VFX | CinematicEffectsUtilityLibrary.h, CombatFXData.h | ✅ `ResolveAndSpawnImpactVFX()` with Niagara + surface alignment |
+| Pooled FX | CombatFXData.h | ✅ `UCombatFXData` asset with random selection per attack type |
+| Paired Animation Audio | CombatComponent.cpp | ✅ `TriggerSyncPointEffects()` plays ImpactSound, VictimReactionSound, AttackerVoiceLine |
+| Paired Animation VFX | CombatComponent.cpp | ✅ `TriggerSyncPointEffects()` spawns ImpactVFX at contact midpoint |
+| Per-Hit Hitstop | CinematicEffectsUtilityLibrary.h | ✅ `ApplyHitstop()` with FTSTicker for wall-clock accuracy |
+
 #### Scaffolded (Property Slots Exist, Not Wired)
 | Component | Files | What Exists | What's Missing |
 |-----------|-------|-------------|----------------|
-| Audio Effects | PairedAnimationData.h | `ImpactSound`, `VictimReactionSound`, `AttackerVoiceLine`, `MusicDuckingDB` | No `PlaySoundAtLocation()` calls at sync points |
-| VFX Effects | PairedAnimationData.h | `ImpactVFX`, `SlowMoPostProcessMaterial`, `ScreenBloodMaterial`, `bSpawnBloodDecals` | No Niagara spawning, no post-process application |
+| Music Ducking | PairedAnimationData.h | `MusicDuckingDB` | No audio ducking implementation |
+| Post-Process Effects | PairedAnimationData.h | `SlowMoPostProcessMaterial`, `ScreenBloodMaterial` | No post-process application |
+| Blood Decals | PairedAnimationData.h | `bSpawnBloodDecals` | No decal spawning |
 | Selective Hitstop | CinematicEffectsUtilityLibrary.h | `FreezeActors()`, `RestoreActors()` functions | Not called in finisher flow - uses world slow-mo instead |
 
 #### Planned (Not Yet Started)
@@ -539,7 +550,7 @@ Player Input → CombatComponent::TryExecuteFinisher()
 
 ## Test Suite
 
-**Coverage**: 14 test suites, 126 tests (all passing)
+**Coverage**: 14 test suites, 207 tests (all passing)
 
 **Run Tests**:
 - Editor: `Window → Developer Tools → Session Frontend → Automation tab → Filter: "KatanaCombat"`
