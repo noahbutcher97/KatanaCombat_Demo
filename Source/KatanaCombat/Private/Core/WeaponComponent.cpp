@@ -57,17 +57,25 @@ void UWeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 
 void UWeaponComponent::EnableHitDetection()
 {
+    // Always clear hit actors for the new attack, even if already enabled.
+    // During combo blends, the new montage's Active phase notify fires BEFORE
+    // the old montage's OnMontageEnded callback (which disables hit detection).
+    // Without this, enemies hit by the previous attack remain in HitActors
+    // and are skipped by the weapon trace for the new attack.
+    HitActors.Empty();
+
     if (bHitDetectionEnabled)
     {
+        // Already tracing (combo blend race) - HitActors cleared above, reset trace state
+        bFirstTrace = true;
+        PreviousStartLocation = GetSocketLocation(GetEffectiveStartSocket());
+        PreviousTipLocation = GetSocketLocation(GetEffectiveEndSocket());
         return;
     }
 
     bHitDetectionEnabled = true;
     bFirstTrace = true;
     SetComponentTickEnabled(true);
-
-    // Clear hit actors from previous attack - critical for allowing re-hits on new attacks
-    HitActors.Empty();
 
     // Store initial positions
     PreviousStartLocation = GetSocketLocation(GetEffectiveStartSocket());

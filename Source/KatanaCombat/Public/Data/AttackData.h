@@ -74,6 +74,18 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|Hitstop")
     FHitstopConfig HitstopConfig;
 
+    // ============================================================================
+    // AUDIO/VFX (Impact Effects)
+    // ============================================================================
+
+    /** Audio configuration for hit impacts (sound, volume, pitch variation) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|Audio")
+    FImpactAudioConfig ImpactAudioConfig;
+
+    /** VFX configuration for hit impacts [SCAFFOLD FOR U-16] */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|VFX")
+    FImpactVFXConfig ImpactVFXConfig;
+
     /** [NOT YET IMPLEMENTED] Posture damage dealt when this attack is blocked */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Future|Damage")
     float PostureDamage = 10.0f;

@@ -395,6 +395,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
 	FOnMontageEvent OnMontageEvent;
 
+	/** Fires when this character's weapon hits a target (for audio, VFX, UI responses) */
+	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
+	FOnAttackHit OnAttackHit;
+
 	// ============================================================================
 	// PAIRED ANIMATION EVENTS
 	// ============================================================================

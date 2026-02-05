@@ -12,6 +12,8 @@ class UHitReactionData;
 class UAnimMontage;
 class AActor;
 class UCameraShakeBase;
+class USoundBase;
+class UNiagaraSystem;
 
 // ============================================================================
 // ENUMS
@@ -363,6 +365,14 @@ struct FHitReactionInfo
     UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction")
     FVector ImpactPoint = FVector::ZeroVector;
 
+    /** Impact surface normal (for VFX alignment, blood decals) */
+    UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction")
+    FVector ImpactNormal = FVector::UpVector;
+
+    /** Bone hit by the attack (for attached effects, ragdoll impulse) */
+    UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction")
+    FName BoneName = NAME_None;
+
     FHitReactionInfo()
         : Attacker(nullptr)
         , HitDirection(FVector::ForwardVector)
@@ -371,6 +381,8 @@ struct FHitReactionInfo
         , StunDuration(0.0f)
         , bWasCounter(false)
         , ImpactPoint(FVector::ZeroVector)
+        , ImpactNormal(FVector::UpVector)
+        , BoneName(NAME_None)
     {
     }
 };
@@ -809,6 +821,93 @@ struct FHitstopConfig
 	bool IsActive() const { return bEnabled && Duration > 0.0f; }
 };
 
+// ============================================================================
+// IMPACT AUDIO CONFIG
+// ============================================================================
+
+/**
+ * Per-attack impact audio configuration.
+ * Supports primary sound with optional weapon fallback, pitch variation.
+ *
+ * Resolution order: ImpactSound → WeaponData::HitSound → nothing.
+ * Pitch variation prevents repetition (industry standard: ±5%).
+ */
+USTRUCT(BlueprintType)
+struct FImpactAudioConfig
+{
+	GENERATED_BODY()
+
+	/** Primary impact sound (plays at hit location via spatial audio) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+	TObjectPtr<USoundBase> ImpactSound = nullptr;
+
+	/** Volume multiplier for impact sound */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
+		meta = (ClampMin = "0.0", ClampMax = "3.0"))
+	float VolumeMultiplier = 1.0f;
+
+	/** Base pitch multiplier for impact sound */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
+		meta = (ClampMin = "0.5", ClampMax = "2.0"))
+	float PitchMultiplier = 1.0f;
+
+	/** Random pitch variation (±range from base pitch, prevents repetition) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
+		meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float PitchVariation = 0.05f;
+
+	/** If true and ImpactSound is null, use WeaponData::HitSound as fallback */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+	bool bUseWeaponFallback = true;
+
+	/** Check if this config will produce audio (has sound or allows fallback) */
+	bool IsActive() const { return ImpactSound != nullptr || bUseWeaponFallback; }
+
+	/** Get pitch with random variation applied */
+	float GetRandomizedPitch() const
+	{
+		const float Variation = FMath::FRandRange(-PitchVariation, PitchVariation);
+		return FMath::Clamp(PitchMultiplier + Variation, 0.1f, 4.0f);
+	}
+};
+
+// ============================================================================
+// IMPACT VFX CONFIG (Scaffold for U-16)
+// ============================================================================
+
+/**
+ * Per-attack impact VFX configuration.
+ * Supports Niagara effects with surface alignment and scale options.
+ *
+ * [SCAFFOLD] - SpawnImpactVFX() not yet implemented. Fields exist for
+ * editor configuration; wiring ships with U-16.
+ */
+USTRUCT(BlueprintType)
+struct FImpactVFXConfig
+{
+	GENERATED_BODY()
+
+	/** Niagara system to spawn at impact point */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
+	TObjectPtr<UNiagaraSystem> ImpactVFX = nullptr;
+
+	/** Scale multiplier for spawned VFX */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX",
+		meta = (ClampMin = "0.1", ClampMax = "5.0"))
+	float ScaleMultiplier = 1.0f;
+
+	/** Align VFX rotation to impact surface normal (vs. always world up) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
+	bool bAlignToSurface = true;
+
+	/** If true and ImpactVFX is null, use WeaponData::HitVFX as fallback */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
+	bool bUseWeaponFallback = true;
+
+	/** Check if this config will produce VFX (has system or allows fallback) */
+	bool IsActive() const { return ImpactVFX != nullptr || bUseWeaponFallback; }
+};
+
 #if WITH_AUTOMATION_TESTS
 /**
  * Debug arrow information for testing
@@ -865,9 +964,9 @@ struct FDebugVisualizationData
 // ============================================================================
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCombatStateChanged, ECombatState, NewState);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAttackHit, AActor*, HitActor, float, Damage);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAttackHit, AActor*, HitActor, const FHitReactionInfo&, HitInfo);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPostureChanged, float, NewPosture);
-
+ 
 // Combat System Event Delegates
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnAttackStarted, UAttackData*, AttackData, EInputType, InputType, bool, bIsCombo);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnPhaseChanged, EAttackPhase, OldPhase, EAttackPhase, NewPhase);

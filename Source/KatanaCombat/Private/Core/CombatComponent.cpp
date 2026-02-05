@@ -21,6 +21,7 @@
 #include "Utilities/MontageUtilityLibrary.h"
 #include "Utilities/CombatUtils.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
+#include "Kismet/GameplayStatics.h"
 #include "Utilities/PairedAnimationUtilityLibrary.h"
 #include "Debug/DebugUtils.h"
 
@@ -3633,6 +3634,41 @@ void UCombatComponent::TriggerSyncPointEffects(FName SyncPointName)
 		{
 			UE_LOG(LogCombat, Log, TEXT("[PAIRED EFFECTS] Camera shake played: %s"),
 				*ActivePairedAnimData->ImpactCameraShake->GetName());
+		}
+	}
+
+	// ================================================================
+	// PAIRED ANIMATION AUDIO
+	// ================================================================
+	if (ActivePairedAnimData)
+	{
+		AActor* Owner = GetOwner();
+		AActor* Partner = PairedAnimationPartners.Num() > 0
+			? PairedAnimationPartners[0].Get()
+			: nullptr;
+
+		// Impact sound at owner location (sync point)
+		if (ActivePairedAnimData->ImpactSound && Owner)
+		{
+			UGameplayStatics::PlaySoundAtLocation(
+				GetWorld(), ActivePairedAnimData->ImpactSound,
+				Owner->GetActorLocation());
+		}
+
+		// Victim reaction sound at partner location
+		if (ActivePairedAnimData->VictimReactionSound && Partner)
+		{
+			UGameplayStatics::PlaySoundAtLocation(
+				GetWorld(), ActivePairedAnimData->VictimReactionSound,
+				Partner->GetActorLocation());
+		}
+
+		// Attacker voice line at owner location
+		if (ActivePairedAnimData->AttackerVoiceLine && Owner)
+		{
+			UGameplayStatics::PlaySoundAtLocation(
+				GetWorld(), ActivePairedAnimData->AttackerVoiceLine,
+				Owner->GetActorLocation());
 		}
 	}
 

@@ -9,6 +9,7 @@
 class UStaticMesh;
 class UAnimMontage;
 class UAttackConfiguration;
+class USoundBase;
 
 /**
  * Defines a weapon's visual, combat, and configuration properties
@@ -167,16 +168,22 @@ public:
     float WeaponReach = 150.0f;
 
     // ============================================================================
-    // AUDIO/VFX (Future)
+    // AUDIO/VFX (Weapon Defaults - Fallback for AttackData)
     // ============================================================================
 
-    // TODO: Add when audio/VFX systems are implemented
+    /** Default hit sound for this weapon (fallback when AttackData has no sound) */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
+    TObjectPtr<USoundBase> HitSound;
+
+    // TODO: Uncomment when VFX system ships (U-16)
     // UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
-    // USoundBase* SwingSound;
+    // TObjectPtr<UNiagaraSystem> HitVFX;
+
+    // TODO: Uncomment when weapon swing/trail system ships
     // UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
-    // USoundBase* HitSound;
+    // TObjectPtr<USoundBase> SwingSound;
     // UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
-    // UNiagaraSystem* TrailEffect;
+    // TObjectPtr<UNiagaraSystem> TrailEffect;
 
     // ============================================================================
     // UTILITY

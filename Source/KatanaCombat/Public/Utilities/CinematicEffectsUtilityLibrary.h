@@ -14,7 +14,8 @@
  * - Time dilation (slow motion, hitstop)
  * - Camera shake triggering
  * - Per-hit hitstop (Sakurai-style freeze)
- * - Future: VFX spawning, post-process effects, screen effects
+ * - Impact audio (per-attack hit sounds with pitch variation)
+ * - Impact VFX (Niagara spawning with surface alignment) [scaffold]
  *
  * Design: Separated from PairedAnimationUtilityLibrary to allow reuse
  * across various combat scenarios (not just paired animations).
@@ -134,6 +135,59 @@ public:
         AActor* Victim,
         const FHitstopConfig& Config,
         bool bWasBlocked = false);
+
+    // ========================================================================
+    // IMPACT AUDIO
+    // ========================================================================
+
+    /**
+     * Play impact sound at hit location with pitch/volume variation.
+     * Supports per-attack configuration with weapon fallback.
+     *
+     * Resolution order: Config.ImpactSound → WeaponFallbackSound → nothing.
+     * Pitch variation (±5% default) prevents repetitive audio.
+     *
+     * @param World - World context for sound spawning
+     * @param Config - Audio configuration from AttackData
+     * @param WeaponFallbackSound - Weapon's default hit sound (used if Config has no sound and bUseWeaponFallback)
+     * @param ImpactLocation - World location for spatial audio
+     * @param Attacker - Attacking actor (for sound attenuation override)
+     * @return True if sound was played
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Audio")
+    static bool PlayImpactSound(
+        UWorld* World,
+        const FImpactAudioConfig& Config,
+        USoundBase* WeaponFallbackSound,
+        const FVector& ImpactLocation,
+        AActor* Attacker = nullptr);
+
+    // ========================================================================
+    // IMPACT VFX (Scaffold for U-16)
+    // ========================================================================
+
+    /**
+     * Spawn impact VFX at hit location with surface alignment.
+     * Supports per-attack configuration with weapon fallback.
+     *
+     * [NOT YET IMPLEMENTED] - Stub returns false. Ships with U-16.
+     *
+     * @param World - World context for VFX spawning
+     * @param Config - VFX configuration from AttackData
+     * @param WeaponFallbackVFX - Weapon's default hit VFX (used if Config has no VFX and bUseWeaponFallback)
+     * @param ImpactLocation - World location for VFX spawn
+     * @param ImpactNormal - Surface normal for alignment
+     * @param BoneName - Bone that was hit (for attached VFX)
+     * @return True if VFX was spawned
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|VFX")
+    static bool SpawnImpactVFX(
+        UWorld* World,
+        const FImpactVFXConfig& Config,
+        UNiagaraSystem* WeaponFallbackVFX,
+        const FVector& ImpactLocation,
+        const FVector& ImpactNormal,
+        FName BoneName = NAME_None);
 
     // ========================================================================
     // ACTOR TIME DILATION (Per-Actor Effects)

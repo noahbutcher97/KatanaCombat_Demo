@@ -6,6 +6,7 @@
 #include "Core/WeaponComponent.h"
 #include "Core/HitReactionComponent.h"
 #include "Data/AttackData.h"
+#include "Data/WeaponData.h"
 #include "Data/CombatSettings.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
 #include "MotionWarpingComponent.h"
@@ -524,12 +525,39 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         HitInfo.StunDuration = AttackData->HitStunDuration;
         HitInfo.bWasCounter = false; // TODO: Counter window not migrated yet
         HitInfo.ImpactPoint = HitResult.ImpactPoint;
+        HitInfo.ImpactNormal = HitResult.ImpactNormal;
+        HitInfo.BoneName = HitResult.BoneName;
 
         UE_LOG(LogTemp, Log, TEXT("[HIT] %s applying %.1f damage to %s"),
             *GetName(), HitInfo.Damage, *HitActor->GetName());
 
         // Apply damage via interface
         IDamageableInterface::Execute_ApplyDamage(HitActor, HitInfo);
+
+        // ============================================================
+        // IMPACT AUDIO (Hit Sound)
+        // ============================================================
+        {
+            USoundBase* WeaponFallback = nullptr;
+            if (WeaponComponent && WeaponComponent->WeaponData)
+            {
+                WeaponFallback = WeaponComponent->WeaponData->HitSound;
+            }
+            UCinematicEffectsUtilityLibrary::PlayImpactSound(
+                GetWorld(),
+                AttackData->ImpactAudioConfig,
+                WeaponFallback,
+                HitResult.ImpactPoint,
+                this);
+        }
+
+        // ============================================================
+        // BROADCAST HIT DELEGATE
+        // ============================================================
+        if (CombatComponent)
+        {
+            CombatComponent->OnAttackHit.Broadcast(HitActor, HitInfo);
+        }
 
         // ============================================================
         // HITSTOP (Per-Hit Impact Freeze)

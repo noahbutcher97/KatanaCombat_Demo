@@ -288,6 +288,77 @@ bool UCinematicEffectsUtilityLibrary::ApplyHitstop(
 }
 
 // ============================================================================
+// IMPACT AUDIO
+// ============================================================================
+
+bool UCinematicEffectsUtilityLibrary::PlayImpactSound(
+    UWorld* World,
+    const FImpactAudioConfig& Config,
+    USoundBase* WeaponFallbackSound,
+    const FVector& ImpactLocation,
+    AActor* Attacker)
+{
+    if (!World)
+    {
+        return false;
+    }
+
+    // Resolve sound: config sound takes priority over weapon fallback
+    USoundBase* SoundToPlay = Config.ImpactSound;
+    if (!SoundToPlay && Config.bUseWeaponFallback)
+    {
+        SoundToPlay = WeaponFallbackSound;
+    }
+
+    if (!SoundToPlay)
+    {
+        return false;
+    }
+
+    // Calculate randomized pitch for variation
+    const float FinalPitch = Config.GetRandomizedPitch();
+    const float FinalVolume = Config.VolumeMultiplier;
+
+    // Play sound at impact location (spatial 3D audio)
+    // UE 5.6 overload: Location, Rotation, Volume, Pitch, StartTime, Attenuation, Concurrency, Owner
+    UGameplayStatics::PlaySoundAtLocation(
+        World,
+        SoundToPlay,
+        ImpactLocation,
+        FRotator::ZeroRotator,
+        FinalVolume,
+        FinalPitch,
+        0.0f,       // Start time
+        nullptr,    // Sound attenuation (use sound's default)
+        nullptr,    // Concurrency settings
+        Attacker);  // Owner for attenuation override
+
+    UE_LOG(LogKatanaCombat, Verbose, TEXT("[AUDIO] Impact sound played: %s (Vol: %.2f, Pitch: %.2f) at %s"),
+        *SoundToPlay->GetName(), FinalVolume, FinalPitch, *ImpactLocation.ToString());
+
+    return true;
+}
+
+// ============================================================================
+// IMPACT VFX (Scaffold for U-16)
+// ============================================================================
+
+bool UCinematicEffectsUtilityLibrary::SpawnImpactVFX(
+    UWorld* World,
+    const FImpactVFXConfig& Config,
+    UNiagaraSystem* WeaponFallbackVFX,
+    const FVector& ImpactLocation,
+    const FVector& ImpactNormal,
+    FName BoneName)
+{
+    // SCAFFOLD FOR U-16
+    // TODO: Implement Niagara system spawning with surface alignment
+    // UNiagaraSystem* VFXToSpawn = Config.ImpactVFX ? Config.ImpactVFX : (Config.bUseWeaponFallback ? WeaponFallbackVFX : nullptr);
+    // if (VFXToSpawn) { UNiagaraFunctionLibrary::SpawnSystemAtLocation(...) }
+    return false;
+}
+
+// ============================================================================
 // ACTOR TIME DILATION (Per-Actor Effects)
 // ============================================================================
 
