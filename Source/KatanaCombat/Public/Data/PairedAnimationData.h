@@ -177,7 +177,7 @@ public:
     TSubclassOf<UCameraShakeBase> ImpactCameraShake;
 
     // ========================================================================
-    // AUDIO (Scaffolding - Implementation Phase 7)
+    // AUDIO
     // ========================================================================
 
     /**
@@ -210,7 +210,7 @@ public:
     float MusicDuckingDB = 0.0f;
 
     // ========================================================================
-    // VISUAL EFFECTS (Scaffolding - Implementation Phase 7)
+    // VISUAL EFFECTS
     // ========================================================================
 
     /**

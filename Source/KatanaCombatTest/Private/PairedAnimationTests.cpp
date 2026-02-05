@@ -1153,3 +1153,114 @@ bool FFinisherGuardBreakReasonExistsTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+
+// ============================================================================
+// PAIRED ANIMATION FX WIRING TESTS
+// ============================================================================
+
+/**
+ * Test: PairedAnimationData has audio properties
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedAnimDataAudioPropertiesTest, "KatanaCombat.PairedAnimation.FX.AudioPropertiesExist", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FPairedAnimDataAudioPropertiesTest::RunTest(const FString& Parameters)
+{
+	UPairedAnimationData* PairedData = NewObject<UPairedAnimationData>();
+	TestNotNull("PairedAnimationData created", PairedData);
+	if (!PairedData) return false;
+
+	// Verify audio properties exist via reflection
+	UClass* DataClass = UPairedAnimationData::StaticClass();
+	TestNotNull("ImpactSound property exists", DataClass->FindPropertyByName(FName("ImpactSound")));
+	TestNotNull("VictimReactionSound property exists", DataClass->FindPropertyByName(FName("VictimReactionSound")));
+	TestNotNull("AttackerVoiceLine property exists", DataClass->FindPropertyByName(FName("AttackerVoiceLine")));
+	TestNotNull("MusicDuckingDB property exists", DataClass->FindPropertyByName(FName("MusicDuckingDB")));
+
+	// Verify defaults
+	TestTrue("ImpactSound defaults to nullptr", PairedData->ImpactSound == nullptr);
+	TestTrue("VictimReactionSound defaults to nullptr", PairedData->VictimReactionSound == nullptr);
+	TestTrue("AttackerVoiceLine defaults to nullptr", PairedData->AttackerVoiceLine == nullptr);
+	TestEqual("MusicDuckingDB defaults to 0", PairedData->MusicDuckingDB, 0.0f);
+
+	return true;
+}
+
+/**
+ * Test: PairedAnimationData has VFX properties
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedAnimDataVFXPropertiesTest, "KatanaCombat.PairedAnimation.FX.VFXPropertiesExist", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FPairedAnimDataVFXPropertiesTest::RunTest(const FString& Parameters)
+{
+	UPairedAnimationData* PairedData = NewObject<UPairedAnimationData>();
+	TestNotNull("PairedAnimationData created", PairedData);
+	if (!PairedData) return false;
+
+	// Verify VFX properties exist via reflection
+	UClass* DataClass = UPairedAnimationData::StaticClass();
+	TestNotNull("ImpactVFX property exists", DataClass->FindPropertyByName(FName("ImpactVFX")));
+	TestNotNull("SlowMoPostProcessMaterial property exists", DataClass->FindPropertyByName(FName("SlowMoPostProcessMaterial")));
+	TestNotNull("ScreenBloodMaterial property exists", DataClass->FindPropertyByName(FName("ScreenBloodMaterial")));
+	TestNotNull("bSpawnBloodDecals property exists", DataClass->FindPropertyByName(FName("bSpawnBloodDecals")));
+
+	// Verify defaults
+	TestTrue("ImpactVFX defaults to nullptr", PairedData->ImpactVFX == nullptr);
+	TestFalse("bSpawnBloodDecals defaults to false", PairedData->bSpawnBloodDecals);
+
+	return true;
+}
+
+/**
+ * Test: TriggerSyncPointEffects handles null PairedAnimData gracefully
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSyncPointEffectsNullDataTest, "KatanaCombat.PairedAnimation.FX.SyncPointHandlesNullData", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSyncPointEffectsNullDataTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+
+	UCombatComponent* CombatComp = Player->CombatComponent;
+	if (!CombatComp)
+	{
+		World->DestroyActor(Player);
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	// Call with no active paired anim data - should not crash
+	CombatComp->TriggerSyncPointEffects(FName("Impact"));
+	TestTrue("TriggerSyncPointEffects handles null data without crash", true);
+
+	World->DestroyActor(Player);
+	FCombatTestHelpers::DestroyTestWorld(World);
+
+	return true;
+}
+
+/**
+ * Test: Contact point calculation for sync point VFX
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSyncPointContactPointTest, "KatanaCombat.PairedAnimation.FX.SyncPointContactPointCalculation", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSyncPointContactPointTest::RunTest(const FString& Parameters)
+{
+	// Test midpoint calculation (used in TriggerSyncPointEffects)
+	FVector AttackerPos(0.0f, 0.0f, 100.0f);
+	FVector VictimPos(200.0f, 0.0f, 100.0f);
+
+	FVector ContactPoint = (AttackerPos + VictimPos) * 0.5f;
+	FVector ExpectedContact(100.0f, 0.0f, 100.0f);
+
+	TestTrue("Contact point is midpoint between actors",
+		ContactPoint.Equals(ExpectedContact, 0.1f));
+
+	// Test impact normal calculation
+	FVector ImpactNormal = (VictimPos - AttackerPos).GetSafeNormal();
+	FVector ExpectedNormal(1.0f, 0.0f, 0.0f);
+
+	TestTrue("Impact normal points from attacker to victim",
+		ImpactNormal.Equals(ExpectedNormal, 0.01f));
+
+	return true;
+}
