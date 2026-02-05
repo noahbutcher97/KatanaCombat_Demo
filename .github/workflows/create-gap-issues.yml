@@ -1,0 +1,142 @@
+name: Create Gap Tracker Issues
+
+on:
+  workflow_dispatch:
+    inputs:
+      priority:
+        description: 'Priority filter (P0, P1, P2, P3, or All)'
+        required: true
+        default: 'P1'
+        type: choice
+        options:
+          - P0
+          - P1
+          - P2
+          - P3
+          - All
+      status:
+        description: 'Status filter'
+        required: true
+        default: 'Pending'
+        type: choice
+        options:
+          - Pending
+          - Partial
+          - All
+      max_issues:
+        description: 'Maximum number of issues to create (0 = no limit)'
+        required: false
+        default: '10'
+        type: string
+      dry_run:
+        description: 'Dry run (preview only, no issues created)'
+        required: true
+        default: true
+        type: boolean
+
+jobs:
+  create-issues:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Create issues from gap-issues directory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          
+          priority="${{ inputs.priority }}"
+          status="${{ inputs.status }}"
+          max_issues="${{ inputs.max_issues }}"
+          dry_run="${{ inputs.dry_run }}"
+          
+          echo "🔧 Configuration:"
+          echo "  Priority: $priority"
+          echo "  Status: $status"
+          echo "  Max Issues: $max_issues"
+          echo "  Dry Run: $dry_run"
+          echo ""
+          
+          # Determine which directories to process
+          dirs=""
+          if [ "$priority" = "P0" ] || [ "$priority" = "All" ]; then
+            dirs="$dirs .github/gap-issues/critical"
+          fi
+          if [ "$priority" = "P1" ] || [ "$priority" = "All" ]; then
+            dirs="$dirs .github/gap-issues/high-priority"
+          fi
+          if [ "$priority" = "P2" ] || [ "$priority" = "All" ]; then
+            dirs="$dirs .github/gap-issues/medium-priority"
+          fi
+          if [ "$priority" = "P3" ] || [ "$priority" = "All" ]; then
+            dirs="$dirs .github/gap-issues/low-priority"
+          fi
+          
+          created=0
+          
+          for dir in $dirs; do
+            if [ ! -d "$dir" ]; then
+              echo "⚠️  Directory not found: $dir"
+              continue
+            fi
+            
+            echo "📁 Processing: $dir"
+            
+            for file in "$dir"/*.md; do
+              if [ ! -f "$file" ]; then
+                continue
+              fi
+              
+              # Check max_issues limit
+              if [ "$max_issues" != "0" ] && [ "$created" -ge "$max_issues" ]; then
+                echo "✋ Reached maximum of $max_issues issues"
+                break 2
+              fi
+              
+              filename=$(basename "$file")
+              
+              if [ "$dry_run" = "true" ]; then
+                echo "  🔍 DRY RUN - Would create from: $filename"
+                cat "$file" | head -20
+                echo "  ..."
+                echo ""
+              else
+                echo "  ✅ Creating issue from: $filename"
+                if gh issue create -F "$file"; then
+                  ((created++))
+                  echo "  ✓ Created ($created/$max_issues)"
+                else
+                  echo "  ✗ Failed to create issue"
+                fi
+                # Rate limiting courtesy
+                sleep 2
+              fi
+            done
+          done
+          
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          if [ "$dry_run" = "true" ]; then
+            echo "🔍 DRY RUN COMPLETE"
+            echo "Would have created issues from the files above"
+          else
+            echo "✅ COMPLETE: Created $created issues"
+          fi
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+      
+      - name: Summary
+        run: |
+          echo "### Issue Creation Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Priority Filter**: ${{ inputs.priority }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status Filter**: ${{ inputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Max Issues**: ${{ inputs.max_issues }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dry Run**: ${{ inputs.dry_run }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See job logs for details." >> $GITHUB_STEP_SUMMARY
