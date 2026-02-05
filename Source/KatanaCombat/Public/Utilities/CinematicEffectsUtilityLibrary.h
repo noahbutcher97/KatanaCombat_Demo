@@ -7,6 +7,8 @@
 #include "CombatTypes.h"
 #include "CinematicEffectsUtilityLibrary.generated.h"
 
+class UCombatFXData;
+
 /**
  * Cinematic Effects Utility Library
  *
@@ -162,6 +164,37 @@ public:
         const FVector& ImpactLocation,
         AActor* Attacker = nullptr);
 
+    /**
+     * Resolve and play impact sound through 4-tier resolution chain.
+     * New pooled FX system with per-weapon random selection.
+     *
+     * Resolution order (first valid wins):
+     *   1. AttackData.ImpactAudioConfig.ImpactSound (per-attack override)
+     *   2. CombatFXData pool[AttackType] (random from pool)
+     *   3. WeaponFallbackSound (simple weapon fallback)
+     *   4. silent
+     *
+     * @param World - World context for sound spawning
+     * @param AudioConfig - Per-attack audio configuration from AttackData
+     * @param CombatFXData - Pooled FX data from WeaponData (can be nullptr)
+     * @param AttackType - Attack type for pool lookup
+     * @param WeaponFallbackSound - Weapon's default hit sound
+     * @param ImpactLocation - World location for spatial audio
+     * @param bWasBlocked - Whether the hit was blocked (uses BlockedPool if configured)
+     * @param Attacker - Attacking actor (for sound attenuation override)
+     * @return True if sound was played
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Audio")
+    static bool ResolveAndPlayImpactSound(
+        UWorld* World,
+        const FImpactAudioConfig& AudioConfig,
+        const UCombatFXData* CombatFXData,
+        EAttackType AttackType,
+        USoundBase* WeaponFallbackSound,
+        const FVector& ImpactLocation,
+        bool bWasBlocked = false,
+        AActor* Attacker = nullptr);
+
     // ========================================================================
     // IMPACT VFX (Scaffold for U-16)
     // ========================================================================
@@ -187,6 +220,41 @@ public:
         UNiagaraSystem* WeaponFallbackVFX,
         const FVector& ImpactLocation,
         const FVector& ImpactNormal,
+        FName BoneName = NAME_None);
+
+    /**
+     * Resolve and spawn impact VFX through 4-tier resolution chain.
+     * New pooled FX system with per-weapon random selection.
+     *
+     * [NOT YET IMPLEMENTED] - Stub returns false. Ships with U-16.
+     *
+     * Resolution order (first valid wins):
+     *   1. AttackData.ImpactVFXConfig.ImpactVFX (per-attack override)
+     *   2. CombatFXData pool[AttackType] (random from pool)
+     *   3. WeaponFallbackVFX (simple weapon fallback)
+     *   4. nothing
+     *
+     * @param World - World context for VFX spawning
+     * @param VFXConfig - Per-attack VFX configuration from AttackData
+     * @param CombatFXData - Pooled FX data from WeaponData (can be nullptr)
+     * @param AttackType - Attack type for pool lookup
+     * @param WeaponFallbackVFX - Weapon's default hit VFX
+     * @param ImpactLocation - World location for VFX spawn
+     * @param ImpactNormal - Surface normal for alignment
+     * @param bWasBlocked - Whether the hit was blocked
+     * @param BoneName - Bone that was hit (for attached VFX)
+     * @return True if VFX was spawned
+     */
+    UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|VFX")
+    static bool ResolveAndSpawnImpactVFX(
+        UWorld* World,
+        const FImpactVFXConfig& VFXConfig,
+        const UCombatFXData* CombatFXData,
+        EAttackType AttackType,
+        UNiagaraSystem* WeaponFallbackVFX,
+        const FVector& ImpactLocation,
+        const FVector& ImpactNormal,
+        bool bWasBlocked = false,
         FName BoneName = NAME_None);
 
     // ========================================================================

@@ -8,6 +8,7 @@
 #include "Data/AttackData.h"
 #include "Data/WeaponData.h"
 #include "Data/CombatSettings.h"
+#include "Data/CombatFXData.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
 #include "MotionWarpingComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -528,26 +529,35 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         HitInfo.ImpactNormal = HitResult.ImpactNormal;
         HitInfo.BoneName = HitResult.BoneName;
 
-        UE_LOG(LogTemp, Log, TEXT("[HIT] %s applying %.1f damage to %s"),
-            *GetName(), HitInfo.Damage, *HitActor->GetName());
+        // Compute block state once for audio and hitstop
+        const bool bWasBlocked = IDamageableInterface::Execute_IsBlocking(HitActor);
+
+        UE_LOG(LogCombat, Log, TEXT("[HIT] %s applying %.1f damage to %s (blocked: %s)"),
+            *GetName(), HitInfo.Damage, *HitActor->GetName(),
+            bWasBlocked ? TEXT("YES") : TEXT("NO"));
 
         // Apply damage via interface
         IDamageableInterface::Execute_ApplyDamage(HitActor, HitInfo);
 
         // ============================================================
-        // IMPACT AUDIO (Hit Sound)
+        // IMPACT AUDIO (Hit Sound) - 4-Tier Resolution
         // ============================================================
         {
             USoundBase* WeaponFallback = nullptr;
+            const UCombatFXData* FXData = nullptr;
             if (WeaponComponent && WeaponComponent->WeaponData)
             {
                 WeaponFallback = WeaponComponent->WeaponData->HitSound;
+                FXData = WeaponComponent->WeaponData->CombatFXData;
             }
-            UCinematicEffectsUtilityLibrary::PlayImpactSound(
+            UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
                 GetWorld(),
                 AttackData->ImpactAudioConfig,
+                FXData,
+                AttackData->AttackType,
                 WeaponFallback,
                 HitResult.ImpactPoint,
+                bWasBlocked,
                 this);
         }
 
@@ -566,17 +576,16 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         // Both attacker and victim freeze; camera and VFX continue.
         if (AttackData->HitstopConfig.IsActive())
         {
-            const bool bWasBlocked = IDamageableInterface::Execute_IsBlocking(HitActor);
             UCinematicEffectsUtilityLibrary::ApplyHitstop(
                 this,       // Attacker
                 HitActor,   // Victim
                 AttackData->HitstopConfig,
-                bWasBlocked);
+                bWasBlocked);  // Reuse pre-computed value
         }
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("[HIT] %s SKIPPED: Target %s doesn't implement IDamageableInterface"),
+        UE_LOG(LogCombat, Warning, TEXT("[HIT] %s SKIPPED: Target %s doesn't implement IDamageableInterface"),
             *GetName(), *HitActor->GetName());
     }
 }

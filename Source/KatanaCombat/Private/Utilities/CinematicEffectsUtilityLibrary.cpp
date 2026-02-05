@@ -10,6 +10,7 @@
 #include "Containers/Ticker.h"
 #include "HAL/PlatformTime.h"
 #include "KatanaCombat.h"
+#include "Data/CombatFXData.h"
 
 // ============================================================================
 // TIME DILATION
@@ -339,6 +340,83 @@ bool UCinematicEffectsUtilityLibrary::PlayImpactSound(
     return true;
 }
 
+bool UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
+    UWorld* World,
+    const FImpactAudioConfig& AudioConfig,
+    const UCombatFXData* CombatFXData,
+    EAttackType AttackType,
+    USoundBase* WeaponFallbackSound,
+    const FVector& ImpactLocation,
+    bool bWasBlocked,
+    AActor* Attacker)
+{
+    if (!World)
+    {
+        return false;
+    }
+
+    // ================================================================
+    // TIER 1: Per-attack override (AttackData.ImpactAudioConfig.ImpactSound)
+    // ================================================================
+    if (AudioConfig.ImpactSound)
+    {
+        UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 1: Per-attack override used (sound: %s)"),
+            *AudioConfig.ImpactSound->GetName());
+        // Use per-attack config directly (existing path)
+        return PlayImpactSound(World, AudioConfig, nullptr, ImpactLocation, Attacker);
+    }
+
+    // ================================================================
+    // TIER 2: Pooled FX (CombatFXData pool for this attack type)
+    // ================================================================
+    if (CombatFXData)
+    {
+        if (const FImpactFXPool* Pool = CombatFXData->ResolvePool(AttackType, bWasBlocked))
+        {
+            if (const FImpactSoundEntry* Entry = Pool->GetRandomSound())
+            {
+                // Build a temporary FImpactAudioConfig from pool entry
+                FImpactAudioConfig PoolConfig;
+                PoolConfig.ImpactSound = Entry->Sound;
+                PoolConfig.VolumeMultiplier = Entry->VolumeMultiplier;
+                PoolConfig.PitchMultiplier = Entry->PitchMultiplier;
+                PoolConfig.PitchVariation = Pool->PitchVariation;
+                PoolConfig.bUseWeaponFallback = false; // Pool resolved; don't chain
+
+                UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 2: Pool selection (type: %d, selected: %s)"),
+                    static_cast<uint8>(AttackType), *Entry->Sound->GetName());
+
+                return PlayImpactSound(World, PoolConfig, nullptr, ImpactLocation, Attacker);
+            }
+        }
+    }
+
+    // ================================================================
+    // TIER 3: Weapon fallback (existing PlayImpactSound path)
+    // ================================================================
+    if (AudioConfig.bUseWeaponFallback && WeaponFallbackSound)
+    {
+        FImpactAudioConfig FallbackConfig;
+        FallbackConfig.ImpactSound = WeaponFallbackSound;
+        FallbackConfig.VolumeMultiplier = AudioConfig.VolumeMultiplier;
+        FallbackConfig.PitchMultiplier = AudioConfig.PitchMultiplier;
+        FallbackConfig.PitchVariation = AudioConfig.PitchVariation;
+        FallbackConfig.bUseWeaponFallback = false;
+
+        UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 3: Weapon fallback used (sound: %s)"),
+            *WeaponFallbackSound->GetName());
+
+        return PlayImpactSound(World, FallbackConfig, nullptr, ImpactLocation, Attacker);
+    }
+
+    // ================================================================
+    // TIER 4: Silent
+    // ================================================================
+    UE_LOG(LogCombatFX, Log, TEXT("[POOL] Tier 4: Silent (no sound available for attack type %d)"),
+        static_cast<uint8>(AttackType));
+    return false;
+}
+
 // ============================================================================
 // IMPACT VFX (Scaffold for U-16)
 // ============================================================================
@@ -355,6 +433,24 @@ bool UCinematicEffectsUtilityLibrary::SpawnImpactVFX(
     // TODO: Implement Niagara system spawning with surface alignment
     // UNiagaraSystem* VFXToSpawn = Config.ImpactVFX ? Config.ImpactVFX : (Config.bUseWeaponFallback ? WeaponFallbackVFX : nullptr);
     // if (VFXToSpawn) { UNiagaraFunctionLibrary::SpawnSystemAtLocation(...) }
+    return false;
+}
+
+bool UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
+    UWorld* World,
+    const FImpactVFXConfig& VFXConfig,
+    const UCombatFXData* CombatFXData,
+    EAttackType AttackType,
+    UNiagaraSystem* WeaponFallbackVFX,
+    const FVector& ImpactLocation,
+    const FVector& ImpactNormal,
+    bool bWasBlocked,
+    FName BoneName)
+{
+    // SCAFFOLD FOR U-16
+    // Same 4-tier resolution as audio, but for VFX.
+    // TODO: Implement when U-16 ships
+    UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] ResolveAndSpawnImpactVFX not yet implemented (U-16)"));
     return false;
 }
 

@@ -10,6 +10,7 @@ class UStaticMesh;
 class UAnimMontage;
 class UAttackConfiguration;
 class USoundBase;
+class UCombatFXData;
 
 /**
  * Defines a weapon's visual, combat, and configuration properties
@@ -174,6 +175,18 @@ public:
     /** Default hit sound for this weapon (fallback when AttackData has no sound) */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
     TObjectPtr<USoundBase> HitSound;
+
+    /**
+     * Pooled impact FX data for this weapon.
+     * Maps attack types to pools of sounds/VFX with random selection.
+     * When set, acts as middle-tier fallback between per-attack overrides and weapon defaults.
+     *
+     * Resolution: AttackData.ImpactSound -> CombatFXData pool -> HitSound -> nothing
+     *
+     * nullptr = skip pool layer, use existing AttackData -> HitSound fallback
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")
+    TObjectPtr<UCombatFXData> CombatFXData;
 
     // TODO: Uncomment when VFX system ships (U-16)
     // UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Effects")

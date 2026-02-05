@@ -908,6 +908,177 @@ struct FImpactVFXConfig
 	bool IsActive() const { return ImpactVFX != nullptr || bUseWeaponFallback; }
 };
 
+// ============================================================================
+// COMBAT SURFACE TYPE (Scaffold - not wired until bReturnPhysicalMaterial enabled)
+// ============================================================================
+
+/**
+ * Physical surface type for surface-specific FX.
+ * [SCAFFOLD] - Not wired. WeaponComponent trace has bReturnPhysicalMaterial = false.
+ * Wire when PhysMaterial -> ECombatSurfaceType mapping is implemented.
+ */
+UENUM(BlueprintType)
+enum class ECombatSurfaceType : uint8
+{
+	Default		UMETA(DisplayName = "Default"),
+	Flesh		UMETA(DisplayName = "Flesh"),
+	Armor		UMETA(DisplayName = "Armor"),
+	Wood		UMETA(DisplayName = "Wood"),
+	Stone		UMETA(DisplayName = "Stone"),
+	Metal		UMETA(DisplayName = "Metal")
+};
+
+// ============================================================================
+// IMPACT FX POOL ENTRIES (Single items in a pool)
+// ============================================================================
+
+/**
+ * Single sound entry in an FX pool.
+ * Pooled sounds allow random selection for audio variety.
+ */
+USTRUCT(BlueprintType)
+struct FImpactSoundEntry
+{
+	GENERATED_BODY()
+
+	/** Sound to play at impact location */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+	TObjectPtr<USoundBase> Sound = nullptr;
+
+	/** Volume multiplier for this sound */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
+		meta = (ClampMin = "0.0", ClampMax = "3.0"))
+	float VolumeMultiplier = 1.0f;
+
+	/** Base pitch multiplier */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
+		meta = (ClampMin = "0.5", ClampMax = "2.0"))
+	float PitchMultiplier = 1.0f;
+
+	/** Is this entry valid (has a sound)? */
+	bool IsValid() const { return Sound != nullptr; }
+};
+
+/**
+ * Single VFX entry in an FX pool.
+ * [SCAFFOLD] - VFX spawning not wired until U-16.
+ */
+USTRUCT(BlueprintType)
+struct FImpactVFXEntry
+{
+	GENERATED_BODY()
+
+	/** Niagara system to spawn at impact point */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
+	TObjectPtr<UNiagaraSystem> VFX = nullptr;
+
+	/** Scale multiplier for this VFX */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX",
+		meta = (ClampMin = "0.1", ClampMax = "5.0"))
+	float ScaleMultiplier = 1.0f;
+
+	/** Is this entry valid (has VFX)? */
+	bool IsValid() const { return VFX != nullptr; }
+};
+
+// ============================================================================
+// IMPACT FX POOL (Collection of sounds/VFX for one attack type)
+// ============================================================================
+
+/**
+ * Pool of impact sounds and VFX for random selection.
+ * One pool per EAttackType allows type-specific audio character.
+ *
+ * Usage:
+ * - Configure Light pool with 3-5 light slash sounds
+ * - Configure Heavy pool with 2-3 meaty impact sounds
+ * - System selects randomly at runtime for variety
+ */
+USTRUCT(BlueprintType)
+struct FImpactFXPool
+{
+	GENERATED_BODY()
+
+	/** Pool of impact sounds (random selection at runtime) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
+	TArray<FImpactSoundEntry> ImpactSounds;
+
+	/** Pool of impact VFX (random selection at runtime) [SCAFFOLD] */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
+	TArray<FImpactVFXEntry> ImpactVFX;
+
+	/** Pitch variation applied on top of selected entry's pitch (±range) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
+		meta = (ClampMin = "0.0", ClampMax = "0.5"))
+	float PitchVariation = 0.05f;
+
+	/** Align VFX rotation to impact surface normal (pool default) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
+	bool bAlignVFXToSurface = true;
+
+	/** Get a random valid sound entry (nullptr if pool empty or no valid entries) */
+	const FImpactSoundEntry* GetRandomSound() const
+	{
+		TArray<int32> ValidIndices;
+		for (int32 i = 0; i < ImpactSounds.Num(); ++i)
+		{
+			if (ImpactSounds[i].IsValid())
+			{
+				ValidIndices.Add(i);
+			}
+		}
+		if (ValidIndices.Num() == 0)
+		{
+			return nullptr;
+		}
+		return &ImpactSounds[ValidIndices[FMath::RandRange(0, ValidIndices.Num() - 1)]];
+	}
+
+	/** Get a random valid VFX entry (nullptr if pool empty) [SCAFFOLD] */
+	const FImpactVFXEntry* GetRandomVFX() const
+	{
+		TArray<int32> ValidIndices;
+		for (int32 i = 0; i < ImpactVFX.Num(); ++i)
+		{
+			if (ImpactVFX[i].IsValid())
+			{
+				ValidIndices.Add(i);
+			}
+		}
+		if (ValidIndices.Num() == 0)
+		{
+			return nullptr;
+		}
+		return &ImpactVFX[ValidIndices[FMath::RandRange(0, ValidIndices.Num() - 1)]];
+	}
+
+	/** Check if pool has any valid sounds */
+	bool HasSounds() const
+	{
+		for (const auto& Entry : ImpactSounds)
+		{
+			if (Entry.IsValid())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Check if pool has any valid VFX [SCAFFOLD] */
+	bool HasVFX() const
+	{
+		for (const auto& Entry : ImpactVFX)
+		{
+			if (Entry.IsValid())
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+};
+
 #if WITH_AUTOMATION_TESTS
 /**
  * Debug arrow information for testing
