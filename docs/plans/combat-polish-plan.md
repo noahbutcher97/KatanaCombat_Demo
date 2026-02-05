@@ -1,38 +1,38 @@
 # Combat Polish Plan - Normal Attack Effects & Camera
 
-> **Created**: 2026-02-03 | **Status**: Planning
-> **Priority**: P1 - Immediate focus after finisher lifecycle fix
-> **Depends On**: Finisher lifecycle API (EnterPairedAnimationState/ExitPairedAnimationState) - COMPLETE
+> **Created**: 2026-02-03 | **Status**: ✅ IMPACT EFFECTS COMPLETE | Camera work remaining
+> **Priority**: P2 - Camera polish is optional enhancement
+> **Implemented**: 879d1c2, 0e6ae4e, 150cd3a, 3038b21, f27a068
 
 ---
 
 ## Problem Statement
 
-Normal attacks have **zero cinematic effects**. No hitstop, no camera shake, no impact audio, no VFX. Meanwhile, finishers have slow-mo, camera shake, and scaffolded audio/VFX properties. This creates a jarring quality gap between normal combat and finisher moments.
+~~Normal attacks have **zero cinematic effects**. No hitstop, no camera shake, no impact audio, no VFX.~~ **RESOLVED** - Impact effects now fully implemented.
 
-Additionally, the camera/spring arm system uses default UE5 collision behavior with no combat-aware adjustments, causing camera compression and clipping during close-range combat (both normal attacks and finishers).
+Additionally, the camera/spring arm system uses default UE5 collision behavior with no combat-aware adjustments, causing camera compression and clipping during close-range combat (both normal attacks and finishers). **Camera work remains TODO.**
 
-## Current State
+## Current State (Updated 2026-02-05)
 
 ### Normal Attacks - Effect Coverage
 
-| Effect | Status | Notes |
-|--------|--------|-------|
-| Hitstop | None | `OnWeaponHitTarget()` only applies damage/reactions |
-| Camera Shake | None | No shake on weapon hit |
-| Impact Audio | None | No sound calls on weapon hit |
-| Impact VFX | None | No particle spawning on hit |
-| Slow-Mo | None | Not applicable for standard hits |
+| Effect | Status | Commit | Notes |
+|--------|--------|--------|-------|
+| Hitstop | ✅ WIRED | 879d1c2 | `FHitstopConfig` on AttackData, `ApplyHitstop()` in OnWeaponHitTarget |
+| Camera Shake | ✅ WIRED | 879d1c2 | Via `FHitstopConfig.CameraShake` in `ApplyHitstop()` |
+| Impact Audio | ✅ WIRED | 0e6ae4e, 150cd3a | 4-tier resolution via `ResolveAndPlayImpactSound()` |
+| Impact VFX | ✅ WIRED | 3038b21 | 4-tier resolution via `ResolveAndSpawnImpactVFX()` |
+| Pooled FX | ✅ WIRED | 150cd3a | `UCombatFXData` with random selection per attack type |
 
 ### Finishers - Effect Coverage
 
-| Effect | Status | Notes |
-|--------|--------|-------|
-| Hitstop | Scaffolded (off) | `bApplyHitPause` in `AnimNotifyState_PairedAnimationSync`, defaults false |
-| Camera Shake | WIRED | `TriggerSyncPointEffects()` calls `PlayCameraShakeOnActor()` |
-| Slow-Mo | WIRED | `BeginPairedAnimation()` calls `ApplySlowMotion()` |
-| Impact Audio | Scaffolded | Properties on PairedAnimationData, zero implementation |
-| Impact VFX | Scaffolded | Properties on PairedAnimationData, zero implementation |
+| Effect | Status | Commit | Notes |
+|--------|--------|--------|-------|
+| Hitstop | ✅ WIRED | 879d1c2 | `bApplyHitstop` in sync notify, duration configurable |
+| Camera Shake | ✅ WIRED | - | `TriggerSyncPointEffects()` calls `PlayCameraShakeOnActor()` |
+| Slow-Mo | ✅ WIRED | - | `BeginPairedAnimation()` calls `ApplySlowMotion()` |
+| Impact Audio | ✅ WIRED | f27a068 | `TriggerSyncPointEffects()` plays 3 sounds |
+| Impact VFX | ✅ WIRED | f27a068 | `TriggerSyncPointEffects()` spawns VFX at contact point |
 
 ### Camera System
 

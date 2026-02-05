@@ -96,19 +96,20 @@ This project uses a four-level hierarchy optimized for Claude CLI:
 
 ## Current Project Status
 
-**Overall**: ~50% complete toward Batman Arkham/AC3 combat vision
+**Overall**: ~60% complete toward Batman Arkham/AC3 combat vision
 
-| System | Status | Audit Rating |
-|--------|--------|--------------|
-| Core Combat (4-component) | Stable | 95% feature complete |
-| Input Buffering | Stable | Working (LIFO queue bug pending fix) |
-| Finisher System | Stable | 95% feature complete |
-| Parry System | Not wired | 20% (stubs only) |
-| Counter System | Not wired | 15% (stubs only) |
-| Flow State | Not started | 10% |
-| VFX/SFX | Scaffolded | 40% (properties exist, no triggers) |
-| AI Coordination | Not started | 30% |
-| Architecture Health | 6.5/10 | CombatComponent.cpp needs decomposition |
+| System | Status | Notes |
+|--------|--------|-------|
+| Core Combat (4-component) | ✅ Stable | 95% feature complete |
+| Input Buffering | ✅ Stable | Working (LIFO last-input-wins) |
+| Finisher System | ✅ Stable | 95% feature complete |
+| Impact Effects | ✅ Complete | Hitstop, audio, VFX all wired (v3.5.0) |
+| Pooled FX System | ✅ Complete | UCombatFXData with random selection |
+| Parry System | ❌ Not wired | 20% (stubs only) |
+| Counter System | ❌ Not wired | 15% (stubs only) |
+| Flow State | ❌ Not started | 10% |
+| AI Coordination | ❌ Not started | 30% |
+| Test Suite | ✅ Stable | 207 tests passing |
 
 **Latest Audit**: [Unified Synthesis (2026-02-03)](audits/AUDIT_SYNTHESIS_2026-02-03.md) -- cross-references two parallel audits with 38 unified action items
 
@@ -118,7 +119,7 @@ This project uses a four-level hierarchy optimized for Claude CLI:
 
 ## Test Suite
 
-**14 suites, 126 tests** -- see [KatanaCombatTest README](../Source/KatanaCombatTest/README.md)
+**14 suites, 207 tests** -- see [KatanaCombatTest README](../Source/KatanaCombatTest/README.md)
 
 Run in editor: `Window > Developer Tools > Session Frontend > Automation > Filter: "KatanaCombat"`
 

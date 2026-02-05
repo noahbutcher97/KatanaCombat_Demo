@@ -25,7 +25,7 @@
 | 12. Animation Instance | 3 | 1 | 1 | 1 |
 | 13. Bug Prevention | 5 | 0 | 5 | 0 |
 | 14. Polish | 4 | 0 | 3 | 1 |
-| 15. VFX Scaffolding | 6 | 0 | 2 | 4 |
+| 15. VFX Scaffolding | 6 | 1 | 1 | 4 |
 | 16. Implementation | 5 | 2 | 2 | 1 |
 | 17. Edge Cases | 5 | 1 | 4 | 0 |
 | 18. Phase 5b-4 Analysis | 20 | 5 | 14 | 1 |
@@ -188,7 +188,7 @@
 
 | ID | Description | Priority | Status |
 |----|-------------|----------|--------|
-| 15.1 | Impact VFX at Sync Point | P3 | Pending (see combat-polish-plan.md) |
+| 15.1 | Impact VFX at Sync Point | P3 | Done (3038b21, f27a068) |
 | 15.2 | Blood/Damage Decals | P3 | Deferred |
 | 15.3 | Slow-Motion Post-Process | P3 | Pending |
 | 15.4 | Weapon Trail Enhancement | P3 | Deferred |

@@ -331,6 +331,81 @@ Light2->ComboBlendOutTime = 0.1f   (Standard exit)
 HeavyFinisher->ComboBlendInTime = 0.3f  (Slow, deliberate entry for impact)
 ```
 
+### Impact Effects Configuration (Added in v3.5.0)
+
+Configure per-attack feedback effects: hitstop, audio, and VFX.
+
+#### Hitstop
+
+```
+HitstopConfig:
+  bEnabled: true
+  Duration: 0.05 (Light), 0.08 (Heavy), 0.12 (Special)
+  CameraShake: CS_LightHit (optional)
+  CameraShakeScale: 1.0
+  bApplyOnBlock: true
+  BlockedDurationMultiplier: 0.5
+```
+
+**When to Adjust**:
+- Increase duration for impactful finishers
+- Disable for rapid multi-hit attacks
+- Reduce `BlockedDurationMultiplier` for parry-focused combat
+
+#### Impact Audio
+
+```
+ImpactAudioConfig:
+  ImpactSound: null (uses weapon/pool fallback)
+  VolumeMultiplier: 1.0
+  PitchMultiplier: 1.0
+  PitchVariation: 0.05
+  bUseWeaponFallback: true
+```
+
+**Resolution Chain** (first valid wins):
+1. `ImpactAudioConfig.ImpactSound` - Per-attack override
+2. `WeaponData.CombatFXData` pool - Random from attack type pool
+3. `WeaponData.HitSound` - Simple fallback
+4. Silent
+
+**When to Override**:
+- Unique signature attacks (finishers, specials)
+- Boss-specific sounds
+- Weapon-type variations within same attack
+
+#### Impact VFX
+
+```
+ImpactVFXConfig:
+  ImpactVFX: null (uses weapon/pool fallback)
+  ScaleMultiplier: 1.0
+  bAlignToSurface: true
+  bUseWeaponFallback: true
+```
+
+Same resolution chain as audio. VFX alignment uses impact normal from hit detection.
+
+#### Pooled FX Assets
+
+For weapons with variety, create a `UCombatFXData` asset:
+
+1. Right-click → **Miscellaneous** → **Data Asset**
+2. Choose `CombatFXData` as parent class
+3. Configure pools per attack type:
+   ```
+   AttackTypePools:
+     Light  → { LightSlash1.wav, LightSlash2.wav, LightSlash3.wav }
+     Heavy  → { HeavyClang1.wav, HeavyClang2.wav }
+     Special → { FinisherImpact.wav }
+   ```
+4. Reference from WeaponData:
+   ```
+   WeaponData.CombatFXData: DA_KatanaFX
+   ```
+
+System randomly selects from pool per hit, preventing repetitive audio.
+
 ---
 
 ## Combo Chains

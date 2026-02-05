@@ -73,17 +73,17 @@ class UPairedAnimationData : public UPrimaryDataAsset
     bool bApplyHitPause;
     float HitPauseDuration;
 
-    // Audio (Scaffolded)
-    USoundBase* ImpactSound;
-    USoundBase* VictimReactionSound;
-    USoundBase* AttackerVoiceLine;
-    float MusicDuckingDB;
+    // Audio (Wired in v3.5.0 - f27a068)
+    USoundBase* ImpactSound;           // Plays at contact point
+    USoundBase* VictimReactionSound;   // Plays on victim
+    USoundBase* AttackerVoiceLine;     // Plays on attacker
+    float MusicDuckingDB;              // [Scaffold] Not wired
 
-    // VFX (Scaffolded)
-    UNiagaraSystem* ImpactVFX;
-    UMaterialInterface* SlowMoPostProcessMaterial;
-    UMaterialInterface* ScreenBloodMaterial;
-    bool bSpawnBloodDecals;
+    // VFX (Wired in v3.5.0 - f27a068)
+    UNiagaraSystem* ImpactVFX;         // Spawns at contact point
+    UMaterialInterface* SlowMoPostProcessMaterial;  // [Scaffold] Not wired
+    UMaterialInterface* ScreenBloodMaterial;        // [Scaffold] Not wired
+    bool bSpawnBloodDecals;            // [Scaffold] Not wired
 };
 ```
 

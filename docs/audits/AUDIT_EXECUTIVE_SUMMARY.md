@@ -21,7 +21,7 @@
 - **Flow state for chaining finishers** (core AC3 mechanic)
 - **Enemy attack telegraphs** (required for parry timing)
 - **Attack token system** (AI coordination)
-- **VFX/SFX integration** (scaffolded, not wired)
+- ~~**VFX/SFX integration**~~ ✅ **WIRED in v3.5.0** (hitstop, audio, VFX all functional)
 - **Guard/posture mechanics** (defined but not implemented)
 
 ---
@@ -186,22 +186,19 @@
 
 **Implementation**: Requires new state in `CombatComponent`
 
-### VFX/SFX Integration: 40% Complete
+### VFX/SFX Integration: ✅ 90% Complete (Updated v3.5.0)
 
-**Paired Animations (Scaffolded)**:
-- ✅ Data fields: `ImpactSound`, `VictimReactionSound`, `ImpactVFX`
-- ✅ `SlowMoPostProcessMaterial`, `ScreenBloodMaterial` fields
-- ❌ No `PlaySoundAtLocation()` calls
-- ❌ No `SpawnEmitterAtLocation()` calls
+**Paired Animations (Wired - f27a068)**:
+- ✅ `ImpactSound`, `VictimReactionSound`, `AttackerVoiceLine` play at sync points
+- ✅ `ImpactVFX` spawns via `TriggerSyncPointEffects()`
+- ⏳ `SlowMoPostProcessMaterial`, `ScreenBloodMaterial` not wired (deferred)
 
-**File**: `PairedAnimationData.h:180` - "AUDIO (Scaffolding - Implementation Phase 7)"
-
-**Normal Attacks (Missing)**:
-- ❌ No audio/VFX fields in `AttackData`
-- ❌ No weapon trail effect component
-- ❌ No impact particles on hit
-
-**File**: `WeaponData.h:~80` - Audio/VFX fields commented out
+**Normal Attacks (Wired - 879d1c2, 0e6ae4e, 3038b21, 150cd3a)**:
+- ✅ `FHitstopConfig` on AttackData with `ApplyHitstop()`
+- ✅ `FImpactAudioConfig` with 4-tier resolution chain
+- ✅ `FImpactVFXConfig` with Niagara spawning
+- ✅ `UCombatFXData` pooled FX with random selection
+- ⏳ Weapon trail effect component (deferred)
 
 ### AI/Enemy System: 30% Complete
 

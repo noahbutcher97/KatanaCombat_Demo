@@ -2275,4 +2275,305 @@ Get the active targeting settings based on configuration hierarchy.
 
 ---
 
+## CinematicEffectsUtilityLibrary (Added in v3.5.0)
+
+Static utility library for cinematic combat effects. Separated from PairedAnimationUtilityLibrary to allow reuse across all combat scenarios (not just paired animations).
+
+**Header**: `Source/KatanaCombat/Public/Utilities/CinematicEffectsUtilityLibrary.h`
+
+### Time Dilation
+
+#### ApplySlowMotion
+```cpp
+UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Time")
+static bool ApplySlowMotion(UWorld* World, float Scale);
+```
+**Parameters**:
+- `World` - World context
+- `Scale` - Time dilation scale (0.01-1.0, clamped)
+
+**Returns**: True if successfully applied
+
+Apply slow motion to world time dilation. Caller must manage duration and restoration.
+
+#### RestoreTimeDilation
+```cpp
+UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Time")
+static void RestoreTimeDilation(UWorld* World);
+```
+Restore world time dilation to normal (1.0). Safe to call multiple times.
+
+#### GetTimeDilation / IsSlowMotionActive
+```cpp
+UFUNCTION(BlueprintPure, Category = "Cinematic Effects|Time")
+static float GetTimeDilation(UWorld* World);
+
+UFUNCTION(BlueprintPure, Category = "Cinematic Effects|Time")
+static bool IsSlowMotionActive(UWorld* World);
+```
+Query current time dilation state.
+
+### Hitstop (Per-Hit Impact Freeze)
+
+Sakurai-style hitstop freezes attacker and victim using per-actor CustomTimeDilation. Camera and particles continue during hitstop. Uses FPlatformTime::Seconds() + FTSTicker for wall-clock accurate restoration (unaffected by time dilation).
+
+#### ApplyHitstop
+```cpp
+UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Hitstop")
+static bool ApplyHitstop(
+    AActor* Attacker,
+    AActor* Victim,
+    const FHitstopConfig& Config,
+    bool bWasBlocked = false);
+```
+**Parameters**:
+- `Attacker` - Actor performing the attack (frozen during hitstop)
+- `Victim` - Actor receiving the hit (frozen during hitstop)
+- `Config` - Hitstop configuration (see FHitstopConfig below)
+- `bWasBlocked` - Whether hit was blocked (applies BlockedDurationMultiplier)
+
+**Returns**: True if hitstop was applied
+
+**Hook Point**: Called from `BaseCombatCharacter::OnWeaponHitTarget()` after `Execute_ApplyDamage()`.
+
+### Impact Audio
+
+#### PlayImpactSound
+```cpp
+UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Audio")
+static bool PlayImpactSound(
+    UWorld* World,
+    const FImpactAudioConfig& Config,
+    USoundBase* WeaponFallbackSound,
+    const FVector& ImpactLocation,
+    AActor* Attacker = nullptr);
+```
+Play impact sound at hit location with pitch/volume variation. Resolution: Config.ImpactSound → WeaponFallbackSound → nothing.
+
+#### ResolveAndPlayImpactSound
+```cpp
+UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|Audio")
+static bool ResolveAndPlayImpactSound(
+    UWorld* World,
+    const FImpactAudioConfig& AudioConfig,
+    const UCombatFXData* CombatFXData,
+    EAttackType AttackType,
+    USoundBase* WeaponFallbackSound,
+    const FVector& ImpactLocation,
+    bool bWasBlocked = false,
+    AActor* Attacker = nullptr);
+```
+**4-Tier Resolution Chain**:
+1. `AttackData.ImpactAudioConfig.ImpactSound` (per-attack override)
+2. `CombatFXData` pool[AttackType] (random from pool)
+3. `WeaponFallbackSound` (simple weapon fallback)
+4. silent
+
+**Hook Point**: Called from `BaseCombatCharacter::OnWeaponHitTarget()` and `CombatComponent::TriggerSyncPointEffects()`.
+
+### Impact VFX
+
+#### SpawnImpactVFX
+```cpp
+UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|VFX")
+static bool SpawnImpactVFX(
+    UWorld* World,
+    const FImpactVFXConfig& Config,
+    UNiagaraSystem* WeaponFallbackVFX,
+    const FVector& ImpactLocation,
+    const FVector& ImpactNormal,
+    FName BoneName = NAME_None);
+```
+Spawn impact VFX at hit location with surface alignment.
+
+#### ResolveAndSpawnImpactVFX
+```cpp
+UFUNCTION(BlueprintCallable, Category = "Cinematic Effects|VFX")
+static bool ResolveAndSpawnImpactVFX(
+    UWorld* World,
+    const FImpactVFXConfig& VFXConfig,
+    const UCombatFXData* CombatFXData,
+    EAttackType AttackType,
+    UNiagaraSystem* WeaponFallbackVFX,
+    const FVector& ImpactLocation,
+    const FVector& ImpactNormal,
+    bool bWasBlocked = false,
+    FName BoneName = NAME_None);
+```
+**4-Tier Resolution Chain**: Same pattern as audio (AttackData override → Pool → Weapon fallback → nothing).
+
+### Actor Time Dilation (Per-Actor Effects)
+
+```cpp
+static void SetActorTimeDilation(AActor* Actor, float TimeDilation);
+static void RestoreActorTimeDilation(AActor* Actor);
+static void FreezeActors(const TArray<AActor*>& Actors);
+static void RestoreActors(const TArray<AActor*>& Actors);
+static TMap<TWeakObjectPtr<AActor>, float> FreezeActorsWithSave(const TArray<AActor*>& Actors);
+static void RestoreActorsFromSaved(const TMap<TWeakObjectPtr<AActor>, float>& SavedDilations);
+```
+Per-actor time dilation utilities for selective hitstop. `FreezeActorsWithSave()`/`RestoreActorsFromSaved()` preserve pre-freeze time dilation for overlapping slow-mo scenarios.
+
+---
+
+## FHitstopConfig (Added in v3.5.0)
+
+Configuration struct for per-hit hitstop effects.
+
+**Header**: `Source/KatanaCombat/Public/CombatTypes.h`
+
+### Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `bEnabled` | bool | true | Enable hitstop on hit |
+| `Duration` | float | 0.05 | Hitstop freeze duration in seconds (wall-clock) |
+| `CameraShake` | TSubclassOf\<UCameraShakeBase\> | nullptr | Camera shake to play during hitstop |
+| `CameraShakeScale` | float | 1.0 | Camera shake intensity scale |
+| `bApplyOnBlock` | bool | true | Apply hitstop when attack is blocked |
+| `BlockedDurationMultiplier` | float | 0.5 | Duration multiplier when blocked |
+
+### Factory Method
+
+```cpp
+static FHitstopConfig CreateDefault(EAttackType AttackType);
+```
+Creates default config based on attack type:
+- **Light**: 0.04s duration
+- **Heavy**: 0.08s duration
+- **Special**: 0.12s duration
+
+### Usage
+
+```cpp
+// In AttackData asset - configure per-attack
+UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Impact Effects")
+FHitstopConfig HitstopConfig;
+
+// At runtime - apply when hit lands
+UCinematicEffectsUtilityLibrary::ApplyHitstop(Attacker, Victim, AttackData->HitstopConfig, bWasBlocked);
+```
+
+---
+
+## FImpactAudioConfig (Added in v3.5.0)
+
+Configuration struct for per-attack impact audio.
+
+**Header**: `Source/KatanaCombat/Public/CombatTypes.h`
+
+### Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `ImpactSound` | USoundBase* | nullptr | Primary impact sound (spatial audio) |
+| `VolumeMultiplier` | float | 1.0 | Volume multiplier (0.0-3.0) |
+| `PitchMultiplier` | float | 1.0 | Base pitch multiplier (0.5-2.0) |
+| `PitchVariation` | float | 0.05 | Random pitch variation (±range) |
+| `bUseWeaponFallback` | bool | true | Fall back to WeaponData::HitSound if no sound set |
+
+### Methods
+
+```cpp
+bool IsActive() const;           // Has sound or allows fallback?
+float GetRandomizedPitch() const; // Get pitch with random variation
+```
+
+---
+
+## FImpactVFXConfig (Added in v3.5.0)
+
+Configuration struct for per-attack impact VFX.
+
+**Header**: `Source/KatanaCombat/Public/CombatTypes.h`
+
+### Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `ImpactVFX` | UNiagaraSystem* | nullptr | Niagara system to spawn at impact |
+| `ScaleMultiplier` | float | 1.0 | Scale multiplier (0.1-5.0) |
+| `bAlignToSurface` | bool | true | Align VFX rotation to surface normal |
+| `bUseWeaponFallback` | bool | true | Fall back to WeaponData::HitVFX if no VFX set |
+
+---
+
+## UCombatFXData (Added in v3.5.0)
+
+Pooled impact FX data asset - maps EAttackType to arrays of sounds/VFX for random selection.
+
+**Header**: `Source/KatanaCombat/Public/Data/CombatFXData.h`
+
+### Composition
+
+```
+WeaponData
+└── CombatFXData (reference)
+    └── AttackTypePools (TMap<EAttackType, FImpactFXPool>)
+        ├── Light  → { sounds[], vfx[] }
+        ├── Heavy  → { sounds[], vfx[] }
+        └── Special → { sounds[], vfx[] }
+```
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `AttackTypePools` | TMap\<EAttackType, FImpactFXPool\> | FX pools organized by attack type |
+| `SurfacePools` | TMap\<ECombatSurfaceType, FImpactFXPool\> | Surface-specific overrides (scaffold) |
+| `BlockedPool` | FImpactFXPool | FX pool for blocked attacks |
+| `bUseBlockedPool` | bool | Whether to use BlockedPool when blocked |
+
+### Selection API
+
+```cpp
+const FImpactFXPool* GetPoolForAttackType(EAttackType AttackType) const;
+const FImpactFXPool* GetPoolForSurface(ECombatSurfaceType SurfaceType) const;
+const FImpactFXPool* ResolvePool(EAttackType AttackType, bool bWasBlocked, ECombatSurfaceType SurfaceType) const;
+```
+**ResolvePool Priority**: Surface (if available) → Blocked (if blocked + configured) → AttackType
+
+---
+
+## FImpactFXPool (Added in v3.5.0)
+
+Pool of impact sounds and VFX for random selection.
+
+**Header**: `Source/KatanaCombat/Public/CombatTypes.h`
+
+### Properties
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `ImpactSounds` | TArray\<FImpactSoundEntry\> | [] | Pool of impact sounds |
+| `ImpactVFX` | TArray\<FImpactVFXEntry\> | [] | Pool of impact VFX |
+| `PitchVariation` | float | 0.05 | Additional pitch variation (±range) |
+| `bAlignVFXToSurface` | bool | true | Pool default for VFX alignment |
+
+### Selection Methods
+
+```cpp
+const FImpactSoundEntry* GetRandomSound() const; // Random valid sound or nullptr
+const FImpactVFXEntry* GetRandomVFX() const;     // Random valid VFX or nullptr
+```
+
+### Entry Structs
+
+**FImpactSoundEntry**:
+```cpp
+TObjectPtr<USoundBase> Sound;
+float VolumeMultiplier = 1.0f;
+float PitchMultiplier = 1.0f;
+bool IsValid() const;
+```
+
+**FImpactVFXEntry**:
+```cpp
+TObjectPtr<UNiagaraSystem> VFX;
+float ScaleMultiplier = 1.0f;
+bool IsValid() const;
+```
+
+---
+
 ## Combat System (Unified)

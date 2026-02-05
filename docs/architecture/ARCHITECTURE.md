@@ -1289,6 +1289,73 @@ void UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
 }
 ```
 
+### Impact Effects (Added in v3.5.0)
+
+After damage is applied in `OnWeaponHitTarget`, impact effects fire:
+
+```
+5. Call IDamageableInterface::ApplyDamage() on victim
+    ↓
+6. Apply Impact Effects (per-hit feedback)
+    ├─ Hitstop: Freeze attacker + victim (per-actor CustomTimeDilation)
+    ├─ Audio: Play impact sound (4-tier resolution)
+    ├─ VFX: Spawn Niagara at impact point (surface-aligned)
+    └─ Camera Shake: Fire on player controller (if configured)
+    ↓
+7. HitReactionComponent processes damage...
+```
+
+#### Resolution Chain (Audio & VFX)
+
+Both audio and VFX use a 4-tier fallback system:
+
+```
+1. AttackData override (per-attack specific)
+    ↓ null?
+2. CombatFXData pool (random from attack type pool)
+    ↓ null/empty?
+3. WeaponData fallback (simple weapon default)
+    ↓ null?
+4. Silent / No VFX
+```
+
+#### Configuration
+
+**Per-Attack Override** (AttackData):
+```cpp
+UPROPERTY(EditAnywhere, Category = "Impact Effects")
+FHitstopConfig HitstopConfig;     // Freeze duration, camera shake
+
+UPROPERTY(EditAnywhere, Category = "Impact Effects")
+FImpactAudioConfig ImpactAudioConfig;  // Sound, volume, pitch
+
+UPROPERTY(EditAnywhere, Category = "Impact Effects")
+FImpactVFXConfig ImpactVFXConfig;      // Niagara system, scale, alignment
+```
+
+**Pooled FX** (WeaponData → CombatFXData):
+```cpp
+// WeaponData.h
+UPROPERTY(EditAnywhere, Category = "Combat FX")
+TObjectPtr<UCombatFXData> CombatFXData;  // Reference to pool asset
+
+// CombatFXData contains:
+TMap<EAttackType, FImpactFXPool> AttackTypePools;  // Light, Heavy, Special pools
+```
+
+#### Hook Point
+
+Impact effects are triggered in `BaseCombatCharacter::OnWeaponHitTarget()`:
+```cpp
+// Apply damage first
+IDamageableInterface::Execute_ApplyDamage(Victim, HitInfo);
+
+// Then fire impact effects
+UCinematicEffectsUtilityLibrary::ApplyHitstop(this, Victim, AttackData->HitstopConfig, bWasBlocked);
+UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(...);
+UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(...);
+```
+
 ---
 
 ## Targeting System
