@@ -367,6 +367,89 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
 	bool IsAttacking() const { return CurrentAttackData != nullptr; }
 
+	// ============================================================================
+	// COUNTER WINDOW API
+	// ============================================================================
+
+	/**
+	 * Is this character currently in a counter window? (can be countered)
+	 * Called by defenders to check if this attacker is vulnerable to counter
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
+	bool IsInCounterWindow() const { return bCounterWindowActive; }
+
+	/**
+	 * Get progress through counter window (0.0 = start, 1.0 = end)
+	 * Used for perfect counter timing detection
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
+	float GetCounterWindowProgress() const
+	{
+		if (!bCounterWindowActive || CounterWindowData.WindowDuration <= 0.0f)
+		{
+			return 0.0f;
+		}
+		return FMath::Clamp(CounterWindowData.TimeInWindow / CounterWindowData.WindowDuration, 0.0f, 1.0f);
+	}
+
+	/**
+	 * Get the counter window data for pose-matching
+	 * Only valid when IsInCounterWindow() returns true
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
+	const FCounterContext& GetCounterWindowData() const { return CounterWindowData; }
+
+	/**
+	 * Set counter window data (called by AnimNotifyState_CounterWindow::NotifyBegin)
+	 * Marks this character as counterable and provides pose-matching info
+	 */
+	void SetCounterWindowData(EAttackType InAttackType, ESwingDirection InSwingDirection,
+							  UPairedAnimationData* InCounterData, float InWindowDuration);
+
+	/**
+	 * Clear counter window data (called by AnimNotifyState_CounterWindow::NotifyEnd)
+	 * Marks this character as no longer counterable
+	 */
+	void ClearCounterWindowData();
+
+	// ============================================================================
+	// COUNTER SYSTEM API
+	// ============================================================================
+
+	/**
+	 * Attempt to perform a counter action
+	 * Routes to AC3 mode (instant counter-kill) or Chain mode (parry initiation)
+	 * based on CounterMode setting
+	 * @return True if counter was initiated successfully
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Counter")
+	bool TryCounter();
+
+	/**
+	 * Check if this character can currently perform a counter
+	 * Validates combat state, nearby counterable enemies, and mode-specific requirements
+	 * @return True if CanCounter conditions are met
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
+	bool CanCounter() const;
+
+	/**
+	 * Find the nearest enemy currently in their counter window
+	 * Searches within soft-lock range for enemies with active counter windows
+	 * @return Enemy actor if found, nullptr otherwise
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
+	AActor* FindCounterableEnemy() const;
+
+	/**
+	 * Get counter context for a specific enemy
+	 * Used to retrieve pose-matching data when executing counter
+	 * @param Enemy The enemy to get counter context from
+	 * @return Counter context with attack type, swing direction, and counter data
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
+	FCounterContext GetEnemyCounterContext(AActor* Enemy) const;
+
 	/** Get active windows at specified montage time */
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
 	TArray<FTimerCheckpoint> GetActiveWindows(float CurrentTime) const;
@@ -768,6 +851,26 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	float ComboWindowDuration = 0.0f;
 
+	// ============================================================================
+	// COUNTER WINDOW STATE (for AC3/Chain counter systems)
+	// ============================================================================
+
+	/** Is this character currently in a counter window? (can be countered by defenders) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
+	bool bCounterWindowActive = false;
+
+	/** Counter context data (pose-matching info for defenders) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
+	FCounterContext CounterWindowData;
+
+	/** Counter system mode - AC3 (one-step) vs Chain (three-step) */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Counter")
+	ECounterSystemMode CounterMode = ECounterSystemMode::Chain;
+
+	/** Chain mode state machine (only used when CounterMode == Chain) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
+	EChainCounterState ChainState = EChainCounterState::None;
+
 	/** Queue statistics */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	FQueueStats QueueStats;
@@ -802,10 +905,23 @@ protected:
 	/** Is character movement currently disabled? (for procedural sync) */
 	bool bMovementCurrentlyDisabled = false;
 
-	/** Is currently in combo blend transition? (prevents premature phase reset) */
+	// ========================================================================
+	// ATTACK STATE MACHINE (replaces scattered flags)
+	// ========================================================================
+
+	/**
+	 * Centralized state machine for attack lifecycle management
+	 * Tracks owner montage, combo blends, and filters stale callbacks
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Debug")
+	FAttackStateMachine AttackStateMachine;
+
+	// DEPRECATED: These flags are kept for backwards compatibility during transition
+	// The state machine is now the source of truth - use AttackStateMachine.IsComboBlending() instead
+	/** @deprecated Use AttackStateMachine.IsComboBlending() instead */
 	bool bInComboBlend = false;
 
-	/** World time when current blend transition will complete (for rapid input detection) */
+	/** @deprecated Use AttackStateMachine.ComboBlendEndTime instead */
 	float BlendTransitionEndTime = 0.0f;
 
 	/** Was current attack triggered by directional follow-up? (prevents infinite directional loops) */

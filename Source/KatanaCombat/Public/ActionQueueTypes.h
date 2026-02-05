@@ -74,6 +74,9 @@ enum class EActionWindowType : uint8
 	/** Parry detection window */
 	Parry,
 
+	/** Counter opportunity window (AC3/Chain mode counter detection) */
+	Counter,
+
 	/** Cancel/interrupt window */
 	Cancel,
 

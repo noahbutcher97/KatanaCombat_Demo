@@ -14,6 +14,7 @@ class AActor;
 class UCameraShakeBase;
 class USoundBase;
 class UNiagaraSystem;
+class UPairedAnimationData;
 
 // ============================================================================
 // ENUMS
@@ -200,6 +201,67 @@ enum class EReactionOutcome : uint8
     // Vulnerable - Open to finisher/counter window
 };
 
+/**
+ * Counter system mode for AB testing
+ * Determines the flow and feel of the counter mechanic
+ */
+UENUM(BlueprintType)
+enum class ECounterSystemMode : uint8
+{
+    /** AC3/Arkham style: One-step pose-matched counter-kills */
+    AC3             UMETA(DisplayName = "AC3 (One-Step Counter-Kill)"),
+
+    /** Chain style: Three-step parry → counter → finisher flow */
+    Chain           UMETA(DisplayName = "Chain (Parry → Counter → Finisher)")
+};
+
+/**
+ * Chain counter state machine states
+ * Only used when ECounterSystemMode::Chain is active
+ */
+UENUM(BlueprintType)
+enum class EChainCounterState : uint8
+{
+    /** Not in counter chain */
+    None            UMETA(DisplayName = "None"),
+
+    /** Playing parry (deflection) animation */
+    ParryActive     UMETA(DisplayName = "Parry Active"),
+
+    /** Slow-mo decision window - waiting for Light/Heavy/Nothing input */
+    CounterWindow   UMETA(DisplayName = "Counter Window"),
+
+    /** Playing counter (riposte) animation */
+    CounterActive   UMETA(DisplayName = "Counter Active"),
+
+    /** Enemy vulnerable, finisher available */
+    FinisherReady   UMETA(DisplayName = "Finisher Ready")
+};
+
+/**
+ * Swing direction for procedural pose-matching
+ * Different from EAttackDirection (which is movement/targeting direction)
+ * Used to select appropriate counter animation based on attack trajectory
+ */
+UENUM(BlueprintType)
+enum class ESwingDirection : uint8
+{
+    /** Side-to-side swings (slashes) */
+    Horizontal      UMETA(DisplayName = "Horizontal"),
+
+    /** Overhead or uppercut attacks */
+    Vertical        UMETA(DisplayName = "Vertical"),
+
+    /** Stabs, lunges, piercing attacks */
+    Thrust          UMETA(DisplayName = "Thrust"),
+
+    /** Low sweeping attacks */
+    Sweep           UMETA(DisplayName = "Sweep"),
+
+    /** Unarmed grabs, grapples */
+    Grab            UMETA(DisplayName = "Grab")
+};
+
 // ============================================================================
 // STRUCTS
 // ============================================================================
@@ -384,6 +446,65 @@ struct FHitReactionInfo
         , ImpactNormal(FVector::UpVector)
         , BoneName(NAME_None)
     {
+    }
+};
+
+/**
+ * Counter context - information about an incoming attack that can be countered
+ * Passed to counter animation selection and procedural adjustment systems
+ */
+USTRUCT(BlueprintType)
+struct FCounterContext
+{
+    GENERATED_BODY()
+
+    /** The enemy currently attacking (owner of the counter window) */
+    UPROPERTY(BlueprintReadOnly, Category = "Counter")
+    TObjectPtr<AActor> Attacker = nullptr;
+
+    /** Attack type for animation pool selection */
+    UPROPERTY(BlueprintReadOnly, Category = "Counter")
+    EAttackType AttackType = EAttackType::Light;
+
+    /** Swing direction for procedural pose-matching */
+    UPROPERTY(BlueprintReadOnly, Category = "Counter")
+    ESwingDirection SwingDirection = ESwingDirection::Horizontal;
+
+    /** Specific counter animation for this attack (if configured on AnimNotifyState) */
+    UPROPERTY(BlueprintReadOnly, Category = "Counter")
+    TObjectPtr<UPairedAnimationData> SpecificCounterData = nullptr;
+
+    /** Time spent in counter window (for perfect counter detection) */
+    UPROPERTY(BlueprintReadOnly, Category = "Counter")
+    float TimeInWindow = 0.0f;
+
+    /** Total duration of the counter window */
+    UPROPERTY(BlueprintReadOnly, Category = "Counter")
+    float WindowDuration = 0.5f;
+
+    /** Is this context currently valid (has active attacker in window)? */
+    bool IsValid() const { return Attacker != nullptr; }
+
+    /** Calculate percentage through window (0.0 = start, 1.0 = end) */
+    float GetWindowProgress() const
+    {
+        return WindowDuration > 0.0f ? FMath::Clamp(TimeInWindow / WindowDuration, 0.0f, 1.0f) : 0.0f;
+    }
+
+    /** Check if currently in perfect counter timing (last 20% of window) */
+    bool IsPerfectTiming() const
+    {
+        return GetWindowProgress() >= 0.8f;
+    }
+
+    void Reset()
+    {
+        Attacker = nullptr;
+        AttackType = EAttackType::Light;
+        SwingDirection = ESwingDirection::Horizontal;
+        SpecificCounterData = nullptr;
+        TimeInWindow = 0.0f;
+        WindowDuration = 0.5f;
     }
 };
 
@@ -1126,6 +1247,267 @@ struct FDebugVisualizationData
 	{}
 };
 #endif // WITH_AUTOMATION_TESTS
+
+// ============================================================================
+// ATTACK STATE MACHINE
+// ============================================================================
+
+/**
+ * Attack lifecycle state - tracks where we are in an attack's execution
+ * This is INTERNAL to the state machine, not the same as EAttackPhase
+ */
+UENUM(BlueprintType)
+enum class EAttackLifecycleState : uint8
+{
+	/** No attack in progress */
+	Idle,
+	/** Attack initiated, montage starting */
+	Starting,
+	/** Attack in progress (montage playing) */
+	InProgress,
+	/** Old montage blending out to combo attack */
+	ComboBlending,
+	/** Attack was interrupted (death, stun, paired anim) */
+	Interrupted
+};
+
+/**
+ * Centralized state machine for attack lifecycle management
+ *
+ * Replaces scattered flags (bInComboBlend, BlendTransitionEndTime, etc.)
+ * with clean, unified state tracking. Key responsibility: determine whether
+ * a montage callback should be processed or ignored.
+ *
+ * DESIGN PRINCIPLE: Each attack has an "owner" montage AND section. Callbacks from
+ * non-owner montages (old combos blending out) are ignored.
+ *
+ * CRITICAL COMPLICATION:
+ * All light attacks share the SAME montage (AM_Light_Combo_1) with different sections.
+ * Pointer comparison alone fails - we must also use TIME-BASED grace periods
+ * to handle section-to-section transitions within the same montage.
+ *
+ * Usage:
+ * - Call OnAttackStarted() when beginning new attack
+ * - Call OnComboTransition() when transitioning to combo
+ * - Call ShouldProcessMontageEnd() in OnMontageEnded to filter callbacks
+ * - Call OnMontageEndProcessed() after handling the callback
+ */
+USTRUCT(BlueprintType)
+struct FAttackStateMachine
+{
+	GENERATED_BODY()
+
+	// ========================================================================
+	// STATE
+	// ========================================================================
+
+	/** Current lifecycle state */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
+	EAttackLifecycleState LifecycleState = EAttackLifecycleState::Idle;
+
+	/** Current attack phase (from notify system) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
+	EAttackPhase CurrentPhase = EAttackPhase::None;
+
+	/** The montage this state machine is tracking (owner montage) */
+	UPROPERTY()
+	TWeakObjectPtr<UAnimMontage> ActiveMontage;
+
+	/** The section name we're playing (for logging/debugging) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
+	FName ActiveSectionName = NAME_None;
+
+	/** Previous montage (during combo blend) */
+	UPROPERTY()
+	TWeakObjectPtr<UAnimMontage> PreviousMontage;
+
+	/** Generation ID - incremented on each new attack, used for staleness detection */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
+	int32 AttackGeneration = 0;
+
+	/** Time when combo blend will complete (world time seconds) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
+	float ComboBlendEndTime = 0.0f;
+
+	/** Time when current section started (for grace period protection) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
+	float SectionStartTime = 0.0f;
+
+	/** Grace period after section start - ignore interrupted callbacks during this time (seconds) */
+	static constexpr float SectionTransitionGracePeriod = 0.15f;
+
+	// ========================================================================
+	// API - ATTACK LIFECYCLE
+	// ========================================================================
+
+	/**
+	 * Called when a new attack starts (not a combo)
+	 * Resets state machine and sets the new montage as owner
+	 */
+	void OnAttackStarted(UAnimMontage* Montage, FName SectionName, float CurrentWorldTime)
+	{
+		LifecycleState = EAttackLifecycleState::Starting;
+		CurrentPhase = EAttackPhase::None;
+		ActiveMontage = Montage;
+		ActiveSectionName = SectionName;
+		PreviousMontage = nullptr;
+		AttackGeneration++;
+		ComboBlendEndTime = 0.0f;
+		SectionStartTime = CurrentWorldTime;
+	}
+
+	/**
+	 * Called when transitioning from one attack to a combo attack
+	 * Tracks the old montage so we can ignore its callbacks
+	 *
+	 * @param NewMontage The new combo montage starting
+	 * @param NewSectionName The section we're transitioning to
+	 * @param BlendDuration How long the blend will take
+	 * @param CurrentWorldTime Current world time for timeout calculation
+	 */
+	void OnComboTransition(UAnimMontage* NewMontage, FName NewSectionName, float BlendDuration, float CurrentWorldTime)
+	{
+		PreviousMontage = ActiveMontage;
+		ActiveMontage = NewMontage;
+		ActiveSectionName = NewSectionName;
+		AttackGeneration++;
+		LifecycleState = EAttackLifecycleState::ComboBlending;
+		ComboBlendEndTime = CurrentWorldTime + BlendDuration;
+		SectionStartTime = CurrentWorldTime;
+	}
+
+	/**
+	 * Called when combo blend completes (new montage fully started)
+	 */
+	void OnComboBlendComplete()
+	{
+		PreviousMontage = nullptr;
+		if (LifecycleState == EAttackLifecycleState::ComboBlending)
+		{
+			LifecycleState = EAttackLifecycleState::InProgress;
+		}
+	}
+
+	/**
+	 * Called when phase transitions (from AnimNotify)
+	 */
+	void OnPhaseChanged(EAttackPhase NewPhase)
+	{
+		CurrentPhase = NewPhase;
+
+		// Windup start means attack is now in progress
+		if (NewPhase == EAttackPhase::Windup && LifecycleState == EAttackLifecycleState::Starting)
+		{
+			LifecycleState = EAttackLifecycleState::InProgress;
+		}
+	}
+
+	// ========================================================================
+	// API - MONTAGE CALLBACK FILTERING
+	// ========================================================================
+
+	/**
+	 * CRITICAL: Determines if a montage end callback should be processed
+	 *
+	 * RULES (in priority order):
+	 * 1. Grace period: During first 150ms after section start, IGNORE interrupted callbacks
+	 *    This handles same-montage section transitions (Attack_1 → Attack_2 in AM_Light_Combo_1)
+	 * 2. Different montage: If not our active montage pointer, ignore
+	 * 3. Combo blend time window: Additional protection during blend
+	 *
+	 * @param EndedMontage The montage that just ended
+	 * @param bInterrupted Was it interrupted?
+	 * @param CurrentWorldTime Current world time for timeout check
+	 * @return true if this callback should be processed, false to ignore
+	 */
+	bool ShouldProcessMontageEnd(UAnimMontage* EndedMontage, bool bInterrupted, float CurrentWorldTime) const
+	{
+		// RULE 1: Grace period protection after section/attack change
+		// This is the CRITICAL fix for same-montage section transitions (all light attacks share AM_Light_Combo_1)
+		// Old section's callback arrives after new section starts - grace period catches this
+		if (bInterrupted && CurrentWorldTime < SectionStartTime + SectionTransitionGracePeriod)
+		{
+			return false;  // Interrupted during grace period = stale callback from old section
+		}
+
+		// RULE 2: Montage pointer check (handles different-montage transitions)
+		if (EndedMontage != ActiveMontage.Get())
+		{
+			return false;  // Not our montage - ignore completely
+		}
+
+		// RULE 3: Combo blend time window protection (belt-and-suspenders)
+		// Even if same montage, if we're in blend window with interrupt, ignore
+		if (bInterrupted && CurrentWorldTime < ComboBlendEndTime)
+		{
+			return false;
+		}
+
+		// This is a valid callback from our active montage - process it
+		return true;
+	}
+
+	/**
+	 * Called after processing a montage end callback
+	 * Updates state machine to reflect the end
+	 */
+	void OnMontageEndProcessed(UAnimMontage* EndedMontage, bool bInterrupted)
+	{
+		if (bInterrupted)
+		{
+			LifecycleState = EAttackLifecycleState::Interrupted;
+		}
+		else
+		{
+			LifecycleState = EAttackLifecycleState::Idle;
+		}
+		CurrentPhase = EAttackPhase::None;
+	}
+
+	/**
+	 * Force reset to idle (used by external systems like death)
+	 */
+	void ForceReset()
+	{
+		LifecycleState = EAttackLifecycleState::Idle;
+		CurrentPhase = EAttackPhase::None;
+		ActiveMontage = nullptr;
+		ActiveSectionName = NAME_None;
+		PreviousMontage = nullptr;
+		ComboBlendEndTime = 0.0f;
+		SectionStartTime = 0.0f;
+	}
+
+	// ========================================================================
+	// QUERIES
+	// ========================================================================
+
+	/** Is an attack currently in progress? */
+	bool IsAttackActive() const
+	{
+		return LifecycleState == EAttackLifecycleState::Starting ||
+			   LifecycleState == EAttackLifecycleState::InProgress ||
+			   LifecycleState == EAttackLifecycleState::ComboBlending;
+	}
+
+	/** Are we in the middle of a combo blend? */
+	bool IsComboBlending() const
+	{
+		return LifecycleState == EAttackLifecycleState::ComboBlending;
+	}
+
+	/** Get the current owner montage */
+	UAnimMontage* GetActiveMontage() const
+	{
+		return ActiveMontage.Get();
+	}
+
+	/** Check if a specific montage is the current owner */
+	bool IsOwnerMontage(UAnimMontage* Montage) const
+	{
+		return ActiveMontage.Get() == Montage;
+	}
+};
 
 // ============================================================================
 // DELEGATES

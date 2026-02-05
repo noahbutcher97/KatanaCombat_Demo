@@ -4,6 +4,7 @@
 #include "Core/WeaponComponent.h"
 #include "Interfaces/CombatInterface.h"
 #include "Interfaces/DamageableInterface.h"
+#include "Interfaces/TeamMemberInterface.h"
 #include "Data/AttackData.h"
 #include "Data/AttackConfiguration.h"
 #include "Data/CombatSettings.h"
@@ -26,6 +27,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "Utilities/PairedAnimationUtilityLibrary.h"
 #include "Debug/DebugUtils.h"
+#include "Engine/OverlapResult.h"
 
 // ============================================================================
 // LOG CATEGORY DEFINITION
@@ -1449,20 +1451,33 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	UAnimMontage* CurrentMontage = AnimInstance->GetCurrentActiveMontage();
 	if (CurrentMontage && BlendOutTime > 0.0f)
 	{
-		// Mark that we're in combo blend transition - prevents premature phase reset
-		bInComboBlend = true;
-
-		// Track when the blend will complete (max of blend-out and blend-in)
-		// This allows time-based detection of rapid inputs during blend
+		// STATE MACHINE: Notify combo transition (tracks old montage for callback filtering)
+		// CRITICAL: Pass section name for same-montage transitions (e.g., Attack_1 → Attack_2 in AM_Light_Combo_1)
 		const float BlendDuration = FMath::Max(BlendOutTime, BlendInTime);
-		BlendTransitionEndTime = GetWorld()->GetTimeSeconds() + BlendDuration;
+		AttackStateMachine.OnComboTransition(AttackData->AttackMontage, AttackData->MontageSection, BlendDuration, CurrentWorldTime);
+
+		// DEPRECATED: Keep legacy flags in sync for backwards compatibility
+		bInComboBlend = true;
+		BlendTransitionEndTime = CurrentWorldTime + BlendDuration;
 
 		AnimInstance->Montage_Stop(BlendOutTime, CurrentMontage);
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[BLEND] Combo blend started - EndTime=%.2f (Duration=%.2fs)"),
-				BlendTransitionEndTime, BlendDuration);
+			UE_LOG(LogCombat, Log, TEXT("[BLEND] Combo blend started (Gen=%u) - EndTime=%.2f (Duration=%.2fs)"),
+				AttackStateMachine.AttackGeneration, BlendTransitionEndTime, BlendDuration);
+		}
+	}
+	else
+	{
+		// Not a combo - this is a fresh attack start
+		// CRITICAL: Pass section name and time for grace period protection
+		AttackStateMachine.OnAttackStarted(AttackData->AttackMontage, AttackData->MontageSection, CurrentWorldTime);
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[STATE] New attack started (Gen=%d): %s"),
+				AttackStateMachine.AttackGeneration, *AttackData->GetName());
 		}
 	}
 
@@ -1494,17 +1509,22 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	}
 
 	// Clear blend flag - new montage has started playing
-	// Note: BlendTransitionEndTime is NOT cleared here - it provides time-based protection
-	// against rapid inputs that may come in before the blend visually completes
-	if (bInComboBlend)
+	// STATE MACHINE: Notify combo blend complete
+	if (AttackStateMachine.IsComboBlending())
 	{
-		bInComboBlend = false;
+		AttackStateMachine.OnComboBlendComplete();
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Log, TEXT("[BLEND] New montage started - bInComboBlend=false (time-based protection until %.2f)"),
-				BlendTransitionEndTime);
+			UE_LOG(LogCombat, Log, TEXT("[STATE] Combo blend complete (Gen=%u) - now InProgress"),
+				AttackStateMachine.AttackGeneration);
 		}
+	}
+
+	// DEPRECATED: Keep legacy flags in sync
+	if (bInComboBlend)
+	{
+		bInComboBlend = false;
 	}
 
 	// Handle montage sections if specified
@@ -1661,6 +1681,214 @@ void UCombatComponent::RegisterCheckpoint(EActionWindowType WindowType, float St
 			StartTime,
 			Duration);
 	}
+}
+
+void UCombatComponent::SetCounterWindowData(EAttackType InAttackType, ESwingDirection InSwingDirection,
+                                             UPairedAnimationData* InCounterData, float InWindowDuration)
+{
+	bCounterWindowActive = true;
+
+	CounterWindowData.Attacker = GetOwner();
+	CounterWindowData.AttackType = InAttackType;
+	CounterWindowData.SwingDirection = InSwingDirection;
+	CounterWindowData.SpecificCounterData = InCounterData;
+	CounterWindowData.TimeInWindow = 0.0f;
+	CounterWindowData.WindowDuration = InWindowDuration;
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[COUNTER] Counter window opened: Type=%s, Swing=%s, Duration=%.2f"),
+			*UEnum::GetValueAsString(InAttackType),
+			*UEnum::GetValueAsString(InSwingDirection),
+			InWindowDuration);
+	}
+}
+
+void UCombatComponent::ClearCounterWindowData()
+{
+	if (bCounterWindowActive && GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[COUNTER] Counter window closed"));
+	}
+
+	bCounterWindowActive = false;
+	CounterWindowData.Reset();
+}
+
+// ============================================================================
+// COUNTER SYSTEM API
+// ============================================================================
+
+bool UCombatComponent::TryCounter()
+{
+	if (!CanCounter())
+	{
+		return false;
+	}
+
+	AActor* Target = FindCounterableEnemy();
+	if (!Target)
+	{
+		UE_LOG(LogCombat, Verbose, TEXT("[COUNTER] TryCounter failed: No counterable enemy found"));
+		return false;
+	}
+
+	// Get the enemy's counter context for pose-matching
+	FCounterContext Context = GetEnemyCounterContext(Target);
+	if (!Context.Attacker)
+	{
+		UE_LOG(LogCombat, Warning, TEXT("[COUNTER] TryCounter failed: Invalid counter context"));
+		return false;
+	}
+
+	// Route to appropriate mode
+	switch (CounterMode)
+	{
+	case ECounterSystemMode::AC3:
+		UE_LOG(LogCombat, Log, TEXT("[COUNTER] Executing AC3 counter-kill against %s"), *Target->GetName());
+		// TODO: Implement TryCounter_AC3Mode() in Phase 2
+		// return TryCounter_AC3Mode(Context);
+		return false;
+
+	case ECounterSystemMode::Chain:
+		UE_LOG(LogCombat, Log, TEXT("[COUNTER] Executing Chain parry against %s"), *Target->GetName());
+		// TODO: Implement TryCounter_ChainMode() (TryParry) in Phase 3
+		// return TryCounter_ChainMode(Context);
+		return false;
+
+	default:
+		return false;
+	}
+}
+
+bool UCombatComponent::CanCounter() const
+{
+	// Must be in a state that allows countering
+	ECombatState State = ICombatInterface::Execute_GetCombatState(GetOwner());
+	if (State != ECombatState::Idle && State != ECombatState::Blocking)
+	{
+		return false;
+	}
+
+	// Must not be in a paired animation
+	if (bCompletingPairedAnimation || bBlockCombatInput)
+	{
+		return false;
+	}
+
+	// Chain mode: Check chain state allows countering
+	if (CounterMode == ECounterSystemMode::Chain)
+	{
+		// Can only initiate counter from None state (not mid-chain)
+		// Exception: Could allow counter during CounterWindow state for parry-chains
+		// For now, only allow from None state
+		if (ChainState != EChainCounterState::None)
+		{
+			return false;
+		}
+	}
+
+	// Must have a counterable enemy nearby
+	return FindCounterableEnemy() != nullptr;
+}
+
+AActor* UCombatComponent::FindCounterableEnemy() const
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return nullptr;
+	}
+
+	// Use targeting component to get soft-lock range
+	UTargetingComponent* Targeting = Owner->FindComponentByClass<UTargetingComponent>();
+	float SearchRange = 400.0f; // Default fallback
+	if (Targeting)
+	{
+		// Use SoftAimRange from targeting settings
+		if (const UTargetingSettings* Settings = Targeting->GetEffectiveSettings())
+		{
+			SearchRange = Settings->SoftAimRange;
+		}
+	}
+
+	// Get all nearby actors
+	TArray<FOverlapResult> Overlaps;
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(Owner);
+
+	Owner->GetWorld()->OverlapMultiByChannel(
+		Overlaps,
+		Owner->GetActorLocation(),
+		FQuat::Identity,
+		ECC_Pawn,
+		FCollisionShape::MakeSphere(SearchRange),
+		QueryParams
+	);
+
+	AActor* BestTarget = nullptr;
+	float BestDistance = FLT_MAX;
+
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		AActor* OtherActor = Overlap.GetActor();
+		if (!OtherActor)
+		{
+			continue;
+		}
+
+		// Check if this is an enemy (different team)
+		if (OtherActor->Implements<UTeamMemberInterface>() && Owner->Implements<UTeamMemberInterface>())
+		{
+			ETeamId OtherTeam = ITeamMemberInterface::Execute_GetTeamId(OtherActor);
+			ETeamId MyTeam = ITeamMemberInterface::Execute_GetTeamId(Owner);
+			if (OtherTeam == MyTeam)
+			{
+				continue; // Same team, skip
+			}
+		}
+
+		// Check if enemy has an active counter window
+		UCombatComponent* EnemyCombat = OtherActor->FindComponentByClass<UCombatComponent>();
+		if (!EnemyCombat || !EnemyCombat->IsInCounterWindow())
+		{
+			continue;
+		}
+
+		// Track closest counterable enemy
+		float Distance = FVector::Dist(Owner->GetActorLocation(), OtherActor->GetActorLocation());
+		if (Distance < BestDistance)
+		{
+			BestDistance = Distance;
+			BestTarget = OtherActor;
+		}
+	}
+
+	return BestTarget;
+}
+
+FCounterContext UCombatComponent::GetEnemyCounterContext(AActor* Enemy) const
+{
+	FCounterContext Context;
+
+	if (!Enemy)
+	{
+		return Context;
+	}
+
+	UCombatComponent* EnemyCombat = Enemy->FindComponentByClass<UCombatComponent>();
+	if (!EnemyCombat || !EnemyCombat->IsInCounterWindow())
+	{
+		return Context;
+	}
+
+	// Copy the enemy's counter window data
+	Context = EnemyCombat->GetCounterWindowData();
+
+	// Update timing info based on current time
+	// (TimeInWindow should be updated by the caller if needed for perfect timing checks)
+
+	return Context;
 }
 
 bool UCombatComponent::HasReachedCheckpoint(const FTimerCheckpoint& Checkpoint, float CurrentTime) const
@@ -2234,11 +2462,15 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 	EAttackPhase OldPhase = CurrentPhase;
 	CurrentPhase = NewPhase;
 
+	// STATE MACHINE: Notify phase change
+	AttackStateMachine.OnPhaseChanged(NewPhase);
+
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[PHASE] Phase transition: %d → %d"),
+		UE_LOG(LogCombat, Log, TEXT("[PHASE] Phase transition: %d → %d (Gen=%u)"),
 			static_cast<int32>(OldPhase),
-			static_cast<int32>(NewPhase));
+			static_cast<int32>(NewPhase),
+			AttackStateMachine.AttackGeneration);
 	}
 
 	// Broadcast phase changed event
@@ -2328,17 +2560,51 @@ void UCombatComponent::OnMontageBlendingOut(UAnimMontage* Montage, bool bInterru
 
 void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
+	const float CurrentWorldTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+
 	if (GetDebugDraw())
 	{
-		UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Montage ended: %s | Interrupted: %s"),
+		const float TimeSinceSectionStart = CurrentWorldTime - AttackStateMachine.SectionStartTime;
+		UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Montage ended: %s | Interrupted: %s | Gen=%d | Section=%s | TimeSinceStart=%.3fs"),
 			Montage ? *Montage->GetName() : TEXT("None"),
-			bInterrupted ? TEXT("YES") : TEXT("NO"));
+			bInterrupted ? TEXT("YES") : TEXT("NO"),
+			AttackStateMachine.AttackGeneration,
+			*AttackStateMachine.ActiveSectionName.ToString(),
+			TimeSinceSectionStart);
 	}
 
-	// CRITICAL: Reset input state on interruption (stun, knockback, etc.)
-	// Prevents directional input context leaking when montage is forcibly stopped
+	// ========================================================================
+	// STATE MACHINE CALLBACK FILTERING
+	// ========================================================================
+	// The state machine determines whether this callback should be processed.
+	// It ignores callbacks from:
+	// 1. Old montages (different pointer)
+	// 2. Old sections within same montage (grace period protection)
+	// 3. Callbacks during combo blend window
+	//
+	// CRITICAL: Light attacks 1-3 share AM_Light_Combo_1, 4-6 share another, etc.
+	// Section transitions within same montage require time-based grace period filtering.
+	// ========================================================================
+
+	if (!AttackStateMachine.ShouldProcessMontageEnd(Montage, bInterrupted, CurrentWorldTime))
+	{
+		if (GetDebugDraw())
+		{
+			const float GraceRemaining = (AttackStateMachine.SectionStartTime + FAttackStateMachine::SectionTransitionGracePeriod) - CurrentWorldTime;
+			UE_LOG(LogCombat, Log, TEXT("[STATE] Ignoring montage end callback (Gen=%d, GraceRemaining=%.3fs)"),
+				AttackStateMachine.AttackGeneration, FMath::Max(0.0f, GraceRemaining));
+		}
+		// This is a stale callback from old section/montage - ignore completely
+		return;
+	}
+
+	// ========================================================================
+	// PROCESS VALID CALLBACK
+	// ========================================================================
 	if (bInterrupted)
 	{
+		// CRITICAL: Reset input state on interruption (stun, knockback, etc.)
+		// Prevents directional input context leaking when montage is forcibly stopped
 		SetInputContext(EInputContext::Movement);
 		DirectionalInputBuffer.Reset();
 		ClearHoldState();
@@ -2480,17 +2746,24 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		}
 	}
 
-	// STRUCTURAL FIX: Only transition to None if NOT in combo blend
-	// When bInComboBlend=true, we're mid-transition and new montage will start soon
-	// This prevents phase desync: Windup → None → Active (old montage ending during blend-out)
-	if (!bInComboBlend && CurrentPhase != EAttackPhase::Windup && CurrentPhase != EAttackPhase::Active)
+	// ========================================================================
+	// FINAL CLEANUP (only reached for valid callbacks)
+	// ========================================================================
+
+	// Update state machine with callback processed
+	AttackStateMachine.OnMontageEndProcessed(Montage, bInterrupted);
+
+	// Phase transition to idle if not in combo blend
+	if (!AttackStateMachine.IsComboBlending() &&
+		CurrentPhase != EAttackPhase::Windup &&
+		CurrentPhase != EAttackPhase::Active)
 	{
 		SetPhase(EAttackPhase::None);
 	}
 
 	// SLOPE FIX: Safety net - snap character to ground if floating after attack
 	// This catches cases where terrain-aware warp target wasn't enough (e.g., pure root motion without warp)
-	if (!bInComboBlend)
+	if (!AttackStateMachine.IsComboBlending())
 	{
 		ABaseCombatCharacter* Character = GetOwnerCharacter();
 		if (Character && UDebugUtils::IsCharacterFloating(Character, 5.0f))
