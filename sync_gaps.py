@@ -736,7 +736,7 @@ def main():
                 skipped += 1
                 continue
             
-            logger.info(f"[{i+1}/{len(gaps)}] Creating {gap.gap_id}...", end=" ", flush=True)
+            print(f"[{i+1}/{len(gaps)}] Creating {gap.gap_id}...", end=" ", flush=True)
             success, error = create_issue(gap, args.dry_run)
             
             if success:
@@ -763,7 +763,7 @@ def main():
             
             # Check if should be closed
             if "Done" in gap.status and issue_data['state'] == 'open':
-                logger.info(f"[{i+1}/{len(gaps)}] Closing {gap.gap_id} (marked Done)...", end=" ", flush=True)
+                print(f"[{i+1}/{len(gaps)}] Closing {gap.gap_id} (marked Done)...", end=" ", flush=True)
                 success, error = close_issue(issue_number, "Gap marked as Done in tracker", args.dry_run)
                 
                 if success:
