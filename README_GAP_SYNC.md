@@ -4,6 +4,36 @@ Automatically syncs gaps from `docs/plans/gap-tracker.md` to GitHub issues with 
 
 ## Recent Improvements (2026-02-06)
 
+### Dynamic Label Management ✨ NEW
+
+The script now automatically manages GitHub labels:
+
+1. **Automatic Label Creation**
+   - Checks if labels exist before applying them to issues
+   - Creates missing labels dynamically via GitHub API
+   - No manual label setup required
+   - Prevents workflow failures due to missing labels
+
+2. **Color-Coded Label System**
+   - **Priority labels** (red #D73A4A): `priority: p0`, `priority: p1`, etc.
+   - **Status labels** (green #0E8A16): `status: pending`, `status: partial`, etc.
+   - **Area/Type labels** (yellow #FBCA04): `area: animation`, `type: bug`, etc.
+   - **Gap label** (purple #5319E7): `gap`
+   - **System labels** (blue #1D76DB): `system: paired-animation`
+   - **Default** (light blue #6D9EEB): Other labels
+
+3. **Pre-flight Label Check**
+   - Scans all gaps to identify required labels
+   - Verifies/creates all labels before processing issues
+   - Reports label creation status
+   - Continues even if some labels fail (with warning)
+
+4. **Robust Error Handling**
+   - Network timeouts handled gracefully
+   - API errors logged with details
+   - Rate limiting respected
+   - Clear failure messages
+
 ### Enhanced Error Handling & Reliability
 
 The script now includes comprehensive error handling and validation:
@@ -13,6 +43,7 @@ The script now includes comprehensive error handling and validation:
    - Validates GitHub CLI authentication
    - Checks repository issues are enabled and accessible
    - Verifies token has necessary permissions
+   - **NEW**: Pre-checks and creates all required labels
 
 2. **Retry Logic with Exponential Backoff**
    - Automatically retries transient errors (network issues, rate limits)
@@ -30,12 +61,14 @@ The script now includes comprehensive error handling and validation:
    - Captures and displays error messages from GitHub API
    - Tracks which specific gaps failed and why
    - Shows failure summary at end of execution
+   - **NEW**: Label creation/verification logs
 
 5. **Debug Mode**
    - New `--debug` flag for verbose logging
    - Shows timestamps, request details, and full exception traces
    - Useful for troubleshooting API issues
    - Displays command details before execution
+   - **NEW**: Shows label checking and creation details
 
 6. **Success Criteria Validation**
    - Exits with error code if 0 issues created when operations were expected
@@ -49,10 +82,10 @@ The script now includes comprehensive error handling and validation:
 # Enable debug logging for troubleshooting
 python3 sync_gaps.py --create --debug --max 5
 
-# Create issues with enhanced error handling
+# Create issues with enhanced error handling and automatic label management
 python3 sync_gaps.py --create --status Pending
 
-# Test with dry-run (still validates token and permissions)
+# Test with dry-run (validates token, checks labels, but doesn't create issues)
 python3 sync_gaps.py --create --dry-run --debug
 ```
 
@@ -67,6 +100,9 @@ The script now provides clear, actionable error messages:
 - **Rate limit**: `WARNING: Rate limit hit, retrying in Xs (attempt Y/3)`
 - **Network error**: `WARNING: Network error, retrying in Xs`
 - **Multiple failures**: `ERROR: Stopping: 5 continuous failures exceeded threshold`
+- **NEW - Label creation**: `✅ Created label 'system: paired-animation' successfully`
+- **NEW - Label exists**: `✅ Label 'gap' already exists`
+- **NEW - Label failure**: `❌ Failed to create label 'priority: p1': API error`
 
 ### Exit Codes
 
@@ -191,17 +227,52 @@ python3 sync_gaps.py --create --status Pending --dry-run
 
 ## Files
 
-- **`sync_gaps.py`** - Main sync script (18KB, ~500 lines)
+- **`sync_gaps.py`** - Main sync script (~900 lines with label management)
+- **`test_label_management.py`** - Label management test suite (13 unit tests)
 - **`.github/workflows/create-all-gap-issues.yml`** - GitHub Actions workflow (~120 lines)
 - **`.github/ISSUE_TEMPLATE/gap-issue-template.md`** - Issue template for manual creation
 
+## Testing
+
+### Unit Tests
+
+The script includes a comprehensive test suite for label management:
+
+```bash
+# Run unit tests (no API calls)
+python3 test_label_management.py
+
+# Run tests with actual GitHub API (requires valid token)
+export GH_TOKEN="your_token"
+python3 test_label_management.py --with-api
+```
+
+Test coverage includes:
+- Repository info retrieval
+- Label existence checking
+- Label creation via API
+- Color assignment logic
+- Error handling (network errors, timeouts, API failures)
+- Batch label processing
+
+### Integration Testing
+
+```bash
+# Test with dry-run (validates everything except actual issue creation)
+python3 sync_gaps.py --create --dry-run --debug --max 5
+
+# Test label creation with a small batch
+python3 sync_gaps.py --create --max 3 --debug
+```
+
 ## Best Practices
 
-1. **Start with dry run** to preview changes
+1. **Start with dry run** to preview changes and validate labels
 2. **Create in phases** - P0 first, then P1, P2, P3
 3. **Run sync weekly** to close Done gaps and update content
 4. **Use filters** to target specific gap categories
 5. **Check output** to verify success before proceeding
+6. **Enable debug mode** when troubleshooting label or API issues
 
 ## Maintenance
 

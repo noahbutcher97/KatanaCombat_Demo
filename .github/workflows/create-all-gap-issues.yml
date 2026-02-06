@@ -11,10 +11,12 @@ name: Sync Gap Tracker to Issues
 # Features:
 #   - Creates comprehensive issues with KatanaCombat combat system context
 #   - Applies proper label taxonomy (priority, status, area, type, source)
+#   - Automatically creates missing labels (NEW: no manual setup required)
 #   - Can sync existing issues (update content, close when Done)
 #   - Rate limited to respect GitHub API
+#   - Enhanced error handling with retry logic
 #
-# Labels Applied:
+# Labels Applied (auto-created if missing):
 #   - gap, system: paired-animation (core)
 #   - priority: p0/p1/p2/p3 (P0=critical, P1=high, P2=medium, P3=low)
 #   - status: pending/partial/done/deferred
@@ -67,6 +69,11 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.x'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
       
       - name: Sync gaps to issues
         id: sync
