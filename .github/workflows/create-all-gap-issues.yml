@@ -1,8 +1,38 @@
-name: Create All Gap Issues (Automated)
+name: Sync Gap Tracker to Issues
+
+# This workflow syncs the gap tracker (docs/plans/gap-tracker.md) to GitHub issues.
+# It can create new issues for pending gaps or sync existing issues with tracker updates.
+#
+# Usage:
+#   - Manually trigger from Actions tab
+#   - Configure via inputs (create vs sync, status filter, max count)
+#   - Run on schedule for continuous sync (optional)
+#
+# Features:
+#   - Creates comprehensive issues with KatanaCombat combat system context
+#   - Applies proper label taxonomy (priority, status, area, type, source)
+#   - Can sync existing issues (update content, close when Done)
+#   - Rate limited to respect GitHub API
+#
+# Labels Applied:
+#   - gap, system: paired-animation (core)
+#   - priority: p0/p1/p2/p3 (P0=critical, P1=high, P2=medium, P3=low)
+#   - status: pending/partial/done/deferred
+#   - area: ai/animation/audio/ui/... (domain-specific)
+#   - type: bug/feature/polish/edge-case
+#   - source: audit/testing/analysis
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'Mode: create new issues or sync existing'
+        required: true
+        default: 'create'
+        type: choice
+        options:
+          - create
+          - sync
       filter_status:
         description: 'Status filter (Pending, Partial, or All)'
         required: true
@@ -13,13 +43,17 @@ on:
           - Partial
           - All
       max_issues:
-        description: 'Maximum number of issues to create (0 = no limit)'
+        description: 'Maximum number of issues to process (0 = no limit)'
         required: false
         default: '0'
         type: string
+  
+  # Optional: Run weekly to sync tracker changes
+  # schedule:
+  #   - cron: '0 0 * * 0'  # Every Sunday at midnight
 
 jobs:
-  create-issues:
+  sync-gaps:
     runs-on: ubuntu-latest
     permissions:
       issues: write
@@ -29,279 +63,49 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Parse gap tracker and create issues
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      
+      - name: Sync gaps to issues
         env:
           GH_TOKEN: ${{ github.token }}
-          FILTER_STATUS: ${{ inputs.filter_status }}
-          MAX_ISSUES: ${{ inputs.max_issues }}
         run: |
-          python3 - <<'PYTHON_SCRIPT'
-          import re
-          import json
-          import os
-          import time
-          import subprocess
-          from typing import List, Dict
+          echo "🚀 Starting gap sync..."
+          echo "Mode: ${{ inputs.mode }}"
+          echo "Status filter: ${{ inputs.filter_status }}"
+          echo "Max issues: ${{ inputs.max_issues || '0' }}"
+          echo ""
           
-          class GapEntry:
-              def __init__(self, gap_id, desc, priority, status, category, cat_num, notes=""):
-                  self.gap_id = gap_id
-                  self.description = desc
-                  self.priority = priority
-                  self.status = status
-                  self.category = category
-                  self.category_num = cat_num
-                  self.notes = notes
-              
-              def get_title(self):
-                  return f"[GAP-{self.gap_id}] {self.description}"
-              
-              def get_labels(self):
-                  labels = ["gap", "system: paired-animation", f"priority: {self.priority.lower()}"]
-                  
-                  if "Pending" in self.status:
-                      labels.append("status: pending")
-                  elif "Partial" in self.status:
-                      labels.append("status: partial")
-                  elif "Done" in self.status:
-                      labels.append("status: done")
-                  elif "Deferred" in self.status:
-                      labels.append("status: deferred")
-                  
-                  area_map = {
-                      "AI/ENEMY COORDINATION": "area: ai",
-                      "INPUT HANDLING": "area: input",
-                      "ANIMATION/TIMING": "area: animation",
-                      "AUDIO SYNCHRONIZATION": "area: audio",
-                      "UI/HUD": "area: ui",
-                      "ENVIRONMENTAL INTERACTION": "area: environment",
-                      "STATE TRANSITIONS": "area: state-machine",
-                      "PERFORMANCE": "area: performance",
-                      "RECOVERY & CLEANUP": "area: cleanup",
-                      "BUG/CRASH PREVENTION": "type: bug",
-                      "POLISH": "type: polish",
-                      "VFX SCAFFOLDING": "area: vfx",
-                      "IMPLEMENTATION": "area: implementation",
-                      "EDGE CASES": "type: edge-case",
-                      "AUDIT FINDINGS": "source: audit",
-                  }
-                  
-                  if self.category in area_map:
-                      labels.append(area_map[self.category])
-                  
-                  return labels
-              
-              def get_body(self):
-                  contexts = {
-                      "AI/ENEMY COORDINATION": "AI behavior and enemy coordination during paired animations",
-                      "INPUT HANDLING": "Player input management in cinematic combat sequences",
-                      "ANIMATION/TIMING": "Animation synchronization between paired animation participants",
-                      "AUDIO SYNCHRONIZATION": "Audio timing and synchronization in paired sequences",
-                      "UI/HUD": "User interface behavior during paired animations",
-                      "ENVIRONMENTAL INTERACTION": "Environmental interaction during paired animations",
-                      "STATE TRANSITIONS": "Combat state management in paired animation workflows",
-                      "PERFORMANCE": "Performance optimization of the paired animation system",
-                      "RECOVERY & CLEANUP": "Proper cleanup and state recovery after paired animations",
-                      "BUG/CRASH PREVENTION": "Preventing crashes and bugs in the paired animation system",
-                      "POLISH": "Polish and visual quality improvements",
-                      "VFX SCAFFOLDING": "Visual effects integration for paired animations",
-                      "IMPLEMENTATION": "Implementation details and code quality",
-                      "EDGE CASES": "Handling edge cases and unusual situations",
-                      "AUDIT FINDINGS": "Discovered in comprehensive audit (2026-02-03)",
-                  }
-                  
-                  context = contexts.get(self.category, "Part of Paired Animation System development")
-                  
-                  priority_desc = {
-                      "P0": "CRITICAL - Immediate action required (crash/corruption risk)",
-                      "P1": "HIGH - Core functionality impact",
-                      "P2": "MEDIUM - Quality or feature improvement",
-                      "P3": "LOW - Enhancement or polish"
-                  }.get(self.priority, "Priority to be determined")
-                  
-                  status_emoji = {
-                      "Pending": "⏳ Awaiting implementation",
-                      "Partial": "🔄 Partially complete, needs additional work",
-                      "Done": "✅ Resolved and completed",
-                      "Deferred": "⏸️ Postponed to future development phase"
-                  }.get(self.status, "")
-                  
-                  body = f"""## Gap Overview
-          {self.description}
+          # Build command
+          CMD="python3 sync_gaps.py"
           
-          ## Classification
-          **Category:** {self.category} (Section {self.category_num})  
-          **Priority:** {self.priority} - {priority_desc}  
-          **Status:** {self.status} {status_emoji}
+          # Add mode flag
+          if [ "${{ inputs.mode }}" = "create" ]; then
+            CMD="$CMD --create"
+          else
+            CMD="$CMD --sync"
+          fi
           
-          ## Combat System Context
-          {context}
+          # Add status filter
+          CMD="$CMD --status ${{ inputs.filter_status }}"
           
-          This gap was identified during comprehensive system auditing of the Paired Animation System (Phase 5). The KatanaCombat project implements a Ghost of Tsushima-inspired melee combat system with paired animations for finishers, counters, and parries.
+          # Add max if set
+          MAX="${{ inputs.max_issues }}"
+          if [ -n "$MAX" ] && [ "$MAX" != "0" ]; then
+            CMD="$CMD --max $MAX"
+          fi
           
-          ### System Architecture
-          The combat system uses a 4-component architecture:
-          - **CombatComponent** - State machine, input buffering, attack execution
-          - **TargetingComponent** - Soft-lock targeting, motion warp setup
-          - **WeaponComponent** - Hit detection, weapon traces
-          - **HitReactionComponent** - Damage reception, reactions, death
-          """
-                  
-                  if self.notes:
-                      body += f"\n## Additional Notes\n{self.notes}\n"
-                  
-                  body += """
-          ## Implementation Strategy
-          <!-- To be completed during implementation planning -->
-          
-          ## Acceptance Criteria
-          - [ ] Gap resolved and implementation verified
-          - [ ] Unit tests added or updated
-          - [ ] Integration tests pass
-          - [ ] Code review completed
-          - [ ] Documentation updated
-          - [ ] Gap tracker status updated to 'Done'
-          
-          ## Related Documentation
-          - **Gap Tracker**: [`docs/plans/gap-tracker.md`](../blob/main/docs/plans/gap-tracker.md)
-          - **Audit Synthesis**: [`docs/audits/AUDIT_SYNTHESIS_2026-02-03.md`](../blob/main/docs/audits/AUDIT_SYNTHESIS_2026-02-03.md)
-          - **Architecture**: [`docs/architecture/ARCHITECTURE.md`](../blob/main/docs/architecture/ARCHITECTURE.md)
-          - **Paired Animation Spec**: [`docs/specs/PAIRED_ANIMATION_SPEC.md`](../blob/main/docs/specs/PAIRED_ANIMATION_SPEC.md)
-          """
-                  
-                  return body
-          
-          def parse_gap_tracker(filepath):
-              gaps = []
-              current_category = ""
-              current_category_num = 0
-              
-              with open(filepath, 'r') as f:
-                  content = f.read()
-              
-              sections = re.split(r'\n### ', content)
-              
-              for section in sections[1:]:
-                  lines = section.split('\n')
-                  header = lines[0].strip()
-                  
-                  match = re.match(r'(\d+)\.\s+(.+)', header)
-                  if match:
-                      current_category_num = int(match.group(1))
-                      current_category = match.group(2).upper()
-                  else:
-                      current_category = header.upper()
-                      current_category_num = 0
-                  
-                  in_table = False
-                  for line in lines:
-                      if line.startswith('| ID |') or line.startswith('|---|'):
-                          in_table = True
-                          continue
-                      
-                      if in_table and line.startswith('|') and not line.startswith('|---'):
-                          parts = [p.strip() for p in line.split('|')[1:-1]]
-                          
-                          if len(parts) >= 3 and parts[0] and not parts[0].startswith('-'):
-                              gap_id = parts[0]
-                              description = parts[1]
-                              
-                              if len(parts) == 4:
-                                  priority = parts[2]
-                                  status = parts[3]
-                              elif len(parts) == 3:
-                                  priority = "P2"
-                                  status = parts[2]
-                              else:
-                                  continue
-                              
-                              # Clean markdown
-                              for char in ['*', '~', '`']:
-                                  description = description.replace(char * 2, '')
-                                  priority = priority.replace(char * 2, '')
-                                  status = status.replace(char * 2, '')
-                              
-                              notes = ""
-                              if '(' in status:
-                                  note_match = re.search(r'\(([^)]+)\)', status)
-                                  if note_match:
-                                      notes = note_match.group(1)
-                                  status = re.sub(r'\s*\([^)]+\)', '', status).strip()
-                              
-                              gap = GapEntry(gap_id, description, priority, status, 
-                                           current_category, current_category_num, notes)
-                              gaps.append(gap)
-              
-              return gaps
-          
-          # Main execution
-          print("🚀 KatanaCombat Gap Tracker → GitHub Issues Creator")
-          print("=" * 70)
-          
-          filter_status = os.environ.get('FILTER_STATUS', 'Pending')
-          max_issues = int(os.environ.get('MAX_ISSUES', '0'))
-          
-          gaps = parse_gap_tracker('docs/plans/gap-tracker.md')
-          print(f"✅ Found {len(gaps)} total gaps")
-          
-          # Filter
-          if filter_status != 'All':
-              gaps = [g for g in gaps if filter_status in g.status]
-              print(f"🔍 Filtered to {len(gaps)} gaps with status: {filter_status}")
-          
-          if max_issues > 0:
-              gaps = gaps[:max_issues]
-              print(f"🔍 Limited to first {max_issues} gaps")
-          
-          print(f"\n📊 Creating {len(gaps)} issues...")
-          print()
-          
-          created = 0
-          failed = 0
-          
-          for i, gap in enumerate(gaps, 1):
-              print(f"[{i}/{len(gaps)}] {gap.get_title()[:50]}...", end=" ", flush=True)
-              
-              # Create issue using gh CLI
-              title = gap.get_title()
-              body = gap.get_body()
-              labels = ",".join(gap.get_labels())
-              
-              try:
-                  result = subprocess.run(
-                      ['gh', 'issue', 'create', '--title', title, '--body', body, '--label', labels],
-                      capture_output=True,
-                      text=True,
-                      timeout=30
-                  )
-                  
-                  if result.returncode == 0:
-                      print("✅")
-                      created += 1
-                  else:
-                      print(f"❌ {result.stderr[:50]}")
-                      failed += 1
-              except Exception as e:
-                  print(f"❌ {str(e)[:50]}")
-                  failed += 1
-              
-              # Rate limiting
-              if i < len(gaps):
-                  time.sleep(2)
-          
-          print()
-          print("=" * 70)
-          print(f"✅ Created: {created} issues")
-          if failed > 0:
-              print(f"❌ Failed: {failed} issues")
-          print("=" * 70)
-          
-          PYTHON_SCRIPT
+          # Run the sync
+          eval $CMD
       
       - name: Summary
         run: |
-          echo "### Gap Issue Creation Complete" >> $GITHUB_STEP_SUMMARY
+          echo "### Gap Tracker Sync Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Issues created from gap tracker with filter: ${{ inputs.filter_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode**: ${{ inputs.mode }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status Filter**: ${{ inputs.filter_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Max Issues**: ${{ inputs.max_issues || 'unlimited' }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Check the job logs above for details on each issue created." >> $GITHUB_STEP_SUMMARY
+          echo "Check job logs for detailed results." >> $GITHUB_STEP_SUMMARY
