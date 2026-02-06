@@ -40,9 +40,10 @@ import os
 import json
 import argparse
 import time
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Set
 from dataclasses import dataclass
 import logging
+import requests
 
 
 # Global logger
@@ -168,6 +169,163 @@ def exponential_backoff(attempt: int) -> float:
         float: Delay in seconds
     """
     return RETRY_BASE_DELAY * (2 ** attempt)
+
+
+def get_repository_info() -> Tuple[Optional[str], Optional[str]]:
+    """
+    Get the current repository owner and name from gh CLI.
+    
+    Returns:
+        Tuple of (owner, repo_name) or (None, None) on error
+    """
+    try:
+        result = subprocess.run(
+            ['gh', 'repo', 'view', '--json', 'owner,name'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode == 0:
+            repo_info = json.loads(result.stdout)
+            owner = repo_info.get('owner', {}).get('login')
+            repo = repo_info.get('name')
+            return (owner, repo)
+        else:
+            logger.error(f"Failed to get repository info: {result.stderr}")
+            return (None, None)
+    except Exception as e:
+        logger.error(f"Error getting repository info: {e}")
+        return (None, None)
+
+
+def ensure_label_exists(owner: str, repo: str, label_name: str, token: str) -> bool:
+    """
+    Check if a label exists in the repository, and create it if it doesn't.
+    
+    Args:
+        owner: Repository owner
+        repo: Repository name
+        label_name: Name of the label to ensure exists
+        token: GitHub API token
+    
+    Returns:
+        bool: True if label exists or was created successfully, False otherwise
+    """
+    labels_url = f"https://api.github.com/repos/{owner}/{repo}/labels"
+    headers = {
+        'Authorization': f'token {token}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    
+    try:
+        # Check if label already exists
+        logger.debug(f"Checking if label '{label_name}' exists...")
+        response = requests.get(labels_url, headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            existing_labels = [label['name'] for label in response.json()]
+            
+            if label_name in existing_labels:
+                logger.debug(f"✅ Label '{label_name}' already exists")
+                return True
+            
+            # Label doesn't exist, create it
+            logger.info(f"📝 Creating label '{label_name}'...")
+            
+            # Assign color based on label type
+            color = "6D9EEB"  # Default blue
+            if label_name.startswith("priority:"):
+                color = "D73A4A"  # Red for priority
+            elif label_name.startswith("status:"):
+                color = "0E8A16"  # Green for status
+            elif label_name.startswith("area:") or label_name.startswith("type:"):
+                color = "FBCA04"  # Yellow for area/type
+            elif label_name == "gap":
+                color = "5319E7"  # Purple for gap
+            elif label_name.startswith("system:"):
+                color = "1D76DB"  # Blue for system
+            
+            create_payload = {
+                "name": label_name,
+                "color": color,
+                "description": f"Auto-generated label for {label_name}"
+            }
+            
+            create_response = requests.post(
+                labels_url,
+                headers=headers,
+                json=create_payload,
+                timeout=10
+            )
+            
+            if create_response.status_code == 201:
+                logger.info(f"✅ Created label '{label_name}' successfully")
+                return True
+            else:
+                logger.error(f"❌ Failed to create label '{label_name}': {create_response.status_code}")
+                logger.error(f"   Response: {create_response.text}")
+                return False
+        else:
+            logger.error(f"❌ Failed to fetch labels: {response.status_code}")
+            logger.error(f"   Response: {response.text}")
+            return False
+            
+    except requests.exceptions.Timeout:
+        logger.error(f"❌ Timeout while checking/creating label '{label_name}'")
+        return False
+    except requests.exceptions.RequestException as e:
+        logger.error(f"❌ Network error while handling label '{label_name}': {e}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Unexpected error while handling label '{label_name}': {e}")
+        logger.debug("Exception details:", exc_info=True)
+        return False
+
+
+def ensure_all_labels_exist(gaps: List['Gap'], token: str) -> bool:
+    """
+    Pre-check and create all labels needed for the given gaps.
+    
+    Args:
+        gaps: List of Gap objects to process
+        token: GitHub API token
+    
+    Returns:
+        bool: True if all labels exist or were created, False if any failed
+    """
+    logger.info("🏷️  Pre-checking required labels...")
+    
+    # Get repository info
+    owner, repo = get_repository_info()
+    if not owner or not repo:
+        logger.error("❌ Could not determine repository information")
+        return False
+    
+    logger.debug(f"Repository: {owner}/{repo}")
+    
+    # Collect all unique labels from all gaps
+    all_labels: Set[str] = set()
+    for gap in gaps:
+        all_labels.update(gap.get_labels())
+    
+    logger.info(f"📋 Found {len(all_labels)} unique labels to check")
+    logger.debug(f"Labels: {sorted(all_labels)}")
+    
+    # Check/create each label
+    failed_labels = []
+    for label in sorted(all_labels):
+        if not ensure_label_exists(owner, repo, label, token):
+            failed_labels.append(label)
+    
+    if failed_labels:
+        logger.error(f"❌ Failed to ensure {len(failed_labels)} label(s) exist:")
+        for label in failed_labels:
+            logger.error(f"   - {label}")
+        return False
+    
+    logger.info(f"✅ All {len(all_labels)} required labels are available")
+    return True
 
 
 @dataclass
@@ -701,6 +859,26 @@ def main():
     if args.status != 'All':
         gaps = [g for g in gaps if args.status in g.status]
         logger.info(f"🔍 Filtered to {len(gaps)} gaps with status: {args.status}")
+    
+    # Filter out Done/Deferred gaps if creating
+    gaps_to_process = gaps
+    if args.create:
+        gaps_to_process = [g for g in gaps if "Done" not in g.status and "Deferred" not in g.status]
+        if len(gaps_to_process) < len(gaps):
+            logger.info(f"🔍 Filtered out {len(gaps) - len(gaps_to_process)} Done/Deferred gaps")
+    
+    # Pre-check and create all required labels
+    if args.create and not args.dry_run and len(gaps_to_process) > 0:
+        token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
+        if not token:
+            logger.error("❌ Cannot pre-check labels: No GitHub token found")
+            return 1
+        
+        if not ensure_all_labels_exist(gaps_to_process, token):
+            logger.warning("⚠️  Some labels could not be created")
+            logger.warning("   Continuing anyway - issue creation may fail for missing labels")
+        
+        logger.info("")
     
     # Get existing issues if syncing
     existing_issues = {}
