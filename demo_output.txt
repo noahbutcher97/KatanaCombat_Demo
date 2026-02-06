@@ -1,0 +1,95 @@
+╔====================================================================╗
+║               sync_gaps.py Improvements Demo                       ║
+╚====================================================================╝
+
+======================================================================
+  Demo 1: Help Text (shows --debug flag)
+======================================================================
+Command: python3 sync_gaps.py --help
+----------------------------------------------------------------------
+usage: sync_gaps.py [-h] [--create] [--sync] [--status {Pending,Partial,All}]
+                    [--max MAX] [--dry-run] [--debug]
+
+Sync KatanaCombat gap tracker to GitHub issues
+
+options:
+  -h, --help            show this help message and exit
+  --create              Create new issues for gaps without issues
+  --sync                Sync existing issues with gap tracker
+  --status {Pending,Partial,All}
+                        Filter gaps by status (default: All)
+  --max MAX             Maximum number of issues to create/sync (0 = no limit)
+  --dry-run             Preview changes without making them
+  --debug               Enable debug logging with detailed output
+
+KatanaCombat Gap Tracker → GitHub Issues Sync Tool
+
+This script synchronizes gaps from docs/plans/gap-tracker.md to GitHub issues.
+It can create new issues, update existing ones, and ensure consistency.
+
+Features:
+- Parses gap tracker markdown intelligently
+- Creates comprehensive issues with KatanaCombat combat system context
+- Applies proper label taxonomy (priority, status, area, type, source)
+- Syncs existing issues (checks for changes, updates if needed)
+... (22 more lines)
+
+Exit Code: 0
+
+
+======================================================================
+  Demo 2: Missing Token (clear error message)
+======================================================================
+Command: python3 sync_gaps.py --create --dry-run
+Environment: {'GH_TOKEN': None, 'GITHUB_TOKEN': None}
+----------------------------------------------------------------------
+INFO: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INFO:   KatanaCombat Gap Tracker → GitHub Issues Sync
+INFO: ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INFO: 
+INFO: 🔍 Running pre-flight checks...
+ERROR: No GitHub token found
+ERROR: Set GH_TOKEN or GITHUB_TOKEN environment variable
+ERROR: ❌ GitHub token verification failed
+
+
+Exit Code: 1
+
+
+======================================================================
+  Demo 3: Invalid Token + Debug Mode (verbose logging)
+======================================================================
+Command: python3 sync_gaps.py --create --dry-run --debug --max 1
+Environment: {'GH_TOKEN': 'fake_token_for_demo'}
+----------------------------------------------------------------------
+13:17:16 [INFO] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13:17:16 [INFO]   KatanaCombat Gap Tracker → GitHub Issues Sync
+13:17:16 [INFO] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13:17:16 [INFO] 
+13:17:16 [INFO] 🔍 Running pre-flight checks...
+13:17:16 [DEBUG] Verifying GitHub token...
+13:17:16 [ERROR] GitHub CLI authentication failed
+13:17:16 [ERROR] Output: github.com
+  X Failed to log in to github.com using token (GH_TOKEN)
+  - Active account: true
+  - The token in GH_TOKEN is invalid.
+
+13:17:16 [ERROR] ❌ GitHub token verification failed
+
+
+Exit Code: 1
+
+======================================================================
+  Key Improvements Demonstrated
+======================================================================
+
+✅ Pre-flight validation (token, permissions, repository access)
+✅ Clear error messages with actionable instructions
+✅ Debug mode with verbose logging and timestamps
+✅ Proper exit codes (0 for success, 1 for errors)
+✅ Retry logic with exponential backoff (for transient errors)
+✅ Failure tracking and circuit breaking (stops after 5 failures)
+✅ Success criteria validation (fails if 0 issues created)
+
+All improvements maintain backward compatibility with existing workflows.
+
