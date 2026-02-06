@@ -69,6 +69,7 @@ jobs:
           python-version: '3.x'
       
       - name: Sync gaps to issues
+        id: sync
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -97,15 +98,29 @@ jobs:
             CMD="$CMD --max $MAX"
           fi
           
-          # Run the sync
+          # Run the sync (exit code will propagate to workflow)
           eval $CMD
       
       - name: Summary
+        if: always()
         run: |
           echo "### Gap Tracker Sync Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Mode**: ${{ inputs.mode }}" >> $GITHUB_STEP_SUMMARY
           echo "**Status Filter**: ${{ inputs.filter_status }}" >> $GITHUB_STEP_SUMMARY
           echo "**Max Issues**: ${{ inputs.max_issues || 'unlimited' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.sync.outcome }}" = "success" ]; then
+            echo "✅ **Status**: Completed successfully" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Status**: Failed - check logs for details" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Common issues:" >> $GITHUB_STEP_SUMMARY
+            echo "- GitHub token invalid or lacks permissions" >> $GITHUB_STEP_SUMMARY
+            echo "- Issues disabled in repository" >> $GITHUB_STEP_SUMMARY
+            echo "- Rate limit exceeded" >> $GITHUB_STEP_SUMMARY
+            echo "- Network connectivity issues" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Check job logs for detailed results." >> $GITHUB_STEP_SUMMARY

@@ -39,8 +39,135 @@ import sys
 import os
 import json
 import argparse
+import time
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
+import logging
+
+
+# Global logger
+logger = logging.getLogger(__name__)
+
+# Configuration constants
+MAX_CONTINUOUS_FAILURES = 5  # Stop after N continuous failures
+RETRY_MAX_ATTEMPTS = 3       # Max retries for transient errors
+RETRY_BASE_DELAY = 2         # Base delay in seconds for exponential backoff
+RATE_LIMIT_DELAY = 2         # Delay between successful requests
+
+
+def setup_logging(debug: bool = False):
+    """Configure logging with appropriate level."""
+    level = logging.DEBUG if debug else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format='%(levelname)s: %(message)s' if not debug else '%(asctime)s [%(levelname)s] %(message)s',
+        datefmt='%H:%M:%S'
+    )
+
+
+def verify_github_token() -> bool:
+    """
+    Verify GitHub token is set and has necessary scopes.
+    
+    Returns:
+        bool: True if token is valid, False otherwise
+    """
+    token = os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN')
+    
+    if not token:
+        logger.error("No GitHub token found")
+        logger.error("Set GH_TOKEN or GITHUB_TOKEN environment variable")
+        return False
+    
+    # Use gh CLI to verify token
+    try:
+        logger.debug("Verifying GitHub token...")
+        result = subprocess.run(
+            ['gh', 'auth', 'status'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            logger.error("GitHub CLI authentication failed")
+            logger.error(f"Output: {result.stderr}")
+            return False
+        
+        # Check for required scopes in output
+        output = result.stdout + result.stderr
+        logger.debug(f"Auth status: {output}")
+        
+        # The 'gh auth status' doesn't always show scopes clearly,
+        # so we'll do a basic check
+        if 'logged in' not in output.lower() and 'authenticated' not in output.lower():
+            logger.warning("Could not verify authentication status")
+            logger.warning("Continuing anyway - API calls will fail if token is invalid")
+        
+        logger.debug("✅ GitHub token verified")
+        return True
+        
+    except FileNotFoundError:
+        logger.error("GitHub CLI (gh) not found")
+        logger.error("Install from: https://cli.github.com/")
+        return False
+    except Exception as e:
+        logger.error(f"Error verifying token: {e}")
+        return False
+
+
+def check_repository_issues_enabled() -> bool:
+    """
+    Check if issues are enabled in the repository and token has permissions.
+    
+    Returns:
+        bool: True if issues are accessible, False otherwise
+    """
+    try:
+        logger.debug("Checking repository issues access...")
+        
+        # Try to list issues to verify permissions
+        result = subprocess.run(
+            ['gh', 'issue', 'list', '--limit', '1', '--json', 'number'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            error_output = result.stderr.lower()
+            
+            if 'issues are disabled' in error_output or 'not found' in error_output:
+                logger.error("Issues are disabled in this repository")
+                logger.error("Enable issues in repository settings")
+                return False
+            elif 'permission' in error_output or 'forbidden' in error_output:
+                logger.error("Token lacks permission to access issues")
+                logger.error("Ensure token has 'repo' or 'public_repo' scope")
+                return False
+            else:
+                logger.error(f"Failed to access repository issues: {result.stderr}")
+                return False
+        
+        logger.debug("✅ Repository issues are accessible")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error checking repository issues: {e}")
+        return False
+
+
+def exponential_backoff(attempt: int) -> float:
+    """
+    Calculate exponential backoff delay.
+    
+    Args:
+        attempt: Current attempt number (0-indexed)
+    
+    Returns:
+        float: Delay in seconds
+    """
+    return RETRY_BASE_DELAY * (2 ** attempt)
 
 
 @dataclass
@@ -285,6 +412,8 @@ def parse_gap_tracker(filepath: str = "docs/plans/gap-tracker.md") -> List[Gap]:
 def get_existing_issues() -> Dict[str, Dict]:
     """Get all existing gap issues from GitHub."""
     try:
+        logger.debug("Fetching existing gap issues...")
+        
         result = subprocess.run(
             ['gh', 'issue', 'list', '--label', 'gap', '--limit', '1000', 
              '--json', 'number,title,labels,state'],
@@ -303,78 +432,214 @@ def get_existing_issues() -> Dict[str, Dict]:
                 if match:
                     gap_id = match.group(1)
                     issue_map[gap_id] = issue
+            
+            logger.debug(f"Found {len(issue_map)} existing gap issues")
             return issue_map
-        return {}
+        else:
+            logger.warning(f"Failed to fetch existing issues: {result.stderr}")
+            return {}
     except Exception as e:
-        print(f"Warning: Could not fetch existing issues: {e}", file=sys.stderr)
+        logger.warning(f"Could not fetch existing issues: {e}")
+        logger.debug("Exception details:", exc_info=True)
         return {}
 
 
-def create_issue(gap: Gap, dry_run: bool = False) -> bool:
-    """Create a GitHub issue for the gap."""
-    if dry_run:
-        print(f"  Would create: {gap.get_issue_title()}")
-        return True
+def create_issue(gap: Gap, dry_run: bool = False) -> Tuple[bool, Optional[str]]:
+    """
+    Create a GitHub issue for the gap with retry logic.
     
-    try:
-        cmd = [
-            'gh', 'issue', 'create',
-            '--title', gap.get_issue_title(),
-            '--body', gap.get_issue_body(),
-            '--label', ','.join(gap.get_labels())
-        ]
+    Args:
+        gap: The gap to create an issue for
+        dry_run: If True, only print what would be done
+    
+    Returns:
+        Tuple of (success, error_message)
+    """
+    if dry_run:
+        logger.info(f"  Would create: {gap.get_issue_title()}")
+        return (True, None)
+    
+    cmd = [
+        'gh', 'issue', 'create',
+        '--title', gap.get_issue_title(),
+        '--body', gap.get_issue_body(),
+        '--label', ','.join(gap.get_labels())
+    ]
+    
+    logger.debug(f"Command: {' '.join(cmd[:3])} ...")
+    logger.debug(f"Title: {gap.get_issue_title()}")
+    logger.debug(f"Labels: {', '.join(gap.get_labels())}")
+    
+    # Retry logic with exponential backoff
+    for attempt in range(RETRY_MAX_ATTEMPTS):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            
+            # Log the response
+            logger.debug(f"Return code: {result.returncode}")
+            logger.debug(f"Stdout: {result.stdout.strip()}")
+            if result.stderr:
+                logger.debug(f"Stderr: {result.stderr.strip()}")
+            
+            if result.returncode == 0:
+                # Success
+                issue_url = result.stdout.strip()
+                logger.debug(f"✅ Created: {issue_url}")
+                return (True, None)
+            else:
+                # Check if it's a transient error
+                error_msg = result.stderr.lower()
+                
+                if 'rate limit' in error_msg or 'too many requests' in error_msg:
+                    # Rate limit - retry with backoff
+                    if attempt < RETRY_MAX_ATTEMPTS - 1:
+                        delay = exponential_backoff(attempt)
+                        logger.warning(f"Rate limit hit, retrying in {delay}s (attempt {attempt + 1}/{RETRY_MAX_ATTEMPTS})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        error = f"Rate limit exceeded after {RETRY_MAX_ATTEMPTS} attempts"
+                        logger.error(error)
+                        return (False, error)
+                
+                elif 'network' in error_msg or 'timeout' in error_msg or 'connection' in error_msg:
+                    # Network error - retry with backoff
+                    if attempt < RETRY_MAX_ATTEMPTS - 1:
+                        delay = exponential_backoff(attempt)
+                        logger.warning(f"Network error, retrying in {delay}s (attempt {attempt + 1}/{RETRY_MAX_ATTEMPTS})")
+                        time.sleep(delay)
+                        continue
+                    else:
+                        error = f"Network error after {RETRY_MAX_ATTEMPTS} attempts: {result.stderr}"
+                        logger.error(error)
+                        return (False, error)
+                
+                else:
+                    # Non-transient error - don't retry
+                    error = f"API error: {result.stderr}"
+                    logger.error(f"❌ Failed to create issue for {gap.gap_id}: {result.stderr.strip()}")
+                    return (False, error)
         
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        return result.returncode == 0
-    except Exception as e:
-        print(f"Error creating issue: {e}", file=sys.stderr)
-        return False
+        except subprocess.TimeoutExpired:
+            if attempt < RETRY_MAX_ATTEMPTS - 1:
+                delay = exponential_backoff(attempt)
+                logger.warning(f"Request timeout, retrying in {delay}s (attempt {attempt + 1}/{RETRY_MAX_ATTEMPTS})")
+                time.sleep(delay)
+                continue
+            else:
+                error = f"Timeout after {RETRY_MAX_ATTEMPTS} attempts"
+                logger.error(error)
+                return (False, error)
+        
+        except Exception as e:
+            error = f"Unexpected error: {str(e)}"
+            logger.error(f"❌ Error creating issue for {gap.gap_id}: {e}")
+            logger.debug(f"Exception details:", exc_info=True)
+            return (False, error)
+    
+    # Should not reach here, but just in case
+    return (False, "Unknown error after retries")
 
 
-def update_issue(gap: Gap, issue_number: int, dry_run: bool = False) -> bool:
-    """Update an existing GitHub issue."""
+def update_issue(gap: Gap, issue_number: int, dry_run: bool = False) -> Tuple[bool, Optional[str]]:
+    """
+    Update an existing GitHub issue with retry logic.
+    
+    Args:
+        gap: The gap data to update
+        issue_number: The issue number to update
+        dry_run: If True, only print what would be done
+    
+    Returns:
+        Tuple of (success, error_message)
+    """
     if dry_run:
-        print(f"  Would update #{issue_number}: {gap.get_issue_title()}")
-        return True
+        logger.info(f"  Would update #{issue_number}: {gap.get_issue_title()}")
+        return (True, None)
     
     try:
+        logger.debug(f"Updating issue #{issue_number}")
+        
         # Update body
-        subprocess.run(
+        result = subprocess.run(
             ['gh', 'issue', 'edit', str(issue_number), '--body', gap.get_issue_body()],
             capture_output=True,
+            text=True,
             timeout=30
         )
+        
+        logger.debug(f"Body update return code: {result.returncode}")
+        if result.returncode != 0:
+            error = f"Failed to update body: {result.stderr}"
+            logger.error(error)
+            return (False, error)
         
         # Update labels
         labels = ','.join(gap.get_labels())
-        subprocess.run(
+        result = subprocess.run(
             ['gh', 'issue', 'edit', str(issue_number), '--add-label', labels],
             capture_output=True,
+            text=True,
             timeout=30
         )
         
-        return True
+        logger.debug(f"Label update return code: {result.returncode}")
+        if result.returncode != 0:
+            error = f"Failed to update labels: {result.stderr}"
+            logger.error(error)
+            return (False, error)
+        
+        logger.debug(f"✅ Updated issue #{issue_number}")
+        return (True, None)
+        
     except Exception as e:
-        print(f"Error updating issue: {e}", file=sys.stderr)
-        return False
+        error = f"Unexpected error: {str(e)}"
+        logger.error(f"❌ Error updating issue #{issue_number}: {e}")
+        logger.debug(f"Exception details:", exc_info=True)
+        return (False, error)
 
 
-def close_issue(issue_number: int, reason: str, dry_run: bool = False) -> bool:
-    """Close an issue that's marked as Done in gap tracker."""
+def close_issue(issue_number: int, reason: str, dry_run: bool = False) -> Tuple[bool, Optional[str]]:
+    """
+    Close an issue that's marked as Done in gap tracker.
+    
+    Args:
+        issue_number: The issue number to close
+        reason: Reason for closing
+        dry_run: If True, only print what would be done
+    
+    Returns:
+        Tuple of (success, error_message)
+    """
     if dry_run:
-        print(f"  Would close #{issue_number}: {reason}")
-        return True
+        logger.info(f"  Would close #{issue_number}: {reason}")
+        return (True, None)
     
     try:
-        subprocess.run(
+        logger.debug(f"Closing issue #{issue_number}")
+        
+        result = subprocess.run(
             ['gh', 'issue', 'close', str(issue_number), '--comment', reason],
             capture_output=True,
+            text=True,
             timeout=30
         )
-        return True
+        
+        logger.debug(f"Close return code: {result.returncode}")
+        
+        if result.returncode == 0:
+            logger.debug(f"✅ Closed issue #{issue_number}")
+            return (True, None)
+        else:
+            error = f"Failed to close issue: {result.stderr}"
+            logger.error(error)
+            return (False, error)
+        
     except Exception as e:
-        print(f"Error closing issue: {e}", file=sys.stderr)
-        return False
+        error = f"Unexpected error: {str(e)}"
+        logger.error(f"❌ Error closing issue #{issue_number}: {e}")
+        logger.debug(f"Exception details:", exc_info=True)
+        return (False, error)
 
 
 def main():
@@ -393,48 +658,74 @@ def main():
                        help='Maximum number of issues to create/sync (0 = no limit)')
     parser.add_argument('--dry-run', action='store_true',
                        help='Preview changes without making them')
+    parser.add_argument('--debug', action='store_true',
+                       help='Enable debug logging with detailed output')
     
     args = parser.parse_args()
     
-    # Check for GitHub token
-    if not os.environ.get('GH_TOKEN') and not os.environ.get('GITHUB_TOKEN'):
-        print("❌ Error: No GitHub token found", file=sys.stderr)
-        print("   Set GH_TOKEN or GITHUB_TOKEN environment variable", file=sys.stderr)
+    # Setup logging
+    setup_logging(args.debug)
+    
+    logger.info("━" * 70)
+    logger.info("  KatanaCombat Gap Tracker → GitHub Issues Sync")
+    logger.info("━" * 70)
+    logger.info("")
+    
+    # Pre-flight checks
+    logger.info("🔍 Running pre-flight checks...")
+    
+    # 1. Verify GitHub token
+    if not verify_github_token():
+        logger.error("❌ GitHub token verification failed")
         return 1
     
-    print("━" * 70)
-    print("  KatanaCombat Gap Tracker → GitHub Issues Sync")
-    print("━" * 70)
-    print()
+    # 2. Check repository issues access
+    if not check_repository_issues_enabled():
+        logger.error("❌ Repository issues are not accessible")
+        return 1
+    
+    logger.info("✅ Pre-flight checks passed")
+    logger.info("")
     
     # Parse gap tracker
-    print("📖 Parsing gap tracker...")
+    logger.info("📖 Parsing gap tracker...")
     try:
         gaps = parse_gap_tracker()
-        print(f"✅ Found {len(gaps)} total gaps")
+        logger.info(f"✅ Found {len(gaps)} total gaps")
     except Exception as e:
-        print(f"❌ Failed to parse gap tracker: {e}", file=sys.stderr)
+        logger.error(f"❌ Failed to parse gap tracker: {e}")
+        logger.debug("Exception details:", exc_info=True)
         return 1
     
     # Filter gaps
     if args.status != 'All':
         gaps = [g for g in gaps if args.status in g.status]
-        print(f"🔍 Filtered to {len(gaps)} gaps with status: {args.status}")
+        logger.info(f"🔍 Filtered to {len(gaps)} gaps with status: {args.status}")
     
     # Get existing issues if syncing
     existing_issues = {}
     if args.sync or args.create:
-        print("🔍 Checking existing issues...")
+        logger.info("🔍 Checking existing issues...")
         existing_issues = get_existing_issues()
-        print(f"📊 Found {len(existing_issues)} existing gap issues")
+        logger.info(f"📊 Found {len(existing_issues)} existing gap issues")
     
-    print()
+    logger.info("")
     
-    created = updated = closed = skipped = 0
+    # Track statistics
+    created = updated = closed = skipped = failed = 0
+    continuous_failures = 0
+    failed_gaps = []  # Track which gaps failed
     
     # Process gaps
     for i, gap in enumerate(gaps):
         if args.max > 0 and (created + updated) >= args.max:
+            logger.info(f"Reached max limit of {args.max} issues")
+            break
+        
+        # Check continuous failure threshold
+        if continuous_failures >= MAX_CONTINUOUS_FAILURES:
+            logger.error(f"❌ Stopping: {continuous_failures} continuous failures exceeded threshold")
+            logger.error(f"   Consider checking your network connection and GitHub API status")
             break
         
         gap_exists = gap.gap_id in existing_issues
@@ -445,16 +736,26 @@ def main():
                 skipped += 1
                 continue
             
-            print(f"[{i+1}/{len(gaps)}] Creating {gap.gap_id}...", end=" ", flush=True)
-            if create_issue(gap, args.dry_run):
+            logger.info(f"[{i+1}/{len(gaps)}] Creating {gap.gap_id}...", end=" ", flush=True)
+            success, error = create_issue(gap, args.dry_run)
+            
+            if success:
                 print("✅")
                 created += 1
+                continuous_failures = 0  # Reset failure counter
             else:
                 print("❌")
+                failed += 1
+                continuous_failures += 1
+                failed_gaps.append((gap.gap_id, error))
+                logger.error(f"   Gap: {gap.gap_id} - {gap.description}")
+                if error:
+                    logger.error(f"   Error: {error}")
             
-            if not args.dry_run and i < len(gaps) - 1:
-                import time
-                time.sleep(2)  # Rate limiting
+            # Rate limiting between requests
+            if not args.dry_run and i < len(gaps) - 1 and success:
+                logger.debug(f"Sleeping {RATE_LIMIT_DELAY}s for rate limiting...")
+                time.sleep(RATE_LIMIT_DELAY)
         
         elif args.sync and gap_exists:
             issue_data = existing_issues[gap.gap_id]
@@ -462,12 +763,18 @@ def main():
             
             # Check if should be closed
             if "Done" in gap.status and issue_data['state'] == 'open':
-                print(f"[{i+1}/{len(gaps)}] Closing {gap.gap_id} (marked Done)...", end=" ", flush=True)
-                if close_issue(issue_number, "Gap marked as Done in tracker", args.dry_run):
+                logger.info(f"[{i+1}/{len(gaps)}] Closing {gap.gap_id} (marked Done)...", end=" ", flush=True)
+                success, error = close_issue(issue_number, "Gap marked as Done in tracker", args.dry_run)
+                
+                if success:
                     print("✅")
                     closed += 1
+                    continuous_failures = 0
                 else:
                     print("❌")
+                    failed += 1
+                    continuous_failures += 1
+                    failed_gaps.append((gap.gap_id, error))
             
             # Check if needs update (simplified check)
             elif issue_data['state'] == 'open':
@@ -475,16 +782,49 @@ def main():
                 skipped += 1
     
     # Summary
-    print()
-    print("━" * 70)
+    logger.info("")
+    logger.info("━" * 70)
     if args.dry_run:
-        print("🔍 DRY RUN - No changes made")
-    print(f"✅ Created: {created}")
-    print(f"🔄 Updated: {updated}")
-    print(f"🔒 Closed: {closed}")
-    print(f"⏭️  Skipped: {skipped}")
-    print("━" * 70)
-    print()
+        logger.info("🔍 DRY RUN - No changes made")
+    logger.info(f"✅ Created: {created}")
+    logger.info(f"🔄 Updated: {updated}")
+    logger.info(f"🔒 Closed: {closed}")
+    logger.info(f"❌ Failed: {failed}")
+    logger.info(f"⏭️  Skipped: {skipped}")
+    logger.info("━" * 70)
+    logger.info("")
+    
+    # List failed gaps if any
+    if failed_gaps:
+        logger.warning("Failed gaps:")
+        for gap_id, error in failed_gaps:
+            logger.warning(f"  - {gap_id}: {error}")
+        logger.info("")
+    
+    # Success criteria check
+    if not args.dry_run and (args.create or args.sync):
+        # Check if we had operations to perform
+        total_operations = created + updated + closed
+        
+        if total_operations == 0 and failed == 0:
+            # No operations performed and no failures - this is OK (nothing to do)
+            logger.info("ℹ️  No operations performed (nothing to create/sync)")
+        elif total_operations == 0 and failed > 0:
+            # No successes but had failures - ERROR
+            logger.error("❌ FAILURE: No issues were successfully created/updated, but encountered failures")
+            logger.error(f"   Total failures: {failed}")
+            return 1
+        elif failed > 0:
+            # Some successes but also failures
+            failure_rate = failed / (total_operations + failed)
+            if failure_rate > 0.5:  # More than 50% failure rate
+                logger.error(f"❌ HIGH FAILURE RATE: {failure_rate*100:.1f}% of operations failed")
+                logger.error(f"   Successes: {total_operations}, Failures: {failed}")
+                return 1
+            else:
+                logger.warning(f"⚠️  Some operations failed: {failed} out of {total_operations + failed}")
+                logger.warning(f"   Failure rate: {failure_rate*100:.1f}%")
+                # Don't return error if failure rate is acceptable
     
     return 0
 

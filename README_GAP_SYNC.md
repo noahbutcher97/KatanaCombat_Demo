@@ -2,6 +2,77 @@
 
 Automatically syncs gaps from `docs/plans/gap-tracker.md` to GitHub issues with comprehensive KatanaCombat context.
 
+## Recent Improvements (2026-02-06)
+
+### Enhanced Error Handling & Reliability
+
+The script now includes comprehensive error handling and validation:
+
+1. **Pre-flight Checks**
+   - Verifies `GH_TOKEN`/`GITHUB_TOKEN` is set before execution
+   - Validates GitHub CLI authentication
+   - Checks repository issues are enabled and accessible
+   - Verifies token has necessary permissions
+
+2. **Retry Logic with Exponential Backoff**
+   - Automatically retries transient errors (network issues, rate limits)
+   - Uses exponential backoff (2s, 4s, 8s) for retries
+   - Maximum 3 retry attempts per operation
+   - Distinguishes between transient and permanent errors
+
+3. **Failure Detection & Circuit Breaking**
+   - Tracks continuous failures (stops after 5 consecutive failures)
+   - Prevents infinite loops when API is unavailable
+   - Provides clear error messages for each failure
+
+4. **Enhanced Error Logging**
+   - Logs HTTP response codes for all API calls
+   - Captures and displays error messages from GitHub API
+   - Tracks which specific gaps failed and why
+   - Shows failure summary at end of execution
+
+5. **Debug Mode**
+   - New `--debug` flag for verbose logging
+   - Shows timestamps, request details, and full exception traces
+   - Useful for troubleshooting API issues
+   - Displays command details before execution
+
+6. **Success Criteria Validation**
+   - Exits with error code if 0 issues created when operations were expected
+   - Warns if failure rate exceeds 50%
+   - Distinguishes between "nothing to do" vs "all failed"
+   - Provides clear exit codes for CI/CD integration
+
+### Usage Examples
+
+```bash
+# Enable debug logging for troubleshooting
+python3 sync_gaps.py --create --debug --max 5
+
+# Create issues with enhanced error handling
+python3 sync_gaps.py --create --status Pending
+
+# Test with dry-run (still validates token and permissions)
+python3 sync_gaps.py --create --dry-run --debug
+```
+
+### Error Messages
+
+The script now provides clear, actionable error messages:
+
+- **No token**: `ERROR: No GitHub token found - Set GH_TOKEN or GITHUB_TOKEN environment variable`
+- **Invalid token**: `ERROR: GitHub CLI authentication failed`
+- **Issues disabled**: `ERROR: Issues are disabled in this repository - Enable issues in repository settings`
+- **No permissions**: `ERROR: Token lacks permission to access issues - Ensure token has 'repo' or 'public_repo' scope`
+- **Rate limit**: `WARNING: Rate limit hit, retrying in Xs (attempt Y/3)`
+- **Network error**: `WARNING: Network error, retrying in Xs`
+- **Multiple failures**: `ERROR: Stopping: 5 continuous failures exceeded threshold`
+
+### Exit Codes
+
+- `0`: Success (all operations completed, or nothing to do)
+- `1`: Failure (token invalid, pre-flight check failed, or high failure rate)
+
 ## Quick Start
 
 ### Local Usage
