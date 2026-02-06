@@ -9,9 +9,23 @@ Features:
 - Parses gap tracker markdown intelligently
 - Creates comprehensive issues with KatanaCombat combat system context
 - Applies proper label taxonomy (priority, status, area, type, source)
+- **Automatic label management**: Checks and creates missing labels dynamically
 - Syncs existing issues (checks for changes, updates if needed)
 - Supports both one-time creation and ongoing sync
 - Can be run locally or in CI/CD workflows
+- Enhanced error handling with retry logic and circuit breaking
+
+Label Management (NEW):
+- Pre-checks all required labels before creating issues
+- Creates missing labels dynamically via GitHub API
+- Color-codes labels by type:
+  * Priority (red): priority: p0, p1, p2, p3
+  * Status (green): status: pending, partial, done, deferred
+  * Area/Type (yellow): area: animation, type: bug, etc.
+  * Gap (purple): gap
+  * System (blue): system: paired-animation
+  * Default (light blue): Other labels
+- Handles network errors, timeouts, and API failures gracefully
 
 Usage:
     # Create all pending/partial gaps as issues
@@ -28,6 +42,9 @@ Usage:
 
     # Set max issues to create/sync
     python3 sync_gaps.py --create --max 10
+    
+    # Enable debug logging for troubleshooting
+    python3 sync_gaps.py --create --debug
 
 Environment:
     GH_TOKEN or GITHUB_TOKEN: GitHub personal access token with repo scope
