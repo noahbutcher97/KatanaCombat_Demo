@@ -1,0 +1,111 @@
+name: Sync Gap Tracker to Issues
+
+# This workflow syncs the gap tracker (docs/plans/gap-tracker.md) to GitHub issues.
+# It can create new issues for pending gaps or sync existing issues with tracker updates.
+#
+# Usage:
+#   - Manually trigger from Actions tab
+#   - Configure via inputs (create vs sync, status filter, max count)
+#   - Run on schedule for continuous sync (optional)
+#
+# Features:
+#   - Creates comprehensive issues with KatanaCombat combat system context
+#   - Applies proper label taxonomy (priority, status, area, type, source)
+#   - Can sync existing issues (update content, close when Done)
+#   - Rate limited to respect GitHub API
+#
+# Labels Applied:
+#   - gap, system: paired-animation (core)
+#   - priority: p0/p1/p2/p3 (P0=critical, P1=high, P2=medium, P3=low)
+#   - status: pending/partial/done/deferred
+#   - area: ai/animation/audio/ui/... (domain-specific)
+#   - type: bug/feature/polish/edge-case
+#   - source: audit/testing/analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Mode: create new issues or sync existing'
+        required: true
+        default: 'create'
+        type: choice
+        options:
+          - create
+          - sync
+      filter_status:
+        description: 'Status filter (Pending, Partial, or All)'
+        required: true
+        default: 'Pending'
+        type: choice
+        options:
+          - Pending
+          - Partial
+          - All
+      max_issues:
+        description: 'Maximum number of issues to process (0 = no limit)'
+        required: false
+        default: '0'
+        type: string
+  
+  # Optional: Run weekly to sync tracker changes
+  # schedule:
+  #   - cron: '0 0 * * 0'  # Every Sunday at midnight
+
+jobs:
+  sync-gaps:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      
+      - name: Sync gaps to issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "🚀 Starting gap sync..."
+          echo "Mode: ${{ inputs.mode }}"
+          echo "Status filter: ${{ inputs.filter_status }}"
+          echo "Max issues: ${{ inputs.max_issues || '0' }}"
+          echo ""
+          
+          # Build command
+          CMD="python3 sync_gaps.py"
+          
+          # Add mode flag
+          if [ "${{ inputs.mode }}" = "create" ]; then
+            CMD="$CMD --create"
+          else
+            CMD="$CMD --sync"
+          fi
+          
+          # Add status filter
+          CMD="$CMD --status ${{ inputs.filter_status }}"
+          
+          # Add max if set
+          MAX="${{ inputs.max_issues }}"
+          if [ -n "$MAX" ] && [ "$MAX" != "0" ]; then
+            CMD="$CMD --max $MAX"
+          fi
+          
+          # Run the sync
+          eval $CMD
+      
+      - name: Summary
+        run: |
+          echo "### Gap Tracker Sync Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode**: ${{ inputs.mode }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status Filter**: ${{ inputs.filter_status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Max Issues**: ${{ inputs.max_issues || 'unlimited' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check job logs for detailed results." >> $GITHUB_STEP_SUMMARY
