@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Characters/EnemyCharacter.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
 AEnemyCharacter::AEnemyCharacter()
@@ -16,6 +17,11 @@ AEnemyCharacter::AEnemyCharacter()
     GetCharacterMovement()->bOrientRotationToMovement = false;
     GetCharacterMovement()->RotationRate = FRotator(0.0f, 360.0f, 0.0f);
     GetCharacterMovement()->MaxWalkSpeed = 400.0f;
+
+    // CAM-1 FIX: Use "Enemy" collision profiles that ignore camera
+    // This prevents the spring arm from colliding with enemies
+    GetCapsuleComponent()->SetCollisionProfileName(TEXT("Enemy"));
+    GetMesh()->SetCollisionProfileName(TEXT("EnemyMesh"));
 }
 
 void AEnemyCharacter::BeginPlay()
