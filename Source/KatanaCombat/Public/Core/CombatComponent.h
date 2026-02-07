@@ -8,6 +8,7 @@
 #include "ActionQueueTypes.h"
 #include "CombatTypes.h"
 #include "Data/PairedAnimationTypes.h"
+#include "Data/ProceduralAnimationTypes.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "CombatComponent.generated.h"
 
@@ -926,6 +927,14 @@ protected:
 
 	/** Was current attack triggered by directional follow-up? (prevents infinite directional loops) */
 	bool bCurrentAttackIsDirectionalFollowUp = false;
+
+	/**
+	 * Procedural blend configuration for combo transitions (BUG-2 FIX).
+	 * Replaces per-attack ComboBlendInTime/ComboBlendOutTime with dynamic calculation.
+	 * Blend time is calculated based on animation progress: near end = fast blend, mid-animation = slow blend.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Animation")
+	FProceduralBlendConfig ProceduralBlendConfig;
 
 	// ============================================================================
 	// INTERNAL HELPERS

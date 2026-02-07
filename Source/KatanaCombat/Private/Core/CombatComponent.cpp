@@ -24,6 +24,7 @@
 #include "Utilities/MontageUtilityLibrary.h"
 #include "Utilities/CombatUtils.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
+#include "Utilities/ProceduralAnimationLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "Utilities/PairedAnimationUtilityLibrary.h"
 #include "Debug/DebugUtils.h"
@@ -126,16 +127,19 @@ void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void UCombatComponent::ValidateDefaultAttacks()
 {
-	if (!CombatSettings || !CombatSettings->AttackConfiguration)
+	// Get attack configuration through the new CombatSettings->DefaultWeaponData->AttackConfiguration path
+	UAttackConfiguration* AttackConfig = CombatSettings ? CombatSettings->GetAttackConfiguration() : nullptr;
+
+	if (!CombatSettings || !AttackConfig)
 	{
 		UE_LOG(LogCombat, Error, TEXT("[VALIDATION] CombatSettings or AttackConfiguration is nullptr on %s! "
-		                              "Combat system cannot function. Assign CombatSettings with AttackConfiguration in Character Blueprint."),
+		                              "Combat system cannot function. Assign CombatSettings with DefaultWeaponData (containing AttackConfiguration) in Character Blueprint."),
 			*GetOwner()->GetName());
 
 		if (GEngine)
 		{
 			GEngine->AddOnScreenDebugMessage(-1, 10.0f, FColor::Red,
-				FString::Printf(TEXT("⚠️ %s: Missing CombatSettings or AttackConfiguration!"), *GetOwner()->GetName()));
+				FString::Printf(TEXT("⚠️ %s: Missing CombatSettings or DefaultWeaponData!"), *GetOwner()->GetName()));
 		}
 		return;
 	}
@@ -326,10 +330,13 @@ UAttackData* UCombatComponent::GetDefaultLightAttack() const
 		}
 	}
 
-	// Priority 2: CombatSettings → AttackConfiguration → DefaultLightAttack
-	if (CombatSettings && CombatSettings->AttackConfiguration)
+	// Priority 2: CombatSettings → DefaultWeaponData → AttackConfiguration → DefaultLightAttack
+	if (CombatSettings)
 	{
-		return CombatSettings->AttackConfiguration->DefaultLightAttack;
+		if (UAttackConfiguration* AttackConfig = CombatSettings->GetAttackConfiguration())
+		{
+			return AttackConfig->DefaultLightAttack;
+		}
 	}
 
 	return nullptr;
@@ -352,10 +359,13 @@ UAttackData* UCombatComponent::GetDefaultHeavyAttack() const
 		}
 	}
 
-	// Priority 2: CombatSettings → AttackConfiguration → DefaultHeavyAttack
-	if (CombatSettings && CombatSettings->AttackConfiguration)
+	// Priority 2: CombatSettings → DefaultWeaponData → AttackConfiguration → DefaultHeavyAttack
+	if (CombatSettings)
 	{
-		return CombatSettings->AttackConfiguration->DefaultHeavyAttack;
+		if (UAttackConfiguration* AttackConfig = CombatSettings->GetAttackConfiguration())
+		{
+			return AttackConfig->DefaultHeavyAttack;
+		}
 	}
 
 	return nullptr;
@@ -1404,18 +1414,37 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	// Each attack starts with clean directional state (no stale directions from previous attacks)
 	DirectionalInputBuffer.Reset();
 
-	// COMBO BLENDING: Determine blend times for smooth transitions
-	// - Blend-out: Current attack's ComboBlendOutTime (0 = instant for first attack)
-	// - Blend-in: New attack's ComboBlendInTime (configurable per attack)
+	// COMBO BLENDING: Calculate blend times procedurally based on animation progress (BUG-2 FIX)
+	// Near animation end = fast blend (natural transition), mid-animation = slow blend (smooth interrupt)
+	// This replaces preset ComboBlendInTime/ComboBlendOutTime with dynamic calculation
 
-	float BlendOutTime = 0.0f;  // Default: instant (first attack or no previous attack)
-	float BlendInTime = AttackData->ComboBlendInTime;  // New attack's blend-in time
-
-	// CRITICAL FIX: Detect if we're still in a blend transition (rapid input during blend)
-	// Check both the flag AND the time-based tracker for robustness
 	const float CurrentWorldTime = GetWorld()->GetTimeSeconds();
 	const bool bStillInBlendTransition = bInComboBlend || (CurrentWorldTime < BlendTransitionEndTime);
 
+	// Calculate procedural blend from current animation state
+	FProceduralBlendResult BlendResult;
+	UAnimMontage* CurrentMontage = AnimInstance->GetCurrentActiveMontage();
+
+	if (CurrentMontage)
+	{
+		const float CurrentPosition = AnimInstance->Montage_GetPosition(CurrentMontage);
+		const float MontageLength = CurrentMontage->GetPlayLength();
+		BlendResult = UProceduralAnimationLibrary::CalculateProceduralBlend(
+			CurrentPosition, MontageLength, ProceduralBlendConfig, bStillInBlendTransition);
+	}
+	else
+	{
+		// Fresh attack - no current montage
+		BlendResult.bIsFreshAttack = true;
+		BlendResult.bUseInstantBlend = true;
+		BlendResult.BlendInTime = ProceduralBlendConfig.MinBlendTime;
+		BlendResult.BlendOutTime = 0.0f;
+	}
+
+	float BlendOutTime = BlendResult.BlendOutTime;
+	float BlendInTime = BlendResult.BlendInTime;
+
+	// CRITICAL FIX: Detect if we're still in a blend transition (rapid input during blend)
 	if (bStillInBlendTransition)
 	{
 		if (GetDebugDraw())
@@ -1430,25 +1459,28 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		bInComboBlend = false;
 		BlendTransitionEndTime = 0.0f;
 
-		// Use instant blend for this attack since we just force-stopped
+		// Override procedural result with instant blend
+		BlendResult.bUseInstantBlend = true;
 		BlendOutTime = 0.0f;
 		BlendInTime = 0.0f;
 	}
-	else if (CurrentAttackData)
+	else if (CurrentAttackData && !BlendResult.bIsFreshAttack)
 	{
-		// Normal case: We have a previous attack - use its blend-out time for smooth transition
-		BlendOutTime = CurrentAttackData->ComboBlendOutTime;
-
+		// Normal case: procedural blend times already calculated above
 		if (GetDebugDraw() && (BlendOutTime > 0.0f || BlendInTime > 0.0f))
 		{
-			UE_LOG(LogCombat, Log, TEXT("[BLEND] Combo transition: %s (out=%.2fs) → %s (in=%.2fs)"),
-				*CurrentAttackData->GetName(), BlendOutTime,
-				*AttackData->GetName(), BlendInTime);
+			UE_LOG(LogCombat, Log, TEXT("[BLEND] Procedural combo transition: %s → %s (Progress: %.1f%%, BlendIn: %.3fs, BlendOut: %.3fs, Strategy: %d)"),
+				*CurrentAttackData->GetName(),
+				*AttackData->GetName(),
+				BlendResult.AnimationProgress * 100.0f,
+				BlendInTime,
+				BlendOutTime,
+				static_cast<int32>(BlendResult.UsedStrategy));
 		}
 	}
 
 	// BLEND-OUT: Stop current montage if blending is requested
-	UAnimMontage* CurrentMontage = AnimInstance->GetCurrentActiveMontage();
+	// Note: CurrentMontage already retrieved above for procedural blend calculation
 	if (CurrentMontage && BlendOutTime > 0.0f)
 	{
 		// STATE MACHINE: Notify combo transition (tracks old montage for callback filtering)
@@ -2574,6 +2606,41 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 	}
 
 	// ========================================================================
+	// PAIRED ANIMATION COMPLETION - CHECK FIRST (before attack state filtering)
+	// ========================================================================
+	// Finisher/counter montages are separate from regular attack montages.
+	// The attack state machine filter below would reject finisher montage callbacks
+	// because they don't match ActiveMontage. Process paired animation completion
+	// BEFORE filtering to ensure finishers complete properly.
+	if (IsPairedAnimationActive() && ActivePairedAnimData && Montage)
+	{
+		// Check if this is the attacker's finisher/counter montage
+		if (Montage == ActivePairedAnimData->AttackerMontage)
+		{
+			if (!bInterrupted)
+			{
+				// Normal completion - apply damage and cleanup
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Paired animation attacker montage completed normally - calling CompletePairedAnimation"));
+				}
+				CompletePairedAnimation();
+				return;  // CompletePairedAnimation handles phase reset
+			}
+			else
+			{
+				// Interrupted - cancel without damage
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Paired animation attacker montage interrupted - calling CancelPairedAnimation"));
+				}
+				CancelPairedAnimation(0.0f);
+				return;  // CancelPairedAnimation handles phase reset
+			}
+		}
+	}
+
+	// ========================================================================
 	// STATE MACHINE CALLBACK FILTERING
 	// ========================================================================
 	// The state machine determines whether this callback should be processed.
@@ -2714,40 +2781,9 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 	}
 
 	// ========================================================================
-	// PAIRED ANIMATION COMPLETION DETECTION
-	// ========================================================================
-	// Check if this was a paired animation montage ending (finisher attacker montage)
-	// If so, complete the paired animation with damage application and cleanup
-	if (IsPairedAnimationActive() && ActivePairedAnimData && Montage)
-	{
-		// Check if this is the attacker's finisher montage
-		if (Montage == ActivePairedAnimData->AttackerMontage)
-		{
-			if (!bInterrupted)
-			{
-				// Normal completion - apply damage and cleanup
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Finisher attacker montage completed normally - calling CompletePairedAnimation"));
-				}
-				CompletePairedAnimation();
-				return;  // CompletePairedAnimation handles phase reset
-			}
-			else
-			{
-				// Interrupted - cancel without damage
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Finisher attacker montage interrupted - calling CancelPairedAnimation"));
-				}
-				CancelPairedAnimation(0.0f);
-				return;  // CancelPairedAnimation handles phase reset
-			}
-		}
-	}
-
-	// ========================================================================
 	// FINAL CLEANUP (only reached for valid callbacks)
+	// NOTE: Paired animation completion is now handled at the start of OnMontageEnded,
+	// before the state machine filter, to ensure finisher montages complete properly.
 	// ========================================================================
 
 	// Update state machine with callback processed
@@ -3321,7 +3357,7 @@ EActionExecutionMode UCombatComponent::DetermineExecutionMode(const FQueuedInput
 
 UAttackData* UCombatComponent::GetAttackForInput(EInputType InputType)
 {
-	// Get default attacks as fallbacks through CombatSettings → AttackConfiguration
+	// Get default attacks as fallbacks through CombatSettings → DefaultWeaponData → AttackConfiguration
 	UAttackData* DefaultLightAttack = GetDefaultLightAttack();
 	UAttackData* DefaultHeavyAttack = GetDefaultHeavyAttack();
 
@@ -3341,6 +3377,20 @@ UAttackData* UCombatComponent::GetAttackForInput(EInputType InputType)
 			UE_LOG(LogCombat, Log, TEXT("[COMBO] Allowing combo from phase %s (CurrentAttack=%s)"),
 				*UEnum::GetValueAsString(CurrentPhase),
 				*CurrentAttackData->GetName());
+		}
+	}
+
+	// BUG-3 FIX: If combo window is active but attack reference is gone, can't continue combo
+	// ROOT CAUSE: TIME/EVENT desync - CurrentAttackData cleared by SetPhase(None) at montage end,
+	// but bComboWindowActive uses time-based checkpoint expiration (may still be true)
+	// Without this fix, rapid taps from idle resolve to default attack instead of combo continuation
+	if (bShouldCombo && !CurrentAttackData)
+	{
+		bShouldCombo = false;
+
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogCombat, Warning, TEXT("[COMBO] BUG-3 FIX: Combo window active but CurrentAttackData is nullptr - falling back to default"));
 		}
 	}
 
@@ -3887,6 +3937,36 @@ void UCombatComponent::EndPairedAnimation()
 
 	// Restore combat input
 	bBlockCombatInput = false;
+
+	// ========================================================================
+	// BUG-1 FIX: EXPLICIT MOVEMENT RESTORATION
+	// ========================================================================
+	// AnimNotifyState_PairedAnimationCollision disables movement via DisableMovement()
+	// but doesn't update CombatComponent's bMovementCurrentlyDisabled flag.
+	// UpdateMovementFromMontageState() only restores movement if the flag is true,
+	// causing movement to remain disabled after finishers.
+	//
+	// Fix: Explicitly restore movement mode and clear the flag here, regardless
+	// of whether the flag thinks movement is disabled.
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
+		{
+			// Check if movement is actually disabled (mode is MOVE_None)
+			if (MovementComp->MovementMode == MOVE_None)
+			{
+				MovementComp->SetMovementMode(MOVE_Walking);
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Log, TEXT("[PAIRED EFFECTS] Restored movement mode (was MOVE_None)"));
+				}
+			}
+		}
+
+		// Always clear the tracking flag to ensure consistency
+		bMovementCurrentlyDisabled = false;
+	}
 
 	// Broadcast delegate for external systems
 	OnPairedAnimationEnded.Broadcast(ReactionType);
