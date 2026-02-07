@@ -26,8 +26,8 @@ plans/
 
 | Plan | Status | Description |
 |------|--------|-------------|
-| [Combat Polish](combat-polish-plan.md) | Planning | Normal attack hitstop, camera shake, audio, VFX, camera awareness |
-| [Gap Tracker](gap-tracker.md) | Reference | 149 gaps tracked: 51+ done, ~84 pending, 14 deferred |
+| [Combat Polish](combat-polish-plan.md) | Impact Effects Complete, Camera Remaining | Hitstop, camera shake, audio, VFX all wired. Camera combat awareness TODO. |
+| [Gap Tracker](gap-tracker.md) | Reference | See file for current gap counts (177 total across 26 categories) |
 | [Preview Tool Refactor](preview-tool-refactor-plan.md) | Complete (pending merge) | PT-11 "God Widget" decomposition on feature branch |
 
 ## Recently Archived

@@ -543,7 +543,7 @@ Player Input → CombatComponent::TryExecuteFinisher()
 
 **Documentation**:
 - **Technical Spec**: `docs/specs/PAIRED_ANIMATION_SPEC.md` - Complete system specification
-- **Gap Tracker**: `docs/plans/gap-tracker.md` - 149 gaps tracked across all systems
+- **Gap Tracker**: `docs/plans/gap-tracker.md` - see file for current gap counts
 - **Combat Polish Plan**: `docs/plans/combat-polish-plan.md` - Normal attack effects (active)
 - **Audit Synthesis**: `docs/audits/AUDIT_SYNTHESIS_2026-02-03.md` - Unified audit findings
 - **Archived Plans**: `docs/plans/archive/` - Previous plan versions with dates
