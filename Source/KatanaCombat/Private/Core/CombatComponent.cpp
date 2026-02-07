@@ -979,6 +979,20 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 				break;
 			}
 
+			// INPUT-1 FIX: Set attack state BEFORE PlayAttackMontage() to prevent race condition.
+			// PlayAttackMontage() may stop the current montage (via Montage_Stop or StopAllMontages),
+			// which triggers OnMontageEnded callbacks (sync or async). The state machine's
+			// PendingComboTransitions counter ensures those callbacks are rejected as stale.
+			//
+			// We set CurrentAttackData BEFORE PlayAttackMontage so that:
+			// 1. The state machine transition (OnComboTransition) increments PendingComboTransitions
+			// 2. Any sync or async OnMontageEnded from the old montage is rejected by Rule 0
+			// 3. If PlayAttackMontage fails, we revert to the previous state
+			UAttackData* PreviousAttackData = CurrentAttackData;
+			EInputType PreviousInputType = CurrentAttackInputType;
+			CurrentAttackData = Action.AttackData;
+			CurrentAttackInputType = Action.InputAction.InputType;
+
 			// Play normal attack montage
 			bSuccess = PlayAttackMontage(Action.AttackData);
 
@@ -989,10 +1003,6 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 				SetPhase(EAttackPhase::Windup);
 
 				DiscoverCheckpoints(Action.AttackData->AttackMontage);
-
-				// Track current attack for combo progression
-				CurrentAttackData = Action.AttackData;
-				CurrentAttackInputType = Action.InputAction.InputType;
 
 				// CRITICAL FIX: Reset hold state for new attack (clears bActivatedThisAttack)
 				HoldState.Reset();
@@ -1017,6 +1027,18 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Is Combo: %s"), bIsCombo ? TEXT("YES") : TEXT("NO"));
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Checkpoints Discovered: %d"), Checkpoints.Num());
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] ═══════════════════════════════════════"));
+				}
+			}
+			else
+			{
+				// Revert pre-set state on failure
+				CurrentAttackData = PreviousAttackData;
+				CurrentAttackInputType = PreviousInputType;
+
+				if (GetDebugDraw())
+				{
+					UE_LOG(LogCombat, Warning, TEXT("[EXECUTE] PlayAttackMontage failed - reverted CurrentAttackData to %s"),
+						PreviousAttackData ? *PreviousAttackData->GetName() : TEXT("None"));
 				}
 			}
 			break;
@@ -1778,15 +1800,11 @@ bool UCombatComponent::TryCounter()
 	{
 	case ECounterSystemMode::AC3:
 		UE_LOG(LogCombat, Log, TEXT("[COUNTER] Executing AC3 counter-kill against %s"), *Target->GetName());
-		// TODO: Implement TryCounter_AC3Mode() in Phase 2
-		// return TryCounter_AC3Mode(Context);
-		return false;
+		return TryCounter_AC3Mode(Context);
 
 	case ECounterSystemMode::Chain:
 		UE_LOG(LogCombat, Log, TEXT("[COUNTER] Executing Chain parry against %s"), *Target->GetName());
-		// TODO: Implement TryCounter_ChainMode() (TryParry) in Phase 3
-		// return TryCounter_ChainMode(Context);
-		return false;
+		return TryCounter_ChainMode(Context);
 
 	default:
 		return false;
@@ -1812,15 +1830,15 @@ bool UCombatComponent::CanCounter() const
 	if (CounterMode == ECounterSystemMode::Chain)
 	{
 		// Can only initiate counter from None state (not mid-chain)
-		// Exception: Could allow counter during CounterWindow state for parry-chains
-		// For now, only allow from None state
 		if (ChainState != EChainCounterState::None)
 		{
 			return false;
 		}
+		// Chain mode: Look for parryable enemies (parry window, not counter window)
+		return FindParryableEnemy() != nullptr;
 	}
 
-	// Must have a counterable enemy nearby
+	// AC3 mode: Must have a counterable enemy nearby (counter window)
 	return FindCounterableEnemy() != nullptr;
 }
 
@@ -1922,6 +1940,299 @@ FCounterContext UCombatComponent::GetEnemyCounterContext(AActor* Enemy) const
 
 	return Context;
 }
+
+// ============================================================================
+// PARRY WINDOW
+// ============================================================================
+
+void UCombatComponent::SetParryWindowActive(bool bActive)
+{
+	if (bParryWindowActive == bActive)
+	{
+		return;
+	}
+
+	bParryWindowActive = bActive;
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[PARRY] Parry window %s on %s"),
+			bActive ? TEXT("OPENED") : TEXT("CLOSED"),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("None"));
+	}
+}
+
+AActor* UCombatComponent::FindParryableEnemy() const
+{
+	AActor* Owner = GetOwner();
+	if (!Owner)
+	{
+		return nullptr;
+	}
+
+	// Use targeting component to get soft-lock range
+	UTargetingComponent* Targeting = Owner->FindComponentByClass<UTargetingComponent>();
+	float SearchRange = 400.0f;
+	if (Targeting)
+	{
+		if (const UTargetingSettings* Settings = Targeting->GetEffectiveSettings())
+		{
+			SearchRange = Settings->SoftAimRange;
+		}
+	}
+
+	TArray<FOverlapResult> Overlaps;
+	FCollisionQueryParams QueryParams;
+	QueryParams.AddIgnoredActor(Owner);
+
+	Owner->GetWorld()->OverlapMultiByChannel(
+		Overlaps,
+		Owner->GetActorLocation(),
+		FQuat::Identity,
+		ECC_Pawn,
+		FCollisionShape::MakeSphere(SearchRange),
+		QueryParams
+	);
+
+	AActor* BestTarget = nullptr;
+	float BestDistance = FLT_MAX;
+
+	for (const FOverlapResult& Overlap : Overlaps)
+	{
+		AActor* OtherActor = Overlap.GetActor();
+		if (!OtherActor)
+		{
+			continue;
+		}
+
+		// Check if enemy (different team)
+		if (OtherActor->Implements<UTeamMemberInterface>() && Owner->Implements<UTeamMemberInterface>())
+		{
+			ETeamId OtherTeam = ITeamMemberInterface::Execute_GetTeamId(OtherActor);
+			ETeamId MyTeam = ITeamMemberInterface::Execute_GetTeamId(Owner);
+			if (OtherTeam == MyTeam)
+			{
+				continue;
+			}
+		}
+
+		// Check if enemy has an active PARRY window (not counter window)
+		UCombatComponent* EnemyCombat = OtherActor->FindComponentByClass<UCombatComponent>();
+		if (!EnemyCombat || !EnemyCombat->IsInParryWindow())
+		{
+			continue;
+		}
+
+		float Distance = FVector::Dist(Owner->GetActorLocation(), OtherActor->GetActorLocation());
+		if (Distance < BestDistance)
+		{
+			BestDistance = Distance;
+			BestTarget = OtherActor;
+		}
+	}
+
+	return BestTarget;
+}
+
+// ============================================================================
+// COUNTER SYSTEM IMPLEMENTATIONS
+// ============================================================================
+
+bool UCombatComponent::TryCounter_AC3Mode(const FCounterContext& Context)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !Context.Attacker)
+	{
+		return false;
+	}
+
+	// AC3 Mode: Instant counter-kill via paired animation
+	// 1. Apply slow-mo
+	UWorld* World = GetWorld();
+	if (World)
+	{
+		UCinematicEffectsUtilityLibrary::ApplySlowMotion(World, 0.2f);
+	}
+
+	// 2. Try to execute as paired animation (reuse finisher infrastructure)
+	// If counter data is specified on the notify, use that animation
+	if (Context.SpecificCounterData)
+	{
+		// Use the specific counter paired animation
+		UE_LOG(LogCombat, Log, TEXT("[COUNTER-AC3] Using specific counter animation: %s"),
+			*Context.SpecificCounterData->GetName());
+
+		// Execute as finisher — this handles warp setup, montage play, damage
+		return TryExecuteFinisher(nullptr); // Will use CurrentAttackData or default
+	}
+
+	// 3. No specific counter data — stagger enemy and apply lethal damage directly
+	if (ABaseCombatCharacter* EnemyChar = Cast<ABaseCombatCharacter>(Context.Attacker.Get()))
+	{
+		// Stagger the enemy
+		if (UHitReactionComponent* EnemyHitReact = EnemyChar->FindComponentByClass<UHitReactionComponent>())
+		{
+			EnemyHitReact->ApplyStagger(2.0f);
+		}
+
+		// Apply lethal damage
+		FHitReactionInfo HitInfo;
+		HitInfo.Attacker = Owner;
+		HitInfo.HitDirection = (Owner->GetActorLocation() - Context.Attacker->GetActorLocation()).GetSafeNormal();
+		HitInfo.Damage = 9999.0f; // Lethal
+		HitInfo.bWasCounter = true;
+		HitInfo.PhaseWhenHit = EAttackPhase::Active;
+		HitInfo.ImpactPoint = Context.Attacker->GetActorLocation();
+
+		IDamageableInterface::Execute_ApplyDamage(Context.Attacker.Get(), HitInfo);
+
+		UE_LOG(LogCombat, Log, TEXT("[COUNTER-AC3] Counter-kill applied to %s"), *Context.Attacker->GetName());
+		return true;
+	}
+
+	return false;
+}
+
+bool UCombatComponent::TryCounter_ChainMode(const FCounterContext& Context)
+{
+	AActor* Owner = GetOwner();
+	if (!Owner || !Context.Attacker)
+	{
+		return false;
+	}
+
+	// Chain Mode Step 1: Parry
+	// The enemy must be in their PARRY window (or counter window)
+	// We deflect their attack and open a counter window on ourselves
+
+	// Transition to ParryActive state
+	ChainState = EChainCounterState::ParryActive;
+
+	// Notify the enemy that their attack was parried
+	if (Context.Attacker->Implements<UDamageableInterface>())
+	{
+		IDamageableInterface::Execute_OnAttackParried(Context.Attacker.Get(), Owner);
+	}
+
+	// Stagger the enemy briefly
+	if (ABaseCombatCharacter* EnemyChar = Cast<ABaseCombatCharacter>(Context.Attacker.Get()))
+	{
+		if (UHitReactionComponent* EnemyHitReact = EnemyChar->FindComponentByClass<UHitReactionComponent>())
+		{
+			EnemyHitReact->ApplyStagger(2.0f); // 2s stagger to allow counter chain
+		}
+	}
+
+	// Apply slow-mo for cinematic feel
+	if (UWorld* World = GetWorld())
+	{
+		UCinematicEffectsUtilityLibrary::ApplySlowMotion(World, 0.3f);
+	}
+
+	// Transition to CounterWindow state — player can now press attack for counter
+	ChainState = EChainCounterState::CounterWindow;
+
+	// Set timeout: player has 2s to press attack for the counter
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().SetTimer(
+			ChainTimeoutHandle,
+			this,
+			&UCombatComponent::OnChainTimeout,
+			2.0f,
+			false
+		);
+	}
+
+	UE_LOG(LogCombat, Log, TEXT("[COUNTER-CHAIN] Parry successful! Player is now in Countering state. Press attack to continue chain."));
+	return true;
+}
+
+bool UCombatComponent::ExecuteChainCounterAttack()
+{
+	if (ChainState != EChainCounterState::CounterWindow)
+	{
+		return false;
+	}
+
+	// Clear timeout
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ChainTimeoutHandle);
+	}
+
+	// Transition to CounterActive
+	ChainState = EChainCounterState::CounterActive;
+
+	// TODO: Play counter attack montage when counter animations are available
+	// For now, transition directly to finishing state
+	ChainState = EChainCounterState::FinisherReady;
+
+	UE_LOG(LogCombat, Log, TEXT("[COUNTER-CHAIN] Counter attack executed! Transitioning to finisher."));
+
+	return ExecuteChainFinisher();
+}
+
+bool UCombatComponent::ExecuteChainFinisher()
+{
+	if (ChainState != EChainCounterState::FinisherReady)
+	{
+		return false;
+	}
+
+	// Execute finisher using existing infrastructure
+	bool bSuccess = TryExecuteFinisher(CurrentAttackData);
+
+	// Reset chain state
+	ChainState = EChainCounterState::None;
+
+	if (bSuccess)
+	{
+		UE_LOG(LogCombat, Log, TEXT("[COUNTER-CHAIN] Chain finisher executed successfully!"));
+	}
+	else
+	{
+		UE_LOG(LogCombat, Warning, TEXT("[COUNTER-CHAIN] Chain finisher failed - no valid target or animation"));
+	}
+
+	return bSuccess;
+}
+
+void UCombatComponent::CancelChainCounter()
+{
+	if (ChainState == EChainCounterState::None)
+	{
+		return;
+	}
+
+	EChainCounterState PrevState = ChainState;
+	ChainState = EChainCounterState::None;
+
+	// Clear timeout
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(ChainTimeoutHandle);
+	}
+
+	// Restore time dilation if we applied slow-mo
+	if (UWorld* World = GetWorld())
+	{
+		UCinematicEffectsUtilityLibrary::RestoreTimeDilation(World);
+	}
+
+	UE_LOG(LogCombat, Log, TEXT("[COUNTER-CHAIN] Chain cancelled from state %s"),
+		*UEnum::GetValueAsString(PrevState));
+}
+
+void UCombatComponent::OnChainTimeout()
+{
+	UE_LOG(LogCombat, Log, TEXT("[COUNTER-CHAIN] Chain timed out!"));
+	CancelChainCounter();
+}
+
+// ============================================================================
+// CHECKPOINT SYSTEM
+// ============================================================================
 
 bool UCombatComponent::HasReachedCheckpoint(const FTimerCheckpoint& Checkpoint, float CurrentTime) const
 {
@@ -2549,7 +2860,10 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 				}
 			}
 
-			// Attack finished - reset combo state for next attack
+			// Attack finished - reset combo state for next attack.
+			// NOTE: Stale SetPhase(None) calls from combo transitions never reach here
+			// because the state machine's ShouldProcessMontageEnd() rejects those
+			// callbacks BEFORE OnMontageEnded processes them.
 			CurrentAttackData = nullptr;
 			CurrentAttackInputType = EInputType::None;
 
@@ -2641,27 +2955,24 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 	}
 
 	// ========================================================================
-	// STATE MACHINE CALLBACK FILTERING
+	// STATE MACHINE CALLBACK FILTERING (INPUT-1 systemic fix)
 	// ========================================================================
-	// The state machine determines whether this callback should be processed.
-	// It ignores callbacks from:
-	// 1. Old montages (different pointer)
-	// 2. Old sections within same montage (grace period protection)
-	// 3. Callbacks during combo blend window
-	//
-	// CRITICAL: Light attacks 1-3 share AM_Light_Combo_1, 4-6 share another, etc.
-	// Section transitions within same montage require time-based grace period filtering.
+	// The state machine is the SINGLE AUTHORITY on whether a montage-end callback
+	// should be processed. It uses a PendingComboTransitions counter:
+	// - Each OnComboTransition() increments the counter (expecting a stale callback)
+	// - Each rejected stale callback decrements it (consumed)
+	// This handles ALL async blend-out timing issues — same-montage sections,
+	// cross-montage combos, any blend duration — without boolean guards or heuristics.
 	// ========================================================================
 
 	if (!AttackStateMachine.ShouldProcessMontageEnd(Montage, bInterrupted, CurrentWorldTime))
 	{
 		if (GetDebugDraw())
 		{
-			const float GraceRemaining = (AttackStateMachine.SectionStartTime + FAttackStateMachine::SectionTransitionGracePeriod) - CurrentWorldTime;
-			UE_LOG(LogCombat, Log, TEXT("[STATE] Ignoring montage end callback (Gen=%d, GraceRemaining=%.3fs)"),
-				AttackStateMachine.AttackGeneration, FMath::Max(0.0f, GraceRemaining));
+			UE_LOG(LogCombat, Log, TEXT("[STATE] Ignoring montage end callback (Gen=%d, PendingTransitions=%d)"),
+				AttackStateMachine.AttackGeneration, AttackStateMachine.PendingComboTransitions);
 		}
-		// This is a stale callback from old section/montage - ignore completely
+		// Stale callback — completely ignored. Queue, checkpoints, phase all preserved.
 		return;
 	}
 
@@ -2670,20 +2981,22 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 	// ========================================================================
 	if (bInterrupted)
 	{
-		// CRITICAL: Reset input state on interruption (stun, knockback, etc.)
-		// Prevents directional input context leaking when montage is forcibly stopped
+		// If we reach here with bInterrupted=true, the state machine has already
+		// confirmed this is NOT a stale combo-transition callback (Rule 0 rejected those).
+		// This is a genuine abnormal interrupt (death, stun, knockback, paired anim entry).
+		// Reset input state to prevent leaks.
 		SetInputContext(EInputContext::Movement);
 		DirectionalInputBuffer.Reset();
 		ClearHoldState();
 
-		// Defensive phase reset on abnormal interrupt (death, stun, paired anim entry).
+		// Defensive phase reset on abnormal interrupt.
 		// Normal flow self-corrects via checkpoint notifies, but abnormal interrupts
 		// can leave phase stuck on Active/Windup since no more notifies will fire.
 		if (CurrentPhase != EAttackPhase::None)
 		{
 			if (GetDebugDraw())
 			{
-				UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Interrupted while phase=%s - forcing phase reset to None"),
+				UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Genuine interrupt while phase=%s - forcing phase reset to None"),
 					*UEnum::GetValueAsString(CurrentPhase));
 			}
 			SetPhase(EAttackPhase::None);
@@ -2691,7 +3004,7 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 
 		if (GetDebugDraw())
 		{
-			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Interrupted - input state reset"));
+			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Genuine interrupt - input state reset"));
 		}
 	}
 

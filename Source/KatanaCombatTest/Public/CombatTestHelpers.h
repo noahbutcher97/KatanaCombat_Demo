@@ -14,6 +14,7 @@
 #include "Data/CombatSettings.h"
 #include "Data/AttackData.h"
 #include "Data/AttackConfiguration.h"
+#include "Data/WeaponData.h"
 #include "Core/HitReactionComponent.h"
 #include "Core/WeaponComponent.h"
 #include "Characters/BaseCombatCharacter.h"
@@ -67,7 +68,12 @@ public:
         //Settings->PostureRegenRate_Idle = 20.0f;
         //Settings->PostureRegenRate_Attacking = 50.0f;
         //Settings->PostureRegenRate_NotBlocking = 30.0f;
-        Settings->AttackConfiguration = NewObject<UAttackConfiguration>();
+
+        // Create DefaultWeaponData with AttackConfiguration (new pattern)
+        UWeaponData* TestWeaponData = NewObject<UWeaponData>();
+        TestWeaponData->AttackConfiguration = NewObject<UAttackConfiguration>();
+        Settings->DefaultWeaponData = TestWeaponData;
+
         //Settings->CounterWindowDuration = 1.5f;
         //Settings->CounterDamageMultiplier = 1.5f;
         return Settings;

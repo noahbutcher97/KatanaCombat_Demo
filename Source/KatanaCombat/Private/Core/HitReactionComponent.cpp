@@ -73,8 +73,18 @@ void UHitReactionComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
         UpdateStun(DeltaTime);
     }
 
+    // Update stagger timer
+    if (bIsStaggered)
+    {
+        StaggerTimeRemaining -= DeltaTime;
+        if (StaggerTimeRemaining <= 0.0f)
+        {
+            EndStagger();
+        }
+    }
+
     // Disable tick if nothing needs tracking
-    if (!bIsStunned && !bCurrentReactionHasIFrames)
+    if (!bIsStunned && !bIsStaggered && !bCurrentReactionHasIFrames)
     {
         SetComponentTickEnabled(false);
     }
@@ -1095,11 +1105,10 @@ EFinisherTriggerReason UHitReactionComponent::GetFinisherTriggerReason() const
         return EFinisherTriggerReason::None;
     }
 
-    // Priority 1: Guard Broken (posture depleted)
-    // Uses IDamageableInterface for flexibility
-    if (IDamageableInterface::Execute_IsGuardBroken(CombatChar))
+    // Priority 1: Staggered (replaces posture-based guard break)
+    if (bIsStaggered)
     {
-        return EFinisherTriggerReason::GuardBroken;
+        return EFinisherTriggerReason::GuardBroken; // Reuse enum value for compatibility
     }
 
     // Priority 2: Stunned (from heavy attacks)
@@ -1122,18 +1131,43 @@ EFinisherTriggerReason UHitReactionComponent::GetFinisherTriggerReason() const
 
 bool UHitReactionComponent::IsGuardBroken() const
 {
-    // NOTE: Posture/Guard Break system not yet implemented
-    // This will return false until the posture system is added
-    // TODO: Implement posture system with guard break state
+    // DEPRECATED: Forwards to IsStaggered for backwards compatibility
+    return bIsStaggered;
+}
 
-    ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(GetOwner());
-    if (!CombatChar)
+void UHitReactionComponent::ApplyStagger(float Duration)
+{
+    if (Duration <= 0.0f)
     {
-        return false;
+        Duration = DefaultStaggerDuration;
     }
 
-    // Use IDamageableInterface for flexibility (returns false until posture implemented)
-    return IDamageableInterface::Execute_IsGuardBroken(CombatChar);
+    bIsStaggered = true;
+    StaggerTimeRemaining = Duration;
+
+    // Enable tick to count down stagger timer
+    SetComponentTickEnabled(true);
+
+    // Broadcast stagger event
+    OnStaggered.Broadcast(GetOwner(), Duration);
+
+    // Play guard broken reaction animation (reused for stagger visual)
+    PlayGuardBrokenReaction();
+
+    UE_LOG(LogTemp, Log, TEXT("[STAGGER] %s staggered for %.1fs"),
+        GetOwner() ? *GetOwner()->GetName() : TEXT("None"), Duration);
+}
+
+void UHitReactionComponent::EndStagger()
+{
+    if (bIsStaggered)
+    {
+        bIsStaggered = false;
+        StaggerTimeRemaining = 0.0f;
+
+        UE_LOG(LogTemp, Log, TEXT("[STAGGER] %s stagger ended"),
+            GetOwner() ? *GetOwner()->GetName() : TEXT("None"));
+    }
 }
 
 // ============================================================================

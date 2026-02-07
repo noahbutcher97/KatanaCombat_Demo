@@ -111,16 +111,20 @@ public:
     bool bCanCombo = false;
 
     // ============================================================================
-    // POSTURE (Read by Animation Blueprint)
+    // POSTURE (DEPRECATED - Read by Animation Blueprint for backwards compat)
     // ============================================================================
 
-    /** Posture as percentage (0-1, drives additive breathing intensity) */
-    UPROPERTY(BlueprintReadOnly, Category = "Combat|Posture")
+    /** DEPRECATED: Posture system removed. Always 1.0 */
+    UPROPERTY(BlueprintReadOnly, Category = "Combat|Posture", meta = (DeprecatedProperty))
     float PosturePercent = 1.0f;
 
-    /** Is posture low? (< 40%, affects stance) */
-    UPROPERTY(BlueprintReadOnly, Category = "Combat|Posture")
+    /** DEPRECATED: Posture system removed. Always false */
+    UPROPERTY(BlueprintReadOnly, Category = "Combat|Posture", meta = (DeprecatedProperty))
     bool bIsPostureLow = false;
+
+    /** Is this character currently staggered? (replaces posture-low for animation) */
+    UPROPERTY(BlueprintReadOnly, Category = "Combat|Stagger")
+    bool bIsStaggered = false;
 
     // ============================================================================
     // CHARGE (Read by Animation Blueprint)

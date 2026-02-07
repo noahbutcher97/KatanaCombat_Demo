@@ -314,7 +314,7 @@ float ABaseCombatCharacter::ApplyDamage_Implementation(const FHitReactionInfo& H
 
 bool ABaseCombatCharacter::ApplyPostureDamage_Implementation(float PostureDamage, AActor* Attacker)
 {
-    // TODO: Migrate posture system
+    // DEPRECATED: Posture system removed. Use HitReactionComponent::ApplyStagger() instead.
     return false;
 }
 
@@ -331,8 +331,13 @@ bool ABaseCombatCharacter::IsBlocking_Implementation() const
 
 bool ABaseCombatCharacter::IsGuardBroken_Implementation() const
 {
-    // TODO: Migrate guard break system
-    return false;
+    // DEPRECATED: Forwards to IsStaggered for backwards compatibility
+    return IsStaggered_Implementation();
+}
+
+bool ABaseCombatCharacter::IsStaggered_Implementation() const
+{
+    return HitReactionComponent ? HitReactionComponent->IsStaggered() : false;
 }
 
 bool ABaseCombatCharacter::ExecuteFinisher_Implementation(AActor* Attacker, UAttackData* FinisherData)
@@ -342,8 +347,8 @@ bool ABaseCombatCharacter::ExecuteFinisher_Implementation(AActor* Attacker, UAtt
         return false;
     }
 
-    // Check if we're in a finishable state (guard broken or stunned)
-    if (!IsGuardBroken_Implementation() && (!HitReactionComponent || !HitReactionComponent->IsStunned()))
+    // Check if we're in a finishable state (staggered or stunned)
+    if (!IsStaggered_Implementation() && (!HitReactionComponent || !HitReactionComponent->IsStunned()))
     {
         return false;
     }
@@ -369,13 +374,13 @@ void ABaseCombatCharacter::OpenCounterWindow_Implementation(float Duration)
 
 float ABaseCombatCharacter::GetCurrentPosture_Implementation() const
 {
-    // TODO: Migrate posture system
+    // DEPRECATED: Posture system removed
     return 0.0f;
 }
 
 float ABaseCombatCharacter::GetMaxPosture_Implementation() const
 {
-    // TODO: Migrate posture system
+    // DEPRECATED: Posture system removed
     return 100.0f;
 }
 
@@ -524,10 +529,39 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         HitInfo.AttackData = AttackData;
         HitInfo.Damage = AttackData->BaseDamage * WeaponMultiplier;
         HitInfo.StunDuration = AttackData->HitStunDuration;
-        HitInfo.bWasCounter = false; // TODO: Counter window not migrated yet
         HitInfo.ImpactPoint = HitResult.ImpactPoint;
         HitInfo.ImpactNormal = HitResult.ImpactNormal;
         HitInfo.BoneName = HitResult.BoneName;
+
+        // HIT-1: Populate extended hit metadata
+        HitInfo.DistanceToTarget = FVector::Dist(GetActorLocation(), HitActor->GetActorLocation());
+        HitInfo.PhaseWhenHit = CombatComponent ? CombatComponent->GetCurrentPhase() : EAttackPhase::None;
+
+        // Use real weapon tip velocity from per-frame socket position tracking
+        if (WeaponComponent)
+        {
+            HitInfo.WeaponVelocity = WeaponComponent->GetWeaponTipVelocity();
+        }
+        else
+        {
+            // Fallback: approximate from hit direction and damage magnitude
+            HitInfo.WeaponVelocity = HitInfo.HitDirection * HitInfo.Damage;
+        }
+
+        // Populate animation time from current montage
+        if (GetMesh())
+        {
+            if (UAnimInstance* AnimInst = GetMesh()->GetAnimInstance())
+            {
+                if (UAnimMontage* CurrentMontage = AnimInst->GetCurrentActiveMontage())
+                {
+                    HitInfo.AnimationTime = AnimInst->Montage_GetPosition(CurrentMontage);
+                }
+            }
+        }
+
+        // HIT-1: Populate bWasCounter from attacker's counter window state
+        HitInfo.bWasCounter = CombatComponent ? CombatComponent->IsInCounterWindow() : false;
 
         // Compute block state once for audio and hitstop
         const bool bWasBlocked = IDamageableInterface::Execute_IsBlocking(HitActor);

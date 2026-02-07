@@ -223,6 +223,7 @@ public:
     virtual bool CanBeDamaged_Implementation() const override;
     virtual bool IsBlocking_Implementation() const override;
     virtual bool IsGuardBroken_Implementation() const override;
+    virtual bool IsStaggered_Implementation() const override;
     virtual bool ExecuteFinisher_Implementation(AActor* Attacker, UAttackData* FinisherData) override;
     virtual void OnAttackParried_Implementation(AActor* Parrier) override;
     virtual void OpenCounterWindow_Implementation(float Duration) override;

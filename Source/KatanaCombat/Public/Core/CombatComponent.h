@@ -60,6 +60,26 @@ class KATANACOMBAT_API UCombatComponent : public UActorComponent
 {
 	GENERATED_BODY()
 
+	// Test access for INPUT-1 race condition tests
+	friend class FComboRace_GuardPreventsStateClear;
+	friend class FComboRace_ComboChainDataIntegrity;
+	friend class FComboRace_RevertOnFailure;
+	friend class FComboRace_AttackDataSetBeforePlay;
+	friend class FComboRace_AttackDataNotNullAfterExecute;
+
+	// Test access for counter system tests
+	friend class FCounter_AC3LethalDamage;
+	friend class FCounter_AC3StaggersEnemy;
+	friend class FCounter_AC3HitInfoMarkedAsCounter;
+	friend class FCounter_AC3NullAttackerFails;
+	friend class FCounter_ChainParryTransition;
+	friend class FCounter_ChainCounterAttack;
+	friend class FCounter_ChainCancelResetsState;
+	friend class FCounter_CancelNoopWhenNone;
+	friend class FCounter_CounterAttackRequiresWindow;
+	friend class FCounter_ChainParryStaggersEnemy;
+	friend class FCounter_ChainNullAttackerFails;
+
 public:
 	UCombatComponent();
 
@@ -408,6 +428,17 @@ public:
 							  UPairedAnimationData* InCounterData, float InWindowDuration);
 
 	/**
+	 * Is this character currently in a parry window? (can be parried)
+	 * Called by defenders to check if this attacker's attack can be parried.
+	 * Parry window is typically during early Windup phase.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
+	bool IsInParryWindow() const { return bParryWindowActive; }
+
+	/** Set parry window active state (called by AnimNotifyState_ParryWindow) */
+	void SetParryWindowActive(bool bActive);
+
+	/**
 	 * Clear counter window data (called by AnimNotifyState_CounterWindow::NotifyEnd)
 	 * Marks this character as no longer counterable
 	 */
@@ -450,6 +481,14 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	FCounterContext GetEnemyCounterContext(AActor* Enemy) const;
+
+	/**
+	 * Find the nearest enemy currently in their parry window.
+	 * Used by Chain counter mode to find parryable enemies.
+	 * @return Enemy actor if found, nullptr otherwise
+	 */
+	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
+	AActor* FindParryableEnemy() const;
 
 	/** Get active windows at specified montage time */
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
@@ -806,6 +845,10 @@ public:
 	friend class FDebugQueueVisualizationTest;
 	friend class FDebugArrowLengthTest;
 	friend class FDebugChestHeightTest;
+	friend class FComboRace_PendingTransitionsStartZero;
+	friend class FComboRace_ComboChainDataIntegrity;
+	friend class FComboRace_RevertOnFailure;
+	friend class FComboRace_SetPhaseNoneClearsState;
 #endif // WITH_AUTOMATION_TESTS
 
 protected:
@@ -826,6 +869,28 @@ protected:
 	 */
 	UFUNCTION()
 	void OnCharacterDeath();
+
+	// ============================================================================
+	// COUNTER SYSTEM INTERNAL METHODS
+	// ============================================================================
+
+	/** AC3 mode: Instant counter-kill. Slow-mo -> paired animation -> lethal damage. */
+	bool TryCounter_AC3Mode(const FCounterContext& Context);
+
+	/** Chain mode step 1: Parry the enemy's attack, opening a counter window on the player. */
+	bool TryCounter_ChainMode(const FCounterContext& Context);
+
+	/** Chain mode step 2: Execute counter attack during the player's counter window. */
+	bool ExecuteChainCounterAttack();
+
+	/** Chain mode step 3: Execute finisher to complete the chain. */
+	bool ExecuteChainFinisher();
+
+	/** Cancel the chain counter mid-sequence (timeout, damage taken, etc.) */
+	void CancelChainCounter();
+
+	/** Handle chain timeout expiration */
+	void OnChainTimeout();
 
 	/**
 	 * Set current input interpretation context
@@ -853,12 +918,16 @@ protected:
 	float ComboWindowDuration = 0.0f;
 
 	// ============================================================================
-	// COUNTER WINDOW STATE (for AC3/Chain counter systems)
+	// COUNTER/PARRY WINDOW STATE (for AC3/Chain counter systems)
 	// ============================================================================
 
 	/** Is this character currently in a counter window? (can be countered by defenders) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
 	bool bCounterWindowActive = false;
+
+	/** Is this character currently in a parry window? (can be parried by defenders) */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
+	bool bParryWindowActive = false;
 
 	/** Counter context data (pose-matching info for defenders) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
@@ -871,6 +940,9 @@ protected:
 	/** Chain mode state machine (only used when CounterMode == Chain) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
 	EChainCounterState ChainState = EChainCounterState::None;
+
+	/** Timer handle for chain mode timeout */
+	FTimerHandle ChainTimeoutHandle;
 
 	/** Queue statistics */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")

@@ -86,9 +86,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|VFX")
     FImpactVFXConfig ImpactVFXConfig;
 
-    /** [NOT YET IMPLEMENTED] Posture damage dealt when this attack is blocked */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Future|Damage")
+    /** DEPRECATED: Posture system removed. Use StaggerPower instead. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deprecated", meta = (DeprecatedProperty, DeprecationMessage = "Use StaggerPower instead"))
     float PostureDamage = 10.0f;
+
+    /**
+     * Stagger power (0-1). Controls the chance/strength of contextual stagger.
+     * Heavy attacks have higher stagger power. Counter attacks can force stagger.
+     * 0 = never staggers, 1 = always staggers on hit
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+    float StaggerPower = 0.0f;
 
     /** [NOT YET IMPLEMENTED] Multiplier applied during counter window */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Future|Damage")
@@ -149,9 +157,9 @@ public:
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float MaxChargeDamageMultiplier = 2.5f;
 
-    /** Posture damage at full charge */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
-        meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
+    /** DEPRECATED: Posture system removed. Heavy attacks use StaggerPower instead. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deprecated",
+        meta = (DeprecatedProperty, DeprecationMessage = "Posture system removed. Use StaggerPower instead."))
     float ChargedPostureDamage = 40.0f;
 
     /** Montage section that loops during charge (NAME_None = use default animation) */

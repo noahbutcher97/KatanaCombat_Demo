@@ -362,7 +362,7 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
     // ================================================================
     if (AudioConfig.ImpactSound)
     {
-        UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 1: Per-attack override used (sound: %s)"),
+        UE_LOG(LogCombatFX, Log, TEXT("[POOL-AUDIO] Tier 1: Per-attack override (sound: %s)"),
             *AudioConfig.ImpactSound->GetName());
         // Use per-attack config directly (existing path)
         return PlayImpactSound(World, AudioConfig, nullptr, ImpactLocation, Attacker);
@@ -373,8 +373,14 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
     // ================================================================
     if (CombatFXData)
     {
+        UE_LOG(LogCombatFX, Log, TEXT("[POOL-AUDIO] Tier 2 check: CombatFXData=%s, AttackType=%d"),
+            *CombatFXData->GetName(), static_cast<uint8>(AttackType));
+
         if (const FImpactFXPool* Pool = CombatFXData->ResolvePool(AttackType, bWasBlocked))
         {
+            UE_LOG(LogCombatFX, Log, TEXT("[POOL-AUDIO] Pool found. HasSounds=%s (count=%d)"),
+                Pool->HasSounds() ? TEXT("YES") : TEXT("NO"), Pool->ImpactSounds.Num());
+
             if (const FImpactSoundEntry* Entry = Pool->GetRandomSound())
             {
                 // Build a temporary FImpactAudioConfig from pool entry
@@ -385,12 +391,25 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
                 PoolConfig.PitchVariation = Pool->PitchVariation;
                 PoolConfig.bUseWeaponFallback = false; // Pool resolved; don't chain
 
-                UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 2: Pool selection (type: %d, selected: %s)"),
+                UE_LOG(LogCombatFX, Log, TEXT("[POOL-AUDIO] Tier 2: Pool selection (type: %d, selected: %s)"),
                     static_cast<uint8>(AttackType), *Entry->Sound->GetName());
 
                 return PlayImpactSound(World, PoolConfig, nullptr, ImpactLocation, Attacker);
             }
+            else
+            {
+                UE_LOG(LogCombatFX, Warning, TEXT("[POOL-AUDIO] Pool found but GetRandomSound() returned nullptr"));
+            }
         }
+        else
+        {
+            UE_LOG(LogCombatFX, Log, TEXT("[POOL-AUDIO] No pool found for AttackType=%d"),
+                static_cast<uint8>(AttackType));
+        }
+    }
+    else
+    {
+        UE_LOG(LogCombatFX, Log, TEXT("[POOL-AUDIO] Tier 2 skipped: CombatFXData is nullptr"));
     }
 
     // ================================================================
@@ -405,7 +424,7 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
         FallbackConfig.PitchVariation = AudioConfig.PitchVariation;
         FallbackConfig.bUseWeaponFallback = false;
 
-        UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 3: Weapon fallback used (sound: %s)"),
+        UE_LOG(LogCombatFX, Log, TEXT("[POOL-AUDIO] Tier 3: Weapon fallback (sound: %s)"),
             *WeaponFallbackSound->GetName());
 
         return PlayImpactSound(World, FallbackConfig, nullptr, ImpactLocation, Attacker);
@@ -414,7 +433,7 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
     // ================================================================
     // TIER 4: Silent
     // ================================================================
-    UE_LOG(LogCombatFX, Log, TEXT("[POOL] Tier 4: Silent (no sound available for attack type %d)"),
+    UE_LOG(LogCombatFX, Log, TEXT("[POOL-AUDIO] Tier 4: Silent (no sound available for attack type %d)"),
         static_cast<uint8>(AttackType));
     return false;
 }
@@ -503,7 +522,7 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
 {
     if (!World)
     {
-        UE_LOG(LogCombatFX, Warning, TEXT("[POOL] ResolveAndSpawnImpactVFX failed: null World"));
+        UE_LOG(LogCombatFX, Warning, TEXT("[POOL-VFX] ResolveAndSpawnImpactVFX failed: null World"));
         return false;
     }
 
@@ -512,7 +531,7 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
     // ================================================================
     if (VFXConfig.ImpactVFX)
     {
-        UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 1: Per-attack VFX override used (VFX: %s)"),
+        UE_LOG(LogCombatFX, Log, TEXT("[POOL-VFX] Tier 1: Per-attack override (VFX: %s)"),
             *VFXConfig.ImpactVFX->GetName());
 
         return SpawnImpactVFX(World, VFXConfig, nullptr, ImpactLocation, ImpactNormal, BoneName);
@@ -523,25 +542,47 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
     // ================================================================
     if (CombatFXData)
     {
+        UE_LOG(LogCombatFX, Log, TEXT("[POOL-VFX] Tier 2 check: CombatFXData=%s, AttackType=%d"),
+            *CombatFXData->GetName(), static_cast<uint8>(AttackType));
+
         const FImpactFXPool* Pool = CombatFXData->ResolvePool(AttackType, bWasBlocked);
-        if (Pool && Pool->HasVFX())
+        if (Pool)
         {
-            const FImpactVFXEntry* Entry = Pool->GetRandomVFX();
-            if (Entry && Entry->IsValid())
+            UE_LOG(LogCombatFX, Log, TEXT("[POOL-VFX] Pool found. HasVFX=%s (count=%d)"),
+                Pool->HasVFX() ? TEXT("YES") : TEXT("NO"), Pool->ImpactVFX.Num());
+
+            if (Pool->HasVFX())
             {
-                // Build config from pool entry
-                FImpactVFXConfig PoolConfig;
-                PoolConfig.ImpactVFX = Entry->VFX;
-                PoolConfig.ScaleMultiplier = Entry->ScaleMultiplier;
-                PoolConfig.bAlignToSurface = Pool->bAlignVFXToSurface;
-                PoolConfig.bUseWeaponFallback = false; // Pool resolved; don't chain
+                const FImpactVFXEntry* Entry = Pool->GetRandomVFX();
+                if (Entry && Entry->IsValid())
+                {
+                    // Build config from pool entry
+                    FImpactVFXConfig PoolConfig;
+                    PoolConfig.ImpactVFX = Entry->VFX;
+                    PoolConfig.ScaleMultiplier = Entry->ScaleMultiplier;
+                    PoolConfig.bAlignToSurface = Pool->bAlignVFXToSurface;
+                    PoolConfig.bUseWeaponFallback = false; // Pool resolved; don't chain
 
-                UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 2: Pool VFX selection (type: %d, selected: %s)"),
-                    static_cast<uint8>(AttackType), *Entry->VFX->GetName());
+                    UE_LOG(LogCombatFX, Log, TEXT("[POOL-VFX] Tier 2: Pool selection (type: %d, selected: %s)"),
+                        static_cast<uint8>(AttackType), *Entry->VFX->GetName());
 
-                return SpawnImpactVFX(World, PoolConfig, nullptr, ImpactLocation, ImpactNormal, BoneName);
+                    return SpawnImpactVFX(World, PoolConfig, nullptr, ImpactLocation, ImpactNormal, BoneName);
+                }
+                else
+                {
+                    UE_LOG(LogCombatFX, Warning, TEXT("[POOL-VFX] Pool has VFX but GetRandomVFX() returned invalid"));
+                }
             }
         }
+        else
+        {
+            UE_LOG(LogCombatFX, Log, TEXT("[POOL-VFX] No pool found for AttackType=%d"),
+                static_cast<uint8>(AttackType));
+        }
+    }
+    else
+    {
+        UE_LOG(LogCombatFX, Log, TEXT("[POOL-VFX] Tier 2 skipped: CombatFXData is nullptr"));
     }
 
     // ================================================================
@@ -555,7 +596,7 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
         FallbackConfig.bAlignToSurface = VFXConfig.bAlignToSurface;
         FallbackConfig.bUseWeaponFallback = false;
 
-        UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 3: Weapon VFX fallback used (VFX: %s)"),
+        UE_LOG(LogCombatFX, Log, TEXT("[POOL-VFX] Tier 3: Weapon fallback (VFX: %s)"),
             *WeaponFallbackVFX->GetName());
 
         return SpawnImpactVFX(World, FallbackConfig, nullptr, ImpactLocation, ImpactNormal, BoneName);
@@ -564,7 +605,7 @@ bool UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
     // ================================================================
     // TIER 4: Nothing
     // ================================================================
-    UE_LOG(LogCombatFX, Verbose, TEXT("[POOL] Tier 4: No VFX available for attack type %d"),
+    UE_LOG(LogCombatFX, Log, TEXT("[POOL-VFX] Tier 4: No VFX available for attack type %d"),
         static_cast<uint8>(AttackType));
     return false;
 }

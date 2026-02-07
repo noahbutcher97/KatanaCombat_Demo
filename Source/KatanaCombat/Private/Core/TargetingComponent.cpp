@@ -297,6 +297,38 @@ void UTargetingComponent::ClearCurrentTarget()
 }
 
 // ============================================================================
+// COUNTER LOCK
+// ============================================================================
+
+void UTargetingComponent::LockToCounterTarget(AActor* Target)
+{
+    if (!Target)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Targeting] LockToCounterTarget called with null target"));
+        return;
+    }
+
+    CounterLockedTarget = Target;
+    bIsCounterLocked = true;
+
+    UE_LOG(LogTemp, Log, TEXT("[Targeting] %s: Counter locked to %s"),
+        *GetOwner()->GetName(), *Target->GetName());
+}
+
+void UTargetingComponent::ReleaseCounterLock()
+{
+    if (bIsCounterLocked)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[Targeting] %s: Counter lock released (was: %s)"),
+            *GetOwner()->GetName(),
+            CounterLockedTarget.IsValid() ? *CounterLockedTarget->GetName() : TEXT("invalid"));
+    }
+
+    CounterLockedTarget.Reset();
+    bIsCounterLocked = false;
+}
+
+// ============================================================================
 // MOTION WARPING INTEGRATION
 // ============================================================================
 

@@ -78,10 +78,12 @@ public:
     // TIMING & INTERRUPTS
     // ========================================================================
 
-    /** Duration of hitstun (character cannot act) */
+    /** Duration of hitstun (character cannot act). Default 0 = no stun.
+     * Only configure stun for specific scenarios (guard break, heavy attacks, etc.)
+     * Non-zero stun makes target vulnerable to finishers via IsVulnerableToFinisher(). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing",
         meta = (ClampMin = "0.0", ClampMax = "5.0"))
-    float StunDuration = 0.3f;
+    float StunDuration = 0.0f;
 
     /** If true, cannot be interrupted by further attacks (i-frames) */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing")

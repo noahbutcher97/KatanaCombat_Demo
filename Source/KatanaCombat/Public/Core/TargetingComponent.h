@@ -165,6 +165,45 @@ public:
     bool HasTarget() const { return CurrentTarget != nullptr; }
 
     // ============================================================================
+    // COUNTER LOCK (Stickiness after parry/counter)
+    // ============================================================================
+
+    /**
+     * Lock targeting to a specific enemy after initiating a counter.
+     * Counter lock has priority over normal targeting - prevents target switching
+     * until the parry/counter chain completes or is explicitly released.
+     *
+     * Chain Mode: Called when player parries, remains until finisher or disengage
+     * AC3 Mode: Called briefly during counter-kill execution
+     *
+     * @param Target - Enemy to lock onto
+     */
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Counter")
+    void LockToCounterTarget(AActor* Target);
+
+    /**
+     * Release counter lock, allowing normal target switching.
+     * Called when counter chain completes, is interrupted, or player disengages.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Targeting|Counter")
+    void ReleaseCounterLock();
+
+    /** Check if counter lock is active */
+    UFUNCTION(BlueprintPure, Category = "Targeting|Counter")
+    bool IsCounterLocked() const { return bIsCounterLocked; }
+
+    /** Get the counter-locked target (if any) */
+    UFUNCTION(BlueprintPure, Category = "Targeting|Counter")
+    AActor* GetCounterLockedTarget() const { return CounterLockedTarget.Get(); }
+
+    /**
+     * Get effective target - returns counter locked target if active, otherwise current target.
+     * Use this instead of GetCurrentTarget() when executing attacks.
+     */
+    UFUNCTION(BlueprintPure, Category = "Targeting|Counter")
+    AActor* GetEffectiveTarget() const { return bIsCounterLocked ? CounterLockedTarget.Get() : CurrentTarget.Get(); }
+
+    // ============================================================================
     // SOFT AIM ASSIST (Directional Attack Targeting)
     // ============================================================================
 
@@ -314,6 +353,16 @@ private:
     /** Currently locked target (for lock-on systems) */
     UPROPERTY()
     TObjectPtr<AActor> CurrentTarget = nullptr;
+
+    // ============================================================================
+    // COUNTER LOCK STATE
+    // ============================================================================
+
+    /** Target locked via counter (weak to handle destruction during counter chain) */
+    TWeakObjectPtr<AActor> CounterLockedTarget;
+
+    /** Whether counter lock is active (takes priority over normal targeting) */
+    bool bIsCounterLocked = false;
 
     // ============================================================================
     // CONTINUOUS WARP TRACKING STATE (ATTACKER MODE)

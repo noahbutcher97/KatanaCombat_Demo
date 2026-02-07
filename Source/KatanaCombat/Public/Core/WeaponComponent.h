@@ -46,11 +46,21 @@ public:
     // ============================================================================
 
     /**
-     * Weapon data asset defining this weapon's properties
-     * When set, overrides manual socket/radius configuration
-     * Also provides AttackConfiguration for moveset
+     * Per-instance weapon data override.
+     *
+     * Resolution Pattern (same as other combat components):
+     * 1. This property (WeaponData) - per-instance override
+     * 2. CombatSettings->DefaultWeaponData - global default from character's CombatSettings
+     * 3. nullptr - no weapon
+     *
+     * When set, overrides manual socket/radius configuration.
+     * Also provides AttackConfiguration for moveset.
+     *
+     * NOTE: If left null, WeaponData is automatically resolved from CombatSettings
+     * on BeginPlay. You only need to set this if overriding the default weapon.
      */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Data")
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon|Data",
+        meta = (DisplayName = "Weapon Override"))
     TObjectPtr<UWeaponData> WeaponData;
 
     // ============================================================================
@@ -135,7 +145,7 @@ public:
 
     /**
      * Get the effective attack configuration for this weapon
-     * Priority: WeaponData->AttackConfiguration > CombatSettings->AttackConfiguration
+     * Priority: WeaponData->AttackConfiguration > CombatSettings->DefaultWeaponData->AttackConfiguration
      * @return Attack configuration, or nullptr if none available
      */
     UFUNCTION(BlueprintPure, Category = "Weapon|Combat")
@@ -233,6 +243,14 @@ public:
     UFUNCTION(BlueprintPure, Category = "Weapon")
     int32 GetHitActorCount() const { return HitActors.Num(); }
 
+    /**
+     * Get the weapon tip velocity computed from frame-to-frame position delta.
+     * Accurate for VFX alignment, knockback, and hit analytics.
+     * @return Weapon tip velocity in units/second
+     */
+    UFUNCTION(BlueprintPure, Category = "Weapon|Analytics")
+    FVector GetWeaponTipVelocity() const { return CachedWeaponTipVelocity; }
+
     // ============================================================================
     // HIT EVENTS
     // ============================================================================
@@ -282,6 +300,20 @@ private:
 
     /** Is this the first trace since hit detection enabled? */
     bool bFirstTrace = true;
+
+    /** Cached weapon tip velocity (units/sec), computed per-frame from position delta */
+    FVector CachedWeaponTipVelocity = FVector::ZeroVector;
+
+    /** Cached DeltaTime from last TickComponent for velocity computation */
+    float LastDeltaTime = 0.0f;
+
+    /**
+     * Number of substep interpolations per frame for hit detection.
+     * Higher values catch thin targets at low framerates but cost more traces.
+     * 1 = no substeps (single sweep per frame, current behavior)
+     * 3 = 3 intermediate sweeps per frame (recommended for fast weapons)
+     */
+    static constexpr int32 SubstepCount = 3;
 
     // ============================================================================
     // CACHED REFERENCES

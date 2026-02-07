@@ -6,6 +6,7 @@
 #include "Engine/DataAsset.h"
 #include "CombatSettings.generated.h"
 
+class UWeaponData;
 class UAttackConfiguration;
 class UTargetingSettings;
 class UMotionWarpingSettings;
@@ -24,12 +25,16 @@ class UHitReactionSettings;
  *   CombatSettings (assigned to character)
  *   ├── TargetingSettings (targeting/soft aim)
  *   ├── MotionWarpingSettings (warp distances/speeds)
- *   ├── AttackConfiguration (moveset/default attacks)
+ *   ├── WeaponData (weapon + moveset via AttackConfiguration)
  *   ├── HitReactionSettings (hit reactions, damage response)
  *   └── [Future: PostureSettings, CounterSettings, etc.]
  *
  * Override Pattern:
  *   Component.SettingsOverride → CombatSettings.SubsystemSettings → Hardcoded fallback
+ *
+ * Weapon/Attack Configuration Pattern:
+ *   WeaponComponent.WeaponDataOverride → CombatSettings.DefaultWeaponData → nullptr
+ *   WeaponData contains AttackConfiguration, so setting WeaponData implicitly sets moveset.
  *
  * Debug visualization controlled via CVars (see DebugConfig.h):
  * - Combat.Debug.All 1         - Enable all debug visualization
@@ -57,9 +62,15 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Subsystems")
     TObjectPtr<UMotionWarpingSettings> MotionWarpingSettings;
 
-    /** Attack moveset configuration (default attacks, movement attacks) */
+    /**
+     * Default weapon data for this combat configuration.
+     * Contains weapon properties (mesh, sockets, damage multiplier) AND
+     * AttackConfiguration (moveset/default attacks).
+     *
+     * WeaponComponent can override this per-instance via WeaponDataOverride.
+     */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Subsystems")
-    TObjectPtr<UAttackConfiguration> AttackConfiguration;
+    TObjectPtr<UWeaponData> DefaultWeaponData;
 
     /** Hit reaction configuration (directional reactions, special reactions) */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Subsystems")
@@ -70,4 +81,41 @@ public:
     // ============================================================================
     // TObjectPtr<UPostureSettings> PostureSettings;
     // TObjectPtr<UCounterSettings> CounterSettings;
+
+    // ============================================================================
+    // DEPRECATED (Backward Compatibility)
+    // ============================================================================
+
+private:
+    /**
+     * @deprecated Use DefaultWeaponData->AttackConfiguration instead.
+     * This field is kept for serialization compatibility with existing assets.
+     * PostLoad migrates this to DefaultWeaponData->AttackConfiguration.
+     *
+     * IMPORTANT: Field name must remain "AttackConfiguration" for serialization compatibility
+     * with existing CombatSettings assets that used the old direct field pattern.
+     */
+    UPROPERTY()
+    TObjectPtr<UAttackConfiguration> AttackConfiguration;
+
+public:
+
+    // ============================================================================
+    // CONVENIENCE ACCESSORS
+    // ============================================================================
+
+    /** Get AttackConfiguration from DefaultWeaponData (nullptr if no weapon) */
+    UFUNCTION(BlueprintPure, Category = "Combat Settings")
+    class UAttackConfiguration* GetAttackConfiguration() const;
+
+    // ============================================================================
+    // SERIALIZATION
+    // ============================================================================
+
+    /** Migrate deprecated AttackConfiguration to DefaultWeaponData on load */
+    virtual void PostLoad() override;
+
+#if WITH_EDITOR
+    virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
 };

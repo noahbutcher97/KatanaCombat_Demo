@@ -34,17 +34,48 @@ void UWeaponComponent::BeginPlay()
         OwnerMesh = OwnerCharacter->GetMesh();
     }
 
-    // Initialize from WeaponData if set
-    if (WeaponData)
+    // ====================================================================
+    // WEAPON DATA RESOLUTION (follows same pattern as other components)
+    // ====================================================================
+    // Priority 1: WeaponData set directly on component (per-instance override)
+    // Priority 2: CombatSettings->DefaultWeaponData (global default)
+    // Priority 3: No weapon (nullptr)
+
+    UWeaponData* ResolvedWeaponData = WeaponData;  // Priority 1: Direct override
+
+    if (!ResolvedWeaponData)
     {
-        InitializeFromWeaponData(WeaponData, true);
+        // Priority 2: Get from CombatSettings
+        if (UCombatSettings* Settings = GetOwnerCombatSettings())
+        {
+            ResolvedWeaponData = Settings->DefaultWeaponData;
+
+            if (ResolvedWeaponData)
+            {
+                UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Using WeaponData from CombatSettings: %s"),
+                    *GetNameSafe(GetOwner()), *ResolvedWeaponData->GetDisplayNameString());
+            }
+        }
+    }
+    else
+    {
+        UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Using WeaponData override: %s"),
+            *GetNameSafe(GetOwner()), *ResolvedWeaponData->GetDisplayNameString());
+    }
+
+    // Initialize from resolved weapon data
+    if (ResolvedWeaponData)
+    {
+        InitializeFromWeaponData(ResolvedWeaponData, true);
     }
 }
 
 void UWeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-    
+
+    LastDeltaTime = DeltaTime;
+
     if (bHitDetectionEnabled)
     {
         PerformWeaponTrace();
@@ -149,14 +180,20 @@ FVector UWeaponComponent::GetSocketLocation(FName SocketName) const
         return OwnerMesh->GetSocketLocation(SocketName);
     }
 
-    // Fallback to character location
+    // HIT-1 FIX: Log error instead of silently falling back to actor center.
+    // Falling back to character center produces incorrect hit directions and misleading VFX.
     if (OwnerCharacter)
     {
-        UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Socket '%s' not found on character or weapon mesh! Falling back to actor location."),
-            *GetNameSafe(GetOwner()), *SocketName.ToString());
+        UE_LOG(LogWeaponComponent, Error, TEXT("[%s] Socket '%s' not found on character or weapon mesh! "
+            "OwnerMesh=%s, SpawnedWeapon=%s. Returning actor location as fallback - hit traces will be inaccurate."),
+            *GetNameSafe(GetOwner()), *SocketName.ToString(),
+            OwnerMesh ? *OwnerMesh->GetName() : TEXT("null"),
+            SpawnedWeaponMesh ? *SpawnedWeaponMesh->GetName() : TEXT("null"));
         return OwnerCharacter->GetActorLocation();
     }
 
+    UE_LOG(LogWeaponComponent, Warning, TEXT("Socket '%s' not found and no owner character! Returning zero vector."),
+        *SocketName.ToString());
     return FVector::ZeroVector;
 }
 
@@ -180,19 +217,26 @@ void UWeaponComponent::PerformWeaponTrace()
         return;
     }
 
-    const FVector StartLocation = GetSocketLocation(GetEffectiveStartSocket());
-    const FVector EndLocation = GetSocketLocation(GetEffectiveEndSocket());
+    const FVector CurrentStartLocation = GetSocketLocation(GetEffectiveStartSocket());
+    const FVector CurrentTipLocation = GetSocketLocation(GetEffectiveEndSocket());
 
     // Skip first trace to avoid hitting at spawn
     if (bFirstTrace)
     {
-        PreviousStartLocation = StartLocation;
-        PreviousTipLocation = EndLocation;
+        PreviousStartLocation = CurrentStartLocation;
+        PreviousTipLocation = CurrentTipLocation;
+        CachedWeaponTipVelocity = FVector::ZeroVector;
         bFirstTrace = false;
         return;
     }
 
-    // Setup trace parameters
+    // Compute real weapon tip velocity from frame-to-frame position delta
+    if (LastDeltaTime > KINDA_SMALL_NUMBER)
+    {
+        CachedWeaponTipVelocity = (CurrentTipLocation - PreviousTipLocation) / LastDeltaTime;
+    }
+
+    // Setup trace parameters (shared across all substeps)
     FCollisionQueryParams QueryParams;
     QueryParams.AddIgnoredActor(OwnerCharacter);
     QueryParams.bTraceComplex = false;
@@ -207,59 +251,86 @@ void UWeaponComponent::PerformWeaponTrace()
         }
     }
 
-    // Calculate capsule parameters for weapon-length trace
-    // The capsule spans from WeaponStart to WeaponEnd with the trace radius
     const float EffectiveRadius = GetEffectiveTraceRadius();
-    const FVector WeaponAxis = EndLocation - StartLocation;
-    const float WeaponLength = WeaponAxis.Size();
-    const float HalfHeight = WeaponLength * 0.5f;
-    const FVector WeaponCenter = StartLocation + WeaponAxis * 0.5f;
+    bool bAnyHit = false;
+    FHitResult FirstHit;
 
-    // Calculate capsule rotation to align with weapon axis
-    const FQuat CapsuleRotation = FQuat::FindBetweenNormals(FVector::UpVector, WeaponAxis.GetSafeNormal());
+    // Substep interpolation: subdivide the frame into N intermediate sweeps
+    // This prevents thin targets from slipping between frames at low FPS
+    const int32 NumSteps = FMath::Max(1, SubstepCount);
 
-    // Perform capsule sweep from previous center to current center
-    // This sweeps the entire blade volume through space
-    const FVector PreviousWeaponAxis = PreviousTipLocation - PreviousStartLocation;
-    const FVector PreviousCenter = PreviousStartLocation + PreviousWeaponAxis * 0.5f;
-
-    TArray<FHitResult> HitResults;
-    const bool bHit = GetWorld()->SweepMultiByChannel(
-        HitResults,
-        PreviousCenter,
-        WeaponCenter,
-        CapsuleRotation,
-        TraceChannel,
-        FCollisionShape::MakeCapsule(EffectiveRadius, HalfHeight),
-        QueryParams
-    );
-
-    // Process all hits
-    if (bHit)
+    for (int32 Step = 0; Step < NumSteps; ++Step)
     {
-        for (const FHitResult& Hit : HitResults)
+        // Interpolation range for this substep
+        const float Alpha0 = static_cast<float>(Step) / static_cast<float>(NumSteps);
+        const float Alpha1 = static_cast<float>(Step + 1) / static_cast<float>(NumSteps);
+
+        // Interpolate weapon positions for this substep
+        const FVector StepPrevStart = FMath::Lerp(PreviousStartLocation, CurrentStartLocation, Alpha0);
+        const FVector StepPrevTip = FMath::Lerp(PreviousTipLocation, CurrentTipLocation, Alpha0);
+        const FVector StepCurrStart = FMath::Lerp(PreviousStartLocation, CurrentStartLocation, Alpha1);
+        const FVector StepCurrTip = FMath::Lerp(PreviousTipLocation, CurrentTipLocation, Alpha1);
+
+        // Calculate capsule for this substep's end position
+        const FVector WeaponAxis = StepCurrTip - StepCurrStart;
+        const float WeaponLength = WeaponAxis.Size();
+        const float HalfHeight = FMath::Max(WeaponLength * 0.5f, EffectiveRadius + 1.0f);
+        const FVector WeaponCenter = StepCurrStart + WeaponAxis * 0.5f;
+        const FQuat CapsuleRotation = FQuat::FindBetweenNormals(FVector::UpVector, WeaponAxis.GetSafeNormal());
+
+        // Sweep from previous substep center to current substep center
+        const FVector PrevWeaponAxis = StepPrevTip - StepPrevStart;
+        const FVector PrevCenter = StepPrevStart + PrevWeaponAxis * 0.5f;
+
+        TArray<FHitResult> HitResults;
+        const bool bHit = GetWorld()->SweepMultiByChannel(
+            HitResults,
+            PrevCenter,
+            WeaponCenter,
+            CapsuleRotation,
+            TraceChannel,
+            FCollisionShape::MakeCapsule(EffectiveRadius, HalfHeight),
+            QueryParams
+        );
+
+        if (bHit)
         {
-            if (Hit.GetActor() && Hit.GetActor() != OwnerCharacter)
+            if (!bAnyHit && HitResults.Num() > 0)
             {
-                ProcessHit(Hit);
+                FirstHit = HitResults[0];
+            }
+            bAnyHit = true;
+
+            for (const FHitResult& Hit : HitResults)
+            {
+                if (Hit.GetActor() && Hit.GetActor() != OwnerCharacter)
+                {
+                    ProcessHit(Hit);
+
+                    // Update ignored actors for subsequent substeps
+                    if (WasActorAlreadyHit(Hit.GetActor()))
+                    {
+                        QueryParams.AddIgnoredActor(Hit.GetActor());
+                    }
+                }
             }
         }
     }
 
-    // Debug visualization - pass full weapon geometry
+    // Debug visualization - pass full weapon geometry (final frame positions)
     UDebugUtils::DrawWeaponTrace(
         GetWorld(),
-        StartLocation,
-        EndLocation,
+        CurrentStartLocation,
+        CurrentTipLocation,
         PreviousStartLocation,
         PreviousTipLocation,
         EffectiveRadius,
-        bHit,
-        bHit && HitResults.Num() > 0 ? HitResults[0] : FHitResult());
+        bAnyHit,
+        bAnyHit ? FirstHit : FHitResult());
 
     // Store current positions for next frame
-    PreviousStartLocation = StartLocation;
-    PreviousTipLocation = EndLocation;
+    PreviousStartLocation = CurrentStartLocation;
+    PreviousTipLocation = CurrentTipLocation;
 }
 
 void UWeaponComponent::ProcessHit(const FHitResult& Hit)
@@ -446,16 +517,16 @@ void UWeaponComponent::InitializeFromWeaponData(UWeaponData* NewWeaponData, bool
 
 UAttackConfiguration* UWeaponComponent::GetEffectiveAttackConfiguration() const
 {
-    // Priority 1: WeaponData's attack configuration
+    // Priority 1: WeaponData's attack configuration (weapon override)
     if (WeaponData && WeaponData->AttackConfiguration)
     {
         return WeaponData->AttackConfiguration;
     }
 
-    // Priority 2: CombatSettings' attack configuration
+    // Priority 2: CombatSettings → DefaultWeaponData → AttackConfiguration (global default)
     if (UCombatSettings* Settings = GetOwnerCombatSettings())
     {
-        return Settings->AttackConfiguration;
+        return Settings->GetAttackConfiguration();
     }
 
     return nullptr;

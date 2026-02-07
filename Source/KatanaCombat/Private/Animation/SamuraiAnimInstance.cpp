@@ -120,9 +120,12 @@ void USamuraiAnimInstance::UpdateCombo()
 
 void USamuraiAnimInstance::UpdatePosture()
 {
-    // TODO: Connect to PostureComponent when implemented
+    // DEPRECATED: Posture system removed. Keep defaults for backwards compat.
     PosturePercent = 1.0f;
     bIsPostureLow = false;
+
+    // Update stagger state from HitReactionComponent
+    bIsStaggered = HitReactionComponent ? HitReactionComponent->IsStaggered() : false;
 }
 
 void USamuraiAnimInstance::UpdateCharge()

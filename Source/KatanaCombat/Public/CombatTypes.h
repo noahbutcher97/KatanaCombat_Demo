@@ -173,7 +173,8 @@ enum class EPairedReactionType : uint8
 UENUM(BlueprintType)
 enum class ESpecialReactionType : uint8
 {
-    GuardBroken     UMETA(DisplayName = "Guard Broken"),
+    GuardBroken     UMETA(DisplayName = "Guard Broken (Deprecated)"),
+    Staggered       UMETA(DisplayName = "Staggered"),
     Knockdown       UMETA(DisplayName = "Knockdown"),
     Launch          UMETA(DisplayName = "Launch"),
     Death           UMETA(DisplayName = "Death")
@@ -435,6 +436,26 @@ struct FHitReactionInfo
     UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction")
     FName BoneName = NAME_None;
 
+    // ========================================================================
+    // HIT-1: Extended hit metadata (for VFX, knockback, analytics)
+    // ========================================================================
+
+    /** Attacker's montage position at moment of hit (for synchronized reactions) */
+    UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
+    float AnimationTime = 0.0f;
+
+    /** Weapon velocity at moment of impact (for directional VFX, knockback scaling) */
+    UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
+    FVector WeaponVelocity = FVector::ZeroVector;
+
+    /** Attack phase when hit connected (Active, Recovery, etc.) */
+    UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
+    EAttackPhase PhaseWhenHit = EAttackPhase::None;
+
+    /** Distance from attacker to target at moment of hit */
+    UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
+    float DistanceToTarget = 0.0f;
+
     FHitReactionInfo()
         : Attacker(nullptr)
         , HitDirection(FVector::ForwardVector)
@@ -445,6 +466,10 @@ struct FHitReactionInfo
         , ImpactPoint(FVector::ZeroVector)
         , ImpactNormal(FVector::UpVector)
         , BoneName(NAME_None)
+        , AnimationTime(0.0f)
+        , WeaponVelocity(FVector::ZeroVector)
+        , PhaseWhenHit(EAttackPhase::None)
+        , DistanceToTarget(0.0f)
     {
     }
 };
@@ -594,10 +619,12 @@ struct FHitReactionEntry
     // TIMING
     // ========================================================================
 
-    /** Duration of hitstun (character cannot act) */
+    /** Duration of hitstun (character cannot act). Default 0 = no stun.
+     * Only configure stun for specific scenarios (guard break, heavy attacks, etc.)
+     * Non-zero stun makes target vulnerable to finishers via IsVulnerableToFinisher(). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing",
         meta = (ClampMin = "0.0", ClampMax = "5.0"))
-    float StunDuration = 0.3f;
+    float StunDuration = 0.0f;
 
     /** If true, cannot be hit during i-frame window */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing")
@@ -1325,6 +1352,18 @@ struct FAttackStateMachine
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
 	int32 AttackGeneration = 0;
 
+	/**
+	 * Number of combo transitions that haven't had their OnMontageEnded callback
+	 * processed yet. Incremented in OnComboTransition(), decremented when an
+	 * interrupted callback is rejected. Used by ShouldProcessMontageEnd() to know
+	 * that an interrupted callback is from a previous attack in the combo chain.
+	 *
+	 * For same-montage section transitions (Attack_1→2→3 in AM_Light_Combo_1),
+	 * the montage pointer is the same for old and new — this counter is the only
+	 * reliable way to detect staleness regardless of timing.
+	 */
+	int32 PendingComboTransitions = 0;
+
 	/** Time when combo blend will complete (world time seconds) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
 	float ComboBlendEndTime = 0.0f;
@@ -1352,6 +1391,7 @@ struct FAttackStateMachine
 		ActiveSectionName = SectionName;
 		PreviousMontage = nullptr;
 		AttackGeneration++;
+		PendingComboTransitions = 0; // Fresh attack — no pending transitions
 		ComboBlendEndTime = 0.0f;
 		SectionStartTime = CurrentWorldTime;
 	}
@@ -1371,6 +1411,7 @@ struct FAttackStateMachine
 		ActiveMontage = NewMontage;
 		ActiveSectionName = NewSectionName;
 		AttackGeneration++;
+		PendingComboTransitions++; // Old montage will fire OnMontageEnded later — expect it
 		LifecycleState = EAttackLifecycleState::ComboBlending;
 		ComboBlendEndTime = CurrentWorldTime + BlendDuration;
 		SectionStartTime = CurrentWorldTime;
@@ -1407,11 +1448,20 @@ struct FAttackStateMachine
 	// ========================================================================
 
 	/**
-	 * CRITICAL: Determines if a montage end callback should be processed
+	 * CRITICAL: Determines if a montage end callback should be processed.
+	 *
+	 * This is the SINGLE AUTHORITY for rejecting stale async callbacks.
+	 * No boolean guards or ad-hoc checks elsewhere in OnMontageEnded —
+	 * if this returns false, the callback is completely ignored.
 	 *
 	 * RULES (in priority order):
-	 * 1. Grace period: During first 150ms after section start, IGNORE interrupted callbacks
-	 *    This handles same-montage section transitions (Attack_1 → Attack_2 in AM_Light_Combo_1)
+	 * 0. Pending transition counter: Each OnComboTransition() increments
+	 *    PendingComboTransitions. Each rejected stale callback decrements it.
+	 *    If > 0 on an interrupted callback, an old montage's async blend-out
+	 *    callback just arrived — consume it and reject. This handles ALL cases:
+	 *    same-montage sections, cross-montage combos, any blend timing.
+	 * 1. Grace period: During first 150ms after section start, IGNORE interrupted
+	 *    callbacks (same-montage section transitions within AM_Light_Combo_1, etc.)
 	 * 2. Different montage: If not our active montage pointer, ignore
 	 * 3. Combo blend time window: Additional protection during blend
 	 *
@@ -1420,10 +1470,23 @@ struct FAttackStateMachine
 	 * @param CurrentWorldTime Current world time for timeout check
 	 * @return true if this callback should be processed, false to ignore
 	 */
-	bool ShouldProcessMontageEnd(UAnimMontage* EndedMontage, bool bInterrupted, float CurrentWorldTime) const
+	bool ShouldProcessMontageEnd(UAnimMontage* EndedMontage, bool bInterrupted, float CurrentWorldTime)
 	{
+		// RULE 0: Pending combo transition check (INPUT-1 systemic fix)
+		// Each combo transition (OnComboTransition) increments a counter.
+		// When an interrupted callback arrives, if we have pending transitions,
+		// this callback is from an old montage that was intentionally stopped.
+		// Consume one pending transition and reject the callback.
+		// This works for BOTH same-montage section transitions AND cross-montage
+		// combos, regardless of async timing — no heuristics needed.
+		if (bInterrupted && PendingComboTransitions > 0)
+		{
+			PendingComboTransitions--;
+			return false;  // Consumed stale combo-transition callback
+		}
+
 		// RULE 1: Grace period protection after section/attack change
-		// This is the CRITICAL fix for same-montage section transitions (all light attacks share AM_Light_Combo_1)
+		// Handles same-montage section transitions (all light attacks share AM_Light_Combo_1)
 		// Old section's callback arrives after new section starts - grace period catches this
 		if (bInterrupted && CurrentWorldTime < SectionStartTime + SectionTransitionGracePeriod)
 		{
@@ -1474,6 +1537,7 @@ struct FAttackStateMachine
 		ActiveMontage = nullptr;
 		ActiveSectionName = NAME_None;
 		PreviousMontage = nullptr;
+		PendingComboTransitions = 0;
 		ComboBlendEndTime = 0.0f;
 		SectionStartTime = 0.0f;
 	}
@@ -1515,15 +1579,18 @@ struct FAttackStateMachine
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCombatStateChanged, ECombatState, NewState);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAttackHit, AActor*, HitActor, const FHitReactionInfo&, HitInfo);
+// DEPRECATED: Posture system removed - use health-based contextual stagger instead
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPostureChanged, float, NewPosture);
- 
+
 // Combat System Event Delegates
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnAttackStarted, UAttackData*, AttackData, EInputType, InputType, bool, bIsCombo);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnPhaseChanged, EAttackPhase, OldPhase, EAttackPhase, NewPhase);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnComboWindowChanged, bool, bActive, float, Duration);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHoldActivated, EInputType, InputType, float, HoldDuration);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnMontageEvent, UAnimMontage*, Montage, bool, bInterrupted, FName, EventName);
+// DEPRECATED: Guard break removed - use FOnStaggered instead
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnGuardBroken);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStaggered, AActor*, StaggeredActor, float, Duration);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectParry, AActor*, ParriedActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectEvade, AActor*, EvadedActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFinisherAvailable, AActor*, Target);

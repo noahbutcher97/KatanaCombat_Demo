@@ -34,12 +34,12 @@ public:
     float ApplyDamage(const FHitReactionInfo& HitInfo);
 
     /**
-     * Apply posture damage when this actor blocks an attack
+     * DEPRECATED: Posture system removed. Use contextual stagger via HitReactionComponent::ApplyStagger() instead.
      * @param PostureDamage - Amount of posture to remove
      * @param Attacker - Who is attacking
-     * @return True if guard was broken (posture reached 0)
+     * @return Always returns false (posture system removed)
      */
-    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
+    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat", meta = (DeprecatedFunction, DeprecationMessage = "Posture system removed. Use HitReactionComponent::ApplyStagger() instead."))
     bool ApplyPostureDamage(float PostureDamage, AActor* Attacker);
 
     /**
@@ -57,11 +57,20 @@ public:
     bool IsBlocking() const;
 
     /**
-     * Check if this actor is in a guard broken state
-     * @return True if posture depleted
+     * DEPRECATED: Posture-based guard break removed. Use IsStaggered() instead.
+     * @return True if staggered (forwards to IsStaggered)
+     */
+    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat", meta = (DeprecatedFunction, DeprecationMessage = "Posture system removed. Use IsStaggered() instead."))
+    bool IsGuardBroken() const;
+
+    /**
+     * Check if this actor is in a staggered state.
+     * Stagger is a contextual vulnerability triggered by heavy hits, counters, or special moves.
+     * Unlike the old posture system, stagger is event-driven (not a persistent bar).
+     * @return True if currently staggered
      */
     UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
-    bool IsGuardBroken() const;
+    bool IsStaggered() const;
 
     /**
      * Execute a finisher on this actor (must be guard broken or stunned)
@@ -87,17 +96,17 @@ public:
     void OpenCounterWindow(float Duration);
 
     /**
-     * Get current posture value (0-100, 0 = guard broken)
-     * @return Current posture
+     * DEPRECATED: Posture system removed. Returns 0.
+     * @return Always 0 (posture system removed)
      */
-    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
+    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat", meta = (DeprecatedFunction, DeprecationMessage = "Posture system removed."))
     float GetCurrentPosture() const;
 
     /**
-     * Get maximum posture value
-     * @return Max posture
+     * DEPRECATED: Posture system removed. Returns 100.
+     * @return Always 100 (posture system removed)
      */
-    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
+    UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat", meta = (DeprecatedFunction, DeprecationMessage = "Posture system removed."))
     float GetMaxPosture() const;
 
     /**

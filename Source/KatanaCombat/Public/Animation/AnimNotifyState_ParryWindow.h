@@ -52,6 +52,10 @@ public:
 
 	virtual FString GetNotifyName_Implementation() const override;
 
+	// Wire parry window state to CombatComponent
+	virtual void NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference) override;
+	virtual void NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
+
 #if WITH_EDITOR
 	virtual bool CanBePlaced(UAnimSequenceBase* Animation) const override { return true; }
 #endif

@@ -275,11 +275,47 @@ public:
     bool IsFinisherTarget() const { return bIsFinisherTarget; }
 
     /**
-     * Check if this character's guard/posture is broken.
-     * Guard break makes enemy vulnerable to finishers.
+     * DEPRECATED: Use IsStaggered() instead. Forwards to IsStaggered().
      */
-    UFUNCTION(BlueprintPure, Category = "Hit Reaction|Finisher")
+    UFUNCTION(BlueprintPure, Category = "Hit Reaction|Finisher", meta = (DeprecatedFunction, DeprecationMessage = "Use IsStaggered() instead."))
     bool IsGuardBroken() const;
+
+    // ============================================================================
+    // STAGGER SYSTEM (Replaces posture-based guard break)
+    // ============================================================================
+
+    /**
+     * Check if this character is currently staggered.
+     * Stagger is a timed vulnerability state triggered by:
+     * - Heavy attacks with high StaggerPower
+     * - Counter attacks
+     * - Special moves
+     * Unlike the old posture system, stagger is event-driven (not a persistent bar).
+     *
+     * @return True if currently staggered
+     */
+    UFUNCTION(BlueprintPure, Category = "Hit Reaction|Stagger")
+    bool IsStaggered() const { return bIsStaggered; }
+
+    /**
+     * Apply a contextual stagger to this character.
+     * Opens a finisher vulnerability window for the specified duration.
+     * Plays a stagger reaction animation.
+     *
+     * @param Duration - How long the stagger lasts (seconds). 0 = use default (1.5s)
+     */
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Stagger")
+    void ApplyStagger(float Duration = 0.0f);
+
+    /**
+     * End current stagger state immediately.
+     */
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Stagger")
+    void EndStagger();
+
+    /** Broadcast when this character becomes staggered */
+    UPROPERTY(BlueprintAssignable, Category = "Hit Reaction|Events")
+    FOnStaggered OnStaggered;
 
     // ============================================================================
     // PAIRED ANIMATION VICTIM STATE (Lifecycle API)
@@ -436,6 +472,17 @@ private:
     /** Remaining stun time (seconds) */
     UPROPERTY(VisibleAnywhere, Category = "Hit Reaction")
     float StunTimeRemaining = 0.0f;
+
+    /** Currently staggered? (contextual vulnerability from heavy hits/counters) */
+    UPROPERTY(VisibleAnywhere, Category = "Hit Reaction|Stagger")
+    bool bIsStaggered = false;
+
+    /** Remaining stagger time (seconds) */
+    UPROPERTY(VisibleAnywhere, Category = "Hit Reaction|Stagger")
+    float StaggerTimeRemaining = 0.0f;
+
+    /** Default stagger duration when none specified */
+    static constexpr float DefaultStaggerDuration = 1.5f;
 
     // ============================================================================
     // CACHED REFERENCES
