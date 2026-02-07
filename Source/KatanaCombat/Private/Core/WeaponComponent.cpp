@@ -283,7 +283,12 @@ void UWeaponComponent::PerformWeaponTrace()
         const FVector PrevCenter = StepPrevStart + PrevWeaponAxis * 0.5f;
 
         TArray<FHitResult> HitResults;
-        const bool bHit = GetWorld()->SweepMultiByChannel(
+        UWorld* TraceWorld = GetWorld();
+        if (!TraceWorld)
+        {
+            break;
+        }
+        const bool bHit = TraceWorld->SweepMultiByChannel(
             HitResults,
             PrevCenter,
             WeaponCenter,

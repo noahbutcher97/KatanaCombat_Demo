@@ -999,6 +999,9 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 			// If successful, discover checkpoints for the new montage
 			if (bSuccess && Action.AttackData->AttackMontage)
 			{
+				// Capture phase BEFORE SetPhase overwrites it (for combo detection below)
+				const EAttackPhase PhaseBeforeWindup = CurrentPhase;
+
 				// Transition to Windup phase (event-driven phase management)
 				SetPhase(EAttackPhase::Windup);
 
@@ -1010,8 +1013,8 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 				// MOTION WARP: Setup warp based on context (target or direction)
 				SetupAttackWarp(Action.AttackData);
 
-				// Broadcast attack started event
-				bool bIsCombo = (CurrentPhase == EAttackPhase::Recovery || CurrentPhase == EAttackPhase::Active);
+				// Broadcast attack started event (use pre-Windup phase for accurate combo detection)
+				bool bIsCombo = (PhaseBeforeWindup == EAttackPhase::Recovery || PhaseBeforeWindup == EAttackPhase::Active);
 				OnAttackStarted.Broadcast(Action.AttackData, Action.InputAction.InputType, bIsCombo);
 
 				if (GetDebugDraw())
@@ -2071,12 +2074,14 @@ bool UCombatComponent::TryCounter_AC3Mode(const FCounterContext& Context)
 	// If counter data is specified on the notify, use that animation
 	if (Context.SpecificCounterData)
 	{
-		// Use the specific counter paired animation
 		UE_LOG(LogCombat, Log, TEXT("[COUNTER-AC3] Using specific counter animation: %s"),
 			*Context.SpecificCounterData->GetName());
 
-		// Execute as finisher — this handles warp setup, montage play, damage
-		return TryExecuteFinisher(nullptr); // Will use CurrentAttackData or default
+		// TODO: Wire SpecificCounterData (UPairedAnimationData*) into the finisher path.
+		// Currently TryExecuteFinisher takes UAttackData* and reads its FinisherData field.
+		// Need a TryExecuteFinisher overload that accepts UPairedAnimationData* directly,
+		// or attach SpecificCounterData to a transient UAttackData wrapper.
+		// For now, fall through to direct damage path below.
 	}
 
 	// 3. No specific counter data — stagger enemy and apply lethal damage directly
@@ -2088,21 +2093,32 @@ bool UCombatComponent::TryCounter_AC3Mode(const FCounterContext& Context)
 			EnemyHitReact->ApplyStagger(2.0f);
 		}
 
-		// Apply lethal damage
+		// Apply lethal damage — direction is FROM attacker TO victim (hit travels toward enemy)
 		FHitReactionInfo HitInfo;
 		HitInfo.Attacker = Owner;
-		HitInfo.HitDirection = (Owner->GetActorLocation() - Context.Attacker->GetActorLocation()).GetSafeNormal();
-		HitInfo.Damage = 9999.0f; // Lethal
+		HitInfo.HitDirection = (Context.Attacker->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
+		HitInfo.Damage = IDamageableInterface::Execute_GetCurrentHealth(Context.Attacker.Get()) + 1.0f;
 		HitInfo.bWasCounter = true;
 		HitInfo.PhaseWhenHit = EAttackPhase::Active;
 		HitInfo.ImpactPoint = Context.Attacker->GetActorLocation();
 
 		IDamageableInterface::Execute_ApplyDamage(Context.Attacker.Get(), HitInfo);
 
+		// Restore time dilation after direct counter-kill (no paired animation to manage it)
+		if (World)
+		{
+			UCinematicEffectsUtilityLibrary::RestoreTimeDilation(World);
+		}
+
 		UE_LOG(LogCombat, Log, TEXT("[COUNTER-AC3] Counter-kill applied to %s"), *Context.Attacker->GetName());
 		return true;
 	}
 
+	// Failed to find valid target — restore time dilation
+	if (World)
+	{
+		UCinematicEffectsUtilityLibrary::RestoreTimeDilation(World);
+	}
 	return false;
 }
 
@@ -2119,6 +2135,9 @@ bool UCombatComponent::TryCounter_ChainMode(const FCounterContext& Context)
 	// We deflect their attack and open a counter window on ourselves
 
 	// Transition to ParryActive state
+	// TODO: When parry animations are available, play parry montage here and wait for
+	// montage completion before transitioning to CounterWindow. Currently transitions
+	// immediately since no parry animation exists yet.
 	ChainState = EChainCounterState::ParryActive;
 
 	// Notify the enemy that their attack was parried

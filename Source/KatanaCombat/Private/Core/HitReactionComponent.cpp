@@ -439,7 +439,10 @@ void UHitReactionComponent::EndStun()
 {
     bIsStunned = false;
     StunTimeRemaining = 0.0f;
-    SetComponentTickEnabled(false);
+    // Note: Do NOT call SetComponentTickEnabled(false) here.
+    // TickComponent (line 87) handles tick disable when ALL conditions are cleared
+    // (bIsStunned, bIsStaggered, bCurrentReactionHasIFrames). Disabling here
+    // would freeze stagger/i-frame countdown if they were active concurrently.
 
     OnStunEnd.Broadcast();
 }
