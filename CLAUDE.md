@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**KatanaCombat** is a Ghost of Tsushima-inspired melee combat system for Unreal Engine 5.6 (C++). The system features:
+**KatanaCombat** is a cinematic free-flow melee combat system (AC3/4 + Batman Arkham) for Unreal Engine 5.6 (C++). The system features:
 - 4-component architecture (Combat, Targeting, Weapon, HitReaction)
-- Hybrid combo system (responsive input buffering + snappy animation cancels)
-- Posture-based defense with guard breaks and perfect parries
+- Hybrid combo system (responsive input buffering + snappy animation cancels + procedural blending)
+- Contextual stagger defense with counter system (AC3 mode + Chain mode)
 - Data-driven attack configuration via AttackData assets
+- Per-hit impact effects (hitstop, audio, VFX) with pooled FX data assets
 - Death system with directional animations and ragdoll transitions
-- Comprehensive test suite (14 suites, 126 tests)
+- Comprehensive test suite (368 tests, all passing)
 
 ## Build & Development
 
@@ -471,15 +472,21 @@ Track ongoing work across sessions. This section provides detailed status of all
 | Blood Decals | PairedAnimationData.h | `bSpawnBloodDecals` | No decal spawning |
 | Selective Hitstop | CinematicEffectsUtilityLibrary.h | `FreezeActors()`, `RestoreActors()` functions | Not called in finisher flow - uses world slow-mo instead |
 
+#### Scaffolded (Code Complete, Needs Animations)
+| Component | Files | Status |
+|-----------|-------|--------|
+| Counter AC3 Mode | CombatComponent.cpp | `TryCounter_AC3Mode()` — instant counter-kill via slow-mo + lethal damage |
+| Counter Chain Mode | CombatComponent.cpp | `TryCounter_ChainMode()` — Parry→Counter→Finisher state machine |
+| Chain State Machine | CombatComponent.h | `EChainCounterState`: None→ParryActive→CounterWindow→CounterActive→FinisherReady |
+| Parry Window | CombatComponent.h | `bParryWindowActive` + `AnimNotifyState_ParryWindow` wired |
+| Contextual Stagger | HitReactionComponent.h | `ApplyStagger()`, `IsStaggered()`, `EndStagger()` — replaces posture |
+| Procedural Blending | CombatComponent.cpp | 6 easing strategies wired in `PlayAttackMontage()` |
+
 #### Planned (Not Yet Started)
 | Component | Priority | Blocker |
 |-----------|----------|---------|
-| Parry System | P1 | Core combat flow - needs design |
-| Counter System | P1 | Depends on parry system |
-| Parry → Counter → Finisher Flow | P1 | Full cinematic combat loop |
-| Montage Section Support (Gap 3.3) | P1 | Need `AttackerMontageSection`, `VictimMontageSection` fields |
-| Counter-Specific Fields | P2 | Awaiting parry→counter system design |
-| Parry-Specific Fields | P2 | Awaiting parry→counter system design |
+| Counter Animations | P1 | Parry, counter attack, chain finisher montages needed |
+| SpecificCounterData Wiring | P2 | Architecture gap: TryExecuteFinisher needs UPairedAnimationData overload |
 | AI Attack Token System | P2 | Phase 5b-5 - `UCombatTokenSubsystem` |
 
 #### Editor/Runtime Unification Gap (Needs Further Inquiry)
@@ -525,9 +532,11 @@ Player Input → CombatComponent::TryExecuteFinisher()
 |-----------|--------|-------|
 | 4-Component Architecture | ✅ Stable | Combat, Targeting, Weapon, HitReaction |
 | Input Buffering | ✅ Stable | Last-input-wins queue, input always captured |
-| Combo System | ✅ Stable | ComboWindow-based chaining |
-| Posture/Guard | ✅ Stable | Guard break mechanics NOT yet implemented |
-| Hit Detection | ✅ Stable | Socket-based weapon traces |
+| Combo System | ✅ Stable | ComboWindow chaining + PendingComboTransitions counter (INPUT-1 fixed) |
+| Stagger/Counter | ✅ Scaffolded | Posture deprecated → contextual stagger. AC3 + Chain counter modes. |
+| Hit Detection | ✅ Stable | Socket-based weapon traces, substep sweeps |
+| Impact Effects | ✅ Stable | Per-hit hitstop, audio, VFX with pooled FX data assets |
+| Procedural Blending | ✅ Stable | 6 easing strategies, wired in PlayAttackMontage |
 | Death System | ✅ Stable | Directional deaths, ragdoll transitions |
 | Terrain Warping | ✅ Stable | Ground sampling, Z-adjustment |
 
@@ -550,7 +559,7 @@ Player Input → CombatComponent::TryExecuteFinisher()
 
 ## Test Suite
 
-**Coverage**: 14 test suites, 207 tests (all passing)
+**Coverage**: 368 tests (all passing)
 
 **Run Tests**:
 - Editor: `Window → Developer Tools → Session Frontend → Automation tab → Filter: "KatanaCombat"`

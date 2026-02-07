@@ -8,22 +8,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### In Progress
-- **Phase 5: Paired Animation System** - Synced finisher/counter animations
-  - Phase 5a: Finishers (establish paired warp framework) ✅ COMPLETE
-  - Phase 5b-1: Collision & Warp Infrastructure ✅ COMPLETE
-  - Phase 5b-2: Delegate Wiring & Effects ✅ COMPLETE
-  - Phase 5b-3: State & Safety ✅ COMPLETE
-  - Phase 5b-4: Validation & Polish ✅ COMPLETE
-  - Phase 5b-5: AI Coordination (PENDING)
-  - Phase 5c: Math & Utility Libraries ✅ COMPLETE (83 functions)
-  - Phase 5d: Preview Tool Enhancements ✅ COMPLETE (6,000+ lines)
-
 ### Planned
-- Phase 6: Parry/Counter System (Core combat flow)
-- Phase 7: Flow State System
-- Phase 8+: Polish (AI tokens, UI/UX, IK)
-- Future: Predictive terrain analysis, foot IK integration
+- Counter system animations (parry, counter attack, chain finisher montages)
+- AI Attack Token System (Phase 5b-5)
+- Flow State System
+- Polish (UI/UX, IK, environmental finishers)
+
+---
+
+## [4.0.0] - 2026-02-07
+
+### Combat System Pivot: Cinematic Free-Flow
+
+Major combat system redesign pivoting from Sekiro-style technique-driven combat to cinematic free-flow (AC3/4 + Batman Arkham Knight). Includes critical bug fixes, posture system deprecation, and counter system scaffolding.
+
+**INPUT-1: Combo Race Condition Fix (P0)** `9534131`:
+- Systemic fix using `PendingComboTransitions` counter in `FAttackStateMachine`
+- Set `CurrentAttackData` BEFORE `PlayAttackMontage()` with revert-on-failure pattern
+- `ShouldProcessMontageEnd()` Rule 0 rejects stale async callbacks when pending > 0
+- Eliminates combo flip-flop (1→2→partial 3→back to 1) during rapid input spam
+- 10 new tests in `ComboRaceConditionTests.cpp`
+
+**Posture System Deprecation**:
+- Deprecated posture methods (`ApplyPostureDamage`, `GetCurrentPosture`, `GetMaxPosture`) with `UE_DEPRECATED`
+- Replaced with contextual stagger system: `ApplyStagger(Duration)`, `IsStaggered()`, `EndStagger()`
+- `IsGuardBroken()` forwards to `IsStaggered()` for backwards compatibility
+- `StaggerPower` field replaces `PostureDamage` on AttackData
+- Deprecated `PosturePercent`/`bIsPostureLow` on SamuraiAnimInstance
+
+**Counter System (AC3 + Chain Modes)** `9534131`:
+- `TryCounter_AC3Mode()`: Instant counter-kill via slow-mo + lethal damage
+- `TryCounter_ChainMode()`: Three-step chain (Parry→Counter→Finisher) with state machine
+- `EChainCounterState` enum: None→ParryActive→CounterWindow→CounterActive→FinisherReady
+- Chain timeout/cancel with timer-based cleanup + `RestoreTimeDilation()`
+- `bParryWindowActive` + `AnimNotifyState_ParryWindow` wired to CombatComponent
+
+**Hit Detection Improvements** `9534131`:
+- `FHitReactionInfo` expanded: `AnimationTime`, `WeaponVelocity`, `PhaseWhenHit`, `DistanceToTarget`
+- `bWasCounter` populated from `bCounterWindowActive`
+- Socket-not-found now logs error instead of silent fallback
+- Substep trace `GetWorld()` null check added
+
+**Finisher Fixes** `30dbff7`:
+- `IsVulnerableToFinisher()` checks `IsDeadOrDying()` — prevents re-execution on dead enemies
+- Always-on diagnostic logging for finisher execution (health, stun/stagger state, trigger reason)
+
+**Procedural Blend System** `f12628a`:
+- Six easing strategies: Linear, EaseInQuad, EaseOutQuad, EaseInOutCubic, EaseOutExpo, EaseOutBack
+- `FProceduralBlendConfig` on CombatComponent (EditAnywhere)
+- Wired in `PlayAttackMontage()` — replaces static `ComboBlendInTime/ComboBlendOutTime`
+
+**Audit Findings Fixed** `2480e68`:
+- EndStun tick-disable: removed unconditional `SetComponentTickEnabled(false)` that froze stagger
+- AC3 slow-mo leak: `RestoreTimeDilation()` on all failure paths
+- Reversed HitDirection in counter system
+- Magic number 9999.0f → `GetCurrentHealth()+1` for lethal damage
+- Stale `bIsCombo`: capture phase before `SetPhase(Windup)` overwrites it
+- `GetWorld()` null check in WeaponComponent substep loop
+- SpecificCounterData dead code documented with TODO
+
+### Changed
+- Test suite: 207 → 368 tests (all passing)
+- Camera collision: "Enemy" profile ignores ECC_Camera (`5dc5dc3`)
+- Attack state machine: grace period + `PendingComboTransitions` counter (`f6b4318`, `9534131`)
 
 ---
 

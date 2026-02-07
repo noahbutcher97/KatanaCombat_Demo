@@ -2,7 +2,7 @@
 
 > **Extracted From**: gap-mitigation-plan.md (2026-02-03)
 > **Purpose**: Reference document tracking all identified gaps and their status
-> **Last Updated**: 2026-02-07 (stale status fixes, duplicate consolidation, added Cat 26 Core Combat Flow)
+> **Last Updated**: 2026-02-07 (Phase 6 refresh: INPUT-1 fixed, posture deprecated, counter system scaffolded, audit findings fixed)
 > **Audit Reference**: `docs/audits/COMPREHENSIVE_AUDIT_2026-02-03.md`
 
 ---
@@ -34,12 +34,12 @@
 | 21. Death Animation | 1 | 1 | 0 | 0 |
 | PT. Preview Tool | 9 | 9 | 0 | 0 |
 | Phase 5c Math | 5 | 5 | 0 | 0 |
-| 22. Audit Findings | 14 | 3 | 9 | 2 (deferred/closed) |
+| 22. Audit Findings | 14 | 5 | 7 | 2 (deferred/closed) |
 | 23. Camera & Collision | 4 | 2 | 2 | 0 |
 | 24. Hit Detection | 7 | 0 | 7 | 0 |
-| 25. Input Resolution | 8 | 0 | 8 | 0 |
-| 26. Core Combat Flow | 9 | 0 | 9 | 0 |
-| **TOTAL** | **177** | **57** | **~103** | **16 + 7 consolidated** |
+| 25. Input Resolution | 8 | 5 | 3 | 0 |
+| 26. Core Combat Flow | 9 | 1 | 3 | 5 (partial) |
+| **TOTAL** | **177** | **70** | **~87** | **~20** |
 
 **Notes**:
 - Gap 1.2 (invulnerability during paired) partially addressed by `bReactionsSuppressed` in lifecycle API
@@ -288,12 +288,12 @@
 
 | ID | Description | Priority | Status |
 |----|-------------|----------|--------|
-| 22.1 | GetWorld() null in GetHoldDuration() const query | P0 | Pending |
+| 22.1 | GetWorld() null in GetHoldDuration() const query | P0 | Done (null check already exists at line 3163) |
 | 22.2 | ICombatInterface stubs return wrong data (always Idle/false) | ~~P0~~ | **DEFERRED** — Wire when AI work begins. Parry window approach TBD (AnimNotifyState vs implicit phase vs Windup==ParryWindow). |
 | 22.3 | const_cast UB in GetAttackForInput() -- make non-const | P1 | **Reclassified** — Not UB, just unnecessary const_cast leftovers (function already non-const). Fixed in a57eedd. |
 | 22.4 | Static variable cross-instance contamination in DrawDebugInfo | P2 | Pending |
 | 22.5 | ~~ActionQueue reverse iteration = LIFO not FIFO~~ | ~~P1~~ | **FALSE POSITIVE** — LIFO is intentional "last-input-wins" design for action games |
-| 22.6 | HitDirection reversed in finisher vs normal hit | P2 | **INVESTIGATE** — Appears correct in-game. May be attacker-relative vs victim-relative naming. Verify before changing. |
+| 22.6 | HitDirection reversed in finisher vs normal hit | P2 | Done (2480e68 — fixed counter damage direction to Owner→Enemy) |
 | 22.7 | Unnecessary tick enabled on BaseCombatCharacter | P3 | Pending — Add empty Tick() override as safeguard or disable after verifying Blueprint subclass dependency |
 | 22.8 | Fragile reflection-based CombatSettings access in WeaponComponent | P2 | **INVESTIGATE** — May be intentional for editor dropdown support. Also: paired finisher asset needs montage section dropdown UI. |
 | 22.9 | const_cast in TargetingComponent filter methods | P3 | Pending |
@@ -402,13 +402,13 @@
 
 | ID | Description | Priority | Status |
 |----|-------------|----------|--------|
-| 25.1 | CurrentAttackData set AFTER PlayAttackMontage returns (race condition) | P0 | Pending |
-| 25.2 | StopAllMontages(0.0f) triggers immediate OnMontageEnded callback | P0 | Pending |
-| 25.3 | SetPhase(None) clears CurrentAttackData while ComboWindow still active | P0 | Pending |
-| 25.4 | BUG-3 FIX (line 3387) forces bShouldCombo=false when CurrentAttackData=nullptr | P0 | Pending |
+| 25.1 | CurrentAttackData set AFTER PlayAttackMontage returns (race condition) | P0 | Done (9534131 — set state BEFORE PlayAttackMontage, revert on failure) |
+| 25.2 | StopAllMontages(0.0f) triggers immediate OnMontageEnded callback | P0 | Done (9534131 — PendingComboTransitions counter rejects stale callbacks) |
+| 25.3 | SetPhase(None) clears CurrentAttackData while ComboWindow still active | P0 | Done (9534131 — FAttackStateMachine.ShouldProcessMontageEnd Rule 0) |
+| 25.4 | BUG-3 FIX (line 3387) forces bShouldCombo=false when CurrentAttackData=nullptr | P0 | Done (9534131 — CurrentAttackData no longer null during combo) |
 | 25.5 | Attacks can blend out of Active phase (should only blend in Recovery) | P1 | Pending |
 | 25.6 | No guard ensuring each attack reaches Recovery before next blend | P1 | Pending |
-| 25.7 | Same input sequence can produce different animation results | P2 | Pending |
+| 25.7 | Same input sequence can produce different animation results | P2 | Done (9534131 — combo progression now deterministic) |
 | 25.8 | 100+ rapid input stress test not validated | P2 | Pending |
 
 **Root Cause (Race Condition)**:
@@ -463,15 +463,15 @@ if (PlayAttackMontage(Action.AttackData)) {
 
 | ID | Description | Priority | Status |
 |----|-------------|----------|--------|
-| 26.1 | Parry system implementation (defender checks attacker's ParryWindow) | P1 | Pending |
-| 26.2 | Counter system flow (counter window → counter attack execution) | P1 | Pending — Foundation committed (f6b4318: ECounterSystemMode, ESwingDirection, FCounterContext, AnimNotifyState_CounterWindow) |
-| 26.3 | Parry → Counter → Finisher chain (full cinematic combat loop) | P1 | Pending — Requires 26.1 + 26.2 |
-| 26.4 | Guard break mechanics (posture depletion → guard broken state) | P1 | Pending — Posture system stable, guard break trigger missing |
-| 26.5 | Counter-specific fields on PairedAnimationData | P2 | Pending — Awaiting 26.2 design |
-| 26.6 | Parry-specific fields on PairedAnimationData | P2 | Pending — Awaiting 26.1 design |
+| 26.1 | Parry system implementation (defender checks attacker's ParryWindow) | P1 | Partial — bParryWindowActive scaffolded, AnimNotifyState_ParryWindow wired, ChainMode uses parry step. Needs animations. |
+| 26.2 | Counter system flow (counter window → counter attack execution) | P1 | Partial — AC3 mode (instant counter-kill) + Chain mode (parry→counter→finisher) implemented in 9534131. Needs animations + SpecificCounterData wiring. |
+| 26.3 | Parry → Counter → Finisher chain (full cinematic combat loop) | P1 | Partial — Chain state machine complete (ParryActive→CounterWindow→CounterActive→FinisherReady). Needs animations for each step. |
+| 26.4 | Guard break mechanics (posture depletion → guard broken state) | P1 | Replaced — Posture deprecated (9534131). Contextual stagger via ApplyStagger() replaces guard break. |
+| 26.5 | Counter-specific fields on PairedAnimationData | P2 | Pending — TODO in TryCounter_AC3Mode documents architecture gap for SpecificCounterData wiring |
+| 26.6 | Parry-specific fields on PairedAnimationData | P2 | Pending — Awaiting 26.1 animation integration |
 | 26.7 | FOnAttackHit delegate downstream consumers | P2 | Pending — Upgraded to (AActor*, FHitReactionInfo&) in 879d1c2, no consumers wired |
 | 26.8 | Procedural blend edge cases (blend during death, paired animation, guard break) | P2 | Pending — 64 tests pass but edge cases untested |
-| 26.9 | Attack state machine recovery (stale section data after interrupts beyond grace period) | P2 | Pending — Grace period fix in f6b4318 covers main case |
+| 26.9 | Attack state machine recovery (stale section data after interrupts beyond grace period) | P2 | Done — PendingComboTransitions counter in 9534131 provides systemic recovery |
 
 **Dependencies**:
 - 26.1 (Parry) → enables 26.2 (Counter) → enables 26.3 (Full Chain)
@@ -482,16 +482,16 @@ if (PlayAttackMontage(Action.AttackData)) {
 
 ## Updated Priority Buckets (Refreshed 2026-02-07)
 
-### P0 CRITICAL - Fix Immediately
+### ~~P0 CRITICAL~~ - ALL DONE
 
-**INPUT-1 (Combo Flip-Flop)** — root cause identified, fix designed:
-- 25.1: CurrentAttackData race condition
-- 25.2: StopAllMontages callback timing
-- 25.3: SetPhase(None) clears data while window active
-- 25.4: BUG-3 FIX forcing bShouldCombo=false
+~~**INPUT-1 (Combo Flip-Flop)**~~ — Fixed in 9534131:
+- ~~25.1~~: Done — CurrentAttackData set BEFORE PlayAttackMontage
+- ~~25.2~~: Done — PendingComboTransitions rejects stale callbacks
+- ~~25.3~~: Done — ShouldProcessMontageEnd Rule 0
+- ~~25.4~~: Done — CurrentAttackData no longer null during combo
 
-**Audit Bugs**:
-- 22.1: GetWorld() null crash in GetHoldDuration (trivial fix)
+~~**Audit Bugs**~~:
+- ~~22.1~~: Done — null check already exists at line 3163
 
 ### P1 HIGH - Next After P0
 
