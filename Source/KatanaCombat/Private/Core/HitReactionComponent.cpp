@@ -1086,6 +1086,13 @@ bool UHitReactionComponent::IsVulnerableToFinisher() const
         return false;
     }
 
+    // Dead or dying characters cannot be finisher targets
+    ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(GetOwner());
+    if (CombatChar && CombatChar->IsDeadOrDying())
+    {
+        return false;
+    }
+
     // Check all trigger conditions
     return GetFinisherTriggerReason() != EFinisherTriggerReason::None;
 }

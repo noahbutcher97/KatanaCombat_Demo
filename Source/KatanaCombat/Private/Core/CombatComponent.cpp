@@ -1182,6 +1182,19 @@ bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
 	// Get finisher trigger reason for logging/context
 	EFinisherTriggerReason TriggerReason = TargetHitReaction->GetFinisherTriggerReason();
 
+	// Always log finisher execution for diagnostics (this is a major combat event)
+	{
+		ABaseCombatCharacter* TargetCombatChar = Cast<ABaseCombatCharacter>(TargetActor);
+		UE_LOG(LogCombat, Warning, TEXT("[FINISHER] EXECUTING on %s — Reason: %s, Health: %.1f/%.1f, Stunned: %s, Staggered: %s, IsDying: %s"),
+			*TargetActor->GetName(),
+			*UEnum::GetValueAsString(TriggerReason),
+			TargetCombatChar ? TargetCombatChar->CurrentHealth : -1.0f,
+			TargetCombatChar ? TargetCombatChar->MaxHealth : -1.0f,
+			TargetHitReaction->IsStunned() ? TEXT("YES") : TEXT("NO"),
+			TargetHitReaction->IsStaggered() ? TEXT("YES") : TEXT("NO"),
+			TargetCombatChar ? (TargetCombatChar->IsDeadOrDying() ? TEXT("YES") : TEXT("NO")) : TEXT("N/A"));
+	}
+
 	if (GetDebugDraw())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[FINISHER] ═══════════════════════════════════════"));
