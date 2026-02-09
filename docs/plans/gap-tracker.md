@@ -2,7 +2,7 @@
 
 > **Extracted From**: gap-mitigation-plan.md (2026-02-03)
 > **Purpose**: Reference document tracking all identified gaps and their status
-> **Last Updated**: 2026-02-07 (Phase 6 refresh: INPUT-1 fixed, posture deprecated, counter system scaffolded, audit findings fixed)
+> **Last Updated**: 2026-02-09 (Cleanup: removed stale priority buckets, trimmed resolved analysis sections, verified all Done items against code)
 > **Audit Reference**: `docs/audits/COMPREHENSIVE_AUDIT_2026-02-03.md`
 
 ---
@@ -305,32 +305,6 @@
 
 ---
 
-## Priority Buckets (Original — see Updated Priority Buckets below for current state)
-
-> **Note**: This section is the original priority bucket from 2026-02-03. See **Updated Priority Buckets** section at bottom of file for current priorities reflecting all fixes and new gaps.
-
-### Stale Items (Resolved)
-- ~~**22.10**~~: Done (879d1c2)
-- ~~**22.3**~~: Reclassified — not UB (a57eedd)
-- ~~**22.5**~~: FALSE POSITIVE
-- ~~**22.14**~~: RULE UPDATED — two-tier approach adopted
-- ~~**22.2**~~: DEFERRED — wire when AI work begins
-- ~~Audio/VFX wiring~~: Done (0e6ae4e, 150cd3a, 3038b21, f27a068)
-- ~~Normal attack hitstop~~: Done (879d1c2)
-
-### Still Pending (Migrated to Updated Buckets)
-- 22.1, 1.2, 3.5, 7.2, 9.1, 9.2, 13.1-13.2, 13.5, 20.5
-- 22.6, 22.11, 18.4, 18.5, 18.8, 18.9, 19.5
-- Camera/spring arm improvements (23.3, 23.4)
-- UI/HUD (5.x), Music ducking (4.3), Ragdoll settling (14.1)
-
-### Deferred (Phase 6+)
-- Multi-victim finishers (10.1)
-- Environmental finishers (10.2)
-- Moving platforms (6.4)
-- Network replication (16.3)
-- Blood decals, weapon trails, screen blood (15.2, 15.4, 15.5, 15.6)
-
 ---
 
 ## NEW GAPS (2026-02-06)
@@ -411,49 +385,7 @@
 | 25.7 | Same input sequence can produce different animation results | P2 | Done (9534131 — combo progression now deterministic) |
 | 25.8 | 100+ rapid input stress test not validated | P2 | Pending |
 
-**Root Cause (Race Condition)**:
-```
-T+0ms:   PlayAttackMontage() starts
-T+1ms:   StopAllMontages(0.0f) called (line 1458)
-T+5ms:   OnMontageEnded fires IMMEDIATELY (engine callback)
-T+10ms:  SetPhase(None) clears CurrentAttackData = nullptr (line 2553)
-T+15ms:  PlayAttackMontage returns
-T+20ms:  ExecuteAction sets CurrentAttackData = new attack (line 994) - TOO LATE!
-T+25ms:  Next input: ComboWindow=ACTIVE, CurrentAttackData=nullptr
-T+30ms:  GetAttackForInput hits BUG-3 FIX: bShouldCombo = false
-         → Returns default attack 1 instead of continuing combo!
-```
-
-**Fix Strategy**:
-Set `CurrentAttackData = Action.AttackData` BEFORE calling `PlayAttackMontage()`, revert on failure.
-
-```cpp
-// BEFORE (line 983-994):
-if (PlayAttackMontage(Action.AttackData)) {
-    SetPhase(EAttackPhase::Windup);
-    DiscoverCheckpoints();
-    CurrentAttackData = Action.AttackData;  // TOO LATE!
-}
-
-// AFTER (Fix):
-CurrentAttackData = Action.AttackData;  // Set FIRST
-if (PlayAttackMontage(Action.AttackData)) {
-    SetPhase(EAttackPhase::Windup);
-    DiscoverCheckpoints();
-} else {
-    CurrentAttackData = nullptr;  // Revert on failure
-}
-```
-
-**TDD Tests Required** (InputResolutionTests.cpp):
-- INPUT-1a: Spam light 20x → 1→2→3→4→5→6→1... cycle
-- INPUT-1b: Rapid input at <50ms intervals → all inputs respected
-- INPUT-1c: Full attack plays to Recovery before blend
-- INPUT-1d: No blend during Windup/Active phase
-- INPUT-1e: CurrentAttackData never null during combo window
-- INPUT-1f: StopAllMontages doesn't clear combo state
-- INPUT-1g: 100 rapid inputs stress test
-- INPUT-1h: Alternating Light/Heavy spam
+**Root Cause & Fix** (9534131): Race condition — `CurrentAttackData` set after `PlayAttackMontage()` returned, allowing stale `OnMontageEnded` callbacks to clear state mid-combo. Fix: set state BEFORE montage play with revert-on-failure pattern, plus `PendingComboTransitions` counter to reject stale callbacks. See `ComboRaceConditionTests.cpp` for test coverage.
 
 ---
 
@@ -480,20 +412,11 @@ if (PlayAttackMontage(Action.AttackData)) {
 
 ---
 
-## Updated Priority Buckets (Refreshed 2026-02-07)
+## Active Priority Buckets (Refreshed 2026-02-09)
 
-### ~~P0 CRITICAL~~ - ALL DONE
+> All P0 items resolved. See individual gap tables above for Done status and commit references.
 
-~~**INPUT-1 (Combo Flip-Flop)**~~ — Fixed in 9534131:
-- ~~25.1~~: Done — CurrentAttackData set BEFORE PlayAttackMontage
-- ~~25.2~~: Done — PendingComboTransitions rejects stale callbacks
-- ~~25.3~~: Done — ShouldProcessMontageEnd Rule 0
-- ~~25.4~~: Done — CurrentAttackData no longer null during combo
-
-~~**Audit Bugs**~~:
-- ~~22.1~~: Done — null check already exists at line 3163
-
-### P1 HIGH - Next After P0
+### P1 HIGH
 
 **HIT-1 (Hit Detection)**:
 - 24.1: Hits dropped on fast targets
@@ -501,19 +424,13 @@ if (PlayAttackMontage(Action.AttackData)) {
 - 24.3: FHitReactionInfo missing AnimationTime
 - 24.4: bWasCounter always false
 
-**Core Combat Flow** (new):
+**Core Combat Flow**:
 - 26.1: Parry system implementation
 - 26.2: Counter system flow
 - 26.3: Parry → Counter → Finisher chain
-- 26.4: Guard break mechanics
 
 **Paired Animation Robustness**:
 - 1.2: Interrupt finisher mechanic (partial)
 - 3.5: Interrupt handling
 - 9.1/9.2: State machine recovery + incomplete cleanup
 - 13.1-13.2, 13.5: Crash prevention (null refs, division by zero)
-
-### ~~Previously P0, Now Done~~
-- ~~22.10~~: CustomTimeDilation 0.0f → Done (879d1c2)
-- ~~22.3~~: const_cast UB → Reclassified, not UB (a57eedd)
-- ~~23.1, 23.2~~: Camera collision → Done (5dc5dc3)

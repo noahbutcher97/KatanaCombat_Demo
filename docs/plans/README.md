@@ -9,7 +9,7 @@ plans/
 ├── README.md                         ← This file
 ├── combat-polish-plan.md             ← Normal attack effects + camera (ACTIVE)
 ├── gap-tracker.md                    ← Gap coverage matrix (REFERENCE)
-├── preview-tool-refactor-plan.md     ← PT-11 refactor (COMPLETE, pending merge)
+├── preview-tool-refactor-plan.md     ← PT-11 refactor (COMPLETE)
 ├── archive/                          ← Completed/superseded plans
 │   ├── gap-mitigation-plan-2026-02-03-pre-split.md  ← Original monolith
 │   └── ...
@@ -27,8 +27,8 @@ plans/
 | Plan | Status | Description |
 |------|--------|-------------|
 | [Combat Polish](combat-polish-plan.md) | Impact Effects Complete, Camera Remaining | Hitstop, camera shake, audio, VFX all wired. Camera combat awareness TODO. |
-| [Gap Tracker](gap-tracker.md) | Reference | See file for current gap counts (177 total across 26 categories) |
-| [Preview Tool Refactor](preview-tool-refactor-plan.md) | Complete (pending merge) | PT-11 "God Widget" decomposition on feature branch |
+| [Gap Tracker](gap-tracker.md) | Reference (cleaned 2026-02-09) | Gap coverage matrix. Resolved items trimmed, active P1 priorities retained. |
+| [Preview Tool Refactor](preview-tool-refactor-plan.md) | Complete | PT-11 "God Widget" decomposition — viewport + timeline extracted to separate Slate widgets. |
 
 ## Recently Archived
 
@@ -48,6 +48,7 @@ plans/
 
 - [Audit Synthesis 2026-01-30](../audits/archive/AUDIT_SYNTHESIS_2026-01-30.md) - Documentation completeness audit (historical)
 - [Log Analysis 2026-01-30](../reference/LOG_ANALYSIS_2026-01-30.md) - Bug pattern analysis from test logs
+- [Parry Research](../reference/Research/parry-research-2026-02-05.md) - Parry/deflect mechanics research across 5 games (GoT, Sekiro, DS/ER, For Honor, GoW)
 
 ## Upcoming Work
 
