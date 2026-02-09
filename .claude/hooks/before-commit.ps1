@@ -13,19 +13,19 @@ if (Test-Path ".claude/.skip-validation-enabled") {
 }
 
 Write-Output "<system-reminder>"
-Write-Output "🛡️ Pre-Commit Validation Enforcer"
+Write-Output "[VALIDATION] Pre-Commit Validation Enforcer"
 Write-Output ""
 
 # Get staged files
 $stagedFiles = git diff --cached --name-only --diff-filter=ACM 2>$null
 
 if (-not $stagedFiles) {
-    Write-Output "ℹ️ No staged files to validate"
+    Write-Output "[INFO] No staged files to validate"
     Write-Output "</system-reminder>"
     exit 0
 }
 
-Write-Output "📂 Staged Files: $($stagedFiles.Count)"
+Write-Output "[FILES] Staged Files: $($stagedFiles.Count)"
 Write-Output ""
 
 # Track validation results
@@ -50,7 +50,7 @@ $criticalFiles = @(
 foreach ($file in $stagedFiles) {
     $fileName = Split-Path $file -Leaf
     if ($criticalFiles -contains $fileName) {
-        $warnings += "⚠️ Modifying critical file: $fileName"
+        $warnings += "[WARNING] Modifying critical file: $fileName"
         $suggestions += "Review: $file (critical system file)"
     }
 }
@@ -58,14 +58,14 @@ foreach ($file in $stagedFiles) {
 ## 2. Component Files - Architecture Compliance
 $componentFiles = $cppFiles | Where-Object { $_ -match 'Component.*\.(h|cpp)' }
 if ($componentFiles.Count -gt 0) {
-    $warnings += "⚙️ Component files modified ($($componentFiles.Count))"
+    $warnings += "[COMPONENTS] Component files modified ($($componentFiles.Count))"
     $suggestions += "Run: /validate-combat (check architecture compliance)"
 }
 
 ## 3. AnimNotify Files - Phase System Compliance
 $animNotifyFiles = $cppFiles | Where-Object { $_ -match 'AnimNotify' }
 if ($animNotifyFiles.Count -gt 0) {
-    $warnings += "🎬 AnimNotify files modified ($($animNotifyFiles.Count))"
+    $warnings += "[ANIM] AnimNotify files modified ($($animNotifyFiles.Count))"
     $suggestions += "Verify: Phase transitions follow Windup→Active→Recovery"
 }
 
@@ -101,7 +101,7 @@ if ($docFiles.Count -gt 0) {
             }
 
             if (-not $hasRecentDate) {
-                $warnings += "📅 CLAUDE.md may need date update (Recent Changes section)"
+                $warnings += "[DATE] CLAUDE.md may need date update (Recent Changes section)"
             }
         }
     }
@@ -109,7 +109,7 @@ if ($docFiles.Count -gt 0) {
 
 ## 6. Large Commits Check
 if ($stagedFiles.Count -gt 20) {
-    $warnings += "📦 Large commit ($($stagedFiles.Count) files) - consider breaking up"
+    $warnings += "[LARGE] Large commit ($($stagedFiles.Count) files) - consider breaking up"
 }
 
 ## 7. Mixed Concern Check (anti-pattern)
@@ -123,14 +123,14 @@ if ($hasData) { $concernCount++ }
 if ($hasAnimation) { $concernCount++ }
 
 if ($concernCount -gt 2) {
-    $warnings += "🔀 Mixed concerns in commit (components + data + animation)"
+    $warnings += "[MIXED] Mixed concerns in commit (components + data + animation)"
     $suggestions += "Consider: Separate commits for different system changes"
 }
 
 # === OUTPUT RESULTS ===
 
 if ($errors.Count -gt 0) {
-    Write-Output "❌ **VALIDATION FAILED** ($($errors.Count) errors)"
+    Write-Output "[ERROR] **VALIDATION FAILED** ($($errors.Count) errors)"
     Write-Output ""
     foreach ($error in $errors) {
         Write-Output "  $error"
@@ -138,7 +138,7 @@ if ($errors.Count -gt 0) {
     Write-Output ""
 
     if (-not $Force) {
-        Write-Output "🚫 **COMMIT BLOCKED**"
+        Write-Output "[BLOCKED] **COMMIT BLOCKED**"
         Write-Output ""
         Write-Output "Fix errors or use --force to bypass"
         Write-Output "</system-reminder>"
@@ -147,7 +147,7 @@ if ($errors.Count -gt 0) {
 }
 
 if ($warnings.Count -gt 0) {
-    Write-Output "⚠️ **Warnings** ($($warnings.Count))"
+    Write-Output "[WARNING] **Warnings** ($($warnings.Count))"
     Write-Output ""
     foreach ($warning in $warnings) {
         Write-Output "  $warning"
@@ -157,7 +157,7 @@ if ($warnings.Count -gt 0) {
 
 # === RECOMMENDED ACTIONS ===
 
-Write-Output "✅ **Recommended Pre-Commit Actions**"
+Write-Output "[OK] **Recommended Pre-Commit Actions**"
 Write-Output ""
 
 # Context-based recommendations
@@ -182,7 +182,7 @@ Write-Output ""
 # === SPECIFIC SUGGESTIONS ===
 
 if ($suggestions.Count -gt 0) {
-    Write-Output "💡 **Specific Suggestions**"
+    Write-Output "[SUGGESTIONS] **Specific Suggestions**"
     Write-Output ""
     foreach ($suggestion in $suggestions) {
         Write-Output "  • $suggestion"
@@ -193,13 +193,13 @@ if ($suggestions.Count -gt 0) {
 # === QUICK MODE INFO ===
 
 if ($Quick) {
-    Write-Output "⚡ Quick mode - skipped detailed checks"
+    Write-Output "[QUICK] Quick mode - skipped detailed checks"
     Write-Output ""
 }
 
 # === BYPASS OPTIONS ===
 
-Write-Output "🔧 **Bypass Options**"
+Write-Output "[BYPASS] **Bypass Options**"
 Write-Output "  - Force commit: git commit --no-verify"
 Write-Output "  - Skip validation: Use '/hooks skip validation'"
 Write-Output "  - Quick mode: Use --quick flag"
