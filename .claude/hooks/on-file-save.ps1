@@ -94,40 +94,40 @@ foreach ($match in $functionMatches) {
 
 ## 7. Tick Usage Check (performance anti-pattern)
 if ($content -match 'TickComponent|ActorTick' -and $content -notmatch 'PrimaryComponentTick\.bCanEverTick\s*=\s*false') {
-    $styleIssues += "⚠️ Tick usage detected - KatanaCombat uses timer-based approach"
+    $styleIssues += "[WARNING] Tick usage detected - KatanaCombat uses timer-based approach"
     $suggestions += "Replace Tick with FTimerManager or event-driven approach"
 }
 
 ## 8. Delegate Declaration Check
 if ($FilePath -notmatch 'CombatTypes\.h' -and $content -match 'DECLARE_DYNAMIC_MULTICAST_DELEGATE') {
-    $styleIssues += "❌ Delegate declared outside CombatTypes.h (architecture violation)"
+    $styleIssues += "[ERROR] Delegate declared outside CombatTypes.h (architecture violation)"
     $suggestions += "Move delegate declarations to CombatTypes.h"
 }
 
 ## 9. Good Practices Detection
 if ($content -match 'ensure\(') {
-    $goodPractices += "✅ Using ensure() for validation"
+    $goodPractices += "[OK] Using ensure() for validation"
 }
 
 if ($content -match 'UPROPERTY\([^)]*EditAnywhere[^)]*meta\s*=\s*\([^)]*ClampMin') {
-    $goodPractices += "✅ Using ClampMin/ClampMax for numeric properties"
+    $goodPractices += "[OK] Using ClampMin/ClampMax for numeric properties"
 }
 
 if ($content -match '\/\/\s*NOLINT') {
-    $goodPractices += "✅ Marking intentionally unused code with NOLINT"
+    $goodPractices += "[OK] Marking intentionally unused code with NOLINT"
 }
 
 # === OUTPUT RESULTS ===
 
 if ($styleIssues.Count -gt 0 -or $suggestions.Count -gt 0 -or $goodPractices.Count -gt 0) {
     $output = "<system-reminder>`n"
-    $output += "🎨 Quick Style Check (On Save)`n`n"
+    $output += "[STYLE] Quick Style Check (On Save)`n`n"
 
     $fileName = Split-Path $FilePath -Leaf
     $output += "**File**: $fileName`n`n"
 
     if ($styleIssues.Count -gt 0) {
-        $output += "⚠️ **Style Issues** ($($styleIssues.Count)):`n"
+        $output += "[WARNING] **Style Issues** ($($styleIssues.Count)):`n"
         foreach ($issue in $styleIssues) {
             $output += "  - $issue`n"
         }
@@ -135,7 +135,7 @@ if ($styleIssues.Count -gt 0 -or $suggestions.Count -gt 0 -or $goodPractices.Cou
     }
 
     if ($suggestions.Count -gt 0) {
-        $output += "💡 **Suggestions** ($($suggestions.Count)):`n"
+        $output += "[SUGGESTIONS] **Suggestions** ($($suggestions.Count)):`n"
         foreach ($suggestion in $suggestions) {
             $output += "  - $suggestion`n"
         }
@@ -143,7 +143,7 @@ if ($styleIssues.Count -gt 0 -or $suggestions.Count -gt 0 -or $goodPractices.Cou
     }
 
     if ($goodPractices.Count -gt 0 -and $goodPractices.Count -le 3) {
-        $output += "✅ **Good Practices Detected**:`n"
+        $output += "[OK] **Good Practices Detected**:`n"
         foreach ($practice in $goodPractices) {
             $output += "  - $practice`n"
         }
