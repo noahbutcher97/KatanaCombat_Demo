@@ -111,28 +111,28 @@ if ($ChangeType -eq "new" -and $FilePath -match 'Component.*\.h$') {
 # Output reminders if any
 if ($docUpdates.Count -gt 0 -or $reminders.Count -gt 0) {
     $output = "<system-reminder>`n"
-    $output += "📝 Documentation Update Check`n`n"
+    $output += "[DOCS] Documentation Update Check`n`n"
 
     $output += "**Edited File**: $($FilePath -replace '.*\\Source\\', 'Source\')`n`n"
 
     if ($docUpdates.Count -gt 0) {
-        $output += "📚 **Documentation to Review**:`n`n"
+        $output += "[REVIEW] **Documentation to Review**:`n`n"
         foreach ($doc in $docUpdates) {
-            $output += "  📄 **$($doc.file)**`n"
+            $output += "  [FILE] **$($doc.file)**`n"
             $output += "     Section: $($doc.section)`n"
             $output += "     Reason: $($doc.reason)`n`n"
         }
     }
 
     if ($reminders.Count -gt 0) {
-        $output += "💡 **Additional Reminders**:`n`n"
+        $output += "[REMINDERS] **Additional Reminders**:`n`n"
         foreach ($reminder in $reminders) {
             $output += "  - $reminder`n"
         }
         $output += "`n"
     }
 
-    $output += "🔧 **Quick Actions**:`n"
+    $output += "[ACTIONS] **Quick Actions**:`n"
     $output += "  - Run: /sync-docs (check doc alignment)`n"
     $output += "  - Skip: Use '/hooks skip after-edit'`n`n"
 

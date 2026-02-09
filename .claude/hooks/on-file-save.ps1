@@ -150,7 +150,7 @@ if ($styleIssues.Count -gt 0 -or $suggestions.Count -gt 0 -or $goodPractices.Cou
         $output += "`n"
     }
 
-    $output += "🔧 **Actions**:`n"
+    $output += "[ACTIONS] **Actions**:`n"
     $output += "  - Detailed check: /check-warnings`n"
     $output += "  - Disable: Use '/hooks skip on-save'`n`n"
 
