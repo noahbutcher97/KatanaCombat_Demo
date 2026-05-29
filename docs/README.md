@@ -29,6 +29,7 @@ docs/
 │   ├── AUDIT_EXECUTIVE_SUMMARY.md     <- Copilot quick reference
 │   ├── AUDIT_ACTION_CHECKLIST.md      <- Implementation checklist
 │   ├── AUDIT_VISUAL_ROADMAP.md        <- Visual roadmap & diagrams
+│   ├── AUDIT_UEMCP_OFFLINE_2026-05-29.md <- Asset/config/data-integrity audit (UEMCP offline)
 │   └── archive/                       <- Historical audits
 ├── plans/                       <- Implementation plans
 │   ├── README.md                <- Plan index & lifecycle
