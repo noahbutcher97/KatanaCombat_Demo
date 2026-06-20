@@ -1,0 +1,23 @@
+# Repo-local Codex configuration for KatanaCombat.
+# This layer loads only when the project .codex directory is trusted by Codex.
+
+# AGENTS.md plus future nested instruction files may exceed the default once
+# workflow-specific guidance is added. Keep the root AGENTS.md concise anyway.
+project_doc_max_bytes = 65536
+
+[mcp_servers.uemcp]
+command = "node"
+args = ["D:/DevTools/UEMCP/server/server.mjs"]
+enabled = true
+required = false
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+
+[mcp_servers.uemcp.env]
+UNREAL_PROJECT_ROOT = "D:/UnrealProjects/5.6/KatanaCombat"
+UNREAL_PROJECT_NAME = "KatanaCombat"
+UNREAL_TCP_PORT_EXISTING = "55557"
+UNREAL_TCP_PORT_CUSTOM = "55558"
+UNREAL_TCP_TIMEOUT_MS = "5000"
+UNREAL_RC_PORT = "30010"
+UNREAL_AUTO_DETECT = "true"

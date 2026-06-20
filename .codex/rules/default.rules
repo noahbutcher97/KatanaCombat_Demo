@@ -1,0 +1,27 @@
+prefix_rule(
+    pattern = ["git", "reset", "--hard"],
+    decision = "prompt",
+    justification = "KatanaCombat often has user WIP and Unreal assets; confirm the target state before resetting.",
+    match = ["git reset --hard"],
+)
+
+prefix_rule(
+    pattern = ["git", "clean"],
+    decision = "prompt",
+    justification = "KatanaCombat has many untracked Unreal assets; require explicit review before deleting untracked files.",
+    match = ["git clean -fd", "git clean -fdx"],
+)
+
+prefix_rule(
+    pattern = ["git", "checkout", "--"],
+    decision = "prompt",
+    justification = "Reverting paths can discard user work; require explicit path-level approval.",
+    match = ["git checkout -- Source/KatanaCombat/Foo.cpp"],
+)
+
+prefix_rule(
+    pattern = ["p4", "submit"],
+    decision = "prompt",
+    justification = "Submitting external changelists must be explicitly requested by the user.",
+    match = ["p4 submit -c 12345"],
+)

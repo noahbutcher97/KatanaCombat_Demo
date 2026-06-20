@@ -1,0 +1,4 @@
+interface:
+  display_name: "Katana Bug Triage"
+  short_description: "Diagnose KatanaCombat bugs from evidence before fixes."
+  default_prompt: "Triage this KatanaCombat bug from logs, repro steps, code paths, and targeted verification."

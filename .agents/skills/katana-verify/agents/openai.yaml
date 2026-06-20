@@ -1,0 +1,4 @@
+interface:
+  display_name: "Katana Verify"
+  short_description: "Build, test, and verify KatanaCombat changes."
+  default_prompt: "Verify the current KatanaCombat change with the appropriate build, test, log, and diff checks."
