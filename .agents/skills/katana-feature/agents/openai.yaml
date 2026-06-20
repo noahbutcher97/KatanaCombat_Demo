@@ -1,0 +1,4 @@
+interface:
+  display_name: "Katana Feature"
+  short_description: "Plan and implement KatanaCombat feature work safely."
+  default_prompt: "Plan and implement a KatanaCombat feature using repo architecture, focused tests, and verification."

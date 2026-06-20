@@ -8,7 +8,9 @@ Automated tests for the KatanaCombat combat system.
 - **Dependencies**: KatanaCombat, UnrealEd
 - **Location**: `Source/KatanaCombatTest/`
 
-## Test Coverage (14 Suites, 126 Tests)
+## Test Coverage
+
+The suite is organized into the 14 groups below. The latest command-line baseline on 2026-06-20 produced 368 completed automation result lines with 0 failures/errors; use the runner below for current counts because Unreal's expanded automation result lines may differ from hand-maintained test totals.
 
 ### Core Combat Tests
 
@@ -131,9 +133,16 @@ Automated tests for the KatanaCombat combat system.
 
 ### Command Line
 
+**Preferred Codex/agent baseline:**
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "Tools\Codex\run-agent-baseline.ps1"
+```
+
+This builds `KatanaCombatEditor Win64 Development`, runs all `KatanaCombat` automation tests with `;Quit`, writes timestamped logs under `Saved/Logs/`, and exits nonzero on build or automation failure.
+
 **Run all tests:**
 ```powershell
-"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat;Quit" -NullRHI -NoSplash -Unattended
+"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat;Quit" -NullRHI -NoSplash -Unattended -nopause -stdout
 ```
 
 **Run specific test category:**
@@ -143,7 +152,7 @@ Automated tests for the KatanaCombat combat system.
 
 **Check results in log:**
 ```powershell
-grep "Result=" D:/UnrealProjects/5.6/KatanaCombat/Saved/Logs/KatanaCombat.log | grep -c "Success"
+powershell -NoProfile -ExecutionPolicy Bypass -File ".agents\skills\katana-verify\scripts\summarize-automation-log.ps1"
 ```
 
 ## Adding New Tests
@@ -218,4 +227,4 @@ bool FMyNewTest::RunTest(const FString& Parameters)
 
 ---
 
-**Test Suite Status**: ✅ All 126 tests passing (as of 2025-01-29)
+**Test Suite Status**: GREEN command-line baseline on 2026-06-20: 368 completed automation result lines, 0 failures/errors.
