@@ -8,6 +8,7 @@
 #include "Core/WeaponComponent.h"
 #include "Core/TargetingComponent.h"
 #include "Core/HitReactionComponent.h"
+#include "Core/PairedAnimationComponent.h"
 #include "Data/AttackData.h"
 #include "Data/TargetingSettings.h"
 #include "Data/WeaponData.h"
@@ -596,6 +597,7 @@ FPairedAnimDebugData ACombatDebugHUD::GeneratePairedAnimDebugData(ABaseCombatCha
 	}
 
 	UCombatComponent* CombatComp = Character->GetCombatComponent();
+	UPairedAnimationComponent* PairedComp = Character->PairedAnimationComponent;
 	UTargetingComponent* TargetComp = Character->TargetingComponent;
 	UHitReactionComponent* HitReactionComp = Character->HitReactionComponent;
 
@@ -614,7 +616,7 @@ FPairedAnimDebugData ACombatDebugHUD::GeneratePairedAnimDebugData(ABaseCombatCha
 	Data.bInPairedAnimation = (CombatState == ECombatState::Finishing);
 
 	// Determine role
-	if (CombatComp->PairedAnimationPartners.Num() > 0)
+	if (PairedComp && PairedComp->PairedAnimationPartners.Num() > 0)
 	{
 		Data.Role = TEXT("ATTACKER");
 		Data.StateDescription = TEXT("EXECUTING_FINISHER");
@@ -639,7 +641,7 @@ FPairedAnimDebugData ACombatDebugHUD::GeneratePairedAnimDebugData(ABaseCombatCha
 	// ========================================================================
 	// PARTNER INFO
 	// ========================================================================
-	for (const TWeakObjectPtr<AActor>& PartnerRef : CombatComp->PairedAnimationPartners)
+	for (const TWeakObjectPtr<AActor>& PartnerRef : (PairedComp ? PairedComp->PairedAnimationPartners : TArray<TWeakObjectPtr<AActor>>()))
 	{
 		if (AActor* Partner = PartnerRef.Get())
 		{

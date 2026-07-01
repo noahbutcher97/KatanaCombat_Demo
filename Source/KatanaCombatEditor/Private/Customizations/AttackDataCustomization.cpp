@@ -1,6 +1,7 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Customizations/AttackDataCustomization.h"
+#include "AttackDataTools.h"
 #include "Data/AttackData.h"
 #include "DetailLayoutBuilder.h"
 #include "DetailCategoryBuilder.h"
@@ -163,7 +164,7 @@ void FAttackDataCustomization::AddValidationWarnings(IDetailLayoutBuilder& Detai
     if (CachedAttackData->bUseAnimNotifyTiming)
     {
         FText ErrorMsg;
-        if (!CachedAttackData->ValidateMontageSection(ErrorMsg))
+        if (!UAttackDataTools::ValidateMontageSection(CachedAttackData.Get(), ErrorMsg))
         {
             WarningCategory.AddCustomRow(LOCTEXT("InvalidSectionWarning", "Invalid Section"))
             .WholeRowContent()
@@ -196,7 +197,7 @@ void FAttackDataCustomization::AddValidationWarnings(IDetailLayoutBuilder& Detai
                     [
                         SNew(STextBlock)
                         .Text(LOCTEXT("MissingNotifies", 
-                            "⚠️ Section is missing required AnimNotifyState_AttackPhase notifies!"))
+                            "Section is missing required AnimNotify_AttackPhaseTransition notifies."))
                         .Font(IDetailLayoutBuilder::GetDetailFontBold())
                     ]
                     
@@ -503,7 +504,7 @@ TSharedRef<SWidget> FAttackDataCustomization::CreateActionButtons()
             SNew(SButton)
             .Text(LOCTEXT("GenerateNotifies", "Generate AnimNotifies"))
             .ToolTipText(LOCTEXT("GenerateNotifiesTooltip", 
-                "Generate AnimNotifyState_AttackPhase notifies in the montage section"))
+                "Generate required phase transition notifies and optional hold-start notify in the montage section"))
             .OnClicked(this, &FAttackDataCustomization::OnGenerateNotifiesClicked)
             .IsEnabled_Lambda([this]() { return CachedAttackData.IsValid() && CachedAttackData->AttackMontage != nullptr; })
         ]
@@ -537,11 +538,16 @@ FReply FAttackDataCustomization::OnAutoCalculateClicked()
     if (!CachedAttackData.IsValid()) 
         return FReply::Handled();
     
-    CachedAttackData->AutoCalculateTimingFromSection();
-    CachedAttackData->MarkPackageDirty();
-    
-    FMessageDialog::Open(EAppMsgType::Ok,
-        LOCTEXT("TimingCalculated", "Timing has been auto-calculated based on montage length and attack type."));
+    if (UAttackDataTools::AutoCalculateTiming(CachedAttackData.Get()))
+    {
+        FMessageDialog::Open(EAppMsgType::Ok,
+            LOCTEXT("TimingCalculated", "Timing has been auto-calculated based on montage length and attack type."));
+    }
+    else
+    {
+        FMessageDialog::Open(EAppMsgType::Ok,
+            LOCTEXT("TimingCalculationFailed", "Failed to calculate timing. Check that the montage and section are valid."));
+    }
     
     RefreshDetails();
     return FReply::Handled();
@@ -552,11 +558,11 @@ FReply FAttackDataCustomization::OnGenerateNotifiesClicked()
     if (!CachedAttackData.IsValid()) 
         return FReply::Handled();
     
-    if (CachedAttackData->GenerateNotifiesInSection())
+    if (UAttackDataTools::GenerateAllNotifies(CachedAttackData.Get()))
     {
         FMessageDialog::Open(EAppMsgType::Ok,
             LOCTEXT("NotifiesGenerated", 
-                "AnimNotifyState_AttackPhase notifies generated successfully!\n\n"
+                "Attack notifies generated successfully.\n\n"
                 "Open the montage editor to see the newly added notifies."));
     }
     else
@@ -576,7 +582,7 @@ FReply FAttackDataCustomization::OnValidateSectionClicked()
         return FReply::Handled();
     
     FText ErrorMsg;
-    if (CachedAttackData->ValidateMontageSection(ErrorMsg))
+    if (UAttackDataTools::ValidateMontageSection(CachedAttackData.Get(), ErrorMsg))
     {
         FMessageDialog::Open(EAppMsgType::Ok,
             LOCTEXT("ValidationSuccess", "✓ Montage section is valid!"));
@@ -629,7 +635,7 @@ FText FAttackDataCustomization::GetTimingPreviewText() const
     if (!CachedAttackData.IsValid())
         return LOCTEXT("NoPreview", "No preview available");
     
-    return FText::FromString(CachedAttackData->GetTimingPreviewString());
+    return FText::FromString(UAttackDataTools::GetTimingPreview(CachedAttackData.Get()));
 }
 
 TArray<UAttackData*> FAttackDataCustomization::FindSectionConflicts() const
@@ -637,7 +643,7 @@ TArray<UAttackData*> FAttackDataCustomization::FindSectionConflicts() const
     if (!CachedAttackData.IsValid())
         return TArray<UAttackData*>();
     
-    return CachedAttackData->FindOtherUsersOfSection();
+    return UAttackDataTools::FindSectionConflicts(CachedAttackData.Get());
 }
 
 void FAttackDataCustomization::ShowTimelinePreview()

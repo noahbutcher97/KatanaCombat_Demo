@@ -1,6 +1,6 @@
 # Paired Animation System - Technical Specification
 
-> **Version**: 1.0 | **Date**: 2026-01-30 | **Status**: Implementation In Progress
+> **Version**: 2.0 | **Date**: 2026-02-09 | **Status**: Implementation In Progress
 > **Reference Plan**: `.claude/plans/synthetic-painting-ritchie.md`
 
 ---
@@ -119,13 +119,13 @@ class UPairedAnimationData : public UPrimaryDataAsset
 Player Input (Attack during finisher opportunity)
     │
     ▼
-CombatComponent::TryExecuteFinisher()
+PairedAnimationComponent::TryExecuteFinisher()
     ├─ Validate: Target in range (SoftAimRange)
     ├─ Validate: Target vulnerable (IsVulnerableToFinisher)
     ├─ Validate: Path clear (ValidatePairedAnimation)
-    ├─ Set: bBlockCombatInput = true
-    ├─ Set: bIsFinisherTarget = true (mutex)
-    ├─ Store: CurrentFinisherVictim reference
+    ├─ Set: bBlockCombatInput = true (on PairedAnimationComponent)
+    ├─ Set: bIsFinisherTarget = true (mutex, on PairedAnimationComponent)
+    ├─ Store: CurrentFinisherVictim reference (on PairedAnimationComponent)
     │
     ▼
 Setup Warp Tracking (TargetingComponent)
@@ -162,6 +162,31 @@ OnMontageEnded → CompletePairedAnimation()
 1. **Guard Broken** (Highest) - Posture depleted
 2. **Stunned** - Heavy attack hitstun active
 3. **Low Health** (Lowest) - Below 25% threshold (configurable)
+
+### 3.3 Chain Counter Runtime Contract
+
+Chain Counter is required branch behavior. It is not experimental and is not accepted through protected helper calls.
+
+Runtime flow:
+1. Defender presses Block.
+2. `UCombatComponent` delegates to `UPairedAnimationComponent::TryCounter()`.
+3. Chain mode selects a parryable attacker from attacker-side `AnimNotifyState_ParryWindow`.
+4. `UPairedAnimationComponent` stores an active Chain context containing parried target, source attack metadata, selected counter `UAttackData`, resolved `CounterData`, resolved `FinisherData`, current Chain state, timeout handle, and paired-continuation flags.
+5. Light or Heavy input while Chain is waiting resolves `UAttackData` through `UCombatComponent::GetAttackForInput()` and calls `UPairedAnimationComponent::TryAdvanceChainCounter(UAttackData*)`.
+6. The counter step uses selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only when explicitly allowed, then non-paired counter fallback.
+7. Counter paired steps are nonlethal by default. The finisher step owns lethal damage unless counter data explicitly opts into lethal behavior and validation reports that exception.
+8. Paired counter completion either auto-continues to finisher with stored context or deliberately enters an unblocked `FinisherReady` state.
+9. Timeout, montage interruption, paired cancel, partner death, owner death, invalid target, failed montage start, and normal completion clear Chain context.
+
+### Chain Counter Implementation Evidence
+
+- Public Block-input entry is covered by `KatanaCombat.CounterSystem.Input.BlockStartsChainParry`.
+- Public attack-input advance is covered by `KatanaCombat.CounterSystem.ChainAttackInputAdvancesCounter`.
+- Active Chain target/context retention is covered by `KatanaCombat.CounterSystem.ChainStoresParriedTarget`.
+- Counter paired damage is nonlethal by default, covered by `KatanaCombat.CounterSystem.ChainCounterDamagePolicyNonLethalByDefault`.
+- Attack input resolves selected `UAttackData` in `UCombatComponent` and advances through `UPairedAnimationComponent::TryAdvanceChainCounter(UAttackData*)`.
+- Counter data resolution remains selected `UAttackData::CounterData`, explicit notify fallback, then non-paired fallback.
+- Asset-backed montage proof remains separate from source-level automation. The 2026-07-01 `AttackDataNotifyMigration` audit/plan reports are read-only evidence and did not save packages.
 
 ---
 
@@ -211,7 +236,7 @@ Features:
 ### 5.1 SamuraiAnimInstance Extensions
 
 ```cpp
-// Paired Animation State (synced from CombatComponent)
+// Paired Animation State (synced from PairedAnimationComponent)
 bool bInPairedAnimation;
 TWeakObjectPtr<AActor> PairedPartner;
 float CurrentSyncProgress;  // 0-1 through sync point
@@ -339,7 +364,7 @@ Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 
 | File | Purpose |
 |------|---------|
-| CombatComponent.cpp | TryExecuteFinisher, CompletePairedAnimation |
+| PairedAnimationComponent.cpp | TryExecuteFinisher, CompletePairedAnimation, TriggerSyncPointEffects |
 | HitReactionComponent.cpp | IsVulnerableToFinisher, death flag handling |
 | TargetingComponent.cpp | SetupVictimWarp, SetupAttackerPairedWarp |
 | AnimNotifyState_PairedAnimationSync.cpp | Sync point validation, effects trigger |
@@ -370,13 +395,13 @@ Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 | Phase | Focus | Status |
 |-------|-------|--------|
 | 5a | Foundation (data assets, utilities) | ✅ Complete |
-| 5b | Core finisher flow, effects, safety | ~95% Complete |
-| 5c | Math & physics utility libraries | ⏳ Pending |
-| 5d | Editor tools & analysis dashboard | ⏳ Pending |
+| 5b | Core finisher flow, effects, safety | ✅ Complete |
+| 5c | Math & physics utility libraries | ✅ Complete |
+| 5d | Editor tools & analysis dashboard | ✅ Complete |
 | 5e | AnimInstance procedural integration | ⏳ Pending |
 | 5f | Awareness subsystem (runtime healing) | 🔮 Deferred |
 
 ---
 
 **Document Maintained By**: Claude Code
-**Last Updated**: 2026-01-30
+**Last Updated**: 2026-02-09

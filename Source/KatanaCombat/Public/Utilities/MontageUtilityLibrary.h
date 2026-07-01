@@ -227,7 +227,7 @@ public:
 	 * Discover all timing checkpoints in montage
 	 *
 	 * Scans montage for phase transitions (AnimNotify_AttackPhaseTransition) and
-	 * AnimNotifyStates (Hold windows) to build a complete timing map.
+	 * explicit action-window AnimNotifyStates to build a complete timing map.
 	 *
 	 * Phase-Based Windows (INFERRED from phase transitions):
 	 * - Combo: Entire montage duration (input always buffered, timing varies)
@@ -235,7 +235,9 @@ public:
 	 * - Recovery: From Active end to montage end (snap execution point)
 	 *
 	 * Explicit Windows (AnimNotifyStates):
-	 * - Hold: AnimNotifyState_HoldWindow (duration-based behavior)
+	 * - Parry/Counter/Cancel: explicit timing overrides where authored
+	 * - Combo: legacy/manual override only; default combo timing is phase-derived
+	 * - Hold states are legacy; hold activation uses AnimNotify_HoldWindowStart point events
 	 *
 	 * Used by CombatComponent to understand attack timing for input processing.
 	 *

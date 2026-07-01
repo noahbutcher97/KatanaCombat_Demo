@@ -23,7 +23,8 @@ public class KatanaCombat : ModuleRules
 			"Slate",
 			"SlateCore",
 			"MotionWarping",
-			"Niagara"  // For VFX property scaffolding in PairedAnimationData
+			"Niagara",  // For VFX property scaffolding in PairedAnimationData
+			"PhysicsCore"  // For UPhysicalMaterial in WeaponTraceLibrary surface mapping
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { "MotionWarping" });

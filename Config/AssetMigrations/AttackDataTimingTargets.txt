@@ -1,0 +1,2 @@
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_6.LightAttack_6
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_9.LightAttack_9

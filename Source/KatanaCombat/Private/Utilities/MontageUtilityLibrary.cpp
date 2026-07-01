@@ -256,14 +256,14 @@ int32 UMontageUtilityLibrary::DiscoverCheckpoints(UAnimMontage* Montage, TArray<
 	// PHASE 3: Scan for explicit AnimNotifyState windows (ActionWindow_Base)
 	// ========================================================================
 	// Generic scanning for any ActionWindow_Base subclass. This allows:
-	// - HoldWindow (explicit duration tracking for hold mechanics)
 	// - ParryWindow (explicit override for specialized parry timing)
-	// - ComboWindow (explicit override for specialized combo timing)
+	// - ComboWindow (legacy/manual override for specialized combo timing)
 	// - CancelWindow (future: animation cancellation timing)
 	//
 	// NOTE: Explicit AnimNotifyStates found here are ADDITIVE to inferred windows.
-	// They can provide specialized timing for specific attacks while defaults
-	// are inferred from phase transitions.
+	// They can provide specialized timing for specific attacks while defaults are
+	// inferred from phase transitions. Hold activation is event-driven via
+	// AnimNotify_HoldWindowStart; do not author new HoldWindow states for defaults.
 
 	for (const FAnimNotifyEvent& NotifyEvent : Montage->Notifies)
 	{

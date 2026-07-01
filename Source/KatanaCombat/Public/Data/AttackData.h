@@ -66,6 +66,15 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage")
     float HitStunDuration = 0.0f;
 
+    /**
+     * Maximum number of unique actors this attack can hit per swing.
+     * 0 = unlimited (default). Used for gameplay balance:
+     * e.g., light attacks hit 1, heavy sweeps hit 3.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage",
+        meta = (ClampMin = "0", ClampMax = "10"))
+    int32 MaxHitCount = 0;
+
     // ============================================================================
     // HITSTOP (Per-Attack Impact Freeze)
     // ============================================================================
@@ -352,7 +361,7 @@ public:
     UFUNCTION(BlueprintPure, Category = "Attack Data")
     bool HasValidNotifyTimingInSection() const;
 
-    /** Editor-only: Get timing from ManualTiming struct for notify generation tools */
+    /** Editor/query helper: read timing from AnimNotify_AttackPhaseTransition first, legacy phase states second, then ManualTiming fallback. Runtime phase changes are notify-driven. */
     UFUNCTION(BlueprintCallable, Category = "Attack Data")
     void GetEffectiveTiming(float& OutWindup, float& OutActive, float& OutRecovery) const;
 
@@ -360,21 +369,6 @@ public:
     // ============================================================================
     // EDITOR-ONLY FUNCTIONALITY
     // ============================================================================
-
-    /** Auto-calculate reasonable timing from montage/section length and attack type */
-    void AutoCalculateTimingFromSection();
-
-    /** Generate AnimNotifyState_AttackPhase notifies in the target section */
-    bool GenerateNotifiesInSection();
-
-    /** Find other AttackData assets using the same montage section (conflict detection) */
-    TArray<UAttackData*> FindOtherUsersOfSection() const;
-
-    /** Validate montage section exists and is properly configured */
-    bool ValidateMontageSection(FText& OutErrorMessage) const;
-
-    /** Get a preview string showing the timing layout */
-    FString GetTimingPreviewString() const;
 
     // Post-edit hooks for editor validation
     virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;

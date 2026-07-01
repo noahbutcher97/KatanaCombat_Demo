@@ -1,0 +1,21 @@
+# Remaining branch-critical AttackData notify candidates from ContentReadinessAudit.
+# Generated from Saved/Logs/Commandlets/KatanaAssetMigration/branch-critical-content-readiness.json.
+
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/New/DA_DirectionalAttack_B
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/New/DA_DirectionalAttack_F
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/New/DA_DirectionalAttack_L
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/New/DA_DirectionalAttack_None
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/New/DirectionalAttack_R
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Heavy/New/HeavyAttack_2
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Heavy/New/HeavyAttack_3
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Heavy/New/HeavyAttack_4
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_2
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_3
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_4
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_5
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_6
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_7
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_8
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_9
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_10
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_11

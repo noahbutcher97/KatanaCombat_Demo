@@ -4,6 +4,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Actor.h"
 #include "Core/CombatComponent.h"
+#include "Core/PairedAnimationComponent.h"
 #include "Core/HitReactionComponent.h"
 #include "Engine/World.h"
 #include "Containers/Ticker.h"
@@ -33,13 +34,12 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
         return;
     }
 
-    // Find combat component to trigger sync point effects
-    UCombatComponent* CombatComp = Owner->FindComponentByClass<UCombatComponent>();
-    if (CombatComp)
+    // Find paired animation component to trigger sync point effects
+    UPairedAnimationComponent* PairedComp = Owner->FindComponentByClass<UPairedAnimationComponent>();
+    if (PairedComp)
     {
         // Trigger sync point effects (camera shake, etc.) AND broadcast delegate
-        // This centralizes effect handling in CombatComponent while still notifying external listeners
-        CombatComp->TriggerSyncPointEffects(SyncPointName);
+        PairedComp->TriggerSyncPointEffects(SyncPointName);
     }
 
     // Also check for HitReactionComponent (in case this is on victim's montage)
@@ -56,13 +56,13 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
     // Misalignment indicates animation drift from root motion conflicts or
     // failed warp tracking. Log for debugging and optionally auto-correct.
 
-    if (bValidateAlignment && bIsPrimarySyncPoint && CombatComp)
+    if (bValidateAlignment && bIsPrimarySyncPoint && PairedComp)
     {
         // Find the primary paired partner (victim in finisher scenario)
         AActor* PairedPartner = nullptr;
-        if (CombatComp->PairedAnimationPartners.Num() > 0)
+        if (PairedComp->PairedAnimationPartners.Num() > 0)
         {
-            PairedPartner = CombatComp->PairedAnimationPartners[0].Get();
+            PairedPartner = PairedComp->PairedAnimationPartners[0].Get();
         }
 
         if (PairedPartner)
@@ -149,10 +149,10 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
         TArray<AActor*> ActorsToFreeze;
         ActorsToFreeze.Add(Owner);
 
-        // Get paired partners from CombatComponent
-        if (CombatComp)
+        // Get paired partners from PairedAnimationComponent
+        if (PairedComp)
         {
-            for (const TWeakObjectPtr<AActor>& PartnerRef : CombatComp->PairedAnimationPartners)
+            for (const TWeakObjectPtr<AActor>& PartnerRef : PairedComp->PairedAnimationPartners)
             {
                 if (AActor* Partner = PartnerRef.Get())
                 {

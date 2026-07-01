@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/CombatComponent.h"
+#include "Core/PairedAnimationComponent.h"
 #include "Core/WeaponComponent.h"
 #include "Interfaces/CombatInterface.h"
 #include "Interfaces/DamageableInterface.h"
@@ -58,6 +59,9 @@ void UCombatComponent::BeginPlay()
 		// Cache combat settings from character
 		CombatSettings = OwnerCharacter->CombatSettings;
 
+		// Cache paired animation component (direct member access, more reliable than FindComponentByClass)
+		CachedPairedAnimComp = OwnerCharacter->PairedAnimationComponent;
+
 		// Bind to montage event delegates for event-driven phase transitions
 		if (USkeletalMeshComponent* OwnerMesh = OwnerCharacter->GetMesh())
 		if (UAnimInstance* AnimInstance = OwnerMesh->GetAnimInstance())
@@ -86,21 +90,9 @@ void UCombatComponent::BeginPlay()
 
 void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	// Gap 19.14 fix: Safety cleanup to prevent dangling state during level transitions or destruction
-
-	// Cancel any active paired animation (clears partners, restores time dilation, stops warp tracking)
-	if (IsPairedAnimationActive())
-	{
-		CancelPairedAnimation(0.0f);  // Immediate cancel, no blend
-	}
-
-	// Clear any remaining paired partners
-	ClearPairedPartners();
-
-	// Clear slow-motion restore timer
+	// Clear timers owned by CombatComponent
 	if (GetWorld())
 	{
-		GetWorld()->GetTimerManager().ClearTimer(SlowMotionRestoreHandle);
 		GetWorld()->GetTimerManager().ClearTimer(EaseTimerHandle);
 	}
 
@@ -115,12 +107,10 @@ void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 
 	// Reset combat state to prevent any lingering effects
+	// (Paired animation cleanup is handled by PairedAnimationComponent::EndPlay)
 	CurrentAttackData = nullptr;
-	ActivePairedAnimData = nullptr;
-	CurrentFinisherVictim.Reset();
-	bBlockCombatInput = false;
-	bCompletingPairedAnimation = false;  // Gap 20.4 guard flag
 	CurrentPhase = EAttackPhase::None;
+	CachedPairedAnimComp = nullptr;
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -198,41 +188,40 @@ void UCombatComponent::OnCharacterDeath()
 		UE_LOG(LogCombat, Warning, TEXT("[DEATH] Character died - resetting all combat state"));
 	}
 
-	// PAIRED ANIMATION INTERRUPT: Notify all partners that this character died
-	// This allows victims to cancel their paired animations if attacker dies
-	if (PairedAnimationPartners.Num() > 0)
+	// PAIRED ANIMATION INTERRUPT: Delegate partner notification and cleanup to PairedAnimComp
+	if (CachedPairedAnimComp)
 	{
-		if (GetDebugDraw())
+		if (CachedPairedAnimComp->GetPairedPartnerCount() > 0)
 		{
-			UE_LOG(LogCombat, Log, TEXT("[DEATH] Notifying %d paired animation partners"), PairedAnimationPartners.Num());
-		}
-
-		// Copy array before iterating (partners will remove themselves when notified)
-		TArray<TWeakObjectPtr<AActor>> PartnersCopy = PairedAnimationPartners;
-		for (const TWeakObjectPtr<AActor>& PartnerPtr : PartnersCopy)
-		{
-			if (AActor* Partner = PartnerPtr.Get())
+			if (GetDebugDraw())
 			{
-				// Find partner's CombatComponent and notify them
-				if (UCombatComponent* PartnerCombat = Partner->FindComponentByClass<UCombatComponent>())
+				UE_LOG(LogCombat, Log, TEXT("[DEATH] Notifying %d paired animation partners"), CachedPairedAnimComp->GetPairedPartnerCount());
+			}
+
+			// Copy array before iterating (partners will remove themselves when notified)
+			TArray<TWeakObjectPtr<AActor>> PartnersCopy = CachedPairedAnimComp->PairedAnimationPartners;
+			for (const TWeakObjectPtr<AActor>& PartnerPtr : PartnersCopy)
+			{
+				if (AActor* Partner = PartnerPtr.Get())
 				{
-					PartnerCombat->OnPairedPartnerDeath(GetOwner());
+					if (UPairedAnimationComponent* PartnerPairedComp = Partner->FindComponentByClass<UPairedAnimationComponent>())
+					{
+						PartnerPairedComp->OnPairedPartnerDeath(GetOwner());
+					}
 				}
 			}
 		}
+
+		CachedPairedAnimComp->ClearPairedPartners();
+
+		if (CachedPairedAnimComp->IsPairedAnimationActive())
+		{
+			CachedPairedAnimComp->EndPairedAnimation();
+		}
+
+		// Safety: Always restore combat input on death (prevent stuck state)
+		CachedPairedAnimComp->bBlockCombatInput = false;
 	}
-
-	// Clear our own partners list
-	ClearPairedPartners();
-
-	// If we were in a paired animation, end it
-	if (IsPairedAnimationActive())
-	{
-		EndPairedAnimation();
-	}
-
-	// Safety: Always restore combat input on death (prevent stuck state)
-	bBlockCombatInput = false;
 
 	// Clear action queue and statistics
 	ClearQueue(true);
@@ -469,6 +458,32 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 		return;
 	}
 
+	UPairedAnimationComponent* PairedAnimComp = CachedPairedAnimComp;
+	if (!PairedAnimComp)
+	{
+		PairedAnimComp = GetOwner() ? GetOwner()->FindComponentByClass<UPairedAnimationComponent>() : nullptr;
+	}
+
+	if (PairedAnimComp &&
+		EventType == EInputEventType::Press &&
+		InputType == EInputType::Block &&
+		PairedAnimComp->TryCounter())
+	{
+		return;
+	}
+
+	if (PairedAnimComp &&
+		EventType == EInputEventType::Press &&
+		(InputType == EInputType::LightAttack || InputType == EInputType::HeavyAttack) &&
+		PairedAnimComp->IsChainCounterWaitingForAttack())
+	{
+		UAttackData* ChainAttackData = GetAttackForInput(InputType);
+		if (PairedAnimComp->TryAdvanceChainCounter(ChainAttackData))
+		{
+			return;
+		}
+	}
+
 	// ============================================================================
 	// CONTEXT-AWARE DIRECTIONAL INPUT SAMPLING (Architectural Fix)
 	// ============================================================================
@@ -595,7 +610,7 @@ bool UCombatComponent::CanProcessInput(EInputType InputType) const
 {
 	// Block combat input during paired animations (finishers, counters)
 	// This prevents accidental input buffering during cinematics
-	if (bBlockCombatInput)
+	if (CachedPairedAnimComp && CachedPairedAnimComp->IsInputBlocked())
 	{
 		if (GetDebugDraw())
 		{
@@ -972,7 +987,7 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 		case EInputType::HeavyAttack:
 		{
 			// FINISHER CHECK: Before normal attack, try to execute finisher on vulnerable target
-			if (TryExecuteFinisher(Action.AttackData))
+			if (CachedPairedAnimComp && CachedPairedAnimComp->TryExecuteFinisher(Action.AttackData))
 			{
 				// Finisher was executed - don't play normal attack
 				bSuccess = true;
@@ -1060,357 +1075,6 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 	}
 
 	return bSuccess;
-}
-
-bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
-{
-	// Validate attack has finisher data
-	if (!AttackData || !AttackData->FinisherData)
-	{
-		return false;
-	}
-
-	// Get owner character (use the cached member, not a local variable)
-	ABaseCombatCharacter* AttackerCharacter = GetOwnerCharacter();
-	if (!AttackerCharacter)
-	{
-		return false;
-	}
-
-	// Get targeting component to find current target
-	UTargetingComponent* TargetingComp = AttackerCharacter->GetTargetingComponent();
-	if (!TargetingComp)
-	{
-		return false;
-	}
-
-	// Get current target - try hard-lock first, then fall back to soft-aim
-	AActor* TargetActor = TargetingComp->GetCurrentTarget();
-	if (!TargetActor)
-	{
-		// No hard-locked target - try soft-aim to find nearest enemy in facing direction
-		// This matches how normal attacks find targets via SetupAttackWarp()
-		const FVector FacingDirection = AttackerCharacter->GetActorForwardVector();
-		TargetingComp->FindBestTargetForDirection(
-			FacingDirection,
-			TargetActor,  // Out parameter
-			-1.0f,        // Use defaults
-			-1.0f,
-			-1.0f,
-			-1.0f,
-			-1.0f
-		);
-
-		if (!TargetActor)
-		{
-			// Still no target found
-			return false;
-		}
-
-		if (GetDebugDraw())
-		{
-			UE_LOG(LogCombat, Log, TEXT("[FINISHER] No hard-lock, using soft-aim target: %s"),
-				*TargetActor->GetName());
-		}
-	}
-
-	// ========================================================================
-	// FINISHER DISTANCE VALIDATION (Gap 16.2)
-	// ========================================================================
-	// Verify target is within range before executing finisher.
-	// Prevents finishers on distant targets that would look wrong.
-
-	const float DistanceToTarget = FVector::Dist(
-		AttackerCharacter->GetActorLocation(),
-		TargetActor->GetActorLocation()
-	);
-
-	// Get max finisher range from targeting settings (or use fallback)
-	float MaxFinisherRange = 500.0f;  // Fallback value
-	if (const UTargetingSettings* TargetingSettings = TargetingComp->GetEffectiveSettings())
-	{
-		// Use soft aim range as finisher range (close-range interaction)
-		MaxFinisherRange = TargetingSettings->SoftAimRange;
-	}
-
-	if (DistanceToTarget > MaxFinisherRange)
-	{
-		if (GetDebugDraw())
-		{
-			UE_LOG(LogCombat, Log, TEXT("[FINISHER] Target %s too far: %.1f > %.1f (max range)"),
-				*TargetActor->GetName(), DistanceToTarget, MaxFinisherRange);
-		}
-		return false;
-	}
-
-	// ========================================================================
-	// GAP 19.6 FIX: Validate path is clear before executing finisher
-	// ========================================================================
-	// Prevents finisher from executing if there's an obstacle between attacker and victim.
-	// Uses sweep trace with clearance radius to detect blocking geometry.
-
-	TArray<AActor*> ActorsToIgnore;
-	ActorsToIgnore.Add(GetOwner());
-	ActorsToIgnore.Add(TargetActor);
-
-	const float PathClearanceRadius = 30.0f;  // Capsule sweep radius
-	if (!UPairedAnimationUtilityLibrary::IsPathClear(
-		GetWorld(),
-		AttackerCharacter->GetActorLocation(),
-		TargetActor->GetActorLocation(),
-		PathClearanceRadius,
-		ActorsToIgnore))
-	{
-		if (GetDebugDraw())
-		{
-			UE_LOG(LogCombat, Log, TEXT("[FINISHER] Path to target %s is blocked by obstacle"),
-				*TargetActor->GetName());
-		}
-		return false;
-	}
-
-	// Get target's hit reaction component
-	UHitReactionComponent* TargetHitReaction = TargetActor->FindComponentByClass<UHitReactionComponent>();
-	if (!TargetHitReaction)
-	{
-		return false;
-	}
-
-	// Check if target is vulnerable to finisher
-	if (!TargetHitReaction->IsVulnerableToFinisher())
-	{
-		return false;
-	}
-
-	// Get finisher trigger reason for logging/context
-	EFinisherTriggerReason TriggerReason = TargetHitReaction->GetFinisherTriggerReason();
-
-	// Always log finisher execution for diagnostics (this is a major combat event)
-	{
-		ABaseCombatCharacter* TargetCombatChar = Cast<ABaseCombatCharacter>(TargetActor);
-		UE_LOG(LogCombat, Warning, TEXT("[FINISHER] EXECUTING on %s — Reason: %s, Health: %.1f/%.1f, Stunned: %s, Staggered: %s, IsDying: %s"),
-			*TargetActor->GetName(),
-			*UEnum::GetValueAsString(TriggerReason),
-			TargetCombatChar ? TargetCombatChar->CurrentHealth : -1.0f,
-			TargetCombatChar ? TargetCombatChar->MaxHealth : -1.0f,
-			TargetHitReaction->IsStunned() ? TEXT("YES") : TEXT("NO"),
-			TargetHitReaction->IsStaggered() ? TEXT("YES") : TEXT("NO"),
-			TargetCombatChar ? (TargetCombatChar->IsDeadOrDying() ? TEXT("YES") : TEXT("NO")) : TEXT("N/A"));
-	}
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[FINISHER] ═══════════════════════════════════════"));
-		UE_LOG(LogCombat, Log, TEXT("[FINISHER] Executing finisher: %s"), *AttackData->FinisherData->GetDisplayName());
-		UE_LOG(LogCombat, Log, TEXT("[FINISHER] Target: %s"), *TargetActor->GetName());
-		UE_LOG(LogCombat, Log, TEXT("[FINISHER] Trigger Reason: %s"), *UEnum::GetValueAsString(TriggerReason));
-	}
-
-	// ========================================================================
-	// GAP 18.1 FIX: Track execution success and rollback on failure
-	// ========================================================================
-	bool bAttackerMontageSuccess = false;
-	bool bVictimMontageSuccess = false;
-
-	// Get target's combat component for partner tracking
-	UCombatComponent* TargetCombatComp = TargetActor->FindComponentByClass<UCombatComponent>();
-
-	// Enter paired animation state on victim — suppresses all reactions, marks as finisher
-	// target, and (for lethal finishers) registers the victim montage as the death montage.
-	// This is a single lifecycle call that replaces separate SetFinisherTarget + SetupPendingDeath.
-	// Will rollback via ExitPairedAnimationState if montage execution fails.
-	TargetHitReaction->EnterPairedAnimationState(
-		AttackData->FinisherData->VictimMontage,
-		AttackData->FinisherData->VictimDeathOutcome,
-		AttackData->FinisherData->RagdollBlendTime,
-		AttackData->FinisherData->bIsLethal,
-		GetOwner());  // Pass attacker as partner — their damage passes through
-
-	// Store victim reference for damage application at completion
-	CurrentFinisherVictim = TargetActor;
-
-	// Add each other as paired animation partners
-	AddPairedPartner(TargetActor);
-	if (TargetCombatComp)
-	{
-		TargetCombatComp->AddPairedPartner(GetOwner());
-	}
-
-	// Begin paired animation effects (slow-mo, etc.)
-	BeginPairedAnimation(AttackData->FinisherData, EPairedReactionType::Finisher, true);
-
-	// Play attacker montage
-	ACharacter* AttackerChar = Cast<ACharacter>(AttackerCharacter);
-	if (AttackerChar && AttackData->FinisherData->AttackerMontage)
-	{
-		UAnimInstance* AttackerAnimInstance = AttackerChar->GetMesh() ? AttackerChar->GetMesh()->GetAnimInstance() : nullptr;
-		if (AttackerAnimInstance)
-		{
-			const float MontageLength = AttackerAnimInstance->Montage_Play(
-				AttackData->FinisherData->AttackerMontage,
-				1.0f,
-				EMontagePlayReturnType::MontageLength,
-				0.0f,
-				true
-			);
-
-			bAttackerMontageSuccess = (MontageLength > 0.0f);
-
-			if (bAttackerMontageSuccess)
-			{
-				// GAP 3.3: Jump to specific section if configured
-				if (!AttackData->FinisherData->AttackerMontageSection.IsNone())
-				{
-					AttackerAnimInstance->Montage_JumpToSection(
-						AttackData->FinisherData->AttackerMontageSection,
-						AttackData->FinisherData->AttackerMontage
-					);
-					// Prevent looping back to earlier sections
-					AttackerAnimInstance->Montage_SetNextSection(
-						AttackData->FinisherData->AttackerMontageSection,
-						NAME_None,
-						AttackData->FinisherData->AttackerMontage
-					);
-				}
-
-				// Set up attacker paired warp (continuous tracking toward victim)
-				// Uses TargetingComponent's paired warp system for:
-				// - Continuous position updates each frame (tracks moving victim)
-				// - Automatic terrain adjustment
-				// - Partner registration for collision ignore
-				// - Symmetric with victim's SetupVictimWarp
-				TargetingComp->SetupAttackerPairedWarp(TargetActor, AttackData->FinisherData->AttackerWarpConfig);
-
-				// Set combat state to Finishing
-				SetPhase(EAttackPhase::Active);
-
-				if (GetDebugDraw())
-				{
-					FString SectionInfo = AttackData->FinisherData->AttackerMontageSection.IsNone()
-						? TEXT("(full)")
-						: *AttackData->FinisherData->AttackerMontageSection.ToString();
-					UE_LOG(LogCombat, Log, TEXT("[FINISHER] Attacker montage playing: %s Section: %s"),
-						*AttackData->FinisherData->AttackerMontage->GetName(), *SectionInfo);
-				}
-			}
-		}
-	}
-
-	// Play victim montage
-	ACharacter* VictimChar = Cast<ACharacter>(TargetActor);
-	if (VictimChar && AttackData->FinisherData->VictimMontage)
-	{
-		UAnimInstance* VictimAnimInstance = VictimChar->GetMesh() ? VictimChar->GetMesh()->GetAnimInstance() : nullptr;
-		if (VictimAnimInstance)
-		{
-			// Calculate victim start delay
-			float StartPosition = FMath::Max(0.0f, -AttackData->FinisherData->VictimStartOffset);
-
-			const float MontageLength = VictimAnimInstance->Montage_Play(
-				AttackData->FinisherData->VictimMontage,
-				1.0f,
-				EMontagePlayReturnType::MontageLength,
-				StartPosition,
-				true
-			);
-
-			bVictimMontageSuccess = (MontageLength > 0.0f);
-
-			if (bVictimMontageSuccess)
-			{
-				// GAP 3.3: Jump to specific section if configured
-				if (!AttackData->FinisherData->VictimMontageSection.IsNone())
-				{
-					VictimAnimInstance->Montage_JumpToSection(
-						AttackData->FinisherData->VictimMontageSection,
-						AttackData->FinisherData->VictimMontage
-					);
-					// Prevent looping back to earlier sections
-					VictimAnimInstance->Montage_SetNextSection(
-						AttackData->FinisherData->VictimMontageSection,
-						NAME_None,
-						AttackData->FinisherData->VictimMontage
-					);
-				}
-
-				// Set up victim warp to attacker
-				if (UTargetingComponent* VictimTargeting = TargetActor->FindComponentByClass<UTargetingComponent>())
-				{
-					VictimTargeting->SetupVictimWarp(GetOwner(), AttackData->FinisherData->VictimWarpConfig);
-				}
-
-				// NOTE: Pending death state was already set up by EnterPairedAnimationState() above.
-				// No separate SetupPendingDeathFromFinisher call needed.
-
-				if (GetDebugDraw())
-				{
-					FString SectionInfo = AttackData->FinisherData->VictimMontageSection.IsNone()
-						? TEXT("(full)")
-						: *AttackData->FinisherData->VictimMontageSection.ToString();
-					UE_LOG(LogCombat, Log, TEXT("[FINISHER] Victim montage playing: %s Section: %s (StartPos: %.2f)"),
-						*AttackData->FinisherData->VictimMontage->GetName(), *SectionInfo, StartPosition);
-				}
-			}
-		}
-	}
-
-	// ========================================================================
-	// GAP 18.1 FIX: Rollback state if either montage failed
-	// ========================================================================
-	if (!bAttackerMontageSuccess || !bVictimMontageSuccess)
-	{
-		UE_LOG(LogCombat, Warning, TEXT("[FINISHER] Execution failed - rolling back (Attacker: %s, Victim: %s)"),
-			bAttackerMontageSuccess ? TEXT("OK") : TEXT("FAILED"),
-			bVictimMontageSuccess ? TEXT("OK") : TEXT("FAILED"));
-
-		// Exit paired animation state (clears suppression, finisher target, death handling)
-		TargetHitReaction->ExitPairedAnimationState();
-
-		// Clear victim reference
-		CurrentFinisherVictim.Reset();
-
-		// Clear partners
-		ClearPairedPartners();
-		if (TargetCombatComp)
-		{
-			TargetCombatComp->ClearPairedPartners();
-		}
-
-		// End effects (restores time dilation)
-		EndPairedAnimation();
-
-		// Stop any partial montages
-		if (bAttackerMontageSuccess && AttackerChar && AttackerChar->GetMesh())
-		{
-			if (UAnimInstance* AnimInst = AttackerChar->GetMesh()->GetAnimInstance())
-			{
-				AnimInst->Montage_Stop(0.1f);
-			}
-		}
-		if (bVictimMontageSuccess && VictimChar && VictimChar->GetMesh())
-		{
-			if (UAnimInstance* AnimInst = VictimChar->GetMesh()->GetAnimInstance())
-			{
-				AnimInst->Montage_Stop(0.1f);
-			}
-		}
-
-		// Clear warp tracking
-		TargetingComp->ClearAttackerPairedWarp();
-		if (UTargetingComponent* VictimTargeting = TargetActor->FindComponentByClass<UTargetingComponent>())
-		{
-			VictimTargeting->ClearVictimWarp();
-		}
-
-		return false;
-	}
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[FINISHER] ═══════════════════════════════════════"));
-	}
-
-	return true;
 }
 
 bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
@@ -1751,515 +1415,6 @@ void UCombatComponent::RegisterCheckpoint(EActionWindowType WindowType, float St
 			StartTime,
 			Duration);
 	}
-}
-
-void UCombatComponent::SetCounterWindowData(EAttackType InAttackType, ESwingDirection InSwingDirection,
-                                             UPairedAnimationData* InCounterData, float InWindowDuration)
-{
-	bCounterWindowActive = true;
-
-	CounterWindowData.Attacker = GetOwner();
-	CounterWindowData.AttackType = InAttackType;
-	CounterWindowData.SwingDirection = InSwingDirection;
-	CounterWindowData.SpecificCounterData = InCounterData;
-	CounterWindowData.TimeInWindow = 0.0f;
-	CounterWindowData.WindowDuration = InWindowDuration;
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[COUNTER] Counter window opened: Type=%s, Swing=%s, Duration=%.2f"),
-			*UEnum::GetValueAsString(InAttackType),
-			*UEnum::GetValueAsString(InSwingDirection),
-			InWindowDuration);
-	}
-}
-
-void UCombatComponent::ClearCounterWindowData()
-{
-	if (bCounterWindowActive && GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[COUNTER] Counter window closed"));
-	}
-
-	bCounterWindowActive = false;
-	CounterWindowData.Reset();
-}
-
-// ============================================================================
-// COUNTER SYSTEM API
-// ============================================================================
-
-bool UCombatComponent::TryCounter()
-{
-	if (!CanCounter())
-	{
-		return false;
-	}
-
-	AActor* Target = FindCounterableEnemy();
-	if (!Target)
-	{
-		UE_LOG(LogCombat, Verbose, TEXT("[COUNTER] TryCounter failed: No counterable enemy found"));
-		return false;
-	}
-
-	// Get the enemy's counter context for pose-matching
-	FCounterContext Context = GetEnemyCounterContext(Target);
-	if (!Context.Attacker)
-	{
-		UE_LOG(LogCombat, Warning, TEXT("[COUNTER] TryCounter failed: Invalid counter context"));
-		return false;
-	}
-
-	// Route to appropriate mode
-	switch (CounterMode)
-	{
-	case ECounterSystemMode::AC3:
-		UE_LOG(LogCombat, Log, TEXT("[COUNTER] Executing AC3 counter-kill against %s"), *Target->GetName());
-		return TryCounter_AC3Mode(Context);
-
-	case ECounterSystemMode::Chain:
-		UE_LOG(LogCombat, Log, TEXT("[COUNTER] Executing Chain parry against %s"), *Target->GetName());
-		return TryCounter_ChainMode(Context);
-
-	default:
-		return false;
-	}
-}
-
-bool UCombatComponent::CanCounter() const
-{
-	// Must be in a state that allows countering
-	ECombatState State = ICombatInterface::Execute_GetCombatState(GetOwner());
-	if (State != ECombatState::Idle && State != ECombatState::Blocking)
-	{
-		return false;
-	}
-
-	// Must not be in a paired animation
-	if (bCompletingPairedAnimation || bBlockCombatInput)
-	{
-		return false;
-	}
-
-	// Chain mode: Check chain state allows countering
-	if (CounterMode == ECounterSystemMode::Chain)
-	{
-		// Can only initiate counter from None state (not mid-chain)
-		if (ChainState != EChainCounterState::None)
-		{
-			return false;
-		}
-		// Chain mode: Look for parryable enemies (parry window, not counter window)
-		return FindParryableEnemy() != nullptr;
-	}
-
-	// AC3 mode: Must have a counterable enemy nearby (counter window)
-	return FindCounterableEnemy() != nullptr;
-}
-
-AActor* UCombatComponent::FindCounterableEnemy() const
-{
-	AActor* Owner = GetOwner();
-	if (!Owner)
-	{
-		return nullptr;
-	}
-
-	// Use targeting component to get soft-lock range
-	UTargetingComponent* Targeting = Owner->FindComponentByClass<UTargetingComponent>();
-	float SearchRange = 400.0f; // Default fallback
-	if (Targeting)
-	{
-		// Use SoftAimRange from targeting settings
-		if (const UTargetingSettings* Settings = Targeting->GetEffectiveSettings())
-		{
-			SearchRange = Settings->SoftAimRange;
-		}
-	}
-
-	// Get all nearby actors
-	TArray<FOverlapResult> Overlaps;
-	FCollisionQueryParams QueryParams;
-	QueryParams.AddIgnoredActor(Owner);
-
-	Owner->GetWorld()->OverlapMultiByChannel(
-		Overlaps,
-		Owner->GetActorLocation(),
-		FQuat::Identity,
-		ECC_Pawn,
-		FCollisionShape::MakeSphere(SearchRange),
-		QueryParams
-	);
-
-	AActor* BestTarget = nullptr;
-	float BestDistance = FLT_MAX;
-
-	for (const FOverlapResult& Overlap : Overlaps)
-	{
-		AActor* OtherActor = Overlap.GetActor();
-		if (!OtherActor)
-		{
-			continue;
-		}
-
-		// Check if this is an enemy (different team)
-		if (OtherActor->Implements<UTeamMemberInterface>() && Owner->Implements<UTeamMemberInterface>())
-		{
-			ETeamId OtherTeam = ITeamMemberInterface::Execute_GetTeamId(OtherActor);
-			ETeamId MyTeam = ITeamMemberInterface::Execute_GetTeamId(Owner);
-			if (OtherTeam == MyTeam)
-			{
-				continue; // Same team, skip
-			}
-		}
-
-		// Check if enemy has an active counter window
-		UCombatComponent* EnemyCombat = OtherActor->FindComponentByClass<UCombatComponent>();
-		if (!EnemyCombat || !EnemyCombat->IsInCounterWindow())
-		{
-			continue;
-		}
-
-		// Track closest counterable enemy
-		float Distance = FVector::Dist(Owner->GetActorLocation(), OtherActor->GetActorLocation());
-		if (Distance < BestDistance)
-		{
-			BestDistance = Distance;
-			BestTarget = OtherActor;
-		}
-	}
-
-	return BestTarget;
-}
-
-FCounterContext UCombatComponent::GetEnemyCounterContext(AActor* Enemy) const
-{
-	FCounterContext Context;
-
-	if (!Enemy)
-	{
-		return Context;
-	}
-
-	UCombatComponent* EnemyCombat = Enemy->FindComponentByClass<UCombatComponent>();
-	if (!EnemyCombat || !EnemyCombat->IsInCounterWindow())
-	{
-		return Context;
-	}
-
-	// Copy the enemy's counter window data
-	Context = EnemyCombat->GetCounterWindowData();
-
-	// Update timing info based on current time
-	// (TimeInWindow should be updated by the caller if needed for perfect timing checks)
-
-	return Context;
-}
-
-// ============================================================================
-// PARRY WINDOW
-// ============================================================================
-
-void UCombatComponent::SetParryWindowActive(bool bActive)
-{
-	if (bParryWindowActive == bActive)
-	{
-		return;
-	}
-
-	bParryWindowActive = bActive;
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[PARRY] Parry window %s on %s"),
-			bActive ? TEXT("OPENED") : TEXT("CLOSED"),
-			GetOwner() ? *GetOwner()->GetName() : TEXT("None"));
-	}
-}
-
-AActor* UCombatComponent::FindParryableEnemy() const
-{
-	AActor* Owner = GetOwner();
-	if (!Owner)
-	{
-		return nullptr;
-	}
-
-	// Use targeting component to get soft-lock range
-	UTargetingComponent* Targeting = Owner->FindComponentByClass<UTargetingComponent>();
-	float SearchRange = 400.0f;
-	if (Targeting)
-	{
-		if (const UTargetingSettings* Settings = Targeting->GetEffectiveSettings())
-		{
-			SearchRange = Settings->SoftAimRange;
-		}
-	}
-
-	TArray<FOverlapResult> Overlaps;
-	FCollisionQueryParams QueryParams;
-	QueryParams.AddIgnoredActor(Owner);
-
-	Owner->GetWorld()->OverlapMultiByChannel(
-		Overlaps,
-		Owner->GetActorLocation(),
-		FQuat::Identity,
-		ECC_Pawn,
-		FCollisionShape::MakeSphere(SearchRange),
-		QueryParams
-	);
-
-	AActor* BestTarget = nullptr;
-	float BestDistance = FLT_MAX;
-
-	for (const FOverlapResult& Overlap : Overlaps)
-	{
-		AActor* OtherActor = Overlap.GetActor();
-		if (!OtherActor)
-		{
-			continue;
-		}
-
-		// Check if enemy (different team)
-		if (OtherActor->Implements<UTeamMemberInterface>() && Owner->Implements<UTeamMemberInterface>())
-		{
-			ETeamId OtherTeam = ITeamMemberInterface::Execute_GetTeamId(OtherActor);
-			ETeamId MyTeam = ITeamMemberInterface::Execute_GetTeamId(Owner);
-			if (OtherTeam == MyTeam)
-			{
-				continue;
-			}
-		}
-
-		// Check if enemy has an active PARRY window (not counter window)
-		UCombatComponent* EnemyCombat = OtherActor->FindComponentByClass<UCombatComponent>();
-		if (!EnemyCombat || !EnemyCombat->IsInParryWindow())
-		{
-			continue;
-		}
-
-		float Distance = FVector::Dist(Owner->GetActorLocation(), OtherActor->GetActorLocation());
-		if (Distance < BestDistance)
-		{
-			BestDistance = Distance;
-			BestTarget = OtherActor;
-		}
-	}
-
-	return BestTarget;
-}
-
-// ============================================================================
-// COUNTER SYSTEM IMPLEMENTATIONS
-// ============================================================================
-
-bool UCombatComponent::TryCounter_AC3Mode(const FCounterContext& Context)
-{
-	AActor* Owner = GetOwner();
-	if (!Owner || !Context.Attacker)
-	{
-		return false;
-	}
-
-	// AC3 Mode: Instant counter-kill via paired animation
-	// 1. Apply slow-mo
-	UWorld* World = GetWorld();
-	if (World)
-	{
-		UCinematicEffectsUtilityLibrary::ApplySlowMotion(World, 0.2f);
-	}
-
-	// 2. Try to execute as paired animation (reuse finisher infrastructure)
-	// If counter data is specified on the notify, use that animation
-	if (Context.SpecificCounterData)
-	{
-		UE_LOG(LogCombat, Log, TEXT("[COUNTER-AC3] Using specific counter animation: %s"),
-			*Context.SpecificCounterData->GetName());
-
-		// TODO: Wire SpecificCounterData (UPairedAnimationData*) into the finisher path.
-		// Currently TryExecuteFinisher takes UAttackData* and reads its FinisherData field.
-		// Need a TryExecuteFinisher overload that accepts UPairedAnimationData* directly,
-		// or attach SpecificCounterData to a transient UAttackData wrapper.
-		// For now, fall through to direct damage path below.
-	}
-
-	// 3. No specific counter data — stagger enemy and apply lethal damage directly
-	if (ABaseCombatCharacter* EnemyChar = Cast<ABaseCombatCharacter>(Context.Attacker.Get()))
-	{
-		// Stagger the enemy
-		if (UHitReactionComponent* EnemyHitReact = EnemyChar->FindComponentByClass<UHitReactionComponent>())
-		{
-			EnemyHitReact->ApplyStagger(2.0f);
-		}
-
-		// Apply lethal damage — direction is FROM attacker TO victim (hit travels toward enemy)
-		FHitReactionInfo HitInfo;
-		HitInfo.Attacker = Owner;
-		HitInfo.HitDirection = (Context.Attacker->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
-		HitInfo.Damage = IDamageableInterface::Execute_GetCurrentHealth(Context.Attacker.Get()) + 1.0f;
-		HitInfo.bWasCounter = true;
-		HitInfo.PhaseWhenHit = EAttackPhase::Active;
-		HitInfo.ImpactPoint = Context.Attacker->GetActorLocation();
-
-		IDamageableInterface::Execute_ApplyDamage(Context.Attacker.Get(), HitInfo);
-
-		// Restore time dilation after direct counter-kill (no paired animation to manage it)
-		if (World)
-		{
-			UCinematicEffectsUtilityLibrary::RestoreTimeDilation(World);
-		}
-
-		UE_LOG(LogCombat, Log, TEXT("[COUNTER-AC3] Counter-kill applied to %s"), *Context.Attacker->GetName());
-		return true;
-	}
-
-	// Failed to find valid target — restore time dilation
-	if (World)
-	{
-		UCinematicEffectsUtilityLibrary::RestoreTimeDilation(World);
-	}
-	return false;
-}
-
-bool UCombatComponent::TryCounter_ChainMode(const FCounterContext& Context)
-{
-	AActor* Owner = GetOwner();
-	if (!Owner || !Context.Attacker)
-	{
-		return false;
-	}
-
-	// Chain Mode Step 1: Parry
-	// The enemy must be in their PARRY window (or counter window)
-	// We deflect their attack and open a counter window on ourselves
-
-	// Transition to ParryActive state
-	// TODO: When parry animations are available, play parry montage here and wait for
-	// montage completion before transitioning to CounterWindow. Currently transitions
-	// immediately since no parry animation exists yet.
-	ChainState = EChainCounterState::ParryActive;
-
-	// Notify the enemy that their attack was parried
-	if (Context.Attacker->Implements<UDamageableInterface>())
-	{
-		IDamageableInterface::Execute_OnAttackParried(Context.Attacker.Get(), Owner);
-	}
-
-	// Stagger the enemy briefly
-	if (ABaseCombatCharacter* EnemyChar = Cast<ABaseCombatCharacter>(Context.Attacker.Get()))
-	{
-		if (UHitReactionComponent* EnemyHitReact = EnemyChar->FindComponentByClass<UHitReactionComponent>())
-		{
-			EnemyHitReact->ApplyStagger(2.0f); // 2s stagger to allow counter chain
-		}
-	}
-
-	// Apply slow-mo for cinematic feel
-	if (UWorld* World = GetWorld())
-	{
-		UCinematicEffectsUtilityLibrary::ApplySlowMotion(World, 0.3f);
-	}
-
-	// Transition to CounterWindow state — player can now press attack for counter
-	ChainState = EChainCounterState::CounterWindow;
-
-	// Set timeout: player has 2s to press attack for the counter
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimer(
-			ChainTimeoutHandle,
-			this,
-			&UCombatComponent::OnChainTimeout,
-			2.0f,
-			false
-		);
-	}
-
-	UE_LOG(LogCombat, Log, TEXT("[COUNTER-CHAIN] Parry successful! Player is now in Countering state. Press attack to continue chain."));
-	return true;
-}
-
-bool UCombatComponent::ExecuteChainCounterAttack()
-{
-	if (ChainState != EChainCounterState::CounterWindow)
-	{
-		return false;
-	}
-
-	// Clear timeout
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(ChainTimeoutHandle);
-	}
-
-	// Transition to CounterActive
-	ChainState = EChainCounterState::CounterActive;
-
-	// TODO: Play counter attack montage when counter animations are available
-	// For now, transition directly to finishing state
-	ChainState = EChainCounterState::FinisherReady;
-
-	UE_LOG(LogCombat, Log, TEXT("[COUNTER-CHAIN] Counter attack executed! Transitioning to finisher."));
-
-	return ExecuteChainFinisher();
-}
-
-bool UCombatComponent::ExecuteChainFinisher()
-{
-	if (ChainState != EChainCounterState::FinisherReady)
-	{
-		return false;
-	}
-
-	// Execute finisher using existing infrastructure
-	bool bSuccess = TryExecuteFinisher(CurrentAttackData);
-
-	// Reset chain state
-	ChainState = EChainCounterState::None;
-
-	if (bSuccess)
-	{
-		UE_LOG(LogCombat, Log, TEXT("[COUNTER-CHAIN] Chain finisher executed successfully!"));
-	}
-	else
-	{
-		UE_LOG(LogCombat, Warning, TEXT("[COUNTER-CHAIN] Chain finisher failed - no valid target or animation"));
-	}
-
-	return bSuccess;
-}
-
-void UCombatComponent::CancelChainCounter()
-{
-	if (ChainState == EChainCounterState::None)
-	{
-		return;
-	}
-
-	EChainCounterState PrevState = ChainState;
-	ChainState = EChainCounterState::None;
-
-	// Clear timeout
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(ChainTimeoutHandle);
-	}
-
-	// Restore time dilation if we applied slow-mo
-	if (UWorld* World = GetWorld())
-	{
-		UCinematicEffectsUtilityLibrary::RestoreTimeDilation(World);
-	}
-
-	UE_LOG(LogCombat, Log, TEXT("[COUNTER-CHAIN] Chain cancelled from state %s"),
-		*UEnum::GetValueAsString(PrevState));
-}
-
-void UCombatComponent::OnChainTimeout()
-{
-	UE_LOG(LogCombat, Log, TEXT("[COUNTER-CHAIN] Chain timed out!"));
-	CancelChainCounter();
 }
 
 // ============================================================================
@@ -2958,10 +2113,11 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 	// The attack state machine filter below would reject finisher montage callbacks
 	// because they don't match ActiveMontage. Process paired animation completion
 	// BEFORE filtering to ensure finishers complete properly.
-	if (IsPairedAnimationActive() && ActivePairedAnimData && Montage)
+	UPairedAnimationData* PairedAnimData = CachedPairedAnimComp ? CachedPairedAnimComp->ActivePairedAnimData : nullptr;
+	if (IsPairedAnimationActive() && PairedAnimData && Montage)
 	{
 		// Check if this is the attacker's finisher/counter montage
-		if (Montage == ActivePairedAnimData->AttackerMontage)
+		if (Montage == PairedAnimData->AttackerMontage)
 		{
 			if (!bInterrupted)
 			{
@@ -4114,648 +3270,175 @@ bool UCombatComponent::ShouldUseDashedArrowForInput() const
 
 #endif // WITH_AUTOMATION_TESTS
 
+
 // ============================================================================
-// PAIRED ANIMATION PARTNER TRACKING
+// FORWARDING WRAPPERS (delegate to UPairedAnimationComponent)
 // ============================================================================
+
+bool UCombatComponent::IsInCounterWindow() const
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->IsInCounterWindow() : false;
+}
+
+float UCombatComponent::GetCounterWindowProgress() const
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->GetCounterWindowProgress() : 0.0f;
+}
+
+const FCounterContext& UCombatComponent::GetCounterWindowData() const
+{
+	static const FCounterContext DefaultContext;
+	return CachedPairedAnimComp ? CachedPairedAnimComp->GetCounterWindowData() : DefaultContext;
+}
+
+void UCombatComponent::SetCounterWindowData(EAttackType InAttackType, ESwingDirection InSwingDirection,
+											 UPairedAnimationData* InCounterData, float InWindowDuration)
+{
+	if (CachedPairedAnimComp)
+	{
+		CachedPairedAnimComp->SetCounterWindowData(InAttackType, InSwingDirection, InCounterData, InWindowDuration);
+	}
+}
+
+bool UCombatComponent::IsInParryWindow() const
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->IsInParryWindow() : false;
+}
+
+void UCombatComponent::SetParryWindowActive(bool bActive)
+{
+	if (CachedPairedAnimComp)
+	{
+		CachedPairedAnimComp->SetParryWindowActive(bActive);
+	}
+}
+
+void UCombatComponent::ClearCounterWindowData()
+{
+	if (CachedPairedAnimComp)
+	{
+		CachedPairedAnimComp->ClearCounterWindowData();
+	}
+}
+
+bool UCombatComponent::TryCounter()
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->TryCounter() : false;
+}
+
+bool UCombatComponent::CanCounter() const
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->CanCounter() : false;
+}
+
+AActor* UCombatComponent::FindCounterableEnemy() const
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->FindCounterableEnemy() : nullptr;
+}
+
+FCounterContext UCombatComponent::GetEnemyCounterContext(AActor* Enemy) const
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->GetEnemyCounterContext(Enemy) : FCounterContext();
+}
+
+AActor* UCombatComponent::FindParryableEnemy() const
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->FindParryableEnemy() : nullptr;
+}
+
+bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->TryExecuteFinisher(AttackData) : false;
+}
 
 void UCombatComponent::AddPairedPartner(AActor* Partner)
 {
-	if (!Partner)
+	if (CachedPairedAnimComp)
 	{
-		return;
-	}
-
-	// Check if already tracked (avoid duplicates)
-	for (const TWeakObjectPtr<AActor>& Existing : PairedAnimationPartners)
-	{
-		if (Existing.Get() == Partner)
-		{
-			return;  // Already tracked
-		}
-	}
-
-	PairedAnimationPartners.Add(Partner);
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED] Added partner: %s (Total: %d)"),
-			*Partner->GetName(), PairedAnimationPartners.Num());
+		CachedPairedAnimComp->AddPairedPartner(Partner);
 	}
 }
 
 void UCombatComponent::RemovePairedPartner(AActor* Partner)
 {
-	if (!Partner)
+	if (CachedPairedAnimComp)
 	{
-		return;
-	}
-
-	for (int32 i = PairedAnimationPartners.Num() - 1; i >= 0; --i)
-	{
-		if (PairedAnimationPartners[i].Get() == Partner)
-		{
-			PairedAnimationPartners.RemoveAt(i);
-
-			if (GetDebugDraw())
-			{
-				UE_LOG(LogCombat, Log, TEXT("[PAIRED] Removed partner: %s (Remaining: %d)"),
-					*Partner->GetName(), PairedAnimationPartners.Num());
-			}
-			return;
-		}
+		CachedPairedAnimComp->RemovePairedPartner(Partner);
 	}
 }
 
 void UCombatComponent::ClearPairedPartners()
 {
-	const int32 Count = PairedAnimationPartners.Num();
-	PairedAnimationPartners.Empty();
-
-	if (GetDebugDraw() && Count > 0)
+	if (CachedPairedAnimComp)
 	{
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED] Cleared all partners (was %d)"), Count);
+		CachedPairedAnimComp->ClearPairedPartners();
 	}
 }
 
 bool UCombatComponent::IsPairedPartner(AActor* Actor) const
 {
-	if (!Actor)
-	{
-		return false;
-	}
-
-	for (const TWeakObjectPtr<AActor>& Partner : PairedAnimationPartners)
-	{
-		if (Partner.Get() == Actor)
-		{
-			return true;
-		}
-	}
-
-	return false;
+	return CachedPairedAnimComp ? CachedPairedAnimComp->IsPairedPartner(Actor) : false;
 }
 
-// ============================================================================
-// PAIRED ANIMATION EFFECT HANDLING
-// ============================================================================
+int32 UCombatComponent::GetPairedPartnerCount() const
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->GetPairedPartnerCount() : 0;
+}
+
+bool UCombatComponent::IsInputBlocked() const
+{
+	return CachedPairedAnimComp ? CachedPairedAnimComp->IsInputBlocked() : false;
+}
 
 void UCombatComponent::BeginPairedAnimation(UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType, bool bIsCriticalMoment)
 {
-	if (!PairedAnimData)
+	if (CachedPairedAnimComp)
 	{
-		UE_LOG(LogCombat, Warning, TEXT("[PAIRED EFFECTS] BeginPairedAnimation called with null PairedAnimData"));
-		return;
-	}
-
-	// Store active paired animation data for effect handlers
-	ActivePairedAnimData = PairedAnimData;
-	ActivePairedReactionType = ReactionType;
-
-	// Block combat input during paired animation (prevents accidental buffering)
-	bBlockCombatInput = true;
-
-	// Apply slow motion if configured
-	if (bIsCriticalMoment && PairedAnimData->bApplySlowMotion)
-	{
-		// Apply slow motion via utility library
-		UCinematicEffectsUtilityLibrary::ApplySlowMotion(GetWorld(), PairedAnimData->SlowMotionScale);
-
-		// Set up restoration timer as safeguard against permanent slow-mo
-		if (UWorld* World = GetWorld())
-		{
-			// Clear any existing timer first
-			if (SlowMotionRestoreHandle.IsValid())
-			{
-				World->GetTimerManager().ClearTimer(SlowMotionRestoreHandle);
-			}
-
-			// Set timer for restoration
-			World->GetTimerManager().SetTimer(
-				SlowMotionRestoreHandle,
-				this,
-				&UCombatComponent::OnSlowMotionTimerExpired,
-				PairedAnimData->SlowMotionDuration,
-				false
-			);
-
-			if (GetDebugDraw())
-			{
-				UE_LOG(LogCombat, Log, TEXT("[PAIRED EFFECTS] Slow motion applied: Scale=%.2f, Duration=%.2fs"),
-					PairedAnimData->SlowMotionScale, PairedAnimData->SlowMotionDuration);
-			}
-		}
-	}
-
-	// Broadcast delegate for external systems
-	OnPairedAnimationStarted.Broadcast(ReactionType, bIsCriticalMoment);
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED EFFECTS] Started paired animation: %s (Type: %d, Critical: %d, SlowMo: %d)"),
-			*PairedAnimData->GetDisplayName(),
-			static_cast<int32>(ReactionType),
-			bIsCriticalMoment,
-			PairedAnimData->bApplySlowMotion);
+		CachedPairedAnimComp->BeginPairedAnimation(PairedAnimData, ReactionType, bIsCriticalMoment);
 	}
 }
 
 void UCombatComponent::EndPairedAnimation()
 {
-	// Capture reaction type before clearing (needed for delegate)
-	const EPairedReactionType ReactionType = ActivePairedReactionType;
-
-	// Clear the restoration timer if it's running
-	if (SlowMotionRestoreHandle.IsValid())
+	if (CachedPairedAnimComp)
 	{
-		if (UWorld* World = GetWorld())
-		{
-			World->GetTimerManager().ClearTimer(SlowMotionRestoreHandle);
-		}
-	}
-
-	// Ensure time dilation is restored (safeguard)
-	UCinematicEffectsUtilityLibrary::RestoreTimeDilation(GetWorld());
-
-	// Clear active paired animation data
-	ActivePairedAnimData = nullptr;
-	ActivePairedReactionType = EPairedReactionType::None;
-
-	// Restore combat input
-	bBlockCombatInput = false;
-
-	// ========================================================================
-	// BUG-1 FIX: EXPLICIT MOVEMENT RESTORATION
-	// ========================================================================
-	// AnimNotifyState_PairedAnimationCollision disables movement via DisableMovement()
-	// but doesn't update CombatComponent's bMovementCurrentlyDisabled flag.
-	// UpdateMovementFromMontageState() only restores movement if the flag is true,
-	// causing movement to remain disabled after finishers.
-	//
-	// Fix: Explicitly restore movement mode and clear the flag here, regardless
-	// of whether the flag thinks movement is disabled.
-	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
-	{
-		if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
-		{
-			// Check if movement is actually disabled (mode is MOVE_None)
-			if (MovementComp->MovementMode == MOVE_None)
-			{
-				MovementComp->SetMovementMode(MOVE_Walking);
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED EFFECTS] Restored movement mode (was MOVE_None)"));
-				}
-			}
-		}
-
-		// Always clear the tracking flag to ensure consistency
-		bMovementCurrentlyDisabled = false;
-	}
-
-	// Broadcast delegate for external systems
-	OnPairedAnimationEnded.Broadcast(ReactionType);
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED EFFECTS] Ended paired animation (Type: %d)"),
-			static_cast<int32>(ReactionType));
+		CachedPairedAnimComp->EndPairedAnimation();
 	}
 }
 
 void UCombatComponent::TriggerSyncPointEffects(FName SyncPointName)
 {
-	// Play camera shake if configured
-	if (ActivePairedAnimData && ActivePairedAnimData->ImpactCameraShake)
+	if (CachedPairedAnimComp)
 	{
-		UCinematicEffectsUtilityLibrary::PlayCameraShakeOnActor(GetOwner(), ActivePairedAnimData->ImpactCameraShake);
-
-		if (GetDebugDraw())
-		{
-			UE_LOG(LogCombat, Log, TEXT("[PAIRED EFFECTS] Camera shake played: %s"),
-				*ActivePairedAnimData->ImpactCameraShake->GetName());
-		}
-	}
-
-	if (!ActivePairedAnimData)
-	{
-		// Broadcast sync point delegate even without data
-		OnPairedAnimationSyncPoint.Broadcast(ActivePairedReactionType, SyncPointName);
-		return;
-	}
-
-	AActor* Owner = GetOwner();
-	AActor* Partner = PairedAnimationPartners.Num() > 0
-		? PairedAnimationPartners[0].Get()
-		: nullptr;
-
-	// Calculate contact point for VFX (midpoint between attacker and victim)
-	FVector ContactPoint = Owner ? Owner->GetActorLocation() : FVector::ZeroVector;
-	FVector ImpactNormal = FVector::UpVector;
-	if (Owner && Partner)
-	{
-		ContactPoint = (Owner->GetActorLocation() + Partner->GetActorLocation()) * 0.5f;
-		// Impact normal points from attacker toward victim
-		ImpactNormal = (Partner->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
-		if (ImpactNormal.IsNearlyZero())
-		{
-			ImpactNormal = FVector::UpVector;
-		}
-	}
-
-	// ================================================================
-	// PAIRED ANIMATION AUDIO
-	// ================================================================
-	// Impact sound at contact point
-	if (ActivePairedAnimData->ImpactSound)
-	{
-		UGameplayStatics::PlaySoundAtLocation(
-			GetWorld(), ActivePairedAnimData->ImpactSound,
-			ContactPoint, FRotator::ZeroRotator, 1.0f, 1.0f, 0.0f,
-			nullptr, nullptr, Owner);
-
-		UE_LOG(LogCombatFX, Verbose, TEXT("[PAIRED FX] Impact sound: %s at %s"),
-			*ActivePairedAnimData->ImpactSound->GetName(), *ContactPoint.ToString());
-	}
-
-	// Victim reaction sound at partner location
-	if (ActivePairedAnimData->VictimReactionSound && Partner)
-	{
-		UGameplayStatics::PlaySoundAtLocation(
-			GetWorld(), ActivePairedAnimData->VictimReactionSound,
-			Partner->GetActorLocation(), FRotator::ZeroRotator, 1.0f, 1.0f, 0.0f,
-			nullptr, nullptr, Partner);
-
-		UE_LOG(LogCombatFX, Verbose, TEXT("[PAIRED FX] Victim reaction sound: %s"),
-			*ActivePairedAnimData->VictimReactionSound->GetName());
-	}
-
-	// Attacker voice line at owner location
-	if (ActivePairedAnimData->AttackerVoiceLine && Owner)
-	{
-		UGameplayStatics::PlaySoundAtLocation(
-			GetWorld(), ActivePairedAnimData->AttackerVoiceLine,
-			Owner->GetActorLocation(), FRotator::ZeroRotator, 1.0f, 1.0f, 0.0f,
-			nullptr, nullptr, Owner);
-
-		UE_LOG(LogCombatFX, Verbose, TEXT("[PAIRED FX] Attacker voice line: %s"),
-			*ActivePairedAnimData->AttackerVoiceLine->GetName());
-	}
-
-	// ================================================================
-	// PAIRED ANIMATION VFX
-	// ================================================================
-	if (ActivePairedAnimData->ImpactVFX)
-	{
-		// Build config from PairedAnimationData
-		FImpactVFXConfig VFXConfig;
-		VFXConfig.ImpactVFX = ActivePairedAnimData->ImpactVFX;
-		VFXConfig.ScaleMultiplier = 1.0f;
-		VFXConfig.bAlignToSurface = true;
-		VFXConfig.bUseWeaponFallback = false;
-
-		UCinematicEffectsUtilityLibrary::SpawnImpactVFX(
-			GetWorld(),
-			VFXConfig,
-			nullptr,  // No weapon fallback for paired anims
-			ContactPoint,
-			ImpactNormal,
-			NAME_None);
-
-		UE_LOG(LogCombatFX, Verbose, TEXT("[PAIRED FX] Impact VFX: %s at %s"),
-			*ActivePairedAnimData->ImpactVFX->GetName(), *ContactPoint.ToString());
-	}
-
-	// Broadcast sync point delegate (for damage application, etc.)
-	OnPairedAnimationSyncPoint.Broadcast(ActivePairedReactionType, SyncPointName);
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED EFFECTS] Sync point: %s (Type: %d, Audio: %s/%s/%s, VFX: %s)"),
-			*SyncPointName.ToString(),
-			static_cast<int32>(ActivePairedReactionType),
-			ActivePairedAnimData->ImpactSound ? TEXT("Impact") : TEXT("-"),
-			ActivePairedAnimData->VictimReactionSound ? TEXT("Victim") : TEXT("-"),
-			ActivePairedAnimData->AttackerVoiceLine ? TEXT("Voice") : TEXT("-"),
-			ActivePairedAnimData->ImpactVFX ? TEXT("Yes") : TEXT("No"));
+		CachedPairedAnimComp->TriggerSyncPointEffects(SyncPointName);
 	}
 }
 
-void UCombatComponent::OnSlowMotionTimerExpired()
+bool UCombatComponent::IsPairedAnimationActive() const
 {
-	// Restore time dilation via utility library
-	UCinematicEffectsUtilityLibrary::RestoreTimeDilation(GetWorld());
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED EFFECTS] Slow motion timer expired - time dilation restored"));
-	}
+	return CachedPairedAnimComp ? CachedPairedAnimComp->IsPairedAnimationActive() : false;
 }
-
-// ============================================================================
-// PAIRED ANIMATION INTERRUPT HANDLING
-// ============================================================================
 
 void UCombatComponent::OnPairedPartnerDeath(AActor* DeadPartner)
 {
-	if (!DeadPartner)
+	if (CachedPairedAnimComp)
 	{
-		return;
-	}
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Warning, TEXT("[PAIRED INTERRUPT] Partner %s died during paired animation"),
-			*DeadPartner->GetName());
-	}
-
-	// Only interrupt if we're actually in a paired animation with this partner
-	if (!IsPairedPartner(DeadPartner))
-	{
-		if (GetDebugDraw())
-		{
-			UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] %s was not a tracked partner, ignoring"),
-				*DeadPartner->GetName());
-		}
-		return;
-	}
-
-	// Remove the dead partner from our list
-	RemovePairedPartner(DeadPartner);
-
-	// If we were in an active paired animation, cancel it
-	if (IsPairedAnimationActive())
-	{
-		CancelPairedAnimation();
+		CachedPairedAnimComp->OnPairedPartnerDeath(DeadPartner);
 	}
 }
 
 void UCombatComponent::CancelPairedAnimation(float BlendOutTime)
 {
-	if (GetDebugDraw())
+	if (CachedPairedAnimComp)
 	{
-		UE_LOG(LogCombat, Warning, TEXT("[PAIRED INTERRUPT] Cancelling paired animation (BlendOutTime: %.2fs)"),
-			BlendOutTime);
-	}
-
-	// ========================================================================
-	// GAP 18.10 FIX: Clear victim warp tracking on all partners BEFORE clearing partners
-	// GAP 18.7 FIX: Clear bIsFinisherTarget flag on all partners
-	// ========================================================================
-	for (const TWeakObjectPtr<AActor>& PartnerRef : PairedAnimationPartners)
-	{
-		if (AActor* Partner = PartnerRef.Get())
-		{
-			// Clear victim's warp tracking (stops them from continuing to warp toward us)
-			if (UTargetingComponent* PartnerTargeting = Partner->FindComponentByClass<UTargetingComponent>())
-			{
-				PartnerTargeting->ClearVictimWarp();
-				PartnerTargeting->ClearAttackerPairedWarp();
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] Cleared warp tracking on partner %s"),
-						*Partner->GetName());
-				}
-			}
-
-			// Exit paired animation state (clears suppression, finisher target, death handling)
-			if (UHitReactionComponent* PartnerHitReaction = Partner->FindComponentByClass<UHitReactionComponent>())
-			{
-				PartnerHitReaction->ExitPairedAnimationState();
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] Exited paired animation state on %s"),
-						*Partner->GetName());
-				}
-			}
-		}
-	}
-
-	// Stop any playing montage on the owner
-	if (AActor* Owner = GetOwner())
-	{
-		if (ACharacter* Character = Cast<ACharacter>(Owner))
-		{
-			if (Character->GetMesh())
-			if (UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance())
-			{
-				// Stop montage with blend out
-				AnimInstance->Montage_Stop(BlendOutTime);
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] Montage stopped on %s"),
-						*Owner->GetName());
-				}
-			}
-		}
-	}
-
-	// Clear victim reference (no damage applied on cancel)
-	CurrentFinisherVictim.Reset();
-
-	// Clear guard flag in case CompletePairedAnimation was in progress (Gap 20.4)
-	bCompletingPairedAnimation = false;
-
-	// Clear all partners
-	ClearPairedPartners();
-
-	// End the paired animation effects (restores time dilation, broadcasts delegate)
-	EndPairedAnimation();
-
-	// Reset to idle phase
-	SetPhase(EAttackPhase::None);
-
-	// Clear any queued actions that might have been for the paired sequence
-	ClearQueue(false);
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED INTERRUPT] ✓ Paired animation cancelled - state reset"));
+		CachedPairedAnimComp->CancelPairedAnimation(BlendOutTime);
 	}
 }
 
 void UCombatComponent::CompletePairedAnimation()
 {
-	// ========================================================================
-	// GUARD: PREVENT DOUBLE EXECUTION (Gap 20.4)
-	// ========================================================================
-	// OnMontageEnded may fire multiple times in edge cases - ensure we only complete once
-	if (bCompletingPairedAnimation)
+	if (CachedPairedAnimComp)
 	{
-		if (GetDebugDraw())
-		{
-			UE_LOG(LogCombat, Warning, TEXT("[PAIRED COMPLETE] Already completing - ignoring duplicate call"));
-		}
-		return;
-	}
-	bCompletingPairedAnimation = true;
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] ═══════════════════════════════════════"));
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Completing paired animation successfully"));
-	}
-
-	// ========================================================================
-	// APPLY FINISHER DAMAGE TO VICTIM
-	// ========================================================================
-	AActor* Victim = CurrentFinisherVictim.Get();
-	if (Victim && ActivePairedAnimData)
-	{
-		// Calculate final damage
-		const float FinalDamage = ActivePairedAnimData->BaseDamage * ActivePairedAnimData->DamageMultiplier;
-
-		if (GetDebugDraw())
-		{
-			UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Applying damage to %s: %.1f (Base: %.1f × Mult: %.2f, Lethal: %s)"),
-				*Victim->GetName(),
-				FinalDamage,
-				ActivePairedAnimData->BaseDamage,
-				ActivePairedAnimData->DamageMultiplier,
-				ActivePairedAnimData->bIsLethal ? TEXT("YES") : TEXT("NO"));
-		}
-
-		// Check if victim implements damageable interface
-		if (Victim->Implements<UDamageableInterface>())
-		{
-			// Build hit reaction info for damage application
-			FHitReactionInfo HitInfo;
-			HitInfo.Attacker = GetOwner();
-			HitInfo.HitDirection = (Victim->GetActorLocation() - GetOwner()->GetActorLocation()).GetSafeNormal();
-			HitInfo.AttackData = nullptr;  // Finisher uses PairedAnimationData, not AttackData
-			HitInfo.ImpactPoint = Victim->GetActorLocation();
-			HitInfo.bWasCounter = false;
-			HitInfo.StunDuration = 0.0f;
-
-			// If lethal finisher, guarantee death by applying at least CurrentHealth + 1 damage
-			// Uses intelligent calculation: Max(FinalDamage, CurrentHealth + 1)
-			// - If FinalDamage is higher, use that (respects damage scaling)
-			// - Otherwise use CurrentHealth + 1 to guarantee kill regardless of health pool
-			if (ActivePairedAnimData->bIsLethal)
-			{
-				const float MaxHealth = IDamageableInterface::Execute_GetMaxHealth(Victim);
-				const float CurrentHealth = IDamageableInterface::Execute_GetCurrentHealth(Victim);
-				HitInfo.Damage = FMath::Max(FinalDamage, CurrentHealth + 1.0f);
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] LETHAL finisher: Applying %.1f damage (victim has %.1f/%.1f health)"),
-						HitInfo.Damage, CurrentHealth, MaxHealth);
-				}
-
-				// DEATH HANDLING: Pending death was set up by EnterPairedAnimationState()
-				// in TryExecuteFinisher(). The victim montage is registered as the
-				// "death montage" — when it ends, OnAnyMontageBlendingOut will apply
-				// the outcome (ragdoll/freeze) and call ExitPairedAnimationState().
-				// We do NOT stop the montage here — let it play through naturally.
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Death will be handled when victim montage ends (via OnAnyMontageBlendingOut)"));
-				}
-			}
-			else
-			{
-				HitInfo.Damage = FinalDamage;
-			}
-
-			// Apply the damage
-			const float ActualDamage = IDamageableInterface::Execute_ApplyDamage(Victim, HitInfo);
-
-			if (GetDebugDraw())
-			{
-				UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Damage applied: %.1f actual (%.1f requested)"),
-					ActualDamage, HitInfo.Damage);
-			}
-		}
-		else
-		{
-			UE_LOG(LogCombat, Warning, TEXT("[PAIRED COMPLETE] Victim %s does not implement IDamageableInterface - no damage applied"),
-				*Victim->GetName());
-		}
-	}
-	else if (GetDebugDraw())
-	{
-		if (!Victim)
-		{
-			UE_LOG(LogCombat, Warning, TEXT("[PAIRED COMPLETE] No victim tracked - cannot apply damage"));
-		}
-		if (!ActivePairedAnimData)
-		{
-			UE_LOG(LogCombat, Warning, TEXT("[PAIRED COMPLETE] No ActivePairedAnimData - cannot apply damage"));
-		}
-	}
-
-	// ========================================================================
-	// CLEANUP STATE (similar to CancelPairedAnimation but for successful completion)
-	// ========================================================================
-
-	// Clear victim's finisher target flag and warp tracking
-	for (const TWeakObjectPtr<AActor>& PartnerRef : PairedAnimationPartners)
-	{
-		if (AActor* Partner = PartnerRef.Get())
-		{
-			// Clear warp tracking
-			if (UTargetingComponent* PartnerTargeting = Partner->FindComponentByClass<UTargetingComponent>())
-			{
-				PartnerTargeting->ClearVictimWarp();
-				PartnerTargeting->ClearAttackerPairedWarp();
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Cleared warp tracking on partner %s"),
-						*Partner->GetName());
-				}
-			}
-
-			// Exit paired animation state if not already exited by death outcome.
-			// For lethal finishers, OnAnyMontageBlendingOut may have already called
-			// ExitPairedAnimationState — this is safe to call again (idempotent clear).
-			if (UHitReactionComponent* PartnerHitReaction = Partner->FindComponentByClass<UHitReactionComponent>())
-			{
-				PartnerHitReaction->ExitPairedAnimationState();
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] Exited paired animation state on %s"),
-						*Partner->GetName());
-				}
-			}
-		}
-	}
-
-	// Clear our own warp tracking
-	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
-	{
-		if (UTargetingComponent* TargetingComp = Character->GetTargetingComponent())
-		{
-			TargetingComp->ClearAttackerPairedWarp();
-		}
-	}
-
-	// Clear victim reference
-	CurrentFinisherVictim.Reset();
-
-	// Clear all partners
-	ClearPairedPartners();
-
-	// End the paired animation effects (restores time dilation, broadcasts delegate)
-	EndPairedAnimation();
-
-	// Reset to idle phase
-	SetPhase(EAttackPhase::None);
-
-	// Clear any queued actions
-	ClearQueue(false);
-
-	// Clear guard flag now that completion is finished
-	bCompletingPairedAnimation = false;
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] ✓ Paired animation completed - state reset"));
-		UE_LOG(LogCombat, Log, TEXT("[PAIRED COMPLETE] ═══════════════════════════════════════"));
+		CachedPairedAnimComp->CompletePairedAnimation();
 	}
 }

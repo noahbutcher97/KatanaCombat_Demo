@@ -1,7 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/AnimNotifyState_CounterWindow.h"
-#include "Core/CombatComponent.h"
+#include "Core/PairedAnimationComponent.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Data/PairedAnimationData.h"
 #include "Animation/AnimInstance.h"
@@ -25,15 +25,12 @@ void UAnimNotifyState_CounterWindow::NotifyBegin(USkeletalMeshComponent* MeshCom
 		return;
 	}
 
-	// Get the attacker's combat component
-	ABaseCombatCharacter* Attacker = Cast<ABaseCombatCharacter>(MeshComp->GetOwner());
-	if (Attacker)
+	// Get the attacker's paired animation component (counter window state lives here)
+	AActor* Owner = MeshComp->GetOwner();
+	if (UPairedAnimationComponent* PairedComp = Owner->FindComponentByClass<UPairedAnimationComponent>())
 	{
-		if (UCombatComponent* Combat = Attacker->GetCombatComponent())
-		{
-			// Store counter context on the attacker for defenders to query
-			Combat->SetCounterWindowData(AttackType, SwingDirection, CounterData, TotalDuration);
-		}
+		// Store counter context on the attacker for defenders to query
+		PairedComp->SetCounterWindowData(AttackType, SwingDirection, CounterData, TotalDuration);
 	}
 }
 
@@ -47,12 +44,9 @@ void UAnimNotifyState_CounterWindow::NotifyEnd(USkeletalMeshComponent* MeshComp,
 	}
 
 	// Clear counter context when window ends
-	ABaseCombatCharacter* Attacker = Cast<ABaseCombatCharacter>(MeshComp->GetOwner());
-	if (Attacker)
+	AActor* Owner = MeshComp->GetOwner();
+	if (UPairedAnimationComponent* PairedComp = Owner->FindComponentByClass<UPairedAnimationComponent>())
 	{
-		if (UCombatComponent* Combat = Attacker->GetCombatComponent())
-		{
-			Combat->ClearCounterWindowData();
-		}
+		PairedComp->ClearCounterWindowData();
 	}
 }

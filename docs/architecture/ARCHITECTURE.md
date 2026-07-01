@@ -32,8 +32,8 @@ This document provides comprehensive technical details on the KatanaCombat syste
 
 ### Pragmatic Over Perfect
 The system prioritizes **functional consolidation** over architectural purity:
-- CombatComponent is intentionally ~1000 lines - combat flow logic is tightly coupled
-- 4 core components instead of 7+ fragmented ones
+- 5 core components with clear separation of concerns (Combat, Targeting, Weapon, HitReaction, PairedAnimation)
+- CombatComponent (~3,400 lines) handles core combat flow; PairedAnimationComponent (~1,500 lines) handles finishers and counters
 - Complexity where it matters, simplicity everywhere else
 
 ### Phases vs Windows (CRITICAL DISTINCTION)
@@ -311,11 +311,9 @@ void UCombatComponent::OnBlockPressed()
 
 **Implementation**:
 ```cpp
-// Set via AnimNotifyState_HoldWindow in montage
-void UCombatComponent::OpenHoldWindow(float Duration)
+// Triggered by AnimNotify_HoldWindowStart in montage
+void UCombatComponent::OnHoldWindowStart(EInputType InputType)
 {
-    bIsInHoldWindow = true;
-
     // Check if light attack button is STILL HELD
     if (bLightAttackHeld)
     {
@@ -326,14 +324,6 @@ void UCombatComponent::OpenHoldWindow(float Duration)
         if (AnimInstance)
             AnimInstance->Montage_Pause();
     }
-
-    GetWorld()->GetTimerManager().SetTimer(
-        HoldWindowTimer,
-        this,
-        &UCombatComponent::CloseHoldWindow,
-        Duration,
-        false
-    );
 }
 
 // On button release during hold
@@ -1012,23 +1002,23 @@ bool UCombatComponent::TryParry()
 ```
 
 ### Counter Window
-```cpp
-void UCombatComponent::OpenCounterWindow(float Duration)
-{
-    bIsInCounterWindow = true;
 
-    GetWorld()->GetTimerManager().SetTimer(
-        CounterWindowTimer,
-        this,
-        &UCombatComponent::CloseCounterWindow,
-        Duration,
-        false
-    );
+> **Note**: Counter window state now lives on `UPairedAnimationComponent` (extracted in Phase 3).
+> CombatComponent provides forwarding wrappers for backward compatibility.
+
+```cpp
+// Counter window managed by PairedAnimationComponent via AnimNotifyState_CounterWindow
+void UPairedAnimationComponent::SetCounterWindowData(EAttackType Type, ESwingDirection Dir,
+    UPairedAnimationData* Data, float Duration)
+{
+    bCounterWindowActive = true;
+    CounterWindowData = FCounterContext(Type, Dir, Data, Duration);
 }
 
-void UCombatComponent::CloseCounterWindow()
+void UPairedAnimationComponent::ClearCounterWindowData()
 {
-    bIsInCounterWindow = false;
+    bCounterWindowActive = false;
+    CounterWindowData = FCounterContext();
 }
 
 // Damage is multiplied in hit reaction component
@@ -1036,8 +1026,8 @@ void UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
 {
     float FinalDamage = HitInfo.Damage;
 
-    // Counter damage multiplier
-    if (CombatComponent && CombatComponent->IsInCounterWindow())
+    // Counter damage multiplier (queries PairedAnimationComponent)
+    if (PairedAnimComp && PairedAnimComp->IsInCounterWindow())
     {
         float Multiplier = CombatSettings ? CombatSettings->CounterDamageMultiplier : 1.5f;
         FinalDamage *= Multiplier;
@@ -1202,7 +1192,7 @@ void ASamuraiCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult& Hi
     HitInfo.AttackData = AttackData;
     HitInfo.Damage = AttackData->BaseDamage;
     HitInfo.StunDuration = AttackData->HitStunDuration;
-    HitInfo.bWasCounter = CombatComponent ? CombatComponent->IsInCounterWindow() : false;
+    HitInfo.bWasCounter = PairedAnimComp ? PairedAnimComp->IsInCounterWindow() : false;
     HitInfo.ImpactPoint = HitResult.ImpactPoint;
 
     // Apply damage
@@ -1247,8 +1237,8 @@ void UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
         // Calculate final damage
         float FinalDamage = HitInfo.Damage;
 
-        // Counter damage multiplier
-        if (CombatComponent && CombatComponent->IsInCounterWindow())
+        // Counter damage multiplier (queries PairedAnimationComponent)
+        if (PairedAnimComp && PairedAnimComp->IsInCounterWindow())
         {
             float Multiplier = 1.5f; // From CombatSettings
             FinalDamage *= Multiplier;
@@ -1829,7 +1819,7 @@ Light2.HeavyComboAttack = Heavy2
 ### Implementing Enemy
 1. Create character class
 2. Implement ICombatInterface, IDamageableInterface
-3. Add 4 components (Combat, Targeting, Weapon, HitReaction)
+3. Add 5 components (Combat, Targeting, Weapon, HitReaction, PairedAnimation)
 4. Create AnimInstance extending SamuraiAnimInstance
 5. Create AttackData assets
 6. Assign to DefaultLightAttack/DefaultHeavyAttack
@@ -1997,7 +1987,7 @@ Tests validate all **Critical Design Corrections** from system architecture:
 2. **Posture-based defense** (guard breaks, parries, counters)
 3. **Data-driven configuration** (AttackData, CombatSettings)
 4. **Animation-driven timing** (checkpoint AnimNotifies infer phases, AnimNotifyStates control windows)
-5. **Modular components** (4 core components, reusable)
+5. **Modular components** (5 core components, reusable)
 
 **Design Principles**:
 - Pragmatic over perfect (~1000 line component is fine)

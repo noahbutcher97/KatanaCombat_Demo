@@ -57,6 +57,9 @@ __pycache__/
 # Documentation temporary files (logs, scratch)
 docs/Logs/
 
+# Local developer tools
+Tools/UE5-Source-Query/
+
 # Ignore generated project files
 *.xcodeproj
 *.xcworkspace

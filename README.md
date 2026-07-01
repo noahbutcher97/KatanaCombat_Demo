@@ -4,13 +4,13 @@
 [![License](https://img.shields.io/badge/License-Epic%20Games-blue.svg)](LICENSE)
 [![UE Version](https://img.shields.io/badge/UE-5.6-orange.svg)](https://www.unrealengine.com/)
 
-> A production-ready, C++-based melee combat framework for Unreal Engine 5.6 implementing sophisticated samurai-style gameplay mechanics inspired by *Ghost of Tsushima* and *Sekiro*.
+> A production-ready, C++-based melee combat framework for Unreal Engine 5.6 implementing cinematic free-flow samurai combat mechanics inspired by *Assassin's Creed 3/4*, *Ghost of Tsushima*, and *Batman Arkham*.
 
 ## 🎯 Overview
 
 KatanaCombat is a deep, technical combat system emphasizing:
 - **Responsive Attack Chains**: Hybrid combo system with input buffering and animation canceling
-- **Posture-Based Defense**: Guard meter management with perfect parries and counter windows
+- **Contextual Counter System**: AC3-style instant counters and chain counter sequences with parry windows
 - **Data-Driven Design**: Reusable attack definitions with designer-friendly data assets
 - **Cinematic Motion**: Motion warping for dynamic target tracking and distance closing
 - **Component Architecture**: Modular, event-driven systems attachable to any character
@@ -25,7 +25,7 @@ KatanaCombat is a deep, technical combat system emphasizing:
 - 🎮 **Directional Follow-ups** - Hold-and-release mechanics for branching combos
 
 ### Technical Highlights
-- 🏗️ **Component-Based** - Combat, Targeting, Weapon, HitReaction modules
+- 🏗️ **Component-Based** - Combat, Targeting, Weapon, HitReaction, PairedAnimation modules
 - ⚡ **Event-Driven Architecture** - Last-input-wins queue with dual execution modes
 - 🎬 **Animation-Driven Timing** - Checkpoint AnimNotifies infer phases, AnimNotifyStates control windows
 - 🔧 **Modular Settings** - Three-tier configuration hierarchy for flexibility
@@ -91,6 +91,7 @@ git lfs pull
 ```
 BaseCombatCharacter (C++)
 ├── UCombatComponent          // Attack execution, state machine, input buffering
+├── UPairedAnimationComponent // Finishers, counters, partner tracking
 ├── UTargetingComponent       // Target acquisition, cone filtering, motion warp setup
 ├── UWeaponComponent          // Socket-based swept collision, hit detection
 └── UHitReactionComponent     // Damage processing, hitstun, reaction montages
@@ -303,21 +304,17 @@ float ParryWindowEnd = 0.3f;       // Parry window duration
 
 ## 🎯 Roadmap
 
-### Phase 6: Advanced Defense (In Progress)
-- [ ] Perfect parry with timing feedback
-- [ ] Evade system with i-frames
-- [ ] Guard break finishers
+### Current Focus: Paired Animation System
+- [x] 5-component extraction (Combat, Targeting, Weapon, HitReaction, PairedAnimation)
+- [x] Finisher execution flow with cinematic effects
+- [x] Counter system foundation (AC3 + Chain modes)
+- [ ] Counter animations (parry, counter attack, chain finisher)
+- [ ] AI attack token system
 
-### Phase 7: Posture Integration
-- [ ] Guard meter UI
-- [ ] Posture damage calculation
-- [ ] Recovery mechanics
-
-### Phase 8+: Polish & Extension
-- [ ] Weapon switching
-- [ ] Special attacks with resource costs
-- [ ] Aerial combat (launchers, air combos)
-- [ ] Multiplayer support
+### Future
+- [ ] Polish (UI/HUD, IK, environmental finishers)
+- [ ] Multi-victim finishers
+- [ ] Network replication
 
 ## 🤝 Contributing
 
@@ -367,8 +364,8 @@ Special thanks to the UE5 community and action game developers who inspired this
 
 ---
 
-**Status**: ✅ Active Development  
-**Version**: v3.0.0  
-**Last Updated**: 2026-01-31
+**Status**: ✅ Active Development
+**Version**: v5.0.0
+**Last Updated**: 2026-02-09
 
 [View Full Documentation](docs/README.md) | [CI/CD Guide](.github/README.md) | [API Reference](docs/API_REFERENCE.md)

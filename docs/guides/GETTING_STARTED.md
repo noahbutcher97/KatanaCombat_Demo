@@ -202,12 +202,12 @@ bool AYourCharacter::IsBlocking_Implementation() const
 
 bool AYourCharacter::IsInCounterWindow_Implementation() const
 {
-    return CombatComponent ? CombatComponent->IsInCounterWindow() : false;
+    return PairedAnimationComponent ? PairedAnimationComponent->IsInCounterWindow() : false;
 }
 
 bool AYourCharacter::IsInParryWindow_Implementation() const
 {
-    return CombatComponent ? CombatComponent->IsInParryWindow() : false;
+    return PairedAnimationComponent ? PairedAnimationComponent->IsInParryWindow() : false;
 }
 
 float AYourCharacter::GetPosturePercent_Implementation() const
@@ -288,8 +288,8 @@ void AYourCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult& HitRe
         DamageInfo.Amount *= CombatComponent->GetChargeDamageMultiplier();
     }
 
-    // Apply counter multiplier
-    if (CombatComponent->IsInCounterWindow())
+    // Apply counter multiplier (counter window state lives on PairedAnimationComponent)
+    if (PairedAnimationComponent && PairedAnimationComponent->IsInCounterWindow())
     {
         DamageInfo.Amount *= CombatComponent->GetCombatSettings()->CounterDamageMultiplier;
     }
@@ -354,28 +354,21 @@ In Character Blueprint:
 
 ### 5.2 Add AnimNotifies
 
-**Add 4 phase transition notifies**:
+**Add 2 phase transition notifies**:
 
-1. **Attack Start** (0.0s)
+1. **Windup → Active** (0.3s)
    - Add `AnimNotify_AttackPhaseTransition`
-   - Set `FromPhase = None`, `ToPhase = Windup`
-
-2. **Windup → Active** (0.3s)
-   - Add `AnimNotify_AttackPhaseTransition`
-   - Set `FromPhase = Windup`, `ToPhase = Active`
+   - Set `TransitionToPhase = Active`
    - (Hit detection enables automatically)
 
-3. **Active → Recovery** (0.5s)
+2. **Active → Recovery** (0.5s)
    - Add `AnimNotify_AttackPhaseTransition`
-   - Set `FromPhase = Active`, `ToPhase = Recovery`
+   - Set `TransitionToPhase = Recovery`
    - (Hit detection disables automatically)
 
-4. **Attack End** (1.0s)
-   - Add `AnimNotify_AttackPhaseTransition`
-   - Set `FromPhase = Recovery`, `ToPhase = None`
-
-5. **Optional: Combo Window** (0.4s - 0.9s)
-   - Add `AnimNotifyState_ComboWindow`
+3. **Combo Timing**
+   - Default combo timing is inferred from phase transitions and `ComboInputWindow`
+   - Do not add `AnimNotifyState_ComboWindow` for normal attack chains
 
 ### 5.3 Create AttackData Asset
 
@@ -652,7 +645,7 @@ See [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for common issues.
 **Quick fixes**:
 
 - **Attacks not executing**: Check `CanAttack()` returns true, verify state is Idle
-- **Combos not chaining**: Ensure `AnimNotifyState_ComboWindow` is placed, check `NextComboAttack` is set
+- **Combos not chaining**: Check Active/Recovery phase timing, `ComboInputWindow`, and `NextComboAttack`
 - **Hits not detecting**: Verify weapon sockets exist, check hit detection enabled during Active phase
 - **Parry not working**: Ensure `AnimNotifyState_ParryWindow` on attacker's montage, check defender is blocking
 

@@ -2,7 +2,7 @@
 
 > **Extracted From**: gap-mitigation-plan.md (2026-02-03)
 > **Purpose**: Reference document tracking all identified gaps and their status
-> **Last Updated**: 2026-02-09 (Cleanup: removed stale priority buckets, trimmed resolved analysis sections, verified all Done items against code)
+> **Last Updated**: 2026-02-16 (Hit detection overhaul: blade segmentation, adaptive substeps, surface FX, audit fixes)
 > **Audit Reference**: `docs/audits/COMPREHENSIVE_AUDIT_2026-02-03.md`
 
 ---
@@ -36,16 +36,17 @@
 | Phase 5c Math | 5 | 5 | 0 | 0 |
 | 22. Audit Findings | 14 | 5 | 7 | 2 (deferred/closed) |
 | 23. Camera & Collision | 4 | 2 | 2 | 0 |
-| 24. Hit Detection | 7 | 0 | 7 | 0 |
+| 24. Hit Detection | 7 | 7 | 0 | 0 |
 | 25. Input Resolution | 8 | 5 | 3 | 0 |
 | 26. Core Combat Flow | 9 | 1 | 3 | 5 (partial) |
-| **TOTAL** | **177** | **70** | **~87** | **~20** |
+| **TOTAL** | **177** | **77** | **~80** | **~20** |
 
 **Notes**:
 - Gap 1.2 (invulnerability during paired) partially addressed by `bReactionsSuppressed` in lifecycle API
 - Gap 21.1 (double death) superseded by `EnterPairedAnimationState()`/`ExitPairedAnimationState()` lifecycle API
 - Gap 19.4 (SoftAimRange) is INTENTIONAL - working as designed
 - 14 gaps deferred to Phase 6+ (IK, multi-victim, environmental finishers, VFX implementation)
+- Phase 3 (UPairedAnimationComponent extraction) completed 2026-02-09. Methods referenced in gaps now live in PairedAnimationComponent, not CombatComponent.
 - Gap 3.3 (Montage sections) verified as DONE by audit -- `Montage_JumpToSection` called in TryExecuteFinisher
 - Gap 11.1 section header "ALL DONE" is misleading -- 11.1 is Working As Intended (damage at completion)
 - Gap 12.3 (Root Motion Blending) downgraded to PARTIAL by audit -- motion warping handles most cases but no explicit mode management
@@ -71,7 +72,7 @@
 
 | ID | Description | Priority | Status |
 |----|-------------|----------|--------|
-| 2.1 | Player Input Not Blocked | P0 | Done (bBlockCombatInput) |
+| 2.1 | Player Input Not Blocked | P0 | Done (bBlockCombatInput in PairedAnimationComponent) |
 | 2.2 | Camera Input Handling Undefined | P2 | Pending |
 | 2.3 | No Finisher Button Prompt Timing | P2 | Pending |
 | 2.4 | Evade/Block Not Disabled | P2 | Done (covered by bBlockCombatInput) |
@@ -83,7 +84,7 @@
 |----|-------------|----------|--------|
 | 3.1 | Montage Length Mismatch | P1 | Pending |
 | 3.2 | Playback Rate Desync | P2 | Pending |
-| 3.3 | Section Playback Not Enforced | P1 | Done (Montage_JumpToSection in TryExecuteFinisher, verified by audit) |
+| 3.3 | Section Playback Not Enforced | P1 | Done (Montage_JumpToSection in PairedAnimationComponent::TryExecuteFinisher, verified by audit) |
 | 3.4 | Animation Loop/Repeat Behavior | P2 | Pending |
 | 3.5 | Interrupt Handling Incomplete | P1 | Pending |
 
@@ -331,42 +332,31 @@
 
 ---
 
-### 24. HIT DETECTION ROBUSTNESS (HIT-1)
+### 24. HIT DETECTION ROBUSTNESS (HIT-1) — ALL DONE
 
-> **Problem**: Hits being dropped. Current swept trace system inadequate for fast targets and lacks rich hit analytics for nuanced VFX/knockback.
+> **Problem**: Hits being dropped. Swept trace system inadequate for fast targets and lacked rich hit analytics.
+> **Resolved**: 2026-02-16 (2744f5c, 09d3d8b)
 
 | ID | Description | Priority | Status |
 |----|-------------|----------|--------|
-| 24.1 | Hits dropped on fast-moving targets | P1 | Pending |
-| 24.2 | Silent socket fallback causes misaligned traces | P1 | Pending |
-| 24.3 | FHitReactionInfo missing AnimationTime field | P1 | Pending |
-| 24.4 | bWasCounter always false (never populated) | P1 | Pending |
-| 24.5 | No WeaponVelocity in hit info for knockback direction | P2 | Pending |
-| 24.6 | Surface type detection (ECombatSurfaceType) not wired | P2 | Pending |
-| 24.7 | No trajectory prediction for high-speed weapons | P3 | Pending |
+| 24.1 | Hits dropped on fast-moving targets | P1 | Done (2744f5c — blade segmentation + velocity-adaptive substeps) |
+| 24.2 | Silent socket fallback causes misaligned traces | P1 | Done (2744f5c — GetSocketLocation logs Error on missing sockets) |
+| 24.3 | FHitReactionInfo missing AnimationTime field | P1 | Done (prior commit — AnimationTime populated from Montage_GetPosition) |
+| 24.4 | bWasCounter always false (never populated) | P1 | Done (prior commit — populated from CombatComponent::IsInCounterWindow) |
+| 24.5 | No WeaponVelocity in hit info for knockback direction | P2 | Done (2744f5c — CachedWeaponTipVelocity from per-frame socket tracking) |
+| 24.6 | Surface type detection (ECombatSurfaceType) not wired | P2 | Done (2744f5c — bReturnPhysicalMaterial + MapPhysicalMaterialToSurfaceType) |
+| 24.7 | No trajectory prediction for high-speed weapons | P3 | Done (2744f5c — PredictHitLikelihood in WeaponTraceLibrary for AI use) |
 
-**Root Cause**:
-- Socket not found → silent fallback to character center (`WeaponComponent.cpp:182-186`)
-- Already-hit filtering is silent (`WeaponComponent.cpp:298`)
-- Dead/dying filter has no logging (`WeaponComponent.cpp:304-309`)
-- Null AttackData → early return with no warning (`BaseCombatCharacter.cpp:476`)
-
-**Missing FHitReactionInfo Fields**:
-| Field | Current | Needed For |
-|-------|---------|------------|
-| AnimationTime | NOT captured | VFX sync |
-| WeaponVelocity | NOT captured | Knockback direction |
-| SurfaceType | Scaffolded | Surface FX |
-| PhaseWhenHit | NOT captured | Damage scaling |
-| DistanceToTarget | NOT captured | Range-based effects |
-
-**Fix Strategy**:
-1. Add logging to all silent failure points (P0)
-2. Fix socket fallback to fail loudly (P0)
-3. Populate bWasCounter field (P1)
-4. Add AnimationTime/WeaponVelocity to FHitReactionInfo (P1-P2)
-5. Enable bReturnPhysicalMaterial for surface FX (P2)
-6. Integrate PhysicsIntegrationLibrary trajectory prediction (P3)
+**What was built** (2744f5c, 09d3d8b):
+- **WeaponTraceLibrary** (new): Pure static functions for blade segmentation, adaptive substeps, surface mapping, hit confidence, trajectory prediction
+- **Blade segmentation**: Multi-point trace (base→mid→tip) captures full swing arc
+- **Velocity-adaptive substeps**: 1-5 substeps scaled by weapon tip speed (configurable on WeaponData)
+- **Surface FX**: bReturnPhysicalMaterial enabled, ECombatSurfaceType populated via PhysicalMaterial mapping
+- **Hit confidence**: Quality metric (velocity + blade position) for hitstop/VFX scaling
+- **Weapon-velocity HitDirection**: Blade travel direction (negated for convention) replaces position-based fallback
+- **MaxHitCount**: Per-attack hit cap on AttackData (0=unlimited)
+- **Diagnostics**: Zero-hit warnings on window close, verbose per-frame CVar logging
+- **Audit fixes**: Socket names use GetEffective*, stale velocity cleared, GetCurrentPhase delegated
 
 ---
 
@@ -395,12 +385,12 @@
 
 | ID | Description | Priority | Status |
 |----|-------------|----------|--------|
-| 26.1 | Parry system implementation (defender checks attacker's ParryWindow) | P1 | Partial — bParryWindowActive scaffolded, AnimNotifyState_ParryWindow wired, ChainMode uses parry step. Needs animations. |
-| 26.2 | Counter system flow (counter window → counter attack execution) | P1 | Partial — AC3 mode (instant counter-kill) + Chain mode (parry→counter→finisher) implemented in 9534131. Needs animations + SpecificCounterData wiring. |
-| 26.3 | Parry → Counter → Finisher chain (full cinematic combat loop) | P1 | Partial — Chain state machine complete (ParryActive→CounterWindow→CounterActive→FinisherReady). Needs animations for each step. |
+| 26.1 | Parry system implementation (defender checks attacker's ParryWindow) | P1 | Source implemented - public Block-input entry, attacker-side parry selection, active Chain target/context, and readiness reporting are covered by automation. Remaining blocker: asset-backed montage/map proof. |
+| 26.2 | Counter system flow (counter window → counter attack execution) | P1 | Source implemented - attack-input Chain advance, selected AttackData handoff, paired counter continuation, nonlethal counter semantics, and readiness report fields are covered by automation. Remaining blocker: asset-backed counter montage proof. |
+| 26.3 | Parry -> Counter -> Finisher chain (full cinematic combat loop) | P1 | Source implemented at fixture level - public Block entry, attack advance, active context, paired counter completion handoff, and finisher transition are covered. Remaining blockers: concrete montage/map proof and remaining asset-save decisions beyond the reviewed heavy montage save. |
 | 26.4 | Guard break mechanics (posture depletion → guard broken state) | P1 | Replaced — Posture deprecated (9534131). Contextual stagger via ApplyStagger() replaces guard break. |
-| 26.5 | Counter-specific fields on PairedAnimationData | P2 | Pending — TODO in TryCounter_AC3Mode documents architecture gap for SpecificCounterData wiring |
-| 26.6 | Parry-specific fields on PairedAnimationData | P2 | Pending — Awaiting 26.1 animation integration |
+| 26.5 | Counter-specific fields on PairedAnimationData | P2 | Source implemented - selected `AttackData::CounterData` priority, explicit notify fallback gate, and nonlethal default are covered. Remaining blocker: real asset authoring/proof. |
+| 26.6 | Parry-specific fields on PairedAnimationData | P2 | Partially source-proven - parry windows are detected from attacker montages and surfaced in readiness reports. Remaining blocker: real asset authoring/proof. |
 | 26.7 | FOnAttackHit delegate downstream consumers | P2 | Pending — Upgraded to (AActor*, FHitReactionInfo&) in 879d1c2, no consumers wired |
 | 26.8 | Procedural blend edge cases (blend during death, paired animation, guard break) | P2 | Pending — 64 tests pass but edge cases untested |
 | 26.9 | Attack state machine recovery (stale section data after interrupts beyond grace period) | P2 | Done — PendingComboTransitions counter in 9534131 provides systemic recovery |
@@ -410,6 +400,8 @@
 - 26.4 (Guard Break) is independent but synergizes with 26.1
 - 26.5, 26.6 depend on 26.1/26.2 design decisions
 
+**Branch status summary**: source flow is implemented at fixture level. `AttackDataTimingMigration` fixed the short-section timing blockers for `LightAttack_6` and `LightAttack_9`. `AttackDataNotifyMigration` saved the reviewed heavy/light accepted targets plus the remaining 18 branch-critical notify candidates. Final pre-merge audits reported `ContentReadinessAudit` at 41 targets, 41 unchanged, 0 failed, and global `AttackDataNotifyMigration` at 20 targets, 20 unchanged, 0 failed. Future commit work remains: explicit content-authored counter-chain proof because no audited AttackData currently has `CounterData` set, plus any separately scoped cleanup of broader dirty `Content/` WIP.
+
 ---
 
 ## Active Priority Buckets (Refreshed 2026-02-09)
@@ -418,13 +410,9 @@
 
 ### P1 HIGH
 
-**HIT-1 (Hit Detection)**:
-- 24.1: Hits dropped on fast targets
-- 24.2: Silent socket fallback
-- 24.3: FHitReactionInfo missing AnimationTime
-- 24.4: bWasCounter always false
+**HIT-1 (Hit Detection)**: ALL DONE (2744f5c, 09d3d8b) — See Category 24
 
-**Core Combat Flow**:
+**Core Combat Flow** (NEXT FOCUS):
 - 26.1: Parry system implementation
 - 26.2: Counter system flow
 - 26.3: Parry → Counter → Finisher chain

@@ -43,5 +43,9 @@
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enabledMcpjsonServers": [
+    "uemcp"
+  ],
+  "enableAllProjectMcpServers": true
 }

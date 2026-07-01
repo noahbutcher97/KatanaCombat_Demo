@@ -7,6 +7,7 @@
 #include "Data/AttackConfiguration.h"
 #include "Data/WeaponData.h"
 #include "Data/CombatSettings.h"
+#include "Utilities/WeaponTraceLibrary.h"
 #include "Debug/DebugConfig.h"
 #include "Debug/DebugUtils.h"
 #include "GameFramework/Character.h"
@@ -91,26 +92,22 @@ void UWeaponComponent::EnableHitDetection()
     // Always clear hit actors for the new attack, even if already enabled.
     // During combo blends, the new montage's Active phase notify fires BEFORE
     // the old montage's OnMontageEnded callback (which disables hit detection).
-    // Without this, enemies hit by the previous attack remain in HitActors
-    // and are skipped by the weapon trace for the new attack.
     HitActors.Empty();
+
+    // Initialize blade trace points at current socket positions.
+    // This anchors the first tick's sweep to real weapon movement only.
+    PreviousTracePoints = ComputeCurrentTracePoints();
+    CachedWeaponTipVelocity = FVector::ZeroVector;
 
     if (bHitDetectionEnabled)
     {
-        // Already tracing (combo blend race) - HitActors cleared above, reset trace state
-        bFirstTrace = true;
-        PreviousStartLocation = GetSocketLocation(GetEffectiveStartSocket());
-        PreviousTipLocation = GetSocketLocation(GetEffectiveEndSocket());
+        // Already tracing (combo blend race) - HitActors cleared and positions
+        // refreshed above. No need to re-enable tick.
         return;
     }
 
     bHitDetectionEnabled = true;
-    bFirstTrace = true;
     SetComponentTickEnabled(true);
-
-    // Store initial positions
-    PreviousStartLocation = GetSocketLocation(GetEffectiveStartSocket());
-    PreviousTipLocation = GetSocketLocation(GetEffectiveEndSocket());
 
     // Debug: Log hit detection configuration
     if (CombatDebug::IsWeaponDebugEnabled())
@@ -118,15 +115,17 @@ void UWeaponComponent::EnableHitDetection()
         const FName StartSocket = GetEffectiveStartSocket();
         const FName EndSocket = GetEffectiveEndSocket();
         const bool bUsingWeaponMesh = WeaponData && !WeaponData->bUseCharacterSocketsForTrace;
+        const FVector BasePos = PreviousTracePoints.Num() > 0 ? PreviousTracePoints[0] : FVector::ZeroVector;
+        const FVector TipPos = PreviousTracePoints.Num() > 1 ? PreviousTracePoints.Last() : BasePos;
 
         UE_LOG(LogWeaponComponent, Log, TEXT("[%s] Hit detection ENABLED:"), *GetNameSafe(GetOwner()));
         UE_LOG(LogWeaponComponent, Log, TEXT("  - Socket source: %s"), bUsingWeaponMesh ? TEXT("Weapon Mesh") : TEXT("Character Mesh"));
-        UE_LOG(LogWeaponComponent, Log, TEXT("  - Start socket: %s -> %s"), *StartSocket.ToString(), *PreviousStartLocation.ToString());
-        UE_LOG(LogWeaponComponent, Log, TEXT("  - End socket: %s -> %s"), *EndSocket.ToString(), *PreviousTipLocation.ToString());
-        UE_LOG(LogWeaponComponent, Log, TEXT("  - Trace radius: %.1f"), GetEffectiveTraceRadius());
+        UE_LOG(LogWeaponComponent, Log, TEXT("  - Start socket: %s -> %s"), *StartSocket.ToString(), *BasePos.ToString());
+        UE_LOG(LogWeaponComponent, Log, TEXT("  - End socket: %s -> %s"), *EndSocket.ToString(), *TipPos.ToString());
+        UE_LOG(LogWeaponComponent, Log, TEXT("  - Trace radius: %.1f | Points: %d"), GetEffectiveTraceRadius(), GetEffectiveTracePointCount());
 
         // Warn if positions are identical (likely socket not found)
-        if (PreviousStartLocation.Equals(PreviousTipLocation, 1.0f))
+        if (BasePos.Equals(TipPos, 1.0f))
         {
             UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Start and End socket locations are identical! Check socket configuration."),
                 *GetNameSafe(GetOwner()));
@@ -136,14 +135,35 @@ void UWeaponComponent::EnableHitDetection()
 
 void UWeaponComponent::DisableHitDetection()
 {
+    // Diagnostic: log when Active phase ends with zero hits (potential miss detection issue)
+    if (HitActors.Num() == 0 && bHitDetectionEnabled)
+    {
+        UE_LOG(LogWeaponComponent, Warning, TEXT("[TRACE DIAG] %s: Hit detection window closed with 0 hits. "
+            "Check AnimNotify timing, socket positions, or trace radius."),
+            *GetOwner()->GetName());
+    }
+    else if (bHitDetectionEnabled)
+    {
+        UE_LOG(LogWeaponComponent, Log, TEXT("[TRACE DIAG] %s: Hit detection window closed. Hits: %d"),
+            *GetOwner()->GetName(), HitActors.Num());
+    }
+
     bHitDetectionEnabled = false;
     SetComponentTickEnabled(false);
+
+    // Clear hit actors when attack's hit window ends.
+    // Previously HitActors persisted after DisableHitDetection, causing:
+    // 1. Debug HUD showing stale "Hits: 1" during idle
+    // 2. Ignored actor list carrying over across attacks on different targets
+    HitActors.Empty();
+
+    // Clear cached velocity so external consumers don't read stale data between attacks
+    CachedWeaponTipVelocity = FVector::ZeroVector;
 }
 
 void UWeaponComponent::ResetHitActors()
 {
     HitActors.Empty();
-    bFirstTrace = true;
 }
 
 // ============================================================================
@@ -217,37 +237,61 @@ void UWeaponComponent::PerformWeaponTrace()
         return;
     }
 
-    const FVector CurrentStartLocation = GetSocketLocation(GetEffectiveStartSocket());
-    const FVector CurrentTipLocation = GetSocketLocation(GetEffectiveEndSocket());
-
-    // Skip first trace to avoid hitting at spawn
-    if (bFirstTrace)
+    UWorld* TraceWorld = GetWorld();
+    if (!TraceWorld)
     {
-        PreviousStartLocation = CurrentStartLocation;
-        PreviousTipLocation = CurrentTipLocation;
-        CachedWeaponTipVelocity = FVector::ZeroVector;
-        bFirstTrace = false;
         return;
     }
 
-    // Compute real weapon tip velocity from frame-to-frame position delta
-    if (LastDeltaTime > KINDA_SMALL_NUMBER)
+    // ========================================================================
+    // COMPUTE CURRENT BLADE TRACE POINTS
+    // ========================================================================
+    const TArray<FVector> CurrentTracePoints = ComputeCurrentTracePoints();
+
+    if (CurrentTracePoints.Num() == 0 || PreviousTracePoints.Num() != CurrentTracePoints.Num())
     {
-        CachedWeaponTipVelocity = (CurrentTipLocation - PreviousTipLocation) / LastDeltaTime;
+        // Mismatch (e.g., WeaponData changed mid-attack) — reinitialize
+        PreviousTracePoints = CurrentTracePoints;
+        return;
     }
 
-    // Setup trace parameters (shared across all substeps)
+    // Cache tip velocity for external consumers (knockback, VFX alignment)
+    if (CurrentTracePoints.Num() > 0 && PreviousTracePoints.Num() > 0)
+    {
+        CachedWeaponTipVelocity = UWeaponTraceLibrary::ComputeTracePointVelocity(
+            PreviousTracePoints.Last(), CurrentTracePoints.Last(), LastDeltaTime);
+    }
+
+    // ========================================================================
+    // COMPUTE ADAPTIVE SUBSTEP COUNT
+    // ========================================================================
+    const int32 NumSubsteps = ComputeAdaptiveSubstepCount(CurrentTracePoints);
+
+    // Verbose diagnostics when weapon debug is enabled
+    if (CombatDebug::IsWeaponDebugEnabled() && CombatDebug::IsVerboseLogEnabled())
+    {
+        const float TipVelocity = CachedWeaponTipVelocity.Size();
+        UE_LOG(LogWeaponComponent, Verbose, TEXT("[TRACE DIAG] %s: Points=%d Substeps=%d TipVel=%.0f BladeLen=%.1f"),
+            *GetOwner()->GetName(),
+            CurrentTracePoints.Num(),
+            NumSubsteps,
+            TipVelocity,
+            CurrentTracePoints.Num() >= 2 ? FVector::Dist(CurrentTracePoints[0], CurrentTracePoints.Last()) : 0.0f);
+    }
+
+    // ========================================================================
+    // SETUP SHARED TRACE PARAMETERS
+    // ========================================================================
     FCollisionQueryParams QueryParams;
     QueryParams.AddIgnoredActor(OwnerCharacter);
     QueryParams.bTraceComplex = false;
-    QueryParams.bReturnPhysicalMaterial = false;
+    QueryParams.bReturnPhysicalMaterial = true;  // Enable surface type detection for material-dependent FX
 
-    // Ignore already hit actors
-    for (AActor* HitActor : HitActors)
+    for (AActor* AlreadyHit : HitActors)
     {
-        if (HitActor)
+        if (AlreadyHit)
         {
-            QueryParams.AddIgnoredActor(HitActor);
+            QueryParams.AddIgnoredActor(AlreadyHit);
         }
     }
 
@@ -255,87 +299,96 @@ void UWeaponComponent::PerformWeaponTrace()
     bool bAnyHit = false;
     FHitResult FirstHit;
 
-    // Substep interpolation: subdivide the frame into N intermediate sweeps
-    // This prevents thin targets from slipping between frames at low FPS
-    const int32 NumSteps = FMath::Max(1, SubstepCount);
-
-    for (int32 Step = 0; Step < NumSteps; ++Step)
+    // ========================================================================
+    // MULTI-POINT SUBSTEPPED SWEEP
+    // ========================================================================
+    // For each substep, sweep each trace point from its interpolated previous
+    // position to its interpolated current position. This captures the full
+    // arc of the swing — interior blade points trace wider arcs than the tip
+    // or base alone.
+    for (int32 Step = 0; Step < NumSubsteps; ++Step)
     {
-        // Interpolation range for this substep
-        const float Alpha0 = static_cast<float>(Step) / static_cast<float>(NumSteps);
-        const float Alpha1 = static_cast<float>(Step + 1) / static_cast<float>(NumSteps);
+        const float Alpha0 = static_cast<float>(Step) / static_cast<float>(NumSubsteps);
+        const float Alpha1 = static_cast<float>(Step + 1) / static_cast<float>(NumSubsteps);
 
-        // Interpolate weapon positions for this substep
-        const FVector StepPrevStart = FMath::Lerp(PreviousStartLocation, CurrentStartLocation, Alpha0);
-        const FVector StepPrevTip = FMath::Lerp(PreviousTipLocation, CurrentTipLocation, Alpha0);
-        const FVector StepCurrStart = FMath::Lerp(PreviousStartLocation, CurrentStartLocation, Alpha1);
-        const FVector StepCurrTip = FMath::Lerp(PreviousTipLocation, CurrentTipLocation, Alpha1);
-
-        // Calculate capsule for this substep's end position
-        const FVector WeaponAxis = StepCurrTip - StepCurrStart;
-        const float WeaponLength = WeaponAxis.Size();
-        const float HalfHeight = FMath::Max(WeaponLength * 0.5f, EffectiveRadius + 1.0f);
-        const FVector WeaponCenter = StepCurrStart + WeaponAxis * 0.5f;
-        const FQuat CapsuleRotation = FQuat::FindBetweenNormals(FVector::UpVector, WeaponAxis.GetSafeNormal());
-
-        // Sweep from previous substep center to current substep center
-        const FVector PrevWeaponAxis = StepPrevTip - StepPrevStart;
-        const FVector PrevCenter = StepPrevStart + PrevWeaponAxis * 0.5f;
-
-        TArray<FHitResult> HitResults;
-        UWorld* TraceWorld = GetWorld();
-        if (!TraceWorld)
+        for (int32 PointIdx = 0; PointIdx < CurrentTracePoints.Num(); ++PointIdx)
         {
-            break;
-        }
-        const bool bHit = TraceWorld->SweepMultiByChannel(
-            HitResults,
-            PrevCenter,
-            WeaponCenter,
-            CapsuleRotation,
-            TraceChannel,
-            FCollisionShape::MakeCapsule(EffectiveRadius, HalfHeight),
-            QueryParams
-        );
+            const FVector PrevPos = FMath::Lerp(PreviousTracePoints[PointIdx], CurrentTracePoints[PointIdx], Alpha0);
+            const FVector CurrPos = FMath::Lerp(PreviousTracePoints[PointIdx], CurrentTracePoints[PointIdx], Alpha1);
 
-        if (bHit)
-        {
-            if (!bAnyHit && HitResults.Num() > 0)
+            // Skip degenerate sweeps (point didn't move)
+            if (PrevPos.Equals(CurrPos, 0.1f))
             {
-                FirstHit = HitResults[0];
+                continue;
             }
-            bAnyHit = true;
 
-            for (const FHitResult& Hit : HitResults)
+            TArray<FHitResult> HitResults;
+            const bool bHit = TraceWorld->SweepMultiByChannel(
+                HitResults,
+                PrevPos,
+                CurrPos,
+                FQuat::Identity,
+                TraceChannel,
+                FCollisionShape::MakeSphere(EffectiveRadius),
+                QueryParams
+            );
+
+            if (bHit)
             {
-                if (Hit.GetActor() && Hit.GetActor() != OwnerCharacter)
+                if (!bAnyHit && HitResults.Num() > 0)
                 {
-                    ProcessHit(Hit);
+                    FirstHit = HitResults[0];
+                }
+                bAnyHit = true;
 
-                    // Update ignored actors for subsequent substeps
-                    if (WasActorAlreadyHit(Hit.GetActor()))
+                for (const FHitResult& Hit : HitResults)
+                {
+                    AActor* HitActor = Hit.GetActor();
+                    if (HitActor && HitActor != OwnerCharacter)
                     {
-                        QueryParams.AddIgnoredActor(Hit.GetActor());
+                        ProcessHit(Hit);
+
+                        // Update ignored actors for subsequent sweeps this frame
+                        if (WasActorAlreadyHit(HitActor))
+                        {
+                            QueryParams.AddIgnoredActor(HitActor);
+                        }
                     }
                 }
             }
         }
     }
 
-    // Debug visualization - pass full weapon geometry (final frame positions)
+    // ========================================================================
+    // DEBUG VISUALIZATION
+    // ========================================================================
+    // Pass base and tip positions for the existing debug drawing
+    const FVector CurrentStart = CurrentTracePoints.Num() > 0 ? CurrentTracePoints[0] : FVector::ZeroVector;
+    const FVector CurrentTip = CurrentTracePoints.Num() > 1 ? CurrentTracePoints.Last() : CurrentStart;
+    const FVector PrevStart = PreviousTracePoints.Num() > 0 ? PreviousTracePoints[0] : FVector::ZeroVector;
+    const FVector PrevTip = PreviousTracePoints.Num() > 1 ? PreviousTracePoints.Last() : PrevStart;
+
     UDebugUtils::DrawWeaponTrace(
-        GetWorld(),
-        CurrentStartLocation,
-        CurrentTipLocation,
-        PreviousStartLocation,
-        PreviousTipLocation,
+        TraceWorld,
+        CurrentStart, CurrentTip,
+        PrevStart, PrevTip,
         EffectiveRadius,
         bAnyHit,
         bAnyHit ? FirstHit : FHitResult());
 
-    // Store current positions for next frame
-    PreviousStartLocation = CurrentStartLocation;
-    PreviousTipLocation = CurrentTipLocation;
+    if (CombatDebug::IsWeaponDebugEnabled())
+    {
+        UE_LOG(LogWeaponComponent, Verbose, TEXT("[%s] Trace: %d points x %d substeps = %d sweeps | TipVel: %.0f u/s | Hits: %d"),
+            *GetNameSafe(GetOwner()),
+            CurrentTracePoints.Num(),
+            NumSubsteps,
+            CurrentTracePoints.Num() * NumSubsteps,
+            CachedWeaponTipVelocity.Size(),
+            HitActors.Num());
+    }
+
+    // Store current points for next frame
+    PreviousTracePoints = CurrentTracePoints;
 }
 
 void UWeaponComponent::ProcessHit(const FHitResult& Hit)
@@ -356,11 +409,15 @@ void UWeaponComponent::ProcessHit(const FHitResult& Hit)
         }
     }
 
+    // Enforce max hit count per attack (0 = unlimited)
+    UAttackData* AttackData = GetCurrentAttackData();
+    if (AttackData && AttackData->MaxHitCount > 0 && HitActors.Num() >= AttackData->MaxHitCount)
+    {
+        return;
+    }
+
     // Add to hit list (only living actors reach here)
     AddHitActor(HitActor);
-
-    // Get current attack data
-    UAttackData* AttackData = GetCurrentAttackData();
 
     // Broadcast hit event
     OnWeaponHit.Broadcast(HitActor, Hit, AttackData);
@@ -388,6 +445,49 @@ UAttackData* UWeaponComponent::GetCurrentAttackData() const
     }
 
     return nullptr;
+}
+
+// ============================================================================
+// BLADE TRACE HELPERS
+// ============================================================================
+
+TArray<FVector> UWeaponComponent::ComputeCurrentTracePoints() const
+{
+    const FVector BladeBase = GetSocketLocation(GetEffectiveStartSocket());
+    const FVector BladeTip = GetSocketLocation(GetEffectiveEndSocket());
+    return UWeaponTraceLibrary::ComputeBladeTracePoints(BladeBase, BladeTip, GetEffectiveTracePointCount());
+}
+
+int32 UWeaponComponent::ComputeAdaptiveSubstepCount(const TArray<FVector>& CurrentPoints) const
+{
+    const float MaxVelocity = UWeaponTraceLibrary::ComputeMaxTracePointVelocity(
+        PreviousTracePoints, CurrentPoints, LastDeltaTime);
+
+    return UWeaponTraceLibrary::ComputeAdaptiveSubstepCount(
+        MaxVelocity,
+        GetEffectiveMinSubsteps(),
+        GetEffectiveMaxSubsteps(),
+        GetEffectiveSubstepVelocityThreshold());
+}
+
+int32 UWeaponComponent::GetEffectiveTracePointCount() const
+{
+    return WeaponData ? WeaponData->TracePointCount : DefaultTracePointCount;
+}
+
+int32 UWeaponComponent::GetEffectiveMinSubsteps() const
+{
+    return WeaponData ? WeaponData->MinSubsteps : DefaultMinSubsteps;
+}
+
+int32 UWeaponComponent::GetEffectiveMaxSubsteps() const
+{
+    return WeaponData ? WeaponData->MaxSubsteps : DefaultMaxSubsteps;
+}
+
+float UWeaponComponent::GetEffectiveSubstepVelocityThreshold() const
+{
+    return WeaponData ? WeaponData->SubstepVelocityThreshold : DefaultSubstepVelocityThreshold;
 }
 
 // ============================================================================

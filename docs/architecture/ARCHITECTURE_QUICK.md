@@ -20,6 +20,8 @@ enum class EAttackPhase : uint8
 };
 ```
 
+**Architecture**: 5 core components with clear separation of concerns (Combat, Targeting, Weapon, HitReaction, PairedAnimation)
+
 ### 2. Window System (Independent)
 
 ```cpp
@@ -75,6 +77,13 @@ Enemy in parry window?
 
 **Parry window is on ATTACKER's montage**, defender checks `ICombatInterface::IsInParryWindow()`.
 
+### Chain Counter Ownership
+
+- `UCombatComponent` owns input capture, queue ownership, and attack-data resolution.
+- `UCombatComponent` must not enqueue successful Chain Block/attack inputs.
+- `UPairedAnimationComponent` owns Chain state, retained target/context, paired counter execution, paired finisher execution, and cleanup.
+- The public Chain advance API is `TryAdvanceChainCounter(UAttackData* SelectedAttackData)`. Low-level state helpers remain protected/internal unless a test explicitly names them as internal primitive coverage.
+
 ### 6. Cancel System (Bitmask)
 
 ```cpp
@@ -113,7 +122,7 @@ This distinction keeps system-wide events centralized while allowing components 
 
 ```
 BaseCombatCharacter
-├── CombatComponent (~800 lines) - Core combat system
+├── CombatComponent (~3400 lines) - Core combat system
 │   ├── Timestamped input queue (last-input-wins)
 │   ├── Action queue with checkpoints
 │   ├── Phase management (via AnimNotify events)
@@ -139,6 +148,13 @@ BaseCombatCharacter
 │   ├── Stun/i-frame management
 │   ├── Death reactions (directional + ragdoll)
 │   └── Pose snapshot for recovery
+│
+├── PairedAnimationComponent (~1500 lines)
+│   ├── Finisher execution flow
+│   ├── Counter system (AC3 + Chain modes)
+│   ├── Partner collision management
+│   ├── Input blocking during paired animations
+│   └── Counter window management
 │
 └── MotionWarpingComponent (UE5 built-in)
     └── Animation-driven movement warping
@@ -174,24 +190,32 @@ Windows (Overlapping):
 
 ## AnimNotify Requirements
 
-### Required (Basic Attack)
-Use **4 transition notifies** to mark phase boundaries:
-1. `AnimNotify_AttackPhaseTransition` (None → Windup)
-2. `AnimNotify_AttackPhaseTransition` (Windup → Active)
-3. `AnimNotify_AttackPhaseTransition` (Active → Recovery)
-4. `AnimNotify_AttackPhaseTransition` (Recovery → None)
+### Required Default Attack Notifies
+- `AnimNotify_AttackPhaseTransition` to Active at end of windup.
+- `AnimNotify_AttackPhaseTransition` to Recovery at end of active.
 
-**Note**: Hit detection is automatic during Active phase (no toggle notifies needed)
+Hit detection is automatic during Active phase; do not add toggle notifies for default attacks.
+Default combo timing is inferred from phase transitions; do not add explicit combo-window states for normal attack chains.
 
-### Optional Window Notifies
-- `AnimNotifyState_ComboWindow` - Enable early combo execution
-- `AnimNotifyState_ParryWindow` - Mark parry-vulnerable frames (on ATTACKER)
-- `AnimNotifyState_HoldWindow` - Enable hold mechanics
-- `AnimNotifyState_CancelWindow` - Enable attack cancellation
+### Optional Current Notifies
+- `AnimNotify_HoldWindowStart` for light hold activation.
+- `AnimNotifyState_ParryWindow` and `AnimNotifyState_CounterWindow` for attacker-side defensive response windows.
+- `AnimNotifyState_CancelWindow` for specific cancel inputs.
+- Paired animation sync/collision notifies for finishers and counters.
 
-### Deprecated (DO NOT USE)
-- ~~`AnimNotifyState_AttackPhase`~~ - Use `AnimNotify_AttackPhaseTransition` instead
-- ~~`AnimNotify_ToggleHitDetection`~~ - Automatic with Active phase
+### Chain Counter Requirements
+- Attacker montages that can be parried require `AnimNotifyState_ParryWindow`.
+- Attacker montages that can be directly countered require `AnimNotifyState_CounterWindow`.
+- Counter-capable `UAttackData` should set `bHasCounterVariant` and `CounterData` when a paired counter animation exists.
+- Paired counter/finisher montages require paired sync/collision notifies when they depend on impact timing or partner collision suppression.
+- Successful Chain Block and attack inputs are consumed only when `UPairedAnimationComponent` returns success.
+- `UCombatComponent` resolves selected attack data before crossing into Chain advance.
+
+### Do Not Default-Seed
+- `AnimNotifyState_AttackPhase`
+- `AnimNotify_ToggleHitDetection`
+- `AnimNotifyState_HoldWindow`
+- `AnimNotifyState_ComboWindow`
 
 ---
 
@@ -214,7 +238,9 @@ ChargeLoopBlendTime:          0.3s  // Blend into charge loop (heavy attacks)
 ChargeReleaseBlendTime:       0.2s  // Blend out of charge loop on release
 ```
 
-### Posture
+### Posture (DEPRECATED)
+**Note**: The posture system has been deprecated and replaced by contextual stagger mechanics. Posture values are maintained for backwards compatibility but are no longer the primary defense mechanism.
+
 ```cpp
 MaxPosture:                   100.0f
 PostureRegenRate_Attacking:   50.0f  // Fastest
@@ -223,6 +249,8 @@ PostureRegenRate_Idle:        20.0f
 GuardBreakStunDuration:       2.0f
 GuardBreakRecoveryPercent:    0.5f   // 50%
 ```
+
+**Use instead**: `ApplyStagger()`, `IsStaggered()`, `EndStagger()` from HitReactionComponent.
 
 ### Motion Warping
 ```cpp
@@ -260,9 +288,10 @@ Source/KatanaCombat/Public/
 │   ├── CombatComponent.h            # Combat state, attack execution, last-input-wins queue
 │   ├── TargetingComponent.h         # Soft-lock targeting, aim assist
 │   ├── WeaponComponent.h            # Hit detection, weapon state
-│   └── HitReactionComponent.h       # Damage reception, hit reactions, death
+│   ├── HitReactionComponent.h       # Damage reception, hit reactions, death
+│   └── PairedAnimationComponent.h   # Finishers, counters, partner tracking
 ├── Characters/
-│   ├── BaseCombatCharacter.h        # Base class with 4 combat components
+│   ├── BaseCombatCharacter.h        # Base class with 5 combat components
 │   ├── PlayerCharacter.h            # Player-specific combat
 │   └── EnemyCharacter.h             # Enemy-specific combat
 ├── Utilities/
@@ -275,9 +304,11 @@ Source/KatanaCombat/Public/
 ├── Animation/
 │   ├── SamuraiAnimInstance.h
 │   ├── AnimNotify_AttackPhaseTransition.h  # Phase transitions
+│   ├── AnimNotify_HoldWindowStart.h        # Event-driven hold activation
 │   ├── AnimNotifyState_ParryWindow.h
-│   ├── AnimNotifyState_HoldWindow.h
-│   └── AnimNotifyState_ComboWindow.h
+│   ├── AnimNotifyState_CounterWindow.h
+│   ├── AnimNotifyState_HoldWindow.h        # Legacy/default seeding sunset
+│   └── AnimNotifyState_ComboWindow.h       # Legacy/manual override only
 └── Interfaces/
     ├── CombatInterface.h            # Combat state contract
     ├── DamageableInterface.h        # Damage/health contract
@@ -320,13 +351,13 @@ bool IsVulnerableToFinisher() const;
 ❌ Declaring system delegates in component headers
 ❌ Using TArray for cancel inputs (use bitmask)
 ❌ Over-engineering with 7+ components
-❌ Splitting CombatComponent into fragments
+❌ Splitting core combat logic into too many small components
 
 ---
 
 ## Design Principles
 
-1. **Pragmatic Over Perfect** - ~1000 line component is fine
+1. **Clear Component Separation** - 5 core components with distinct responsibilities
 2. **Phases Are Exclusive** - Only one at a time
 3. **Windows Are Independent** - Can overlap
 4. **Always Buffer Input** - Windows modify timing
@@ -345,7 +376,7 @@ bool IsVulnerableToFinisher() const;
 
 KatanaCombat includes a comprehensive **C++ unit test suite** (`KatanaCombatTest` module):
 
-### Test Coverage (14 Test Suites, 126 Tests)
+### Test Coverage (19 Test Suites, 368 Tests)
 
 **Core Combat**:
 1. **StateTransitionTests** - State machine validation

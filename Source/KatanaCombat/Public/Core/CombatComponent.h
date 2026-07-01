@@ -50,6 +50,7 @@ class UAttackData;
 class UCombatSettings;
 class UAnimInstance;
 class UPairedAnimationData;
+class UPairedAnimationComponent;
 
 // ============================================================================
 // DEBUG VISUALIZATION TESTING SUPPORT
@@ -66,19 +67,6 @@ class KATANACOMBAT_API UCombatComponent : public UActorComponent
 	friend class FComboRace_RevertOnFailure;
 	friend class FComboRace_AttackDataSetBeforePlay;
 	friend class FComboRace_AttackDataNotNullAfterExecute;
-
-	// Test access for counter system tests
-	friend class FCounter_AC3LethalDamage;
-	friend class FCounter_AC3StaggersEnemy;
-	friend class FCounter_AC3HitInfoMarkedAsCounter;
-	friend class FCounter_AC3NullAttackerFails;
-	friend class FCounter_ChainParryTransition;
-	friend class FCounter_ChainCounterAttack;
-	friend class FCounter_ChainCancelResetsState;
-	friend class FCounter_CancelNoopWhenNone;
-	friend class FCounter_CounterAttackRequiresWindow;
-	friend class FCounter_ChainParryStaggersEnemy;
-	friend class FCounter_ChainNullAttackerFails;
 
 public:
 	UCombatComponent();
@@ -389,104 +377,43 @@ public:
 	bool IsAttacking() const { return CurrentAttackData != nullptr; }
 
 	// ============================================================================
-	// COUNTER WINDOW API
+	// PAIRED ANIMATION COMPONENT FORWARDING WRAPPERS
+	// ============================================================================
+	// These forward to UPairedAnimationComponent for backward compatibility.
+	// New code should access PairedAnimationComponent directly.
 	// ============================================================================
 
-	/**
-	 * Is this character currently in a counter window? (can be countered)
-	 * Called by defenders to check if this attacker is vulnerable to counter
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	bool IsInCounterWindow() const { return bCounterWindowActive; }
+	bool IsInCounterWindow() const;
 
-	/**
-	 * Get progress through counter window (0.0 = start, 1.0 = end)
-	 * Used for perfect counter timing detection
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	float GetCounterWindowProgress() const
-	{
-		if (!bCounterWindowActive || CounterWindowData.WindowDuration <= 0.0f)
-		{
-			return 0.0f;
-		}
-		return FMath::Clamp(CounterWindowData.TimeInWindow / CounterWindowData.WindowDuration, 0.0f, 1.0f);
-	}
+	float GetCounterWindowProgress() const;
 
-	/**
-	 * Get the counter window data for pose-matching
-	 * Only valid when IsInCounterWindow() returns true
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	const FCounterContext& GetCounterWindowData() const { return CounterWindowData; }
+	const FCounterContext& GetCounterWindowData() const;
 
-	/**
-	 * Set counter window data (called by AnimNotifyState_CounterWindow::NotifyBegin)
-	 * Marks this character as counterable and provides pose-matching info
-	 */
 	void SetCounterWindowData(EAttackType InAttackType, ESwingDirection InSwingDirection,
 							  UPairedAnimationData* InCounterData, float InWindowDuration);
 
-	/**
-	 * Is this character currently in a parry window? (can be parried)
-	 * Called by defenders to check if this attacker's attack can be parried.
-	 * Parry window is typically during early Windup phase.
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	bool IsInParryWindow() const { return bParryWindowActive; }
+	bool IsInParryWindow() const;
 
-	/** Set parry window active state (called by AnimNotifyState_ParryWindow) */
 	void SetParryWindowActive(bool bActive);
 
-	/**
-	 * Clear counter window data (called by AnimNotifyState_CounterWindow::NotifyEnd)
-	 * Marks this character as no longer counterable
-	 */
 	void ClearCounterWindowData();
 
-	// ============================================================================
-	// COUNTER SYSTEM API
-	// ============================================================================
-
-	/**
-	 * Attempt to perform a counter action
-	 * Routes to AC3 mode (instant counter-kill) or Chain mode (parry initiation)
-	 * based on CounterMode setting
-	 * @return True if counter was initiated successfully
-	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Counter")
 	bool TryCounter();
 
-	/**
-	 * Check if this character can currently perform a counter
-	 * Validates combat state, nearby counterable enemies, and mode-specific requirements
-	 * @return True if CanCounter conditions are met
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	bool CanCounter() const;
 
-	/**
-	 * Find the nearest enemy currently in their counter window
-	 * Searches within soft-lock range for enemies with active counter windows
-	 * @return Enemy actor if found, nullptr otherwise
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	AActor* FindCounterableEnemy() const;
 
-	/**
-	 * Get counter context for a specific enemy
-	 * Used to retrieve pose-matching data when executing counter
-	 * @param Enemy The enemy to get counter context from
-	 * @return Counter context with attack type, swing direction, and counter data
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	FCounterContext GetEnemyCounterContext(AActor* Enemy) const;
 
-	/**
-	 * Find the nearest enemy currently in their parry window.
-	 * Used by Chain counter mode to find parryable enemies.
-	 * @return Enemy actor if found, nullptr otherwise
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	AActor* FindParryableEnemy() const;
 
@@ -522,176 +449,44 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
 	FOnAttackHit OnAttackHit;
 
-	// ============================================================================
-	// PAIRED ANIMATION EVENTS
-	// ============================================================================
+	// Paired Animation forwarding wrappers (delegates to UPairedAnimationComponent)
 
-	/** Fires when a paired animation (finisher, counter) starts */
-	UPROPERTY(BlueprintAssignable, Category = "Combat|Paired Animation")
-	FOnPairedAnimationStarted OnPairedAnimationStarted;
-
-	/** Fires at sync points during paired animations (impact, damage application) */
-	UPROPERTY(BlueprintAssignable, Category = "Combat|Paired Animation")
-	FOnPairedAnimationSyncPoint OnPairedAnimationSyncPoint;
-
-	/** Fires when paired animation ends */
-	UPROPERTY(BlueprintAssignable, Category = "Combat|Paired Animation")
-	FOnPairedAnimationEnded OnPairedAnimationEnded;
-
-	// ============================================================================
-	// PAIRED ANIMATION PARTNER TRACKING
-	// ============================================================================
-
-	/**
-	 * Actors currently participating in paired animation with this character.
-	 * Used for targeted collision disabling (only ignore tracked partners, not all pawns).
-	 * Supports multi-partner scenarios like double takedowns or group finishers.
-	 *
-	 * Managed via AddPairedPartner/RemovePairedPartner/ClearPairedPartners API.
-	 * AnimNotifyState_PairedAnimationCollision reads this to know which actors to ignore.
-	 */
-	UPROPERTY()
-	TArray<TWeakObjectPtr<AActor>> PairedAnimationPartners;
-
-	/**
-	 * Add actor as paired animation partner.
-	 * Partner's collision will be ignored during paired animations via IgnoreActorWhenMoving().
-	 * Safe to call multiple times with same actor (idempotent).
-	 *
-	 * @param Partner - Actor to track as paired animation partner
-	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void AddPairedPartner(AActor* Partner);
 
-	/**
-	 * Remove actor from paired animation partners.
-	 * Collision with this actor will be restored.
-	 * Safe to call if actor is not currently tracked (no-op).
-	 *
-	 * @param Partner - Actor to remove from partner tracking
-	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void RemovePairedPartner(AActor* Partner);
 
-	/**
-	 * Clear all paired animation partners.
-	 * Called when paired animation ends or is interrupted.
-	 * Does NOT restore collision - that's handled by AnimNotifyState_PairedAnimationCollision.
-	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void ClearPairedPartners();
 
-	/**
-	 * Check if actor is currently a paired animation partner.
-	 *
-	 * @param Actor - Actor to check
-	 * @return True if actor is tracked as partner
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
 	bool IsPairedPartner(AActor* Actor) const;
 
-	/**
-	 * Get count of current paired animation partners.
-	 * Useful for debugging and multi-partner finisher logic.
-	 *
-	 * @return Number of tracked partners
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
-	int32 GetPairedPartnerCount() const { return PairedAnimationPartners.Num(); }
+	int32 GetPairedPartnerCount() const;
 
-	// ========================================================================
-	// PAIRED ANIMATION EFFECT HANDLING
-	// ========================================================================
-
-	/**
-	 * Currently active paired animation data.
-	 * Set when a paired animation starts, cleared when it ends.
-	 * Used by effect handlers to access slow-motion and camera shake settings.
-	 */
-	UPROPERTY(BlueprintReadOnly, Category = "Combat|Paired Animation")
-	TObjectPtr<UPairedAnimationData> ActivePairedAnimData;
-
-	/**
-	 * Whether combat input (attacks, evades) should be blocked.
-	 * Set true during paired animations/finishers to prevent unintended input.
-	 * Camera input is still allowed.
-	 */
-	UPROPERTY(BlueprintReadOnly, Category = "Combat|Paired Animation")
-	bool bBlockCombatInput = false;
-
-	/**
-	 * Check if combat input is currently blocked (during paired animations/finishers).
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
-	bool IsInputBlocked() const { return bBlockCombatInput; }
+	bool IsInputBlocked() const;
 
-	/**
-	 * Begin a paired animation sequence with effect handling.
-	 * Stores paired animation data, applies slow motion if configured, broadcasts delegates.
-	 *
-	 * @param PairedAnimData - The paired animation configuration (slow-mo, camera shake, etc.)
-	 * @param ReactionType - Type of paired reaction (Finisher, Counter, etc.)
-	 * @param bIsCriticalMoment - Whether this is a dramatic moment (triggers additional effects)
-	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void BeginPairedAnimation(UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType, bool bIsCriticalMoment = true);
 
-	/**
-	 * End the current paired animation sequence.
-	 * Restores time dilation, clears active paired animation data, broadcasts delegates.
-	 * Safe to call even if no paired animation is active.
-	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void EndPairedAnimation();
 
-	/**
-	 * Trigger sync point effects (camera shake, damage).
-	 * Called at impact moment during paired animation.
-	 * Uses ActivePairedAnimData for camera shake configuration.
-	 *
-	 * @param SyncPointName - Name of the sync point (for logging/identification)
-	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void TriggerSyncPointEffects(FName SyncPointName);
 
-	/**
-	 * Check if a paired animation is currently active.
-	 *
-	 * @return True if ActivePairedAnimData is set
-	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
-	bool IsPairedAnimationActive() const { return ActivePairedAnimData != nullptr; }
+	bool IsPairedAnimationActive() const;
 
-	// ========================================================================
-	// PAIRED ANIMATION INTERRUPT HANDLING
-	// ========================================================================
-
-	/**
-	 * Called when a paired animation partner dies during an active paired animation.
-	 * Cancels any ongoing paired animation montage and cleans up state.
-	 *
-	 * @param DeadPartner - The partner actor that just died
-	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void OnPairedPartnerDeath(AActor* DeadPartner);
 
-	/**
-	 * Cancel the current paired animation immediately.
-	 * Used when a partner dies or other interrupt conditions occur.
-	 * Stops montage, clears partners, restores state.
-	 * Does NOT apply damage (use CompletePairedAnimation for successful completion).
-	 *
-	 * @param BlendOutTime - How quickly to blend out the current montage (default 0.1s)
-	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void CancelPairedAnimation(float BlendOutTime = 0.1f);
 
-	/**
-	 * Complete the current paired animation successfully.
-	 * Called when finisher montage ends normally (not interrupted).
-	 * Applies damage to victim, handles death if lethal, cleans up all state.
-	 * This is distinct from CancelPairedAnimation which is for interruptions.
-	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void CompletePairedAnimation();
 
@@ -726,6 +521,9 @@ public:
 	/** Hold state (persists across combos) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	FHoldState HoldState;
+
+	/** Whether movement is currently disabled due to hold freeze */
+	bool bMovementCurrentlyDisabled = false;
 
 	/** Currently held inputs (for press/release matching) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
@@ -870,28 +668,6 @@ protected:
 	UFUNCTION()
 	void OnCharacterDeath();
 
-	// ============================================================================
-	// COUNTER SYSTEM INTERNAL METHODS
-	// ============================================================================
-
-	/** AC3 mode: Instant counter-kill. Slow-mo -> paired animation -> lethal damage. */
-	bool TryCounter_AC3Mode(const FCounterContext& Context);
-
-	/** Chain mode step 1: Parry the enemy's attack, opening a counter window on the player. */
-	bool TryCounter_ChainMode(const FCounterContext& Context);
-
-	/** Chain mode step 2: Execute counter attack during the player's counter window. */
-	bool ExecuteChainCounterAttack();
-
-	/** Chain mode step 3: Execute finisher to complete the chain. */
-	bool ExecuteChainFinisher();
-
-	/** Cancel the chain counter mid-sequence (timeout, damage taken, etc.) */
-	void CancelChainCounter();
-
-	/** Handle chain timeout expiration */
-	void OnChainTimeout();
-
 	/**
 	 * Set current input interpretation context
 	 *
@@ -917,33 +693,6 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	float ComboWindowDuration = 0.0f;
 
-	// ============================================================================
-	// COUNTER/PARRY WINDOW STATE (for AC3/Chain counter systems)
-	// ============================================================================
-
-	/** Is this character currently in a counter window? (can be countered by defenders) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
-	bool bCounterWindowActive = false;
-
-	/** Is this character currently in a parry window? (can be parried by defenders) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
-	bool bParryWindowActive = false;
-
-	/** Counter context data (pose-matching info for defenders) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
-	FCounterContext CounterWindowData;
-
-	/** Counter system mode - AC3 (one-step) vs Chain (three-step) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Counter")
-	ECounterSystemMode CounterMode = ECounterSystemMode::Chain;
-
-	/** Chain mode state machine (only used when CounterMode == Chain) */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
-	EChainCounterState ChainState = EChainCounterState::None;
-
-	/** Timer handle for chain mode timeout */
-	FTimerHandle ChainTimeoutHandle;
-
 	/** Queue statistics */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	FQueueStats QueueStats;
@@ -963,20 +712,9 @@ protected:
 	/** Timer handle for light attack ease transition (timer-based, NOT tick-based) */
 	FTimerHandle EaseTimerHandle;
 
-	/** Timer handle for slow-motion restoration (safeguard against permanent slow-mo on interrupt) */
-	FTimerHandle SlowMotionRestoreHandle;
-
-	/** Cached reaction type for active paired animation (used by EndPairedAnimation for delegate broadcast) */
-	EPairedReactionType ActivePairedReactionType = EPairedReactionType::None;
-
-	/** Tracked victim during finisher execution (for damage application at completion) */
-	TWeakObjectPtr<AActor> CurrentFinisherVictim;
-
-	/** Guard flag to prevent CompletePairedAnimation from being called multiple times (Gap 20.4) */
-	bool bCompletingPairedAnimation = false;
-
-	/** Is character movement currently disabled? (for procedural sync) */
-	bool bMovementCurrentlyDisabled = false;
+	/** Cached reference to PairedAnimationComponent (for forwarding wrappers) */
+	UPROPERTY()
+	TObjectPtr<UPairedAnimationComponent> CachedPairedAnimComp = nullptr;
 
 	// ========================================================================
 	// ATTACK STATE MACHINE (replaces scattered flags)
@@ -1068,9 +806,4 @@ protected:
 	/** Check if can accept new input (prevents double-queueing same input) */
 	bool CanAcceptNewInput(EInputType InputType) const;
 
-	/**
-	 * Callback for slow-motion restoration timer.
-	 * Called after SlowMotionDuration expires (safeguard against permanent slow-mo).
-	 */
-	void OnSlowMotionTimerExpired();
 };

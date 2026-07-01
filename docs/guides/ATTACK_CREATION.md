@@ -86,43 +86,34 @@ AM_LightAttacks Montage:
 
 ### Required Notifies (Minimum)
 
-Every attack needs these checkpoint notifies. Phases are **implicitly inferred** between checkpoints — no bespoke AnimNotifyState per phase needed:
+Every default attack needs phase-transition point notifies. Phases are **implicitly inferred** between checkpoints; do not add bespoke AnimNotifyStates per phase.
 
 #### Phase Checkpoints (AnimNotify_AttackPhaseTransition)
 
-Place point notifies at each phase boundary. The system infers each phase's duration from the time between checkpoints.
+Place point notifies at the phase boundaries that matter to combat behavior. The system infers windup before Active, active frames between Active and Recovery, and recovery after Recovery.
 
 ```
-AnimNotify_AttackPhaseTransition (Windup)    @ 0.0s
-AnimNotify_AttackPhaseTransition (Active)    @ 0.3s   ← Windup was 0.0-0.3s
-AnimNotify_AttackPhaseTransition (Recovery)  @ 0.5s   ← Active was 0.3-0.5s
-[montage ends]                               @ 1.0s   ← Recovery was 0.5-1.0s
+AnimNotify_AttackPhaseTransition (Active)    @ 0.3s   <- Windup was 0.0-0.3s
+AnimNotify_AttackPhaseTransition (Recovery)  @ 0.5s   <- Active was 0.3-0.5s
+[section ends]                               @ 1.0s   <- Recovery was 0.5-1.0s
 ```
 
 **Hit detection** is automatically enabled during Active phase and disabled when it ends — no separate `AnimNotify_ToggleHitDetection` needed.
+**Default combo timing** is inferred from Active/Recovery transitions — no `AnimNotifyState_ComboWindow` needed for normal attack chains.
 
-#### Optional Windows (AnimNotifyStates — still use range notifies)
+#### Optional Current Notifies
 
-Windows overlap phases and use AnimNotifyStates as before:
-- `AnimNotifyState_ComboWindow` — recovery phase combo input window
-- `AnimNotifyState_HoldWindow` — hold detection window
+Windows overlap phases. Use current notifies only:
+- `AnimNotify_HoldWindowStart` — point notify for hold activation
 - `AnimNotifyState_ParryWindow` — parry detection window (on ATTACKER's montage)
+- `AnimNotifyState_CounterWindow` — counter response window
+- `AnimNotifyState_CancelWindow` — cancel window with allowed inputs
 
 ### Optional Notifies
 
-#### Combo Window (for combo chains)
-```
-AnimNotifyState_ComboWindow
-├─ Start: 0.4s (late Active)
-└─ End: 0.9s (mid-to-late Recovery)
-```
+#### Combo Timing (for combo chains)
 
-**Purpose**: Early combo execution ("snappy" feel)
-
-**Placement Tips**:
-- Start during late Active or early Recovery
-- Extends through most of Recovery
-- Shorter = tighter timing, Longer = more forgiving
+Default combo timing is inferred from phase transitions and `ComboInputWindow` in `AttackData`. Tune `ComboInputWindow`, `NextComboAttack`, `HeavyComboAttack`, and blend times instead of adding `AnimNotifyState_ComboWindow` for normal attacks.
 
 #### Parry Window (for parryable attacks)
 ```
@@ -138,18 +129,16 @@ AnimNotifyState_ParryWindow
 - Before Active phase begins
 - Too early = impossible to parry, Too late = no telegraph
 
-#### Hold Window (for hold-and-release attacks)
+#### Hold Window Start (for hold-and-release attacks)
 ```
-AnimNotifyState_HoldWindow
-├─ Start: 0.7s (late Recovery)
-└─ End: 0.9s (end of Recovery)
+AnimNotify_HoldWindowStart @ 0.7s (late Recovery)
+InputType = LightAttack
 ```
 
-**Purpose**: Animation manipulation zone for directional follow-ups
+**Purpose**: Point event that checks whether the button is still held and starts hold behavior.
 
 **Placement Tips**:
 - During Recovery, after main attack completes
-- Duration = how long player can hold
 - System checks if button STILL HELD when window starts
 
 #### Cancel Window (for cancellable moves)
@@ -182,7 +171,7 @@ AnimNotifyState_CancelWindow
 │ Windup│    Active    │     Recovery    │
 │       │  [Hit Detect]│                 │
 │       │              ├─────────────┐   │
-│       │              │ComboWindow  │   │
+│       │              │Combo timing │   │
 └───────┴──────────────┴─────────────┴───┘
 ```
 
@@ -202,12 +191,12 @@ PW = Parry Window
 0.0s ──────────────────────────────────────────────► 1.0s
 │       │              │                  │
 │ Windup│    Active    │     Recovery    │
-│       │  [Hit Detect]│              ├──┤
-│       │              │              │HW│
-│       │              ├──────────────┴──┤
-│       │              │ComboWindow     │
+│       │  [Hit Detect]│              ▲  │
+│       │              │              HS │
+│       │              ├──────────────┬──┤
+│       │              │Combo timing  │
 └───────┴──────────────┴────────────────┘
-HW = Hold Window
+HS = Hold Window Start
 ```
 
 ### Cancellable Heavy Attack
@@ -480,15 +469,14 @@ DA_LightCombo3
 **1. Mark Attack as Holdable**:
 ```
 DA_LightCombo3:
-  bCanHoldAtEnd: true
+  bCanHold: true
   bEnforceMaxHoldTime: false (or true with MaxHoldTime: 1.5)
 ```
 
-**2. Add Hold Window to Montage**:
+**2. Add Hold Window Start to Montage**:
 ```
-AnimNotifyState_HoldWindow
-├─ Start: 0.7s (late Recovery)
-└─ End: 0.9s
+AnimNotify_HoldWindowStart @ 0.7s (late Recovery)
+InputType = LightAttack
 ```
 
 **3. Configure Directional Follow-ups**:
@@ -566,11 +554,10 @@ DA_HeavyAttack:
   ChargedPostureDamage: 40.0
 ```
 
-**2. Add Hold Window** (charge accumulates here):
+**2. Add Hold Window Start** (charge checks begin here):
 ```
-AnimNotifyState_HoldWindow
-├─ Start: 0.2s (early in Windup)
-└─ End: 2.2s (extends Windup for charging)
+AnimNotify_HoldWindowStart @ 0.2s (early in Windup)
+InputType = HeavyAttack
 ```
 
 **3. Configure Charge Sections** (optional, advanced):
@@ -856,28 +843,29 @@ Visual timeline editor showing:
 
 ## AnimNotify Setup (Unified System)
 
-### Required Notifies (4 Phase Transitions)
+### Required Default Attack Notifies
 
-Add `AnimNotify_AttackPhaseTransition` at each phase boundary:
+Add `AnimNotify_AttackPhaseTransition` at current phase boundaries:
 
-1. `FromPhase=None, ToPhase=Windup` - Attack start (0.0s)
-2. `FromPhase=Windup, ToPhase=Active` - Damage frames begin (e.g., 0.3s)
-3. `FromPhase=Active, ToPhase=Recovery` - Damage frames end (e.g., 0.6s)
-4. `FromPhase=Recovery, ToPhase=None` - Attack complete (end)
+1. `TransitionToPhase=Active` - Damage frames begin (e.g., 0.3s)
+2. `TransitionToPhase=Recovery` - Damage frames end (e.g., 0.6s)
 
 **Hit detection is automatic during Active phase** - no toggle notifies needed.
+**Default combo timing is inferred from phase transitions** - no combo-window notify needed for normal chains.
 
 ### Optional Window Notifies
 
-- `AnimNotifyState_ComboWindow` - Enable early combo execution (snappy path)
 - `AnimNotifyState_ParryWindow` - Mark parryable frames (on ATTACKER's montage)
-- `AnimNotifyState_HoldWindow` - Enable hold mechanics (button state check)
+- `AnimNotifyState_CounterWindow` - Mark counter response frames
+- `AnimNotify_HoldWindowStart` - Trigger hold mechanics with a button state check
 - `AnimNotifyState_CancelWindow` - Enable specific cancel inputs
 
 ### Deprecated Notifies (Do Not Use)
 
 - ~~`AnimNotifyState_AttackPhase`~~ - Replaced by `AnimNotify_AttackPhaseTransition`
 - ~~`AnimNotify_ToggleHitDetection`~~ - Automatic with Active phase
+- ~~`AnimNotifyState_HoldWindow`~~ - Replaced by `AnimNotify_HoldWindowStart`
+- ~~`AnimNotifyState_ComboWindow`~~ - Default combo timing is inferred from phase transitions
 
 ### Blending Configuration
 
@@ -917,9 +905,9 @@ Add `AnimNotify_AttackPhaseTransition` at each phase boundary:
 
 **2. Montage**:
 - [ ] Created with section(s)
-- [ ] 4x `AnimNotify_AttackPhaseTransition` at phase boundaries
+- [ ] `AnimNotify_AttackPhaseTransition` to Active and Recovery
 - [ ] Hit detection automatic during Active phase (no toggle needed)
-- [ ] Optional: ComboWindow, ParryWindow, HoldWindow, CancelWindow
+- [ ] Optional: `AnimNotifyState_ParryWindow`, `AnimNotifyState_CounterWindow`, `AnimNotify_HoldWindowStart`, `AnimNotifyState_CancelWindow`
 
 **3. AttackData**:
 - [ ] Created and named clearly

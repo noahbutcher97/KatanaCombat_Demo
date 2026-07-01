@@ -20,7 +20,9 @@ public class KatanaCombatTest : ModuleRules
 		{
 			PrivateDependencyModuleNames.AddRange(new string[]
 			{
-				"UnrealEd"  // For editor utilities in tests
+				"UnrealEd",          // For editor utilities in tests
+				"KatanaCombatEditor", // For editor tool regression tests
+				"Json"              // For asset migration report tests
 			});
 		}
 

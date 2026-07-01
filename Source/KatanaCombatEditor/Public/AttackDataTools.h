@@ -9,9 +9,11 @@
 
 class UAttackData;
 class UAnimMontage;
+class UAnimNotify;
 class UAnimNotify_AttackPhaseTransition;
 class UAnimNotifyState_AttackPhase; // Deprecated - for backward compatibility
 class UAnimNotifyState_ComboWindow;
+class UAnimNotifyState;
 class UAnimNotify_ToggleHitDetection;
 struct FAnimNotifyEvent;
 
@@ -87,44 +89,35 @@ public:
     // ============================================================================
 
     /**
-     * Generate AnimNotify_AttackPhaseTransition notifies in the target section
-     * Creates 2 transition point notifies based on calculated timing:
-     * - Transition to Active (at end of windup)
-     * - Transition to Recovery (at end of active)
-     * Also generates HoldWindow notify if applicable
-     *
-     * @param AttackData - Attack to generate notifies for
-     * @return True if notifies were successfully generated
+     * Generate AnimNotify_AttackPhaseTransition notifies in the target section.
+     * Creates transition point notifies:
+     * - Transition to Active at end of windup
+     * - Transition to Recovery at end of active
+     * Also generates AnimNotify_HoldWindowStart for light hold attacks when configured.
      */
     UFUNCTION(BlueprintCallable, Category = "Attack Data Tools")
     static bool GenerateAttackPhaseNotifies(UAttackData* AttackData);
 
     /**
-     * Generate AnimNotify_ToggleHitDetection notifies for active phase
-     * Places Enable at start of active phase, Disable at end
-     * 
-     * @param AttackData - Attack to generate notifies for
-     * @return True if notifies were successfully generated
+     * Deprecated legacy helper for manual hit-detection toggles.
+     * Current combat uses AnimNotify_AttackPhaseTransition to enable/disable hit detection automatically.
      */
-    UFUNCTION(BlueprintCallable, Category = "Attack Data Tools")
+    UFUNCTION(BlueprintCallable, Category = "Attack Data Tools",
+        meta = (DeprecatedFunction, DeprecationMessage = "Manual hit-detection toggles are deprecated. Use GenerateAllNotifies to seed phase transitions."))
     static bool GenerateHitDetectionNotifies(UAttackData* AttackData);
 
     /**
-     * Generate AnimNotifyState_ComboWindow notify during recovery
-     * Places window at start of recovery phase for combo input
-     * 
-     * @param AttackData - Attack to generate notify for
-     * @return True if notify was successfully generated
+     * Deprecated legacy helper for explicit combo-window notifies.
+     * Current default combo timing is inferred from phase transitions by MontageUtilityLibrary.
      */
-    UFUNCTION(BlueprintCallable, Category = "Attack Data Tools")
+    UFUNCTION(BlueprintCallable, Category = "Attack Data Tools",
+        meta = (DeprecatedFunction, DeprecationMessage = "Explicit combo-window notifies are deprecated for default attacks. Combo timing is inferred from phase transitions."))
     static bool GenerateComboWindowNotify(UAttackData* AttackData);
 
     /**
-     * Generate all notifies (AttackPhase + HitDetection + ComboWindow)
-     * Convenience function that calls all generation functions
-     * 
-     * @param AttackData - Attack to generate notifies for
-     * @return True if all notifies were successfully generated
+     * Generate current default attack notifies.
+     * Adds phase transitions and optional event-driven hold start.
+     * Removes deprecated attack phase states, hit toggles, hold states, and explicit default combo windows from the target section.
      */
     UFUNCTION(BlueprintCallable, Category = "Attack Data Tools")
     static bool GenerateAllNotifies(UAttackData* AttackData);
@@ -316,6 +309,24 @@ private:
 
     /** Convert section-relative time to montage-absolute time */
     static float SectionTimeToMontageTime(UAnimMontage* Montage, FName SectionName, float SectionRelativeTime);
+
+    /** Validate target section and manual timing before mutating montage notifies */
+    static bool ValidateNotifyGenerationTiming(UAttackData* AttackData, FText& OutErrorMessage);
+
+    /** Generate the current event-driven hold start notify if the attack supports hold */
+    static bool GenerateHoldWindowStartNotify(UAttackData* AttackData);
+
+    /** Whether this attack should receive the current event-driven hold start notify */
+    static bool ShouldGenerateHoldWindowStart(const UAttackData* AttackData);
+
+    /** Remove legacy default-generated notifies from the target section only */
+    static void RemoveDefaultGeneratedLegacyNotifies(UAnimMontage* Montage, FName SectionName);
+
+    /** Internal mutation path for GenerateAllNotifies after preflight and transaction setup */
+    static bool GenerateAllNotifiesInternal(UAttackData* AttackData);
+
+    /** Sort, refresh, and mark montage notify changes */
+    static void FinalizeMontageNotifyChanges(UAnimMontage* Montage);
 
     /** Get default timing percentages for attack type */
     static void GetDefaultTimingPercentages(EAttackType AttackType, float& OutWindupPercent, float& OutActivePercent, float& OutRecoveryPercent);

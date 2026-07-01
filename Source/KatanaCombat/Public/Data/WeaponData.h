@@ -133,6 +133,39 @@ public:
     float TraceRadius = 5.0f;
 
     /**
+     * Number of trace points along the blade (blade segmentation).
+     * More points = better arc coverage for wide swings at the cost of more traces.
+     * 1 = single capsule (legacy), 2 = base+tip, 3 = base+mid+tip (recommended)
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Hit Detection",
+        meta = (ClampMin = "1", ClampMax = "5"))
+    int32 TracePointCount = 3;
+
+    /**
+     * Minimum substeps per frame for hit detection.
+     * Used at low weapon velocities. 1 = no interpolation.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Hit Detection",
+        meta = (ClampMin = "1", ClampMax = "3"))
+    int32 MinSubsteps = 1;
+
+    /**
+     * Maximum substeps per frame for hit detection.
+     * Used at high weapon velocities. Higher = more accurate but more traces per frame.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Hit Detection",
+        meta = (ClampMin = "1", ClampMax = "8"))
+    int32 MaxSubsteps = 5;
+
+    /**
+     * Weapon tip velocity (units/sec) at which maximum substeps are used.
+     * Below this, substep count scales linearly from MinSubsteps to MaxSubsteps.
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Hit Detection",
+        meta = (ClampMin = "100.0", ClampMax = "5000.0"))
+    float SubstepVelocityThreshold = 1500.0f;
+
+    /**
      * If true, trace sockets are on the character mesh (for static mesh weapons)
      * If false, trace sockets are on the weapon's skeletal mesh component
      */

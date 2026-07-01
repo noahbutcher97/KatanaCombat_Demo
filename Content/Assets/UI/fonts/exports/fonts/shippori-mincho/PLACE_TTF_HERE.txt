@@ -1,0 +1,14 @@
+Shippori Mincho — NOT bundled (each weight is ~18 MB, over the import limit).
+
+Download the static TTFs (Medium 500, SemiBold 600, Bold 700, ExtraBold 800) from the
+official upstream repo and drop them in this folder:
+
+  https://github.com/fontdasu/ShipporiMincho  →  fonts/ttf/
+    ShipporiMincho-Medium.ttf
+    ShipporiMincho-SemiBold.ttf
+    ShipporiMincho-Bold.ttf
+    ShipporiMincho-ExtraBold.ttf
+
+(Or "Download family" from fonts.google.com/specimen/Shippori+Mincho.)
+License: SIL OFL 1.1. The auto-importer will pick these up on the next editor launch.
+The other two families (Zen Kaku Gothic New, JetBrains Mono) are already included.

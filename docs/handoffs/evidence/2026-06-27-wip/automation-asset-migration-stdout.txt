@@ -1,0 +1,251 @@
+LogInit: Display: Running engine for game: KatanaCombat
+LogCore: Display: Requested channels: 'cpu,gpu,frame,log,bookmark,screenshot,region'
+LogTrace: Display: Control listening on port 33813
+LogCsvProfiler: Display: Metadata set : platform="Windows"
+LogCsvProfiler: Display: Metadata set : config="Development"
+LogCsvProfiler: Display: Metadata set : buildversion="++UE5+Release-5.6-CL-44394996"
+LogCsvProfiler: Display: Metadata set : engineversion="5.6.1-44394996+++UE5+Release-5.6"
+LogCsvProfiler: Display: Metadata set : os="Windows 11 (25H2) [10.0.26200.8655] "
+LogCsvProfiler: Display: Metadata set : cpu="GenuineIntel|Intel(R) Core(TM) Ultra 9 275HX"
+LogCsvProfiler: Display: Metadata set : pgoenabled="0"
+LogCsvProfiler: Display: Metadata set : pgoprofilingenabled="0"
+LogCsvProfiler: Display: Metadata set : ltoenabled="0"
+LogCsvProfiler: Display: Metadata set : asan="0"
+LogCsvProfiler: Display: Metadata set : commandline="" D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject -ExecCmds="Automation RunTests KatanaCombat.Editor.AssetMigration;Quit" -unattended -nopause -NullRHI -nosplash -stdout""
+LogCsvProfiler: Display: Metadata set : loginid="f0fdcc51469d8b10879f598227fb6c46"
+LogCsvProfiler: Display: Metadata set : llm="0"
+LogPluginManager: Warning: The same version (v96) of plugin 'Able' exists at '../../../Engine/Plugins/_Disabled/AbleAbilbe09854e5710V8/Able.uplugin' and '../../../Engine/Plugins/Marketplace/AbleAbilbe09854e5710V8/Able.uplugin' - second location will be ignored.
+LogPluginManager: Warning: The same version (v0) of plugin 'RrEnhancedDataAssetEditor' exists at '../../../Engine/Plugins/_Disabled/Enhancedfd0766ea6f03V1/RrEnhancedDataAssetEditor.uplugin' and '../../../Engine/Plugins/Marketplace/Enhancedfd0766ea6f03V1/RrEnhancedDataAssetEditor.uplugin' - second location will be ignored.
+LogCsvProfiler: Display: Metadata set : systemresolution.resx="1280"
+LogCsvProfiler: Display: Metadata set : systemresolution.resy="720"
+LogAudio: Display: Pre-Initializing Audio Device Manager...
+LogAudio: Display: AudioInfo: 'OPUS' Registered
+LogAudioDebug: Display: Lib vorbis DLL was dynamically loaded.
+LogAudio: Display: AudioInfo: 'OGG' Registered
+LogAudio: Display: AudioInfo: 'ADPCM' Registered
+LogAudio: Display: AudioInfo: 'PCM' Registered
+LogAudio: Display: AudioInfo: 'BINKA' Registered
+LogAudio: Display: AudioInfo: 'RADA' Registered
+LogAudio: Display: Audio Device Manager Pre-Initialized
+LogAssetRegistry: Display: PlatformFileJournal is not available on volume 'D:' of project directory 'D:/UnrealProjects/5.6/KatanaCombat/', so AssetDiscovery cache will not be read or written. Unavailability reason:
+	NTFS Journal is not active for volume 'D:'. Launch cmd.exe as admin and run command `fsutil usn createJournal D: m=<SizeInBytes>`. Recommended <SizeInBytes> is 0x40000000 (1GB).
+LogConfig: Display: Loading VulkanPC ini files took 0.04 seconds
+LogConfig: Display: Loading Mac ini files took 0.04 seconds
+LogConfig: Display: Loading Android ini files took 0.04 seconds
+LogConfig: Display: Loading IOS ini files took 0.04 seconds
+LogConfig: Display: Loading VisionOS ini files took 0.05 seconds
+LogConfig: Display: Loading Unix ini files took 0.05 seconds
+LogConfig: Display: Loading Windows ini files took 0.05 seconds
+LogConfig: Display: Loading TVOS ini files took 0.05 seconds
+LogConfig: Display: Loading Linux ini files took 0.05 seconds
+LogAssetRegistry: Display: Asset registry cache read as 93.2 MiB from D:/UnrealProjects/5.6/KatanaCombat/Intermediate/CachedAssetRegistry_0.bin.
+RenderDocPlugin: Display: RenderDoc plugin will not be loaded. Use '-AttachRenderDoc' on the cmd line or enable 'renderdoc.AutoAttach' in the plugin settings.
+[2026.06.27-20.26.49:053][  0]LogCsvProfiler: Display: Metadata set : systemresolution.resx="1707"
+[2026.06.27-20.26.49:053][  0]LogCsvProfiler: Display: Metadata set : systemresolution.resy="1067"
+[2026.06.27-20.26.49:054][  0]LogHAL: Display: Platform has ~ 64 GB [68112736256 / 68719476736 / 64], which maps to Largest [LargestMinGB=32, LargerMinGB=12, DefaultMinGB=8, SmallerMinGB=6, SmallestMinGB=0)
+[2026.06.27-20.26.49:055][  0]LogCsvProfiler: Display: Metadata set : extradevelopmentmemorymb="0"
+[2026.06.27-20.26.49:442][  0]LogWindowsTouchpad: Display: CacheForceMaxTouchpadSensitivityMode SetMaxTouchpadSensitivity
+[2026.06.27-20.26.49:443][  0]LogObj: Display: Attempting to load config data for Default__SlateThemeManager before the Class has been constructed/registered/linked (likely during module loading or early startup). This will result in the load silently failing and should be fixed.
+[2026.06.27-20.26.49:519][  0]LogCsvProfiler: Display: Metadata set : verbatimrhiname="Null"
+[2026.06.27-20.26.49:519][  0]LogCsvProfiler: Display: Metadata set : rhiname="Null"
+[2026.06.27-20.26.49:519][  0]LogCsvProfiler: Display: Metadata set : rhifeaturelevel="SM6"
+[2026.06.27-20.26.49:519][  0]LogCsvProfiler: Display: Metadata set : shaderplatform="PCD3D_SM6"
+[2026.06.27-20.26.49:524][  0]LogTextureFormatASTC: Display: ASTCEnc version 5.0.1 library loaded
+[2026.06.27-20.26.49:524][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatASTC
+[2026.06.27-20.26.49:524][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatDXT
+[2026.06.27-20.26.49:524][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatETC2
+[2026.06.27-20.26.49:524][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatIntelISPCTexComp
+[2026.06.27-20.26.49:524][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatUncompressed
+[2026.06.27-20.26.49:524][  0]LogTextureFormatOodle: Display: Oodle Texture TFO init; latest sdk version = 2.9.13
+[2026.06.27-20.26.49:524][  0]LogTextureFormatOodle: Display: Oodle Texture loading DLL: oo2tex_win64_2.9.13.dll
+[2026.06.27-20.26.49:524][  0]LogTextureFormatOodle: Display: Oodle Texture loading DLL: oo2tex_win64_2.9.5.dll
+[2026.06.27-20.26.49:524][  0]LogTextureFormatManager: Display: Loaded Base TextureFormat: TextureFormatOodle
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_ASTC'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_DXT'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_ETC2'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_OpenXR'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'AndroidClient'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_ASTCClient'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_DXTClient'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_ETC2Client'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_OpenXRClient'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_Multi'
+[2026.06.27-20.26.49:548][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Android_MultiClient'
+[2026.06.27-20.26.49:560][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'IOS'
+[2026.06.27-20.26.49:560][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'IOSClient'
+[2026.06.27-20.26.49:569][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Linux'
+[2026.06.27-20.26.49:569][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'LinuxEditor'
+[2026.06.27-20.26.49:569][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'LinuxServer'
+[2026.06.27-20.26.49:569][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'LinuxClient'
+[2026.06.27-20.26.49:579][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Mac'
+[2026.06.27-20.26.49:579][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'MacEditor'
+[2026.06.27-20.26.49:579][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'MacServer'
+[2026.06.27-20.26.49:579][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'MacClient'
+[2026.06.27-20.26.49:589][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'TVOS'
+[2026.06.27-20.26.49:589][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'TVOSClient'
+[2026.06.27-20.26.49:600][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'Windows'
+[2026.06.27-20.26.49:600][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'WindowsEditor'
+[2026.06.27-20.26.49:600][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'WindowsServer'
+[2026.06.27-20.26.49:600][  0]LogTargetPlatformManager: Display: Loaded TargetPlatform 'WindowsClient'
+[2026.06.27-20.26.49:600][  0]LogTargetPlatformManager: Display: Building Assets For WindowsEditor
+[2026.06.27-20.26.49:633][  0]LogDerivedDataCache: Display: Memory: Max Cache Size: -1 MB
+[2026.06.27-20.26.49:769][  0]LogDerivedDataCache: Display: ../../../Engine/DerivedDataCache/Compressed.ddp: Opened pak cache for reading. (1350 MiB)
+[2026.06.27-20.26.50:175][  0]LogZenServiceInstance: Display: Unreal Zen Storage Server HTTP service at [::1]:8558 status: OK!.
+[2026.06.27-20.26.50:176][  0]LogDerivedDataCache: Display: ZenLocal: Using ZenServer HTTP service at http://[::1]:8558/ with namespace ue.ddc status: OK!.
+[2026.06.27-20.26.50:181][  0]LogDerivedDataCache: Display: C:/Users/posne/AppData/Local/UnrealEngine/Common/DerivedDataCache: Performance: Latency=0.02ms. RandomReadSpeed=1759.11MBs, RandomWriteSpeed=240.81MBs. Assigned SpeedClass 'Local'
+[2026.06.27-20.26.50:188][  0]LogUbaHorde: Display: UBA/Horde Configuration [Uba.Provider.Horde]: Not Enabled
+[2026.06.27-20.26.50:188][  0]LogShaderCompilers: Display: Using 12 local workers for shader compilation
+[2026.06.27-20.26.50:190][  0]LogShaderCompilers: Display: Compiling shader autogen file: D:/UnrealProjects/5.6/KatanaCombat/Intermediate/ShaderAutogen/PCD3D_SM6/AutogenShaderHeaders.ush
+[2026.06.27-20.26.50:190][  0]LogShaderCompilers: Display: Autogen file is unchanged, skipping write.
+[2026.06.27-20.26.50:570][  0]LogEditorDomain: Display: EditorDomain is Disabled
+[2026.06.27-20.26.50:656][  0]LogAssetRegistry: Display: AssetDataGatherer spent 0.000s loading caches D:/UnrealProjects/5.6/KatanaCombat/Intermediate/CachedAssetRegistry_*.bin.
+[2026.06.27-20.26.50:773][  0]LogDeviceProfileManager: Display: Deviceprofile LinuxArm64Editor not found.
+[2026.06.27-20.26.50:773][  0]LogDeviceProfileManager: Display: Deviceprofile LinuxArm64 not found.
+[2026.06.27-20.26.50:794][  0]LogCsvProfiler: Display: Metadata set : deviceprofile="WindowsEditor"
+[2026.06.27-20.26.50:796][  0]LogStreaming: Display: FlushAsyncLoading(1): 1 QueuedPackages, 0 AsyncPackages
+[2026.06.27-20.26.50:808][  0]LogStreaming: Display: Flushing package /Engine/Functions/Engine_MaterialFunctions01/Shading/PowerToRoughness (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:808][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/Functions/Engine_MaterialFunctions01/Shading/PowerToRoughness because of a recursive sync load
+[2026.06.27-20.26.50:808][  0]LogStreaming: Display: Flushing package /Engine/Functions/Engine_MaterialFunctions01/Shading/PowerToRoughness (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:808][  0]LogStreaming: Display: Flushing package /Engine/Functions/Engine_MaterialFunctions01/Shading/ConvertFromDiffSpec (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:809][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/Functions/Engine_MaterialFunctions01/Shading/ConvertFromDiffSpec because of a recursive sync load
+[2026.06.27-20.26.50:809][  0]LogStreaming: Display: Flushing package /Engine/Functions/Engine_MaterialFunctions01/Shading/ConvertFromDiffSpec (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:809][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/WorldGridMaterial (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:809][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/EngineMaterials/T_Default_Material_Grid_M because of a recursive sync load
+[2026.06.27-20.26.50:809][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/EngineMaterials/T_Default_Material_Grid_N because of a recursive sync load
+[2026.06.27-20.26.50:810][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultDeferredDecalMaterial (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/WorldGridMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:810][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultLightFunctionMaterial (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/DefaultDeferredDecalMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:811][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultPostProcessMaterial (state: WaitingForIo) recursively from another package /Engine/EngineMaterials/DefaultLightFunctionMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:811][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultLightFunctionMaterial is adding a dynamic import to package /Engine/EngineMaterials/DefaultDiffuse because of a recursive sync load
+[2026.06.27-20.26.50:811][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultLightFunctionMaterial is adding a dynamic import to package /Engine/Functions/Engine_MaterialFunctions02/Utility/BreakOutFloat2Components because of a recursive sync load
+[2026.06.27-20.26.50:811][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultLightFunctionMaterial is adding a dynamic import to package /Engine/EngineMaterials/DefaultPostProcessMaterial because of a recursive sync load
+[2026.06.27-20.26.50:811][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultPostProcessMaterial (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/DefaultLightFunctionMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:812][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultDeferredDecalMaterial is adding a dynamic import to package /Engine/EngineMaterials/DefaultLightFunctionMaterial because of a recursive sync load
+[2026.06.27-20.26.50:812][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultLightFunctionMaterial (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/DefaultDeferredDecalMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:812][  0]LogStreaming: Display: Package /Engine/EngineMaterials/WorldGridMaterial is adding a dynamic import to package /Engine/EngineMaterials/DefaultDeferredDecalMaterial because of a recursive sync load
+[2026.06.27-20.26.50:812][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/DefaultDeferredDecalMaterial (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/WorldGridMaterial (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:812][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/Functions/Engine_MaterialFunctions01/Opacity/CameraDepthFade because of a recursive sync load
+[2026.06.27-20.26.50:813][  0]LogStreaming: Display: Package /Engine/EngineMaterials/DefaultTextMaterialOpaque is adding a dynamic import to package /Engine/EngineMaterials/WorldGridMaterial because of a recursive sync load
+[2026.06.27-20.26.50:813][  0]LogStreaming: Display: Flushing package /Engine/EngineMaterials/WorldGridMaterial (state: DeferredPostLoad) recursively from another package /Engine/EngineMaterials/DefaultTextMaterialOpaque (state: CreateLinkerLoadExports) will result in a partially loaded package to avoid a deadlock.
+[2026.06.27-20.26.50:813][  0]LogTextureEncodingSettings: Display: Texture Encode Speed: FinalIfAvailable (editor).
+[2026.06.27-20.26.50:813][  0]LogTextureEncodingSettings: Display: Oodle Texture Encode Speed settings: Fast: RDO Off Lambda=0, Effort=Normal Final: RDO Off Lambda=0, Effort=Normal
+[2026.06.27-20.26.50:813][  0]LogTextureEncodingSettings: Display: Shared linear texture encoding: Disabled
+[2026.06.27-20.26.50:825][  0]LogMeshReduction: Display: Using QuadricMeshReduction for automatic static mesh reduction
+[2026.06.27-20.26.50:825][  0]LogMeshReduction: Display: Using SkeletalMeshReduction for automatic skeletal mesh reduction
+[2026.06.27-20.26.50:825][  0]LogMeshReduction: Display: Using ProxyLODMeshReduction for automatic mesh merging
+[2026.06.27-20.26.50:825][  0]LogMeshReduction: Display: No distributed automatic mesh merging module available
+[2026.06.27-20.26.51:082][  0]LogVirtualization: Display: VirtualizationSystem name found in ini file: None
+[2026.06.27-20.26.51:082][  0]LogVirtualization: Display: FNullVirtualizationSystem mounted, virtualization will be disabled
+[2026.06.27-20.26.51:153][  0]LogWorldPartition: Display: FWorldPartitionClassDescRegistry::Initialize started...
+[2026.06.27-20.26.51:156][  0]LogWorldPartition: Display: FWorldPartitionClassDescRegistry::Initialize took 2.844 ms
+[2026.06.27-20.26.51:255][  0]LogUdpMessaging: Display: Work queue size set to 1024.
+[2026.06.27-20.26.51:255][  0]LogUdpMessaging: Display: Unicast socket bound to '0.0.0.0:50554'.
+[2026.06.27-20.26.51:265][  0]LogUdpMessaging: Display: Added local interface '26.134.81.98' to multicast group '230.0.0.1:6666'
+[2026.06.27-20.26.51:265][  0]LogUdpMessaging: Display: Added local interface '192.168.1.177' to multicast group '230.0.0.1:6666'
+[2026.06.27-20.26.51:265][  0]LogUdpMessaging: Display: Added local interface '192.168.193.165' to multicast group '230.0.0.1:6666'
+[2026.06.27-20.26.51:265][  0]LogUdpMessaging: Display: Added local interface '172.17.16.1' to multicast group '230.0.0.1:6666'
+[2026.06.27-20.26.51:265][  0]LogUdpMessaging: Display: Added local interface '172.30.160.1' to multicast group '230.0.0.1:6666'
+[2026.06.27-20.26.51:268][  0]LogUdpMessaging: Display: Using asynchronous task graph for message deserialization.
+[2026.06.27-20.26.51:808][  0]LogMetaSound: Display: MetaSound Page Target Initialized to 'Default'
+[2026.06.27-20.26.51:808][  0]LogAudio: Display: Registering Engine Module Parameter Interfaces...
+[2026.06.27-20.26.52:172][  0]KatanaCombatTest: Warning: KatanaCombatTest module has been loaded
+[2026.06.27-20.26.52:349][  0]LogAudioCaptureCore: Display: No Audio Capture implementations found. Audio input will be silent.
+[2026.06.27-20.26.52:349][  0]LogAudioCaptureCore: Display: No Audio Capture implementations found. Audio input will be silent.
+[2026.06.27-20.26.53:144][  0]LogAnalytics: Display: [UEEditor.Rocket.Release] AnalyticsET::StartSession ( APIServer = https://datarouter.ol.epicgames.com/datarouter/api/v1/public/data. AppVersion = 5.6.1-44394996+++UE5+Release-5.6 )
+[2026.06.27-20.26.53:147][  0]LogAudio: Display: Initializing Audio Device Manager...
+[2026.06.27-20.26.53:157][  0]LogAudio: Display: Loading Default Audio Settings Objects...
+[2026.06.27-20.26.53:157][  0]LogAudio: Display: No default SoundConcurrencyObject specified (or failed to load).
+[2026.06.27-20.26.53:158][  0]LogAudio: Display: Audio Device Manager Initialized
+[2026.06.27-20.26.53:158][  0]LogAudio: Display: Creating Audio Device:                 Id: 1, Scope: Shared, Realtime: True
+[2026.06.27-20.26.53:158][  0]LogAudioMixer: Display: Audio Mixer Platform Settings:
+[2026.06.27-20.26.53:158][  0]LogAudioMixer: Display: 	Sample Rate:						  48000
+[2026.06.27-20.26.53:158][  0]LogAudioMixer: Display: 	Callback Buffer Frame Size Requested: 1024
+[2026.06.27-20.26.53:158][  0]LogAudioMixer: Display: 	Callback Buffer Frame Size To Use:	  1024
+[2026.06.27-20.26.53:158][  0]LogAudioMixer: Display: 	Number of buffers to queue:			  1
+[2026.06.27-20.26.53:158][  0]LogAudioMixer: Display: 	Max Channels (voices):				  32
+[2026.06.27-20.26.53:158][  0]LogAudioMixer: Display: 	Number of Async Source Workers:		  4
+[2026.06.27-20.26.53:158][  0]LogAudio: Display: AudioDevice MaxSources: 32
+[2026.06.27-20.26.53:158][  0]LogAudio: Display: Audio Spatialization Plugin: None (built-in).
+[2026.06.27-20.26.53:158][  0]LogAudio: Display: Audio Reverb Plugin: None (built-in).
+[2026.06.27-20.26.53:158][  0]LogAudio: Display: Audio Occlusion Plugin: None (built-in).
+[2026.06.27-20.26.53:166][  0]LogAudioMixer: Display: Initializing audio mixer using platform API: 'XAudio2'
+[2026.06.27-20.26.53:385][  0]LogAudioMixer: Display: Using Audio Hardware Device Headphones (2- SteelSeries Arctis Nova 5)
+[2026.06.27-20.26.53:386][  0]LogAudioMixer: Display: Initializing Sound Submixes...
+[2026.06.27-20.26.53:388][  0]LogAudioMixer: Display: Creating Master Submix 'MasterSubmixDefault'
+[2026.06.27-20.26.53:388][  0]LogAudioMixer: Display: Creating Master Submix 'MasterReverbSubmixDefault'
+[2026.06.27-20.26.53:390][  0]LogAudioMixer: Display: Output buffers initialized: Frames=1024, Channels=2, Samples=2048, InstanceID=1
+[2026.06.27-20.26.53:393][  0]LogAudioMixer: Display: Starting AudioMixerPlatformInterface::RunInternal(), InstanceID=1
+[2026.06.27-20.26.53:394][  0]LogAudioMixer: Display: FMixerPlatformXAudio2::SubmitBuffer() called for the first time. InstanceID=1
+[2026.06.27-20.26.53:394][  0]LogAudio: Display: Audio Device (ID: 1) registered with world 'Untitled'.
+[2026.06.27-20.26.53:397][  0]LogCsvProfiler: Display: Metadata set : largeworldcoordinates="1"
+[2026.06.27-20.26.53:771][  0]LogSourceControl: Display: Uncontrolled Changelist persistency file loaded D:/UnrealProjects/5.6/KatanaCombat/Saved/SourceControl/UncontrolledChangelists.json
+[2026.06.27-20.26.53:903][  0]LogPython: Warning: '/Script/Engine.EInputEvent' and '/Script/KatanaCombat.EInputEventType' have the same name (InputEventType) when exposed to Python. Rename one of them using 'ScriptName' meta-data.
+[2026.06.27-20.26.54:607][  0]LogCore: Display: GameplayInsights module auto-connecting to local trace server...
+[2026.06.27-20.26.54:631][  0]LogAssetRegistry: Display: Triggering cache save on discovery complete
+[2026.06.27-20.26.54:664][  0]LogInit: Display: Engine is initialized. Leaving FEngineLoop::Init()
+[2026.06.27-20.26.54:689][  0]LogAudio: Display: Audio Device unregistered from world 'None'.
+[2026.06.27-20.26.55:836][  0]LogAssetRegistry: Display: Asset registry cache written as 93.2 MiB to D:/UnrealProjects/5.6/KatanaCombat/Intermediate/CachedAssetRegistry_*.bin
+[2026.06.27-20.26.56:085][  0]LogAudio: Display: Audio Device (ID: 1) registered with world 'Lvl_ThirdPerson1'.
+[2026.06.27-20.26.56:088][  0]LogWorldPartition: Display: WorldPartition initialize started...
+[2026.06.27-20.26.56:261][  0]LogWorldPartition: Display: WorldPartition initialize took 172.807 ms
+[2026.06.27-20.26.56:279][  0]LogSkeletalMesh: Display: Waiting for skinned assets to be ready 0/1 (SKM_FuturisticMercenary_FullBodyA) ...
+[2026.06.27-20.26.56:380][  0]LogPlacementMode: Display: The Asset Registry is not yet fully loaded so some placeable classes might be missing.
+[2026.06.27-20.26.56:880][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/StarterContent.upack', mount point: 'root:/'
+[2026.06.27-20.26.56:881][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_FirstPerson.upack', mount point: 'root:/'
+[2026.06.27-20.26.56:881][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_FirstPersonBP.upack', mount point: 'root:/'
+[2026.06.27-20.26.56:881][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_HandheldARBP.upack', mount point: 'root:/'
+[2026.06.27-20.26.56:881][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_ThirdPerson.upack', mount point: 'root:/'
+[2026.06.27-20.26.56:882][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_ThirdPersonBP.upack', mount point: 'root:/'
+[2026.06.27-20.26.56:882][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_TopDown.upack', mount point: 'root:/'
+[2026.06.27-20.26.56:882][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_TopDownBP.upack', mount point: 'root:/'
+[2026.06.27-20.26.56:882][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_VehicleAdvBP.upack', mount point: 'root:/'
+[2026.06.27-20.26.56:883][  0]LogPakFile: Display: Mounted Pak file 'C:/Program Files/Epic Games/UE_5.6/FeaturePacks/TP_VirtualRealityBP.upack', mount point: 'root:/'
+[2026.06.27-20.26.57:440][  0]LogPython: Display: Running start-up script C:/Program Files/Epic Games/UE_5.6/Engine/Plugins/Animation/ControlRig/Content/Python/init_unreal.py... started...
+[2026.06.27-20.26.57:470][  0]LogPython: Display: Running start-up script C:/Program Files/Epic Games/UE_5.6/Engine/Plugins/Animation/ControlRig/Content/Python/init_unreal.py... took 29.970 ms
+[2026.06.27-20.26.57:471][  0]LogPython: Display: Running start-up script C:/Program Files/Epic Games/UE_5.6/Engine/Plugins/MovieScene/MovieRenderPipeline/Content/Python/init_unreal.py... started...
+[2026.06.27-20.26.57:472][  0]LogPython: Display: Running start-up script C:/Program Files/Epic Games/UE_5.6/Engine/Plugins/MovieScene/MovieRenderPipeline/Content/Python/init_unreal.py... took 1.442 ms (total: 31.412 ms)
+[2026.06.27-20.26.57:841][  1]LogPlacementMode: Display: The Asset Registry is done with its initial scan, the list of placeable classes has been updated.
+[2026.06.27-20.26.57:894][  2]LogAutomationCommandLine: Display: Ready to start automation
+[2026.06.27-20.27.03:031][304]LogAutomationCommandLine: Display: Found 13 automation tests based on 'KatanaCombat.Editor.AssetMigration'
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.AttackDataNotify.ApplyTargetSectionOnly
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.AttackDataNotify.InvalidManualTimingDoesNotPlan
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.AttackDataNotify.OperationPlanDoesNotMutate
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.AttackDataNotify.OperationReseedsStaleCanonical
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.AttackDataNotify.PlanReadOnly
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.Options.DefaultModeAudit
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.Options.ModeParsing
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.Runner.AllowTimingMutationRejected
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.Runner.ApplyAndSaveRequiresSaveFlag
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.Runner.InvalidTargetWritesReport
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.Runner.ReportJsonFields
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.Runner.ReportPathProjectRelative
+[2026.06.27-20.27.03:032][304]LogAutomationCommandLine: Display: 	KatanaCombat.Editor.AssetMigration.Runner.TargetPathNormalization
+[2026.06.27-20.27.03:034][304]LogAutomationController: Display: Clearing D:/UnrealProjects/5.6/KatanaCombat/Saved/Automation/Logs/ and D:/UnrealProjects/5.6/KatanaCombat/Saved/Automation/Tmp/
+[2026.06.27-20.27.03:034][304]LogAutomationController: Display: Test Started. Name={ApplyTargetSectionOnly} Path={KatanaCombat.Editor.AssetMigration.AttackDataNotify.ApplyTargetSectionOnly}
+[2026.06.27-20.27.03:068][307]LogAutomationController: Display: Test Completed. Result={Success} Name={ApplyTargetSectionOnly} Path={KatanaCombat.Editor.AssetMigration.AttackDataNotify.ApplyTargetSectionOnly}
+[2026.06.27-20.27.03:070][307]LogAutomationController: Display: Test Started. Name={InvalidManualTimingDoesNotPlan} Path={KatanaCombat.Editor.AssetMigration.AttackDataNotify.InvalidManualTimingDoesNotPlan}
+[2026.06.27-20.27.03:118][310]LogAutomationController: Display: Test Completed. Result={Success} Name={InvalidManualTimingDoesNotPlan} Path={KatanaCombat.Editor.AssetMigration.AttackDataNotify.InvalidManualTimingDoesNotPlan}
+[2026.06.27-20.27.03:120][310]LogAutomationController: Display: Test Started. Name={OperationPlanDoesNotMutate} Path={KatanaCombat.Editor.AssetMigration.AttackDataNotify.OperationPlanDoesNotMutate}
+[2026.06.27-20.27.03:169][313]LogAutomationController: Display: Test Completed. Result={Success} Name={OperationPlanDoesNotMutate} Path={KatanaCombat.Editor.AssetMigration.AttackDataNotify.OperationPlanDoesNotMutate}
+[2026.06.27-20.27.03:171][313]LogAutomationController: Display: Test Started. Name={OperationReseedsStaleCanonical} Path={KatanaCombat.Editor.AssetMigration.AttackDataNotify.OperationReseedsStaleCanonical}
+[2026.06.27-20.27.03:219][316]LogAutomationController: Display: Test Completed. Result={Success} Name={OperationReseedsStaleCanonical} Path={KatanaCombat.Editor.AssetMigration.AttackDataNotify.OperationReseedsStaleCanonical}
+[2026.06.27-20.27.03:221][316]LogAutomationController: Display: Test Started. Name={PlanReadOnly} Path={KatanaCombat.Editor.AssetMigration.AttackDataNotify.PlanReadOnly}
+[2026.06.27-20.27.03:269][319]LogAutomationController: Display: Test Completed. Result={Success} Name={PlanReadOnly} Path={KatanaCombat.Editor.AssetMigration.AttackDataNotify.PlanReadOnly}
+[2026.06.27-20.27.03:270][319]LogAutomationController: Display: Test Started. Name={DefaultModeAudit} Path={KatanaCombat.Editor.AssetMigration.Options.DefaultModeAudit}
+[2026.06.27-20.27.03:318][322]LogAutomationController: Display: Test Completed. Result={Success} Name={DefaultModeAudit} Path={KatanaCombat.Editor.AssetMigration.Options.DefaultModeAudit}
+[2026.06.27-20.27.03:320][322]LogAutomationController: Display: Test Started. Name={ModeParsing} Path={KatanaCombat.Editor.AssetMigration.Options.ModeParsing}
+[2026.06.27-20.27.03:368][325]LogAutomationController: Display: Test Completed. Result={Success} Name={ModeParsing} Path={KatanaCombat.Editor.AssetMigration.Options.ModeParsing}
+[2026.06.27-20.27.03:371][325]LogAutomationController: Display: Test Started. Name={AllowTimingMutationRejected} Path={KatanaCombat.Editor.AssetMigration.Runner.AllowTimingMutationRejected}
+[2026.06.27-20.27.03:418][328]LogAutomationController: Display: Test Completed. Result={Success} Name={AllowTimingMutationRejected} Path={KatanaCombat.Editor.AssetMigration.Runner.AllowTimingMutationRejected}
+[2026.06.27-20.27.03:422][328]LogAutomationController: Display: Test Started. Name={ApplyAndSaveRequiresSaveFlag} Path={KatanaCombat.Editor.AssetMigration.Runner.ApplyAndSaveRequiresSaveFlag}
+[2026.06.27-20.27.03:469][331]LogAutomationController: Display: Test Completed. Result={Success} Name={ApplyAndSaveRequiresSaveFlag} Path={KatanaCombat.Editor.AssetMigration.Runner.ApplyAndSaveRequiresSaveFlag}
+[2026.06.27-20.27.03:470][331]LogAutomationController: Display: Test Started. Name={InvalidTargetWritesReport} Path={KatanaCombat.Editor.AssetMigration.Runner.InvalidTargetWritesReport}
+[2026.06.27-20.27.03:489][332]LogStreaming: Display: FlushAsyncLoading(435): 1 QueuedPackages, 0 AsyncPackages
+[2026.06.27-20.27.03:518][334]LogAutomationController: Display: Test Completed. Result={Success} Name={InvalidTargetWritesReport} Path={KatanaCombat.Editor.AssetMigration.Runner.InvalidTargetWritesReport}
+[2026.06.27-20.27.03:520][334]LogAutomationController: Display: Test Started. Name={ReportJsonFields} Path={KatanaCombat.Editor.AssetMigration.Runner.ReportJsonFields}
+[2026.06.27-20.27.03:569][337]LogAutomationController: Display: Test Completed. Result={Success} Name={ReportJsonFields} Path={KatanaCombat.Editor.AssetMigration.Runner.ReportJsonFields}
+[2026.06.27-20.27.03:570][337]LogAutomationController: Display: Test Started. Name={ReportPathProjectRelative} Path={KatanaCombat.Editor.AssetMigration.Runner.ReportPathProjectRelative}
+[2026.06.27-20.27.03:618][340]LogAutomationController: Display: Test Completed. Result={Success} Name={ReportPathProjectRelative} Path={KatanaCombat.Editor.AssetMigration.Runner.ReportPathProjectRelative}
+[2026.06.27-20.27.03:620][340]LogAutomationController: Display: Test Started. Name={TargetPathNormalization} Path={KatanaCombat.Editor.AssetMigration.Runner.TargetPathNormalization}
+[2026.06.27-20.27.03:668][343]LogAutomationController: Display: Test Completed. Result={Success} Name={TargetPathNormalization} Path={KatanaCombat.Editor.AssetMigration.Runner.TargetPathNormalization}
+[2026.06.27-20.27.03:688][344]LogAutomationCommandLine: Display: **** TEST COMPLETE. EXIT CODE: 0 ****

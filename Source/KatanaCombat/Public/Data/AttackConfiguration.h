@@ -16,7 +16,7 @@ class UAttackData;
  * Combos and directional follow-ups are defined within each UAttackData.
  *
  * Current System:
- * - Light/Heavy attacks use hold windows (AnimNotifyState_HoldWindow)
+ * - Light holds and configured heavy charges use AnimNotify_HoldWindowStart point events
  * - During hold: Input direction → Execute DirectionalFollowUps from AttackData
  * - Charging: Built into heavy attacks via MaxChargeTime in AttackData
  * - Combos: Defined via NextComboAttack/HeavyComboAttack chains in AttackData

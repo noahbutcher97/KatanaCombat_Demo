@@ -1,9 +1,11 @@
 ﻿// Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "AttackDataTools.h"
+#include "AttackDataNotifyGenerationService.h"
 #include "Data/AttackData.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_AttackPhaseTransition.h"
+#include "Animation/AnimNotify_HoldWindowStart.h"
 #include "Animation/AnimNotifyState_AttackPhase.h" // For backward compatibility detection
 #include "Animation/AnimNotifyState_ComboWindow.h"
 #include "Animation/AnimNotifyState_HoldWindow.h"
@@ -11,6 +13,7 @@
 #include "CombatTypes.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Misc/MessageDialog.h"
+#include "ScopedTransaction.h"
 
 #define LOCTEXT_NAMESPACE "FAttackDataTools"
 
@@ -181,6 +184,67 @@ bool UAttackDataTools::GetTimingPercentages(UAttackData* AttackData, float& OutW
 // ANIMNOTIFY GENERATION
 // ============================================================================
 
+bool UAttackDataTools::ValidateNotifyGenerationTiming(UAttackData* AttackData, FText& OutErrorMessage)
+{
+    if (!AttackData)
+    {
+        OutErrorMessage = LOCTEXT("NotifyGenNullAttackData", "AttackData is null");
+        return false;
+    }
+
+    if (!AttackData->AttackMontage)
+    {
+        OutErrorMessage = LOCTEXT("NotifyGenNoMontage", "AttackData has no AttackMontage");
+        return false;
+    }
+
+    FText SectionError;
+    if (!ValidateMontageSection(AttackData, SectionError))
+    {
+        OutErrorMessage = SectionError;
+        return false;
+    }
+
+    const float SectionLength = AttackData->GetSectionLength();
+    if (SectionLength <= 0.0f)
+    {
+        OutErrorMessage = LOCTEXT("NotifyGenInvalidSectionLength", "Montage section length must be greater than zero");
+        return false;
+    }
+
+    const FAttackPhaseTimingOverride& Timing = AttackData->ManualTiming;
+    if (Timing.WindupDuration <= 0.0f || Timing.ActiveDuration <= 0.0f || Timing.RecoveryDuration < 0.0f)
+    {
+        OutErrorMessage = LOCTEXT("NotifyGenInvalidPhaseDurations", "Windup and Active must be positive, and Recovery cannot be negative");
+        return false;
+    }
+
+    const float TotalPhaseDuration = Timing.WindupDuration + Timing.ActiveDuration + Timing.RecoveryDuration;
+    if (TotalPhaseDuration > SectionLength + KINDA_SMALL_NUMBER)
+    {
+        OutErrorMessage = FText::Format(
+            LOCTEXT("NotifyGenTimingExceedsSection", "Timing total {0}s exceeds section length {1}s"),
+            FText::AsNumber(TotalPhaseDuration),
+            FText::AsNumber(SectionLength));
+        return false;
+    }
+
+    if (ShouldGenerateHoldWindowStart(AttackData))
+    {
+        if (Timing.HoldWindowStart < 0.0f || Timing.HoldWindowStart > SectionLength + KINDA_SMALL_NUMBER)
+        {
+            OutErrorMessage = FText::Format(
+                LOCTEXT("NotifyGenHoldStartOutsideSection", "Hold window start {0}s is outside section length {1}s"),
+                FText::AsNumber(Timing.HoldWindowStart),
+                FText::AsNumber(SectionLength));
+            return false;
+        }
+    }
+
+    OutErrorMessage = LOCTEXT("NotifyGenValid", "Notify generation timing is valid");
+    return true;
+}
+
 bool UAttackDataTools::GenerateAttackPhaseNotifies(UAttackData* AttackData)
 {
     if (!AttackData || !AttackData->AttackMontage)
@@ -198,14 +262,23 @@ bool UAttackDataTools::GenerateAttackPhaseNotifies(UAttackData* AttackData)
         }
     }
 
+    FText ErrorMessage;
+    if (!ValidateNotifyGenerationTiming(AttackData, ErrorMessage))
+    {
+        LogToolMessage(FString::Printf(TEXT("GenerateAttackPhaseNotifies: %s"), *ErrorMessage.ToString()), true);
+        return false;
+    }
+
     UAnimMontage* Montage = AttackData->AttackMontage;
     const FAttackPhaseTimingOverride& Timing = AttackData->ManualTiming;
     float SectionStart, SectionEnd;
     AttackData->GetSectionTimeRange(SectionStart, SectionEnd);
 
-    // Remove existing phase notifies (both old AnimNotifyState and new AnimNotify types)
+    // Remove existing phase and hold notifies from the target section.
     RemoveNotifiesOfType(Montage, AttackData->MontageSection, UAnimNotifyState_AttackPhase::StaticClass());
     RemoveNotifiesOfType(Montage, AttackData->MontageSection, UAnimNotify_AttackPhaseTransition::StaticClass());
+    RemoveNotifiesOfType(Montage, AttackData->MontageSection, UAnimNotifyState_HoldWindow::StaticClass());
+    RemoveNotifiesOfType(Montage, AttackData->MontageSection, UAnimNotify_HoldWindowStart::StaticClass());
 
     // NEW SYSTEM: Create 2 transition point notifies instead of 3 duration-based notifies
     // Timeline: [==Windup==][==Active==][====Recovery====]
@@ -233,18 +306,50 @@ bool UAttackDataTools::GenerateAttackPhaseNotifies(UAttackData* AttackData)
         return false;
     }
 
-    // Add Hold Window if applicable (using separate AnimNotifyState_HoldWindow)
-    if (AttackData->bCanHold && Timing.HoldWindowDuration > 0.0f)
+    if (!GenerateHoldWindowStartNotify(AttackData))
     {
-        RemoveNotifiesOfType(Montage, AttackData->MontageSection, UAnimNotifyState_HoldWindow::StaticClass());
-        UAnimNotifyState_HoldWindow* HoldNotify = NewObject<UAnimNotifyState_HoldWindow>(Montage);
-        AddNotifyStateToMontage(Montage, SectionStart + Timing.HoldWindowStart, Timing.HoldWindowDuration, HoldNotify, AttackData->MontageSection);
+        LogToolMessage(TEXT("GenerateAttackPhaseNotifies: Failed to add HoldWindowStart notify"), true);
+        return false;
     }
 
-    MarkMontageModified(Montage);
+    FinalizeMontageNotifyChanges(Montage);
     LogToolMessage(FString::Printf(TEXT("GenerateAttackPhaseNotifies: Success for %s (using AnimNotify_AttackPhaseTransition)"), *AttackData->GetName()));
 
     return true;
+}
+
+bool UAttackDataTools::GenerateHoldWindowStartNotify(UAttackData* AttackData)
+{
+    if (!AttackData || !AttackData->AttackMontage)
+    {
+        return false;
+    }
+
+    const FAttackPhaseTimingOverride& Timing = AttackData->ManualTiming;
+    if (!ShouldGenerateHoldWindowStart(AttackData))
+    {
+        return true;
+    }
+
+    UAnimMontage* Montage = AttackData->AttackMontage;
+    float SectionStart, SectionEnd;
+    AttackData->GetSectionTimeRange(SectionStart, SectionEnd);
+
+    UAnimNotify_HoldWindowStart* HoldStartNotify = NewObject<UAnimNotify_HoldWindowStart>(Montage);
+    HoldStartNotify->InputType = AttackData->AttackType == EAttackType::Heavy
+        ? EInputType::HeavyAttack
+        : EInputType::LightAttack;
+
+    return AddNotifyToMontage(
+        Montage,
+        SectionStart + Timing.HoldWindowStart,
+        HoldStartNotify,
+        AttackData->MontageSection);
+}
+
+bool UAttackDataTools::ShouldGenerateHoldWindowStart(const UAttackData* AttackData)
+{
+    return FAttackDataNotifyGenerationService::ShouldGenerateHoldWindowStart(AttackData);
 }
 
 bool UAttackDataTools::GenerateHitDetectionNotifies(UAttackData* AttackData)
@@ -319,17 +424,90 @@ bool UAttackDataTools::GenerateComboWindowNotify(UAttackData* AttackData)
 
 bool UAttackDataTools::GenerateAllNotifies(UAttackData* AttackData)
 {
-    if (!AttackData)
+    if (!AttackData || !AttackData->AttackMontage)
+    {
+        LogToolMessage(TEXT("GenerateAllNotifies: Invalid AttackData or Montage"), true);
+        return false;
+    }
+
+    UAnimMontage* Montage = AttackData->AttackMontage;
+    const FAttackPhaseTimingOverride OriginalTiming = AttackData->ManualTiming;
+    const TArray<FAnimNotifyEvent> OriginalNotifies = Montage->Notifies;
+    UPackage* AttackDataPackage = AttackData->GetOutermost();
+    UPackage* MontagePackage = Montage->GetOutermost();
+    const bool bAttackDataPackageWasDirty = AttackDataPackage && AttackDataPackage->IsDirty();
+    const bool bMontagePackageWasDirty = MontagePackage && MontagePackage->IsDirty();
+
+    const FScopedTransaction Transaction(LOCTEXT("GenerateAttackDataNotifies", "Generate AttackData Notifies"));
+    Montage->Modify();
+    AttackData->Modify();
+
+    auto RestoreOriginalState = [&]()
+    {
+        AttackData->ManualTiming = OriginalTiming;
+        Montage->Notifies = OriginalNotifies;
+        Montage->RefreshCacheData();
+        if (AttackDataPackage && !bAttackDataPackageWasDirty)
+        {
+            AttackDataPackage->ClearDirtyFlag();
+        }
+        if (MontagePackage && !bMontagePackageWasDirty)
+        {
+            MontagePackage->ClearDirtyFlag();
+        }
+    };
+
+    if (AttackData->ManualTiming.WindupDuration <= 0.0f)
+    {
+        if (!AutoCalculateTiming(AttackData))
+        {
+            RestoreOriginalState();
+            return false;
+        }
+    }
+
+    FText ErrorMessage;
+    if (!ValidateNotifyGenerationTiming(AttackData, ErrorMessage))
+    {
+        RestoreOriginalState();
+        LogToolMessage(FString::Printf(TEXT("GenerateAllNotifies: %s"), *ErrorMessage.ToString()), true);
+        return false;
+    }
+
+    if (!GenerateAllNotifiesInternal(AttackData))
+    {
+        RestoreOriginalState();
+        LogToolMessage(TEXT("GenerateAllNotifies: generation failed; restored original notifies"), true);
+        return false;
+    }
+
+    FinalizeMontageNotifyChanges(Montage);
+    LogToolMessage(FString::Printf(TEXT("GenerateAllNotifies: Success for %s"), *AttackData->GetName()));
+
+    return true;
+}
+
+void UAttackDataTools::RemoveDefaultGeneratedLegacyNotifies(UAnimMontage* Montage, FName SectionName)
+{
+    RemoveNotifiesOfType(Montage, SectionName, UAnimNotifyState_AttackPhase::StaticClass());
+    RemoveNotifiesOfType(Montage, SectionName, UAnimNotify_ToggleHitDetection::StaticClass());
+    RemoveNotifiesOfType(Montage, SectionName, UAnimNotifyState_HoldWindow::StaticClass());
+    RemoveNotifiesOfType(Montage, SectionName, UAnimNotifyState_ComboWindow::StaticClass());
+}
+
+bool UAttackDataTools::GenerateAllNotifiesInternal(UAttackData* AttackData)
+{
+    if (!AttackData || !AttackData->AttackMontage)
     {
         return false;
     }
 
-    bool bSuccess = true;
-    bSuccess &= GenerateAttackPhaseNotifies(AttackData);
-    bSuccess &= GenerateHitDetectionNotifies(AttackData);
-    bSuccess &= GenerateComboWindowNotify(AttackData);
+    const FAttackDataNotifyAnalysis Analysis =
+        FAttackDataNotifyGenerationService::AnalyzeAttackDataNotifies(AttackData);
+    const FAttackDataNotifyPlan Plan =
+        FAttackDataNotifyGenerationService::BuildAttackDataNotifyPlan(Analysis, true);
 
-    return bSuccess;
+    return FAttackDataNotifyGenerationService::ApplyAttackDataNotifyPlan(AttackData, Plan);
 }
 
 // ============================================================================
@@ -446,7 +624,7 @@ bool UAttackDataTools::ValidateAttackData(UAttackData* AttackData, TArray<FText>
     // Check timing
     if (AttackData->bUseAnimNotifyTiming && !HasValidNotifyTiming(AttackData))
     {
-        OutWarnings.Add(LOCTEXT("ValidateNoNotifies", "No AnimNotifyState timing found in section"));
+        OutWarnings.Add(LOCTEXT("ValidateNoNotifies", "No attack phase transition timing found in section"));
     }
 
     // Check combos
@@ -557,22 +735,32 @@ float UAttackDataTools::GetSectionLength(UAnimMontage* Montage, FName SectionNam
     }
 
     const float SectionStart = Montage->GetAnimCompositeSection(SectionIndex).GetTime();
-    
+
+    const int32 NumSections = Montage->CompositeSections.Num();
+    if (SectionIndex + 1 < NumSections)
+    {
+        const float NextSectionStart = Montage->CompositeSections[SectionIndex + 1].GetTime();
+        if (NextSectionStart > SectionStart)
+        {
+            return NextSectionStart - SectionStart;
+        }
+    }
+
     // Find next section or end of montage
     float SectionEnd = Montage->CalculateSequenceLength();
-    for (int32 i = 0; i < Montage->CompositeSections.Num(); ++i)
+    for (int32 i = 0; i < NumSections; ++i)
     {
         if (i != SectionIndex)
         {
             const float OtherStart = Montage->CompositeSections[i].GetTime();
-            if (OtherStart > SectionStart && OtherStart < SectionEnd)
+            if (OtherStart > SectionStart && (SectionEnd <= SectionStart || OtherStart < SectionEnd))
             {
                 SectionEnd = OtherStart;
             }
         }
     }
 
-    return SectionEnd - SectionStart;
+    return FMath::Max(0.0f, SectionEnd - SectionStart);
 }
 
 float UAttackDataTools::GetSectionStartTime(UAnimMontage* Montage, FName SectionName)
@@ -755,8 +943,9 @@ void UAttackDataTools::RemoveNotifiesOfType(UAnimMontage* Montage, FName Section
 
     float SectionStart = 0.0f;
     float SectionEnd = Montage->CalculateSequenceLength();
+    const bool bEntireMontage = SectionName == NAME_None;
 
-    if (SectionName != NAME_None)
+    if (!bEntireMontage)
     {
         SectionStart = GetSectionStartTime(Montage, SectionName);
         SectionEnd = SectionStart + GetSectionLength(Montage, SectionName);
@@ -767,7 +956,7 @@ void UAttackDataTools::RemoveNotifiesOfType(UAnimMontage* Montage, FName Section
         const FAnimNotifyEvent& NotifyEvent = Montage->Notifies[i];
         const float NotifyTime = NotifyEvent.GetTriggerTime();
 
-        if (NotifyTime >= SectionStart && NotifyTime < SectionEnd)
+        if (bEntireMontage || (NotifyTime >= SectionStart && NotifyTime < SectionEnd))
         {
             bool bShouldRemove = false;
 
@@ -796,6 +985,18 @@ float UAttackDataTools::SectionTimeToMontageTime(UAnimMontage* Montage, FName Se
     }
 
     return GetSectionStartTime(Montage, SectionName) + SectionRelativeTime;
+}
+
+void UAttackDataTools::FinalizeMontageNotifyChanges(UAnimMontage* Montage)
+{
+    if (!Montage)
+    {
+        return;
+    }
+
+    Montage->SortNotifies();
+    Montage->RefreshCacheData();
+    Montage->MarkPackageDirty();
 }
 
 void UAttackDataTools::GetDefaultTimingPercentages(EAttackType AttackType, float& OutWindupPercent, float& OutActivePercent, float& OutRecoveryPercent)

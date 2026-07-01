@@ -1,0 +1,4 @@
+M	Content/ProjectFiles/Animation/Montages/Katana/Light/AM_Light_Combo_1.uasset
+M	Content/ProjectFiles/Core/Actors/Character/BP_EnemyCharacter.uasset
+M	Content/ProjectFiles/Data/PDA/HitReaction/HitReactionSettings/DA_HitReaction.uasset
+M	Content/ProjectFiles/Data/PDA/Weapons/DA_Weapon_Katana.uasset

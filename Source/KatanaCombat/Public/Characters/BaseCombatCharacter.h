@@ -16,6 +16,7 @@ class UTargetingComponent;
 class UMotionWarpingComponent;
 class UWeaponComponent;
 class UHitReactionComponent;
+class UPairedAnimationComponent;
 class UCombatSettings;
 class UAttackData;
 
@@ -64,6 +65,10 @@ public:
     /** Hit reaction component - handles damage reception and reactions */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Components")
     TObjectPtr<UHitReactionComponent> HitReactionComponent;
+
+    /** Paired animation component - handles finishers, counters, and partner tracking */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Components")
+    TObjectPtr<UPairedAnimationComponent> PairedAnimationComponent;
 
     /** Motion warping component - handles root motion warping for attacks */
     UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Components")
@@ -168,6 +173,9 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "Combat")
     UHitReactionComponent* GetHitReactionComponent() const { return HitReactionComponent; }
+
+    UFUNCTION(BlueprintPure, Category = "Combat")
+    UPairedAnimationComponent* GetPairedAnimationComponent() const { return PairedAnimationComponent; }
 
     /**
      * Get current movement input vector (camera-relative)

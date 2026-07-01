@@ -393,6 +393,22 @@ struct FTargetScore
 };
 
 /**
+ * Physical surface type for surface-specific FX.
+ * Resolved from PhysicalMaterial on hit via WeaponTraceLibrary::MapPhysicalMaterialToSurfaceType().
+ * Populated in FHitReactionInfo::SurfaceType by OnWeaponHitTarget.
+ */
+UENUM(BlueprintType)
+enum class ECombatSurfaceType : uint8
+{
+	Default		UMETA(DisplayName = "Default"),
+	Flesh		UMETA(DisplayName = "Flesh"),
+	Armor		UMETA(DisplayName = "Armor"),
+	Wood		UMETA(DisplayName = "Wood"),
+	Stone		UMETA(DisplayName = "Stone"),
+	Metal		UMETA(DisplayName = "Metal")
+};
+
+/**
  * Hit reaction information passed when applying damage
  */
 USTRUCT(BlueprintType)
@@ -456,6 +472,14 @@ struct FHitReactionInfo
     UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
     float DistanceToTarget = 0.0f;
 
+    /** Physical surface type at impact point (for material-dependent FX) */
+    UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
+    ECombatSurfaceType SurfaceType = ECombatSurfaceType::Default;
+
+    /** Hit quality/confidence score (0.0-1.0). Center-blade clean hits score higher. */
+    UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
+    float HitConfidence = 1.0f;
+
     FHitReactionInfo()
         : Attacker(nullptr)
         , HitDirection(FVector::ForwardVector)
@@ -470,6 +494,8 @@ struct FHitReactionInfo
         , WeaponVelocity(FVector::ZeroVector)
         , PhaseWhenHit(EAttackPhase::None)
         , DistanceToTarget(0.0f)
+        , SurfaceType(ECombatSurfaceType::Default)
+        , HitConfidence(1.0f)
     {
     }
 };
@@ -1056,22 +1082,6 @@ struct FImpactVFXConfig
 // ============================================================================
 // COMBAT SURFACE TYPE (Scaffold - not wired until bReturnPhysicalMaterial enabled)
 // ============================================================================
-
-/**
- * Physical surface type for surface-specific FX.
- * [SCAFFOLD] - Not wired. WeaponComponent trace has bReturnPhysicalMaterial = false.
- * Wire when PhysMaterial -> ECombatSurfaceType mapping is implemented.
- */
-UENUM(BlueprintType)
-enum class ECombatSurfaceType : uint8
-{
-	Default		UMETA(DisplayName = "Default"),
-	Flesh		UMETA(DisplayName = "Flesh"),
-	Armor		UMETA(DisplayName = "Armor"),
-	Wood		UMETA(DisplayName = "Wood"),
-	Stone		UMETA(DisplayName = "Stone"),
-	Metal		UMETA(DisplayName = "Metal")
-};
 
 // ============================================================================
 // IMPACT FX POOL ENTRIES (Single items in a pool)

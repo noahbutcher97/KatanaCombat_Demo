@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 **KatanaCombat** is a cinematic free-flow melee combat system (AC3/4 + Batman Arkham) for Unreal Engine 5.6 (C++). The system features:
-- 4-component architecture (Combat, Targeting, Weapon, HitReaction)
+- 5-component architecture (Combat, Targeting, Weapon, HitReaction, PairedAnimation)
 - Hybrid combo system (responsive input buffering + snappy animation cancels + procedural blending)
 - Contextual stagger defense with counter system (AC3 mode + Chain mode)
 - Data-driven attack configuration via AttackData assets
@@ -93,22 +93,27 @@ Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 Source/KatanaCombat/Public/
 ├── CombatTypes.h              ← ALL enums, structs, system-wide delegates
 ├── Core/
-│   ├── CombatComponent.h      ← Combat state, attack execution, last-input-wins queue
-│   ├── TargetingComponent.h   ← Soft-lock targeting, aim assist
-│   ├── WeaponComponent.h      ← Hit detection, weapon state
-│   └── HitReactionComponent.h ← Damage reception, hit reactions, death
+│   ├── CombatComponent.h           ← Combat state, attack execution, last-input-wins queue
+│   ├── PairedAnimationComponent.h  ← Finishers, counters, partner tracking, input blocking
+│   ├── TargetingComponent.h        ← Soft-lock targeting, aim assist
+│   ├── WeaponComponent.h           ← Hit detection, weapon state
+│   └── HitReactionComponent.h      ← Damage reception, hit reactions, death
 ├── Data/
 │   ├── AttackData.h           ← Attack configuration asset
 │   ├── AttackConfiguration.h  ← Attack moveset package (PDA)
 │   ├── CombatSettings.h       ← Global tuning values
 │   └── HitReactionSettings.h  ← Hit reaction configuration
 ├── Animation/
-│   ├── AnimNotify_AttackPhaseTransition.h  ← Phase transitions
+│   ├── AnimNotify_AttackPhaseTransition.h     ← Phase transitions
+│   ├── AnimNotify_HoldWindowStart.h           ← Event-driven hold activation
+│   ├── AnimNotifyState_CounterWindow.h        ← Counter window (pose-matching metadata)
 │   ├── AnimNotifyState_ParryWindow.h
-│   ├── AnimNotifyState_HoldWindow.h
-│   └── AnimNotifyState_ComboWindow.h
+│   ├── AnimNotifyState_HoldWindow.h           ← Legacy; do not seed by default
+│   ├── AnimNotifyState_ComboWindow.h          ← Legacy/manual override; do not seed by default
+│   ├── AnimNotifyState_PairedAnimationSync.h  ← Sync point effects trigger
+│   └── AnimNotifyState_PairedAnimationCollision.h ← Partner collision management
 ├── Characters/
-│   ├── BaseCombatCharacter.h  ← Base class with 4 combat components
+│   ├── BaseCombatCharacter.h  ← Base class with 5 combat components
 │   ├── PlayerCharacter.h      ← Player-specific combat
 │   └── EnemyCharacter.h       ← Enemy-specific combat
 ├── Interfaces/
@@ -135,7 +140,7 @@ Source/KatanaCombat/Public/
 | ComboInputWindow | 0.6s | |
 | ParryWindow | 0.3s | |
 | ComboBlendOut/In | 0.1s | Per-attack tunable |
-| MaxPosture | 100.0f | |
+| MaxPosture | 100.0f | DEPRECATED - use contextual stagger |
 | LightBaseDamage | 25.0f | |
 | HeavyBaseDamage | 50.0f | |
 | CounterDamageMultiplier | 1.5x | |
@@ -212,7 +217,7 @@ Active development plans with gap tracking. Read when continuing phased implemen
 
 **Attacks not executing**: Check `GetCombatState()` == Idle, `DefaultLightAttack` assigned, `AnimInstance` valid
 
-**Combos not chaining**: Check `AnimNotifyState_ComboWindow` in montage, `NextComboAttack` set in AttackData
+**Combos not chaining**: Check `AnimNotify_AttackPhaseTransition` Active/Recovery timing, `NextComboAttack`/`HeavyComboAttack`, and whether `CurrentAttackData` is still valid. Default combo timing is inferred from phase transitions; do not add `AnimNotifyState_ComboWindow` for normal attacks.
 
 **Hits not detecting**: Check weapon sockets (`WeaponStart/WeaponEnd`), `AnimNotify_AttackPhaseTransition(Active)` present
 
@@ -268,13 +273,14 @@ This applies to ALL `BlueprintNativeEvent` interface methods:
 
 **DO**:
 - Use timers over tick (minimize tick overhead)
-- Maintain 4-component separation (intentional architecture)
+- Maintain 5-component separation (Combat, Targeting, Weapon, HitReaction, PairedAnimation)
 - Preserve Blueprint exposure (`UFUNCTION(BlueprintCallable)`) for PUBLIC API functions
 - Update existing files (don't create "_V2" variants)
 
 **DON'T**:
 - Create duplicate functions with suffixes
-- Use deprecated features (`AnimNotifyState_AttackPhase`, `AnimNotify_ToggleHitDetection`)
+- Use deprecated default-seeding features (`AnimNotifyState_AttackPhase`, `AnimNotify_ToggleHitDetection`, `AnimNotifyState_HoldWindow`, `AnimNotifyState_ComboWindow`)
+- Seed holdable attacks with `AnimNotifyState_HoldWindow`; use `AnimNotify_HoldWindowStart` for event-driven hold activation
 - Assume `FGeometry::GetRenderTransform()` exists (UE 5.6 removed it)
 - Convert `FLinearColor` to `FColor` directly (use `.ToFColor(true)`)
 - Use component tick without explicit permission
@@ -405,12 +411,13 @@ bool IsWithinConstraint(float TestYaw) const { ... }
 
 Track ongoing work across sessions. This section provides detailed status of all major systems.
 
-### Paired Animation System (Phase 5) - PRIMARY FOCUS
+### Paired Animation System - PRIMARY FOCUS
 
-**Overall Status**: ~50% complete | Foundation laid, significant work remaining
+**Overall Status**: ~60% complete | Component extracted, core flow implemented, animations needed
 
 > The Paired Animation System (finishers, counters, parries) is the heart and soul of this project.
-> Math libraries are complete, but core combat flow (parry, counter, finisher chain) needs implementation.
+> UPairedAnimationComponent extracted from CombatComponent (Phase 3 complete). Math libraries complete.
+> Core combat flow (parry, counter, finisher chain) needs animation assets to become playable.
 
 #### Phase 5c: Math & Utility Libraries - COMPLETE (83 functions, 3,128 lines)
 
@@ -438,16 +445,16 @@ Track ongoing work across sessions. This section provides detailed status of all
 #### Fully Implemented (Production Ready)
 | Component | Files | Description |
 |-----------|-------|-------------|
-| Finisher Execution Flow | CombatComponent.cpp | `TryExecuteFinisher()` → `CompletePairedAnimation()` |
+| Finisher Execution Flow | PairedAnimationComponent.cpp | `TryExecuteFinisher()` → `CompletePairedAnimation()` |
 | Finisher Vulnerability | HitReactionComponent.h/.cpp | `IsVulnerableToFinisher()`, `GetFinisherTriggerReason()` |
 | Symmetric Warp Tracking | TargetingComponent.h/.cpp | `SetupVictimWarp()`, `SetupAttackerPairedWarp()` with continuous tracking |
-| Partner Collision Management | CombatComponent.h/.cpp | `PairedAnimationPartners` array + `IgnoreActorWhenMoving()` |
-| Input Blocking | CombatComponent.cpp | `bBlockCombatInput` flag in `CanProcessInput()` |
-| State Transition Safety | CombatComponent.cpp | `OnPairedPartnerDeath()`, `CancelPairedAnimation()`, EndPlay cleanup |
+| Partner Collision Management | PairedAnimationComponent.h/.cpp | `PairedAnimationPartners` array + `IgnoreActorWhenMoving()` |
+| Input Blocking | PairedAnimationComponent.cpp | `bBlockCombatInput` flag, queried by `CombatComponent::CanProcessInput()` |
+| State Transition Safety | PairedAnimationComponent.cpp | `OnPairedPartnerDeath()`, `CancelPairedAnimation()`, EndPlay cleanup |
 | Death Animation Handling | HitReactionComponent.h/.cpp | `bDeathHandledByPairedAnimation` flag prevents double death |
-| Damage Application | CombatComponent.cpp | Intelligent calc: `Max(damage, currentHealth + 1)` for lethal |
-| Guard Flags | CombatComponent.cpp | `bCompletingPairedAnimation` prevents double execution |
-| Distance Validation | CombatComponent.cpp | Uses SoftAimRange (intentional - see design decisions) |
+| Damage Application | PairedAnimationComponent.cpp | Intelligent calc: `Max(damage, currentHealth + 1)` for lethal |
+| Guard Flags | PairedAnimationComponent.cpp | `bCompletingPairedAnimation` prevents double execution |
+| Distance Validation | PairedAnimationComponent.cpp | Uses SoftAimRange (intentional - see design decisions) |
 | Sync Point Validation | AnimNotifyState_PairedAnimationSync.cpp | Alignment check with auto-nudge |
 | Cinematic Effects | CinematicEffectsUtilityLibrary.h/.cpp | `ApplySlowMotion()`, `TriggerCameraShake()`, `RestoreTimeDilation()` |
 | Obstacle Validation | PairedAnimationUtilityLibrary.cpp | `ValidatePairedAnimation()`, `IsPathClear()` |
@@ -460,8 +467,8 @@ Track ongoing work across sessions. This section provides detailed status of all
 | Impact Audio | CinematicEffectsUtilityLibrary.h, CombatFXData.h | ✅ `ResolveAndPlayImpactSound()` with 4-tier resolution |
 | Impact VFX | CinematicEffectsUtilityLibrary.h, CombatFXData.h | ✅ `ResolveAndSpawnImpactVFX()` with Niagara + surface alignment |
 | Pooled FX | CombatFXData.h | ✅ `UCombatFXData` asset with random selection per attack type |
-| Paired Animation Audio | CombatComponent.cpp | ✅ `TriggerSyncPointEffects()` plays ImpactSound, VictimReactionSound, AttackerVoiceLine |
-| Paired Animation VFX | CombatComponent.cpp | ✅ `TriggerSyncPointEffects()` spawns ImpactVFX at contact midpoint |
+| Paired Animation Audio | PairedAnimationComponent.cpp | ✅ `TriggerSyncPointEffects()` plays ImpactSound, VictimReactionSound, AttackerVoiceLine |
+| Paired Animation VFX | PairedAnimationComponent.cpp | ✅ `TriggerSyncPointEffects()` spawns ImpactVFX at contact midpoint |
 | Per-Hit Hitstop | CinematicEffectsUtilityLibrary.h | ✅ `ApplyHitstop()` with FTSTicker for wall-clock accuracy |
 
 #### Scaffolded (Property Slots Exist, Not Wired)
@@ -475,18 +482,24 @@ Track ongoing work across sessions. This section provides detailed status of all
 #### Scaffolded (Code Complete, Needs Animations)
 | Component | Files | Status |
 |-----------|-------|--------|
-| Counter AC3 Mode | CombatComponent.cpp | `TryCounter_AC3Mode()` — instant counter-kill via slow-mo + lethal damage |
-| Counter Chain Mode | CombatComponent.cpp | `TryCounter_ChainMode()` — Parry→Counter→Finisher state machine |
-| Chain State Machine | CombatComponent.h | `EChainCounterState`: None→ParryActive→CounterWindow→CounterActive→FinisherReady |
-| Parry Window | CombatComponent.h | `bParryWindowActive` + `AnimNotifyState_ParryWindow` wired |
+| Counter AC3 Mode | PairedAnimationComponent.cpp | `TryCounter_AC3Mode()` — instant counter-kill via slow-mo + lethal damage |
+| Counter Chain Mode | PairedAnimationComponent.cpp | `TryCounter_ChainMode()` — Parry→Counter→Finisher state machine |
+| Chain State Machine | PairedAnimationComponent.h | `EChainCounterState`: None→ParryActive→CounterWindow→CounterActive→FinisherReady |
+| Parry Window | PairedAnimationComponent.h | `bParryWindowActive` + `AnimNotifyState_ParryWindow` wired |
 | Contextual Stagger | HitReactionComponent.h | `ApplyStagger()`, `IsStaggered()`, `EndStagger()` — replaces posture |
 | Procedural Blending | CombatComponent.cpp | 6 easing strategies wired in `PlayAttackMontage()` |
+
+#### Branch Acceptance Caveats
+| Area | Status | Requirement |
+|------|--------|-------------|
+| Counter Chain Mode | Canonical but incomplete | Must be proven through public Block/attack input flow, active Chain context, paired completion handoff, and asset readiness. Protected helper tests are not enough. |
+| SpecificCounterData Wiring | In scope | Resolve selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only as an explicit fallback, then non-paired fallback. |
 
 #### Planned (Not Yet Started)
 | Component | Priority | Blocker |
 |-----------|----------|---------|
 | Counter Animations | P1 | Parry, counter attack, chain finisher montages needed |
-| SpecificCounterData Wiring | P2 | Architecture gap: TryExecuteFinisher needs UPairedAnimationData overload |
+| SpecificCounterData Wiring | P1 | In scope for Chain branch: selected `AttackData::CounterData` first; `SpecificCounterData` is an explicit fallback only. |
 | AI Attack Token System | P2 | Phase 5b-5 - `UCombatTokenSubsystem` |
 
 #### Editor/Runtime Unification Gap (Needs Further Inquiry)
@@ -514,25 +527,26 @@ Track ongoing work across sessions. This section provides detailed status of all
 
 #### Entry Points for Finisher Flow
 ```
-Player Input → CombatComponent::TryExecuteFinisher()
-  └→ HitReactionComponent::IsVulnerableToFinisher() (check target)
-  └→ TargetingComponent::SetupAttackerPairedWarp() (attacker positioning)
-  └→ TargetingComponent::SetupVictimWarp() (victim positioning)
-  └→ PlayMontage (both characters)
-  └→ AnimNotifyState_PairedAnimationSync (sync point trigger)
-  └→ OnMontageEnded → CompletePairedAnimation() (damage, cleanup)
-     └→ HitReactionComponent::SetDeathHandledByPairedAnimation()
-     └→ IDamageableInterface::ApplyDamage() → Die() → PlayDeathReaction()
-        └→ Checks flag → Skips AM_Deaths → Applies outcome directly
+Player Input → CombatComponent::ExecuteAction()
+  └→ PairedAnimationComponent::TryExecuteFinisher() (delegated from CombatComponent)
+     └→ HitReactionComponent::IsVulnerableToFinisher() (check target)
+     └→ TargetingComponent::SetupAttackerPairedWarp() (attacker positioning)
+     └→ TargetingComponent::SetupVictimWarp() (victim positioning)
+     └→ PlayMontage (both characters)
+     └→ AnimNotifyState_PairedAnimationSync (sync point trigger)
+     └→ OnMontageEnded → CompletePairedAnimation() (damage, cleanup)
+        └→ HitReactionComponent::SetDeathHandledByPairedAnimation()
+        └→ IDamageableInterface::ApplyDamage() → Die() → PlayDeathReaction()
+           └→ Checks flag → Skips AM_Deaths → Applies outcome directly
 ```
 
 ### Core Combat System - STABLE
 
 | Component | Status | Notes |
 |-----------|--------|-------|
-| 4-Component Architecture | ✅ Stable | Combat, Targeting, Weapon, HitReaction |
+| 5-Component Architecture | ✅ Stable | Combat, Targeting, Weapon, HitReaction, PairedAnimation |
 | Input Buffering | ✅ Stable | Last-input-wins queue, input always captured |
-| Combo System | ✅ Stable | ComboWindow chaining + PendingComboTransitions counter (INPUT-1 fixed) |
+| Combo System | ✅ Stable | Phase-derived combo timing + PendingComboTransitions counter (INPUT-1 fixed) |
 | Stagger/Counter | ✅ Scaffolded | Posture deprecated → contextual stagger. AC3 + Chain counter modes. |
 | Hit Detection | ✅ Stable | Socket-based weapon traces, substep sweeps |
 | Impact Effects | ✅ Stable | Per-hit hitstop, audio, VFX with pooled FX data assets |

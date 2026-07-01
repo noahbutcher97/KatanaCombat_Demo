@@ -77,6 +77,7 @@ Repo-specific Codex configuration lives in `.codex/config.toml`. Reusable Codex 
 - `katana-verify`: build, test, log parsing, and final verification.
 - `katana-feature`: scoped feature planning and implementation.
 - `katana-bug-triage`: evidence-first bug diagnosis.
+- `docs/guides/HEADLESS_ASSET_MIGRATIONS.md`: commandlet workflow for audit/plan/apply asset migrations with explicit package-save gates.
 
 Prefer these skills over copying `.claude/commands` or `.gemini/agents` behavior. Those directories are useful references, but they target other agent runtimes.
 

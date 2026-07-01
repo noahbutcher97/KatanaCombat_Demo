@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80" role="img" aria-label="KatanaCombat mark">
+  <defs>
+    <clipPath id="ul"><polygon points="-4,-4 84,-4 -4,84"></polygon></clipPath>
+    <clipPath id="lr"><polygon points="84,-4 84,84 -4,84"></polygon></clipPath>
+  </defs>
+  <g clip-path="url(#ul)"><circle cx="40" cy="40" r="29" fill="#c1272d" transform="translate(-3.4 -3.4)"></circle></g>
+  <g clip-path="url(#lr)"><circle cx="40" cy="40" r="29" fill="#c1272d" transform="translate(3.4 3.4)"></circle></g>
+</svg>

@@ -31,7 +31,8 @@ public class KatanaCombatEditor : ModuleRules
             "Blutility",            // Editor Utility Objects for testing
             "LevelEditor",          // Menu extension for Montage Analyzer window
             "AdvancedPreviewScene", // Preview scene for montage analysis dashboards
-            "ApplicationCore"       // Clipboard functionality for copy/export
+            "ApplicationCore",      // Clipboard functionality for copy/export
+            "Json"                  // Headless asset migration reports
         });
     }
 }

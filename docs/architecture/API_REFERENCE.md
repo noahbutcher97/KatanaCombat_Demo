@@ -76,7 +76,7 @@ if (CombatComponent->GetCombatState() == ECombatState::Idle)
 UFUNCTION(BlueprintPure, Category = "Combat|State")
 EAttackPhase GetCurrentPhase() const;
 ```
-**Returns**: Current attack phase (None, Windup, Active, Recovery, HoldWindow)
+**Returns**: Current attack phase (None, Windup, Active, Recovery)
 
 #### CanTransitionTo
 ```cpp
@@ -166,7 +166,7 @@ bool CanCombo() const;
 ```
 **Returns**: True if in combo input window
 
-Check if can input next combo. True during combo window (opened by AnimNotifyState_ComboWindow).
+Check if can input next combo. Default combo timing is inferred from Active/Recovery phase transitions and AttackData combo tuning; legacy/manual override combo-window notifies can still open explicit windows.
 
 #### ResetCombo
 ```cpp
@@ -182,7 +182,7 @@ void OpenComboWindow(float Duration);
 **Parameters**:
 - `Duration` - How long window stays open (seconds)
 
-Open combo input window. Called by AnimNotifyState_ComboWindow. During this window, light/heavy inputs are queued.
+Open combo input window. Normally driven by inferred phase timing; legacy/manual override `AnimNotifyState_ComboWindow` can still call this explicitly.
 
 #### CloseComboWindow
 ```cpp
@@ -380,9 +380,8 @@ void OnAttackPhaseBegin(EAttackPhase Phase);
 **Parameters**:
 - `Phase` - Phase that is beginning
 
-Called when attack phase begins (from AnimNotifyState_AttackPhase). Handles:
+Called when attack phase begins or transitions (from `AnimNotify_AttackPhaseTransition`; legacy phase states are deprecated). Handles:
 - **Active**: Enables hit detection
-- **HoldWindow**: Checks if button still held, starts hold transition
 - **Recovery**: Opens combo window for input
 
 #### OnAttackPhaseEnd
@@ -392,9 +391,8 @@ void OnAttackPhaseEnd(EAttackPhase Phase);
 **Parameters**:
 - `Phase` - Phase that is ending
 
-Called when attack phase ends (from AnimNotifyState_AttackPhase). Handles:
+Called when attack phase ends or transitions out. Handles:
 - **Active**: Disables hit detection
-- **HoldWindow**: Freezes animation if still holding
 - **Recovery**: Processes queued combo inputs
 
 ### Events
@@ -1194,7 +1192,7 @@ Blend time when transitioning OUT of charge loop to release section (0 = instant
 
 ```cpp
 UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Attack")
-bool bCanHoldAtEnd = true;
+bool bCanHold = true;
 ```
 Can hold button at end of attack for directional follow-up?
 
@@ -1682,25 +1680,20 @@ Event-driven phase transition notify. Place 4 instances at phase boundaries for 
 **Configuration**:
 ```cpp
 UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Phase Transition")
-EAttackPhase FromPhase = EAttackPhase::None;
-
-UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Phase Transition")
-EAttackPhase ToPhase = EAttackPhase::Windup;
+EAttackPhase TransitionToPhase = EAttackPhase::Active;
 ```
 
-**Required Notifies (4 per attack)**:
-1. `FromPhase=None, ToPhase=Windup` - Attack start (0.0s)
-2. `FromPhase=Windup, ToPhase=Active` - Damage frames begin
-3. `FromPhase=Active, ToPhase=Recovery` - Damage frames end
-4. `FromPhase=Recovery, ToPhase=None` - Attack complete
+**Required Notifies (2 per attack)**:
+1. `TransitionToPhase=Active` - Windup ends, damage frames begin
+2. `TransitionToPhase=Recovery` - Damage frames end, recovery begins
 
 **Hit detection is automatic** during Active phase - no toggle notifies needed.
 
 **Timeline**:
 ```
 [──Windup──][──Active──][──Recovery──]
-▲           ▲          ▲             ▲
-1           2          3             4
+            ▲          ▲
+            1          2
 ```
 
 ### AnimNotifyState_AttackPhase (DEPRECATED)
@@ -1716,18 +1709,17 @@ Legacy state-based phase notify. Kept for backwards compatibility only.
 - **Active**: Hit detection enabled, damage dealt
 - **Recovery**: Vulnerable, combo input window opens
 
-### AnimNotifyState_ComboWindow
+### AnimNotifyState_ComboWindow (Legacy/Manual Override)
 
 **Class**: `UAnimNotifyState_ComboWindow : UAnimNotifyState`
 **Header**: `KatanaCombat/Public/Animation/AnimNotifyState_ComboWindow.h`
 
-AnimNotifyState that opens the combo input window. Allows player to input next combo attack during this time.
+AnimNotifyState that opens an explicit combo input window. Default attack chains should not use this notify; combo timing is inferred from phase transitions and AttackData combo tuning.
 
 **Usage**:
-1. Add to attack montage during Recovery phase
-2. Typically placed at start of recovery (first 60%)
-3. Duration determines how long player has to input combo
-4. Default window: 0.6s (configurable in CombatSettings)
+1. Use only for specialized manual override cases.
+2. Keep normal attack chains on inferred Active/Recovery timing.
+3. Duration determines how long the explicit override window stays open.
 
 **Timeline**:
 ```
@@ -2369,7 +2361,7 @@ static bool ResolveAndPlayImpactSound(
 3. `WeaponFallbackSound` (simple weapon fallback)
 4. silent
 
-**Hook Point**: Called from `BaseCombatCharacter::OnWeaponHitTarget()` and `CombatComponent::TriggerSyncPointEffects()`.
+**Hook Point**: Called from `BaseCombatCharacter::OnWeaponHitTarget()` and `PairedAnimationComponent::TriggerSyncPointEffects()`.
 
 ### Impact VFX
 

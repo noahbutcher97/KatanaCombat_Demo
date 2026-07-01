@@ -246,9 +246,9 @@ Implementation uses `FPlatformTime::Seconds()` + `FTSTicker` (same pattern as th
 
 ### Step 7: Wire Finisher Audio/VFX (Parity)
 
-The finisher flow already has `TriggerSyncPointEffects()` in CombatComponent. Add the missing audio/VFX calls there:
+The finisher flow already has `TriggerSyncPointEffects()` in PairedAnimationComponent. Add the missing audio/VFX calls there:
 
-**File**: `Source/KatanaCombat/Private/Core/CombatComponent.cpp` (in `TriggerSyncPointEffects()`)
+**File**: `Source/KatanaCombat/Private/Core/PairedAnimationComponent.cpp` (in `TriggerSyncPointEffects()`)
 
 ```cpp
 // --- AUDIO (using PairedAnimationData properties) ---

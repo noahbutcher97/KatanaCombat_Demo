@@ -213,29 +213,29 @@ void UCombatComponent::OnAttackPhaseEnd(EAttackPhase Phase)
 
 #### Symptom: Pressing Light During Recovery Does Nothing
 
-**Check 1: Combo Window Not Opening**
+**Check 1: Phase-Derived Combo Window Not Active**
 ```cpp
-// Add to OpenComboWindow
-void UCombatComponent::OpenComboWindow(float Duration)
+// Add near combo resolution, such as GetAttackForInput()
+void UCombatComponent::LogComboState() const
 {
-    bCanCombo = true;
-    UE_LOG(LogCombat, Warning, TEXT("Combo window OPENED for %.2f seconds"), Duration);
-    // ... rest of code
+    UE_LOG(LogCombat, Warning, TEXT("ComboWindow=%s CurrentAttack=%s"),
+        bComboWindowActive ? TEXT("ACTIVE") : TEXT("Inactive"),
+        CurrentAttackData ? *CurrentAttackData->GetName() : TEXT("None"));
 }
 ```
 
-**Cause**: AnimNotifyState_ComboWindow missing or not placed correctly.
+**Cause**: Phase-derived combo timing or AttackData combo links are missing.
 
 **Fix**:
 1. Open attack montage
-2. Add AnimNotifyState_ComboWindow during Recovery phase
-3. Position at start of recovery (typically first 60% of recovery)
-4. Set duration to 0.6s (or CombatSettings->ComboInputWindow)
+2. Confirm `AnimNotify_AttackPhaseTransition(Active)` and `AnimNotify_AttackPhaseTransition(Recovery)` exist in the attack section
+3. Confirm `NextComboAttack` or `HeavyComboAttack` is assigned in AttackData
+4. Tune `ComboInputWindow` and blend times; do not add `AnimNotifyState_ComboWindow` for normal attack chains
 
 **Check 2: NextComboAttack Not Set**
 ```cpp
-// In OnLightAttackPressed during combo
-if (bCanCombo && CurrentAttackData)
+// In combo resolution
+if (bComboWindowActive && CurrentAttackData)
 {
     if (!CurrentAttackData->NextComboAttack)
     {
@@ -367,14 +367,13 @@ void UWeaponComponent::EnableHitDetection()
 }
 ```
 
-**Cause**: AnimNotify_ToggleHitDetection missing or not calling WeaponComponent.
+**Cause**: Active/Recovery phase transitions are missing or not routing to CombatComponent.
 
 **Fix**:
 1. Open attack montage
-2. Add AnimNotify_ToggleHitDetection at start of Active phase (bEnable = true)
-3. Add AnimNotify_ToggleHitDetection at end of Active phase (bEnable = false)
-
-**Preferred**: Use `AnimNotify_AttackPhaseTransition` checkpoints — hit detection is automatically enabled during Active phase and disabled when it ends (no separate toggle notify needed).
+2. Confirm `AnimNotify_AttackPhaseTransition(Active)` exists at the start of damage frames
+3. Confirm `AnimNotify_AttackPhaseTransition(Recovery)` exists at the end of damage frames
+4. Do not add `AnimNotify_ToggleHitDetection`; hit detection is phase-driven
 
 **Check 2: Weapon Sockets Missing**
 ```cpp
@@ -591,33 +590,33 @@ InputComponent->BindAction("LightAttack", IE_Pressed, this, &AMyCharacter::OnLig
 InputComponent->BindAction("LightAttack", IE_Released, this, &AMyCharacter::OnLightAttackReleased);
 ```
 
-**Check 2: bCanHoldAtEnd = False**
+**Check 2: bCanHold = False**
 ```cpp
 // In AttackData
-bCanHoldAtEnd = true;  // Must be true for holds
+bCanHold = true;  // Must be true for light attack holds
 ```
 
 **Fix**: Set to true in AttackData asset (Light Attack section).
 
-**Check 3: HoldWindow Phase Missing**
+**Check 3: Hold Window Start Missing**
 ```cpp
-// Attack must have HoldWindow phase AFTER Active phase
-[──Windup──][──Active──][──HoldWindow──][──Recovery──]
-                             ▲▲▲▲▲▲▲
-                         Check if still holding
+// Attack should have a hold-start point notify where the button state is checked
+[──Windup──][──Active──][──Recovery──]
+                         ▲
+                  HoldWindowStart
 ```
 
 **Fix**:
 1. Open attack montage
-2. Add `AnimNotifyState_HoldWindow` (the dedicated hold window AnimNotifyState)
-3. Place during the appropriate phase (hold window overlaps phases, it's not a phase itself)
-4. Duration ~0.2-0.5s (time to check if button still held)
+2. Add `AnimNotify_HoldWindowStart`
+3. Set `InputType` to `LightAttack` or `HeavyAttack`
+4. Place it at the hold decision frame, usually during recovery for light hold follow-ups
 
 **Check 4: Button Released Too Early**
 
-**Behavior**: If button released before HoldWindow phase begins, hold doesn't trigger.
+**Behavior**: If button released before `AnimNotify_HoldWindowStart` fires, hold doesn't trigger.
 
-**This is by design**. Player must CONTINUE holding from attack start through to HoldWindow phase.
+**This is by design**. Player must CONTINUE holding from attack start through to the hold-start notify.
 
 **Solution**: Communicate to players they must hold button throughout animation.
 
@@ -730,8 +729,8 @@ For custom notifies, ensure Notify() or NotifyBegin()/NotifyEnd() are implemente
 
 **Example**:
 ```cpp
-// In AnimNotify_ToggleHitDetection::Notify
-void UAnimNotify_ToggleHitDetection::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
+// In AnimNotify_HoldWindowStart::Notify
+void UAnimNotify_HoldWindowStart::Notify(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
 {
     if (!MeshComp || !MeshComp->GetOwner())
     {
@@ -742,14 +741,7 @@ void UAnimNotify_ToggleHitDetection::Notify(USkeletalMeshComponent* MeshComp, UA
     ICombatInterface* CombatInterface = Cast<ICombatInterface>(MeshComp->GetOwner());
     if (CombatInterface)
     {
-        if (bEnable)
-        {
-            CombatInterface->Execute_OnEnableHitDetection(MeshComp->GetOwner());
-        }
-        else
-        {
-            CombatInterface->Execute_OnDisableHitDetection(MeshComp->GetOwner());
-        }
+        CombatInterface->Execute_OnHoldWindowStart(MeshComp->GetOwner(), InputType);
     }
     else
     {
@@ -993,12 +985,12 @@ void UMyAnimInstance::AnimNotify_EnableHitDetection(const UAnimNotify* Notify)
 }
 
 // Option 2: Use ICombatInterface (recommended)
-void UAnimNotify_ToggleHitDetection::Notify(...)
+void UAnimNotify_HoldWindowStart::Notify(...)
 {
     ICombatInterface* CombatInterface = Cast<ICombatInterface>(MeshComp->GetOwner());
     if (CombatInterface)
     {
-        CombatInterface->Execute_OnEnableHitDetection(MeshComp->GetOwner());
+        CombatInterface->Execute_OnHoldWindowStart(MeshComp->GetOwner(), InputType);
     }
 }
 ```
@@ -1248,9 +1240,9 @@ UE_LOG(LogCombat, Warning, TEXT("Attack executing: %s"),
 ### Combo Not Working Checklist
 
 - [ ] NextComboAttack assigned in AttackData?
-- [ ] AnimNotifyState_ComboWindow placed during Recovery?
+- [ ] Active and Recovery phase transitions present in the montage section?
 - [ ] ComboInputWindow duration ~0.6s?
-- [ ] OpenComboWindow being called? (check logs)
+- [ ] `bComboWindowActive` becomes true from phase-derived checkpoints? (check logs)
 - [ ] ProcessQueuedCombo being called? (check logs)
 - [ ] OnAttackPhaseEnd(Recovery) firing?
 - [ ] ComboResetDelay long enough (~2s)?
@@ -1260,7 +1252,7 @@ UE_LOG(LogCombat, Warning, TEXT("Attack executing: %s"),
 - [ ] WeaponComponent added to character?
 - [ ] Weapon sockets created (weapon_start, weapon_end)?
 - [ ] Socket names match WeaponComponent settings?
-- [ ] AnimNotify_ToggleHitDetection placed correctly?
+- [ ] Active and Recovery phase transitions placed correctly?
 - [ ] TraceChannel set to channel that hits enemies?
 - [ ] Enemy has collision enabled?
 - [ ] EnableHitDetection being called? (check logs)

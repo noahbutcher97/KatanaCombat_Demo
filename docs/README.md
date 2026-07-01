@@ -101,7 +101,7 @@ This project uses a four-level hierarchy optimized for Claude CLI:
 
 | System | Status | Notes |
 |--------|--------|-------|
-| Core Combat (4-component) | ✅ Stable | 95% feature complete |
+| Core Combat (5-component) | ✅ Stable | 95% feature complete |
 | Input Buffering | ✅ Stable | Working (LIFO last-input-wins) |
 | Finisher System | ✅ Stable | 95% feature complete |
 | Impact Effects | ✅ Complete | Hitstop, audio, VFX all wired (v3.5.0) |

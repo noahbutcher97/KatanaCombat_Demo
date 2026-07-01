@@ -167,6 +167,39 @@ void UAttackData::GetEffectiveTiming(float& OutWindup, float& OutActive, float& 
     {
         float SectionStart, SectionEnd;
         GetSectionTimeRange(SectionStart, SectionEnd);
+
+        float ActiveTransitionTime = -1.0f;
+        float RecoveryTransitionTime = -1.0f;
+
+        for (const FAnimNotifyEvent& NotifyEvent : AttackMontage->Notifies)
+        {
+            const float NotifyTime = NotifyEvent.GetTriggerTime();
+            if (NotifyTime < SectionStart || NotifyTime >= SectionEnd)
+            {
+                continue;
+            }
+
+            if (const UAnimNotify_AttackPhaseTransition* TransitionNotify =
+                Cast<UAnimNotify_AttackPhaseTransition>(NotifyEvent.Notify))
+            {
+                if (TransitionNotify->TransitionToPhase == EAttackPhase::Active)
+                {
+                    ActiveTransitionTime = NotifyTime;
+                }
+                else if (TransitionNotify->TransitionToPhase == EAttackPhase::Recovery)
+                {
+                    RecoveryTransitionTime = NotifyTime;
+                }
+            }
+        }
+
+        if (ActiveTransitionTime >= 0.0f && RecoveryTransitionTime >= ActiveTransitionTime)
+        {
+            OutWindup = ActiveTransitionTime - SectionStart;
+            OutActive = RecoveryTransitionTime - ActiveTransitionTime;
+            OutRecovery = SectionEnd - RecoveryTransitionTime;
+            return;
+        }
         
         float WindupStart = -1.0f, WindupEnd = -1.0f;
         float ActiveStart = -1.0f, ActiveEnd = -1.0f;
@@ -225,44 +258,7 @@ void UAttackData::GetEffectiveTiming(float& OutWindup, float& OutActive, float& 
 #if WITH_EDITOR
 // ============================================================================
 // EDITOR-ONLY METHODS
-// Note: Implementation is in KatanaCombatEditor module (AttackDataTools)
-// These are just stubs that will be called by the editor customization
 // ============================================================================
-
-void UAttackData::AutoCalculateTimingFromSection()
-{
-    // Implementation in AttackDataTools (editor module)
-    // Called by AttackDataCustomization UI
-}
-
-bool UAttackData::GenerateNotifiesInSection()
-{
-    // Implementation in AttackDataTools (editor module)
-    // Called by AttackDataCustomization UI
-    return false;
-}
-
-TArray<UAttackData*> UAttackData::FindOtherUsersOfSection() const
-{
-    // Implementation in AttackDataTools (editor module)
-    // Called by AttackDataCustomization UI
-    return TArray<UAttackData*>();
-}
-
-bool UAttackData::ValidateMontageSection(FText& OutErrorMessage) const
-{
-    // Implementation in AttackDataTools (editor module)
-    // Called by AttackDataCustomization UI
-    OutErrorMessage = FText::FromString(TEXT("Validation only available in editor"));
-    return true;
-}
-
-FString UAttackData::GetTimingPreviewString() const
-{
-    // Implementation in AttackDataTools (editor module)
-    // Called by AttackDataCustomization UI
-    return TEXT("Preview only available in editor");
-}
 
 void UAttackData::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {

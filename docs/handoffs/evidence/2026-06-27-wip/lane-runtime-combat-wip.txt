@@ -1,0 +1,11 @@
+M	docs/architecture/ARCHITECTURE_QUICK.md
+M	docs/architecture/ARCHITECTURE.md
+M	docs/plans/gap-tracker.md
+M	KatanaCombat.uproject
+M	Source/KatanaCombat.Target.cs
+M	Source/KatanaCombat/Private/Data/AttackData.cpp
+M	Source/KatanaCombat/Private/Utilities/MontageUtilityLibrary.cpp
+M	Source/KatanaCombat/Public/Data/AttackConfiguration.h
+M	Source/KatanaCombat/Public/Data/AttackData.h
+M	Source/KatanaCombat/Public/Utilities/MontageUtilityLibrary.h
+M	Source/KatanaCombatEditor.Target.cs

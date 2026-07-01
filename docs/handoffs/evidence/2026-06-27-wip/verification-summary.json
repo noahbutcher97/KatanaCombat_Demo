@@ -1,0 +1,16 @@
+{
+  "build_exit_code": "BuildExitCode=0",
+  "build_result": [
+    "Target is up to date",
+    "Result: Succeeded"
+  ],
+  "asset_migration_exit_code": "AssetMigrationExitCode=0",
+  "asset_migration_found": "[2026.06.27-20.27.03:031][304]LogAutomationCommandLine: Display: Found 13 automation tests based on 'KatanaCombat.Editor.AssetMigration'",
+  "asset_migration_success_count": 13,
+  "asset_migration_complete": "[2026.06.27-20.27.03:688][344]LogAutomationCommandLine: Display: **** TEST COMPLETE. EXIT CODE: 0 ****",
+  "attack_data_tools_exit_code": "AttackDataToolsExitCode=0",
+  "attack_data_tools_found": "[2026.06.27-20.27.21:001][304]LogAutomationCommandLine: Display: Found 7 automation tests based on 'KatanaCombat.Editor.AttackDataTools'",
+  "attack_data_tools_success_count": 7,
+  "attack_data_tools_warning_count": 3,
+  "attack_data_tools_complete": "[2026.06.27-20.27.21:342][325]LogAutomationCommandLine: Display: **** TEST COMPLETE. EXIT CODE: 0 ****"
+}

@@ -25,11 +25,10 @@ class UStaticMeshComponent;
  * 4. Bind to OnWeaponHit event to process hits
  * 
  * Hit Detection Flow:
- * - EnableHitDetection() called by AnimNotify at start of Active phase
- * - Every tick: Swept sphere trace from weapon_start to weapon_end
- * - Hit actors tracked to prevent double-hitting
- * - DisableHitDetection() called by AnimNotify at end of Active phase
- * - ResetHitActors() called at start of new attack
+ * - EnableHitDetection() called at start of Active phase (clears hit list, records positions)
+ * - Every tick: Substepped swept capsule trace from weapon_start to weapon_end
+ * - Hit actors tracked to prevent double-hitting within same attack
+ * - DisableHitDetection() called at end of Active phase (clears hit list, stops tracing)
  */
 UCLASS(ClassGroup=(Combat), meta=(BlueprintSpawnableComponent))
 class KATANACOMBAT_API UWeaponComponent : public UActorComponent
@@ -177,8 +176,8 @@ public:
     void EnableHitDetection();
 
     /**
-     * Disable hit detection (called by AnimNotify_ToggleHitDetection)
-     * Stops tracing and preserves hit actor list for current attack
+     * Disable hit detection (called at end of Active phase)
+     * Stops tracing and clears hit actor list
      */
     UFUNCTION(BlueprintCallable, Category = "Weapon")
     void DisableHitDetection();
@@ -216,6 +215,14 @@ public:
      */
     UFUNCTION(BlueprintPure, Category = "Weapon")
     FVector GetSocketLocation(FName SocketName) const;
+
+    /** Get the effective start socket name (from WeaponData or manual config) */
+    UFUNCTION(BlueprintPure, Category = "Weapon|Sockets")
+    FName GetEffectiveStartSocketName() const { return GetEffectiveStartSocket(); }
+
+    /** Get the effective end socket name (from WeaponData or manual config) */
+    UFUNCTION(BlueprintPure, Category = "Weapon|Sockets")
+    FName GetEffectiveEndSocketName() const { return GetEffectiveEndSocket(); }
 
     // ============================================================================
     // HIT QUERIES
@@ -292,14 +299,12 @@ private:
     UPROPERTY()
     TArray<TObjectPtr<AActor>> HitActors;
 
-    /** Previous frame's weapon tip location (for swept trace) */
-    FVector PreviousTipLocation;
-
-    /** Previous frame's weapon start location (for swept trace) */
-    FVector PreviousStartLocation;
-
-    /** Is this the first trace since hit detection enabled? */
-    bool bFirstTrace = true;
+    /**
+     * Previous frame positions for each trace point along the blade.
+     * Index 0 = base (start socket), last = tip (end socket), intermediates = lerped.
+     * Populated by EnableHitDetection and updated each tick.
+     */
+    TArray<FVector> PreviousTracePoints;
 
     /** Cached weapon tip velocity (units/sec), computed per-frame from position delta */
     FVector CachedWeaponTipVelocity = FVector::ZeroVector;
@@ -307,13 +312,17 @@ private:
     /** Cached DeltaTime from last TickComponent for velocity computation */
     float LastDeltaTime = 0.0f;
 
-    /**
-     * Number of substep interpolations per frame for hit detection.
-     * Higher values catch thin targets at low framerates but cost more traces.
-     * 1 = no substeps (single sweep per frame, current behavior)
-     * 3 = 3 intermediate sweeps per frame (recommended for fast weapons)
-     */
-    static constexpr int32 SubstepCount = 3;
+    // ============================================================================
+    // HIT DETECTION TUNING (fallbacks when no WeaponData)
+    // ============================================================================
+
+    /** Fallback trace point count when no WeaponData is set */
+    static constexpr int32 DefaultTracePointCount = 3;
+
+    /** Fallback substep range when no WeaponData is set */
+    static constexpr int32 DefaultMinSubsteps = 1;
+    static constexpr int32 DefaultMaxSubsteps = 5;
+    static constexpr float DefaultSubstepVelocityThreshold = 1500.0f;
 
     // ============================================================================
     // CACHED REFERENCES
@@ -332,8 +341,9 @@ private:
     // ============================================================================
 
     /**
-     * Perform swept sphere trace from weapon start to end
-     * Called every tick when hit detection is enabled
+     * Perform multi-point swept sphere traces along the blade.
+     * Uses blade segmentation (N trace points) with velocity-adaptive substeps.
+     * Called every tick when hit detection is enabled.
      */
     void PerformWeaponTrace();
 
@@ -343,6 +353,31 @@ private:
      * @param Hit - Hit result from trace
      */
     void ProcessHit(const FHitResult& Hit);
+
+    /**
+     * Compute current trace point positions along the blade.
+     * @return Array of world-space positions from base to tip.
+     */
+    TArray<FVector> ComputeCurrentTracePoints() const;
+
+    /**
+     * Compute adaptive substep count based on max trace point velocity.
+     * @param CurrentPoints - Current frame trace point positions
+     * @return Number of substeps to use this frame
+     */
+    int32 ComputeAdaptiveSubstepCount(const TArray<FVector>& CurrentPoints) const;
+
+    /** Get effective trace point count (from WeaponData or default) */
+    int32 GetEffectiveTracePointCount() const;
+
+    /** Get effective min substeps (from WeaponData or default) */
+    int32 GetEffectiveMinSubsteps() const;
+
+    /** Get effective max substeps (from WeaponData or default) */
+    int32 GetEffectiveMaxSubsteps() const;
+
+    /** Get effective substep velocity threshold (from WeaponData or default) */
+    float GetEffectiveSubstepVelocityThreshold() const;
 
     /**
      * Add actor to hit list

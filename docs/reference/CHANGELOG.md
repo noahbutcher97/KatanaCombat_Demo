@@ -16,6 +16,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [5.0.0] - 2026-02-09
+
+### Architecture: 5-Component Extraction (Phases 1-3)
+
+Major structural refactor extracting paired animation logic from CombatComponent into a dedicated UPairedAnimationComponent. CombatComponent reduced from 4,760 to 3,418 lines (28% reduction).
+
+**Phase 3: UPairedAnimationComponent Extraction** `b5d52f2`:
+- New `UPairedAnimationComponent` (1,468 lines) on `BaseCombatCharacter` — 5th combat component
+- Extracted finisher execution flow (~742 lines): `TryExecuteFinisher()`, `BeginPairedAnimation()`, `EndPairedAnimation()`, `CompletePairedAnimation()`, `CancelPairedAnimation()`, `TriggerSyncPointEffects()`
+- Extracted counter system (~482 lines): `TryCounter()`, `TryCounter_AC3Mode()`, `TryCounter_ChainMode()`, counter window management, chain state machine
+- Extracted partner tracking (~73 lines): `AddPairedPartner()`, `RemovePairedPartner()`, `ClearPairedPartners()`
+- Moved member variables: counter state, paired anim state, delegates, partner array
+- CombatComponent retains thin forwarding wrappers for backward compatibility
+
+**Phase 3 CP-1: Scaffolding** `622c55f`:
+- Created PairedAnimationComponent.h/.cpp alongside existing CombatComponent code
+- Added component to BaseCombatCharacter constructor
+- No behavior changes — old code still active
+
+**Phase 3 CP-2: Cutover** `b5d52f2`:
+- CombatComponent delegates finisher/counter calls to PairedAnimationComponent
+- `CanProcessInput()` queries `PairedAnimComp->IsInputBlocked()`
+- `ExecuteAction()` delegates `TryExecuteFinisher()` to PairedAnimComp
+- Death cleanup delegates partner notification to PairedAnimComp
+- Interface stubs (`IsInCounterWindow`, `IsInParryWindow`) wired to PairedAnimComp
+- All 368 tests pass
+
+**Phase 3 CP-3: AnimNotify Rewire** `259f136`:
+- Rewired `AnimNotifyState_CounterWindow` to `FindComponentByClass<UPairedAnimationComponent>()`
+- Rewired `AnimNotifyState_PairedAnimationSync` (done in CP-2)
+- Rewired `AnimNotifyState_PairedAnimationCollision` (done in CP-2)
+- `CombatDebugHUD` updated to read partner data from PairedAnimationComponent
+
+### Changed
+- Architecture: 4-component → 5-component (Combat, Targeting, Weapon, HitReaction, PairedAnimation)
+- CombatComponent.cpp: 4,760 → 3,418 lines
+- Test suite: Updated PairedAnimationTests.cpp (34 tests) and CounterSystemTests.cpp (11 tests) to reference PairedAnimationComponent
+- All 368 tests pass
+
+### Key Technical Discovery
+- **BeginPlay never called in test environment**: `CreateTestWorld()` + `SpawnActor` in minimal world doesn't trigger component BeginPlay. Tests must access component state directly, not through BeginPlay-cached references.
+
+---
+
 ## [4.0.0] - 2026-02-07
 
 ### Combat System Pivot: Cinematic Free-Flow
@@ -745,7 +789,7 @@ ASamuraiCharacter → CombatSettings (combat style) → AttackConfiguration (att
 ## Quality Metrics
 
 ### Test Coverage
-- 19 test files, 207 tests, all passing (as of 2026-02-05)
+- 19 test files, 368 tests, all passing (as of 2026-02-09)
 - 14 test suites: Attack, Combo, Death, Damage, HitReaction, Weapon, Targeting, Integration, Memory, Debug, PairedAnimation, Hitstop, Audio, VFX
 - 96% design specification compliance (validated via audit)
 

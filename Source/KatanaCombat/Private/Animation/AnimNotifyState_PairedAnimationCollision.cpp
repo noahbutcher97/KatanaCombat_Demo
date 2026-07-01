@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Core/CombatComponent.h"
+#include "Core/PairedAnimationComponent.h"
 #include "Utilities/PairedAnimationUtilityLibrary.h"
 #include "Engine/World.h"
 
@@ -63,16 +64,16 @@ void UAnimNotifyState_PairedAnimationCollision::NotifyBegin(
 		{
 			if (bUseTrackedPartnersOnly)
 			{
-				// PREFERRED: Use tracked partners from CombatComponent
+				// PREFERRED: Use tracked partners from PairedAnimationComponent
 				// Only ignores collision with specific registered partners
-				UCombatComponent* CombatComp = GetOwnerCombatComponent();
-				if (CombatComp)
+				UPairedAnimationComponent* PairedComp = Character->FindComponentByClass<UPairedAnimationComponent>();
+				if (PairedComp)
 				{
 					// Clear any stale entries from previous use
 					IgnoredPartners.Empty();
 
-					// Get partners from CombatComponent and ignore each one
-					const TArray<TWeakObjectPtr<AActor>>& Partners = CombatComp->PairedAnimationPartners;
+					// Get partners from PairedAnimationComponent and ignore each one
+					const TArray<TWeakObjectPtr<AActor>>& Partners = PairedComp->PairedAnimationPartners;
 					for (const TWeakObjectPtr<AActor>& PartnerRef : Partners)
 					{
 						if (AActor* Partner = PartnerRef.Get())

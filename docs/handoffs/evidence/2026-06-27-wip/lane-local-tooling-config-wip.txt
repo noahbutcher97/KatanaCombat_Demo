@@ -1,0 +1,6 @@
+??	.mcp.json
+??	Config/Automation/Presets/Katana.json
+??	GenerateAndBuild.bat
+M	.claude/settings.local.json
+M	AGENTS.md
+M	CLAUDE.md

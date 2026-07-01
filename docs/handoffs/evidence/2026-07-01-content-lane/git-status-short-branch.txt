@@ -1,0 +1,238 @@
+## feature/paired-animation-component...origin/feature/paired-animation-component
+ M .claude/settings.local.json
+ M AGENTS.md
+ M CLAUDE.md
+ D Content/Assets/Characters/CyberpunkRunner/Meshes/SK_Mannequin.uasset
+ D Content/Assets/Characters/FuturisticMercenary/Meshes/SK_Mannequin.uasset
+ M Content/ProjectFiles/Animation/Montages/Katana/Heavy/AM_Heavy_Katana_Event.uasset
+ M Content/ProjectFiles/Animation/Montages/Katana/Light/AM_Light_Combo_1.uasset
+ D Content/ProjectFiles/Animation/Sequencer/LS_Takedown.uasset
+ M Content/ProjectFiles/Core/Actors/Character/BP_EnemyCharacter.uasset
+ D Content/ProjectFiles/Core/Actors/Character/BP_SamuraiCharacter.uasset
+ D Content/ProjectFiles/Core/GM_Samurai.uasset
+ D Content/ProjectFiles/Core/GameModes/GM_Samurai.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackConfigurations/DA_Config_Katana.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/DA_DirectionalAttack_B.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/DA_DirectionalAttack_F.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/DA_DirectionalAttack_L.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/DA_DirectionalAttack_None.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/DirectionalAttack_R.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Heavy/HeavyAttack_1.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Heavy/HeavyAttack_2.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Heavy/HeavyAttack_3.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Heavy/HeavyAttack_4.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_1.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_10.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_11.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_2.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_3.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_4.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_5.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_6.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_7.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_8.uasset
+ D Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/LightAttack_9.uasset
+ M Content/ProjectFiles/Data/PDA/HitReaction/HitReactionSettings/DA_HitReaction.uasset
+ D Content/ProjectFiles/Data/PDA/MotionWarping/DA_MotionWarping.uasset
+ D Content/ProjectFiles/Data/PDA/Settings/DA_CombatSettings.uasset
+ M Content/ProjectFiles/Data/PDA/Weapons/DA_Weapon_Katana.uasset
+ M Content/ProjectFiles/Input/IMC_Combat.uasset
+ D Content/ProjectFiles/Levels/Lvl_Arena.umap
+ D Content/ProjectFiles/Levels/Lvl_ThirdPerson.umap
+ D Content/Templates/ThirdPerson/Lvl_ThirdPerson.umap
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/0/7Q/79I95P02ZAQU1ZMOD09IVW.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/0/GH/Q5DWB1P0VTDE2XYT9VM3W4.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/0/WL/WLEY62MBEKLKQXA8CBEYY5.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/1/B4/97C06IA5KVJGLIOMVB6WV1.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/1/DV/Z38X31I5IKQ0JVAAPB2YAS.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/2/7A/TNXXYZPGTHZ5HVJQEIR2KY.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/3/AE/Z99ENMVH2ZVLPPPF0AD739.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/3/B5/H9ODARPYLFMEQG83BEQBKQ.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/3/CM/TFU2C548I8S8PUZG1Y3IAX.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/3/GP/AN0ME5WXL65XIL0PWVGS4H.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/3/RX/TN2XWTDY9VB953OHOQC3XJ.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/4/4N/26ZBFMGIKMJP84815FUDPQ.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/4/5Y/588W3DPK6BURYVWJ5SYYHB.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/4/LD/P4OHZ7ZUK66S18K44K9R5Y.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/4/T4/EN1NWAAM9DRQVSZR2FFI20.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/4/XG/SCW3FXM3N5URAN07HT9CV4.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/4/YV/I50IO8JLP68CA38ZNMKZPN.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/5/FB/MRV3TBWRWNPTZ4G8J0RDP8.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/6/JB/ZPDUKL2UBXD6XR9L6EXLRF.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/7/7H/SKCBFRQV3K0CGMLQSWRRIM.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/7/B7/JLMRG9BDLNXDNX6CFUDCYH.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/7/G6/1COGB91FZKERRGGQ4SWQ2T.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/7/GU/46836T9MG8HM0PDV52D2BI.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/7/R3/DIB00NMD4VSK5X4HZUSMA3.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/8/EH/R7N8X7JQTXTF7IT62WCR48.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/8/IL/BGM41QS8PFZOBX69NTJEN5.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/8/TR/17MH9TWYGZ9E13R6SGID1V.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/9/4A/X2AF2D1DOMGF0S1RH352Q6.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/9/6C/BYG32B7VL710ZYAUQPYE2S.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/9/9I/1IJ61VATYKHNSRF2DNPD49.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/9/9I/FRAV5DVCWFZHCNMXPVME9G.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/9/O1/DGDY6SNN1YAJF6CZTI4NQQ.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/9/OR/XJV11A25RSJWA9CD7ZSBJR.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/9/TY/4H8JZKHG57AFJRAIBWXHYF.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/9/VJ/OWQOD7H9487ODV7KQ2MI8P.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/A/40/INSYV6Q3RC8JROILZDSAGZ.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/A/CZ/23WNKRHT9UH6MFSF6ZXDK3.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/A/YS/8UU7QC0Z1MFZ7I4LYYGTTE.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/B/GU/RFEW9ST3UKANJ0YUZJ8NE4.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/B/NQ/6T8FADBR2MU54R1C699LZM.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/B/XP/YRF29V530WKI5LPIV6NV89.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/B/Z6/O4KH4LNX4GFO9O33PYRIBF.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/C/3J/FU8BIXCAZ3210ND3BZ4F1K.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/C/P9/06TNQHXBYUTFRU3RVUMB19.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/C/YR/F76HYM2FZQL4XUPBXOMKSZ.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/D/G9/YMZCOTIK465R95Y254ZXWM.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/D/K3/Y02VYJ7Z7H73W6IYWC21HY.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/D/UH/GCLK6PDA9HIBAFR2PAOCW1.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/D/XZ/4LAJ2NSN383C6NJH5XTEPL.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/E/3X/ZJ3MO30XNSJCUH9FANNHVH.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/E/73/ZB0WSIBUW6GVDAI4OJHSWJ.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/E/8K/EF9V2QFB6E5FE9T4MDSE24.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/E/C3/02TWRF27O9Y620GZ60AFPO.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_Arena/E/KG/0CXT8RZUQ600W15JF81GRW.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/1/TV/07W3XXPPODKSJGRHQ9WA33.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/1/U1/HPGH65LQOK7A2SP22FB0RQ.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/2/2H/SDDMFMIW0E6UML1E6FJEET.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/2/9G/URFKYR2J1QLCN5CP0L8THD.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/2/DE/6WE3QDVC6RHXQ2RXQZMOIK.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/2/ES/8RCEJD46L942HTIBYJXIJA.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/3/C0/937KTOTKWUNM4Z5P1U0H6S.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/3/DA/OFH949EHRG14NVXCGYS53T.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/3/HT/KDX29U86VCUNHFYUGYXDKI.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/3/KE/QSBUVUV9IGOHPM0T1LRTPR.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/3/MY/DXBBL7RMQ6DVUL0YON32K5.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/3/NM/Y5DM0NM8RKY3WQETO6U4X1.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/3/PE/IAB3AG6SDO9RPW4ZESD46H.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/3/R1/6NZL629JHR42F8410VPKTG.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/3/SY/0YR6SK6A7IGS8JWU112XIF.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/4/TK/QUVHDWBRLT3D6GS75UBT3R.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/4/V9/TN162X3S12F1JV06TRJ13O.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/5/24/KLD0B7OA9DB65QQXOG63RC.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/5/5K/IZ4MYX3YQZSOBPAPR34AL7.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/5/72/V0BZYR4A4YFWUHXIUNHHG4.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/5/E3/DJF56ZS2PTL2TDHAAW0E0B.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/5/L4/VLRWARTKUTDM2Y3LBFU0HR.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/5/RP/GQLS86DH0IAP0R14RINFR0.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/5/RT/TD81J3JPY2HDIPBQKYI2SW.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/6/03/ZOSLJ7J9JBZRQTU63YY388.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/6/22/6YKZLXPXZTERC9WESTJKUB.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/6/3D/KJDKUMM8TM8CZIE1E0FZ7J.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/6/67/M3AU763RVI2GZ06619U9EU.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/6/JC/U8EPZX1U301GFZYJ2MDVUU.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/7/4X/4T3K6S3HZUAST6OJSGL7BT.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/7/8X/LKKKIF12U5K777Q1EENO7U.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/7/RB/H2L74ZKT7OBTC9PVST7OPB.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/7/YF/56HHQ0MN1CZSCLEZ136GLN.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/7/YF/DZQZ6X0PCYIQ2VEXB2YP4N.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/8/5S/1MONDKEZST43Y262Q4TZDN.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/8/9O/3DZN241QS3SNZ0ZZX9Y7XE.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/8/B0/MCBFLHDS7NU14DO6FZK998.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/8/DJ/0WUI0LHCDFBO435BS8FMT9.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/8/JT/R55VOQCA6ZQIOZ1IMZH4QB.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/9/0J/I9MD8GCPNV5VDWXYADZ4HK.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/9/7Z/YSV888R1DXD2WC2ZI3P2BO.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/9/CO/ZSUPQLL423PPPXSKL9U7LO.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/9/EL/6H89IBSN0ZIVKPD7ZET8Q7.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/9/ES/JXRIG47WKCCN2KZ6OS38LY.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/9/HH/XECGDS91PLSGR986EES0AV.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/9/KD/STFO6L3ZXR4NUGPS7Q9XA9.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/9/NF/TAXIBZXS4ORRPOM8J5RNOO.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/9/UT/NBRTIW0PLP8CASQA2GEQ4X.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/A/6N/LTJFAAKXXJT6QBF78I008A.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/A/8N/65F3JBRJIAAUSQYRR4EKBQ.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/B/42/1W4O8QJEWP6VC8CWF9M4R1.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/B/VX/D7TI6C5WS0TR13PHDFLU1H.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/B/ZE/BB7BUMUX855KBYXBASYJZY.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/C/2A/VCYS6ZJUH2H5PQTD8LXA6D.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/C/36/8TMNAABQ4FXLPUGABNSI0P.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/C/42/3U01DJR902DVB6P87VY0XF.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/C/BW/MFP5Q6R8WLBLXI1PRHJOB2.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/C/FM/TL40XKFTD3QWSDQ9EYEM1Q.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/C/P0/MMEIONH0BN261TUPHGZXU5.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/C/VH/DE7E1UH3RD5XC2M6ZXPA6J.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/D/0S/3203NGX1UGW27A0OGRT869.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/D/Q4/VBE80RASEYG95HUINJ1PKX.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/E/1N/XNTD29JH095KILJKINIQ6H.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/E/2N/4EGFM8O8YDIJK4DSIKB016.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/E/4K/BM0FKLHCWHBTX0VOL1PZNY.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/E/6N/XHZ20I42BVBWJ0BL4PPM51.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/E/BD/9RARCM8BU704TICW493MIR.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/E/GQ/F020I2RBNT757BMO7AUF2W.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/E/HO/SIQI2YAE6BIAF9QGFF049M.uasset
+ D Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson/F/14/Q2ITNBNFTTCY1PFQ1GXF7T.uasset
+ D Content/__ExternalObjects__/ProjectFiles/Levels/Lvl_Arena/1/FP/62VXXXGL5FH3E56M6HZKVI.uasset
+ D Content/__ExternalObjects__/ProjectFiles/Levels/Lvl_Arena/3/L1/XXEDHJ2N7M8XTDIYDRYC2A.uasset
+ D Content/__ExternalObjects__/ProjectFiles/Levels/Lvl_ThirdPerson/8/PH/IU6LP24CACR3H5PF571LWK.uasset
+ D Content/__ExternalObjects__/ProjectFiles/Levels/Lvl_ThirdPerson/B/HZ/MM6H2AWN845B0F14XQPUBY.uasset
+ M KatanaCombat.uproject
+ M Source/KatanaCombat.Target.cs
+ M Source/KatanaCombat/Private/Core/CombatComponent.cpp
+ M Source/KatanaCombat/Private/Core/PairedAnimationComponent.cpp
+ M Source/KatanaCombat/Private/Data/AttackData.cpp
+ M Source/KatanaCombat/Private/Utilities/MontageUtilityLibrary.cpp
+ M Source/KatanaCombat/Public/Core/PairedAnimationComponent.h
+ M Source/KatanaCombat/Public/Data/AttackConfiguration.h
+ M Source/KatanaCombat/Public/Data/AttackData.h
+ M Source/KatanaCombat/Public/Utilities/MontageUtilityLibrary.h
+ M Source/KatanaCombatEditor.Target.cs
+ M Source/KatanaCombatEditor/KatanaCombatEditor.Build.cs
+ M Source/KatanaCombatEditor/Private/AttackDataTools.cpp
+ M Source/KatanaCombatEditor/Private/Customizations/AttackDataCustomization.cpp
+ M Source/KatanaCombatEditor/Public/AttackDataTools.h
+ M Source/KatanaCombatTest/KatanaCombatTest.build.cs
+ M Source/KatanaCombatTest/Private/CounterSystemTests.cpp
+ M docs/architecture/API_REFERENCE.md
+ M docs/architecture/ARCHITECTURE.md
+ M docs/architecture/ARCHITECTURE_QUICK.md
+ M docs/guides/ATTACK_CREATION.md
+ M docs/guides/GETTING_STARTED.md
+ M docs/guides/TROUBLESHOOTING.md
+ M docs/plans/gap-tracker.md
+ M docs/specs/PAIRED_ANIMATION_SPEC.md
+?? .mcp.json
+?? Config/AssetMigrations/
+?? Config/Automation/
+?? Content/Assets/Animations/GhostSamurai_Bundle/
+?? Content/Assets/SFX/
+?? Content/Assets/UI/
+?? Content/Assets/VFX/
+?? Content/Cyberpunk/
+?? Content/ProjectFiles/Core/Actors/Character/BP_Player.uasset
+?? Content/ProjectFiles/Core/Camera/
+?? Content/ProjectFiles/Core/GameModes/GM_KatanaCombat_Base.uasset
+?? Content/ProjectFiles/Data/PDA/Attack/AttackConfigurations/DA_Configuration_Katana.uasset
+?? Content/ProjectFiles/Data/PDA/Attack/AttackData/DirectionalAttacks/New/
+?? Content/ProjectFiles/Data/PDA/Attack/AttackData/Heavy/New/
+?? Content/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/
+?? Content/ProjectFiles/Data/PDA/FX/
+?? Content/ProjectFiles/Data/PDA/MotionWarping/DA_MotionWarping_Config.uasset
+?? Content/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A.uasset
+?? Content/ProjectFiles/Data/PDA/Paired/Finishers/Finishers_A_Attacker.uasset
+?? Content/ProjectFiles/Data/PDA/Paired/Finishers/Finishers_A_Victim.uasset
+?? Content/ProjectFiles/Data/PDA/Settings/DA_CombatSettings_Default.uasset
+?? Content/ProjectFiles/Data/PDA/Targetting/DA_TargetingConfig.uasset
+?? Content/ProjectFiles/Levels/Lvl_ThirdPerson1.umap
+?? Content/ProjectFiles/Levels/M_Showcase.umap
+?? Content/__ExternalActors__/Cyberpunk/
+?? Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/
+?? Content/__ExternalObjects__/Cyberpunk/
+?? Content/__ExternalObjects__/ProjectFiles/Levels/Lvl_ThirdPerson1/
+?? GenerateAndBuild.bat
+?? Source/KatanaCombatEditor/Private/AttackDataNotifyGenerationService.cpp
+?? Source/KatanaCombatEditor/Private/Commandlets/
+?? Source/KatanaCombatEditor/Public/AttackDataNotifyGenerationService.h
+?? Source/KatanaCombatEditor/Public/Commandlets/
+?? Source/KatanaCombatTest/Private/AttackDataEditorToolsTests.cpp
+?? Source/KatanaCombatTest/Private/KatanaAssetMigrationTests.cpp
+?? docs/audits/HIT_STATE_SYSTEM_AUDIT_2026-02-05.md
+?? docs/codereview/
+?? docs/guides/HEADLESS_ASSET_MIGRATIONS.md
+?? docs/handoffs/
+?? docs/superpowers/plans/2026-06-22-attackdata-notify-canon-cleanup.md
+?? docs/superpowers/plans/2026-06-22-headless-asset-migration-commandlet.md
+?? docs/superpowers/plans/2026-06-30-chain-counter-attackdata-branch-alignment.md
+?? docs/superpowers/specs/

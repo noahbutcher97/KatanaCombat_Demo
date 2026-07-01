@@ -4,7 +4,9 @@
 #include "Core/CombatComponent.h"
 #include "Core/TargetingComponent.h"
 #include "Core/WeaponComponent.h"
+#include "Utilities/WeaponTraceLibrary.h"
 #include "Core/HitReactionComponent.h"
+#include "Core/PairedAnimationComponent.h"
 #include "Data/AttackData.h"
 #include "Data/WeaponData.h"
 #include "Data/CombatSettings.h"
@@ -23,6 +25,7 @@ ABaseCombatCharacter::ABaseCombatCharacter()
     TargetingComponent = CreateDefaultSubobject<UTargetingComponent>(TEXT("TargetingComponent"));
     WeaponComponent = CreateDefaultSubobject<UWeaponComponent>(TEXT("WeaponComponent"));
     HitReactionComponent = CreateDefaultSubobject<UHitReactionComponent>(TEXT("HitReactionComponent"));
+    PairedAnimationComponent = CreateDefaultSubobject<UPairedAnimationComponent>(TEXT("PairedAnimationComponent"));
     MotionWarpingComponent = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarpingComponent"));
 
     // Initialize health
@@ -386,8 +389,7 @@ float ABaseCombatCharacter::GetMaxPosture_Implementation() const
 
 bool ABaseCombatCharacter::IsInCounterWindow_Implementation() const
 {
-    // TODO: Migrate counter window system
-    return false;
+    return PairedAnimationComponent ? PairedAnimationComponent->IsInCounterWindow() : false;
 }
 
 // ============================================================================
@@ -420,8 +422,7 @@ UAttackData* ABaseCombatCharacter::GetCurrentAttack_Implementation() const
 
 EAttackPhase ABaseCombatCharacter::GetCurrentPhase_Implementation() const
 {
-    // TODO: Delegate to CombatComponent when migrated
-    return EAttackPhase::None;
+    return CombatComponent ? CombatComponent->GetCurrentPhase() : EAttackPhase::None;
 }
 
 void ABaseCombatCharacter::OnEnableHitDetection_Implementation()
@@ -460,8 +461,7 @@ void ABaseCombatCharacter::OnAttackPhaseTransition_Implementation(EAttackPhase N
 
 bool ABaseCombatCharacter::IsInParryWindow_Implementation() const
 {
-    // TODO: Migrate parry window system
-    return false;
+    return PairedAnimationComponent ? PairedAnimationComponent->IsInParryWindow() : false;
 }
 
 void ABaseCombatCharacter::OnHoldWindowStart_Implementation(EInputType InputType)
@@ -523,15 +523,43 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         // Build hit reaction info
         FHitReactionInfo HitInfo;
         HitInfo.Attacker = this;
-        // HitDirection = direction FROM which the attack came (attacker's position relative to victim)
-        // This is used by victim to select correct directional hit reaction
-        HitInfo.HitDirection = (GetActorLocation() - HitActor->GetActorLocation()).GetSafeNormal();
+
+        // HitDirection convention: points FROM victim TOWARD attacker (direction the hit came from)
+        // Used by victim's HitReactionComponent to select correct directional animation
+        // Prefer weapon tip velocity (negated to match convention) over position-based fallback
+        if (WeaponComponent && WeaponComponent->GetWeaponTipVelocity().SizeSquared() > KINDA_SMALL_NUMBER)
+        {
+            // Negate: weapon travels attacker→victim, convention needs victim→attacker
+            HitInfo.HitDirection = -WeaponComponent->GetWeaponTipVelocity().GetSafeNormal();
+        }
+        else
+        {
+            // Fallback: position-based (attacker pos - victim pos = victim→attacker)
+            HitInfo.HitDirection = (GetActorLocation() - HitActor->GetActorLocation()).GetSafeNormal();
+        }
+
         HitInfo.AttackData = AttackData;
         HitInfo.Damage = AttackData->BaseDamage * WeaponMultiplier;
         HitInfo.StunDuration = AttackData->HitStunDuration;
         HitInfo.ImpactPoint = HitResult.ImpactPoint;
         HitInfo.ImpactNormal = HitResult.ImpactNormal;
         HitInfo.BoneName = HitResult.BoneName;
+
+        // Surface type from physical material on hit geometry
+        HitInfo.SurfaceType = UWeaponTraceLibrary::MapPhysicalMaterialToSurfaceType(
+            HitResult.PhysMaterial.Get());
+
+        // Hit confidence: blade position + weapon speed quality metric
+        if (WeaponComponent)
+        {
+            const FVector BladeBase = WeaponComponent->GetSocketLocation(WeaponComponent->GetEffectiveStartSocketName());
+            const FVector BladeTip = WeaponComponent->GetSocketLocation(WeaponComponent->GetEffectiveEndSocketName());
+            HitInfo.HitConfidence = UWeaponTraceLibrary::ComputeHitConfidence(
+                WeaponComponent->GetWeaponTipVelocity(),
+                HitResult.ImpactPoint,
+                BladeBase,
+                BladeTip);
+        }
 
         // HIT-1: Populate extended hit metadata
         HitInfo.DistanceToTarget = FVector::Dist(GetActorLocation(), HitActor->GetActorLocation());
