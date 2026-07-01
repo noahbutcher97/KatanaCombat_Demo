@@ -8,6 +8,7 @@ This folder contains implementation plans for significant features.
 plans/
 ├── README.md                         ← This file
 ├── combat-polish-plan.md             ← Normal attack effects + camera (ACTIVE)
+├── counter-chain-rollout-inventory.md ← Counter-chain asset rollout inventory (ACTIVE)
 ├── gap-tracker.md                    ← Gap coverage matrix (REFERENCE)
 ├── preview-tool-refactor-plan.md     ← PT-11 refactor (COMPLETE)
 ├── archive/                          ← Completed/superseded plans
@@ -27,6 +28,7 @@ plans/
 | Plan | Status | Description |
 |------|--------|-------------|
 | [Combat Polish](combat-polish-plan.md) | Impact Effects Complete, Camera Remaining | Hitstop, camera shake, audio, VFX all wired. Camera combat awareness TODO. |
+| [Counter Chain Rollout Inventory](counter-chain-rollout-inventory.md) | Active | Plan-only evidence and batching guidance for expanding counter-chain asset coverage beyond `LightAttack_1`. |
 | [Gap Tracker](gap-tracker.md) | Reference (cleaned 2026-02-09) | Gap coverage matrix. Resolved items trimmed, active P1 priorities retained. |
 | [Preview Tool Refactor](preview-tool-refactor-plan.md) | Complete | PT-11 "God Widget" decomposition — viewport + timeline extracted to separate Slate widgets. |
 

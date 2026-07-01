@@ -1,0 +1,15 @@
+# Counter-chain light rollout candidates.
+# Inventory/plan-only manifest. Review the Plan report before any ApplyAndSave run.
+# Format:
+# AttackData|CounterDataPackage|TemplatePairedData
+
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_2|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_2|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_3|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_3|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_4|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_4|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_5|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_5|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_6|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_6|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_7|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_7|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_8|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_8|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_9|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_9|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_10|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_10|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_11|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_11|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
