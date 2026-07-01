@@ -1,0 +1,5 @@
+# Counter-chain asset proof targets.
+# Format:
+# AttackData|CounterDataPackage|TemplatePairedData
+
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_1|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A

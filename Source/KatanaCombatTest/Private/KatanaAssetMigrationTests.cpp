@@ -17,6 +17,7 @@
 #include "Commandlets/Operations/AttackDataNotifyMigrationOperation.h"
 #include "Commandlets/Operations/AttackDataTimingMigrationOperation.h"
 #include "Commandlets/Operations/ContentReadinessAuditOperation.h"
+#include "Commandlets/Operations/CounterChainProofMigrationOperation.h"
 #include "Commandlets/KatanaAssetMigrationTypes.h"
 #include "Dom/JsonObject.h"
 #include "HAL/PlatformProcess.h"
@@ -542,6 +543,127 @@ bool FKatanaAssetMigrationContentReadinessAcceptedByRunnerTest::RunTest(const FS
 		bFoundExpectedError |= Error.Contains(TEXT("read-only"));
 	}
 	TestTrue(TEXT("Validation should explain that ContentReadinessAudit is read-only"), bFoundExpectedError);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKatanaAssetMigrationCounterChainProofAcceptedByRunnerTest,
+	"KatanaCombat.Editor.AssetMigration.Runner.CounterChainProofAccepted",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FKatanaAssetMigrationCounterChainProofAcceptedByRunnerTest::RunTest(const FString& Parameters)
+{
+	FKatanaAssetMigrationOptions Options;
+	Options.Operation = FCounterChainProofMigrationOperation::OperationName;
+	Options.Mode = EKatanaAssetMigrationMode::Plan;
+	Options.TargetsFile = TEXT("Config/AssetMigrations/CounterChainProofTargets.txt");
+
+	TArray<FString> Errors;
+	TestTrue(TEXT("Runner should accept CounterChainProofMigration"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+
+	Options.bAllowGlobalScan = true;
+	Errors.Reset();
+	TestFalse(TEXT("CounterChainProofMigration should reject global scan"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKatanaCounterChainProofPlanDoesNotMutateTest,
+	"KatanaCombat.Editor.AssetMigration.CounterChainProof.PlanDoesNotMutate",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FKatanaCounterChainProofPlanDoesNotMutateTest::RunTest(const FString& Parameters)
+{
+	UAnimMontage* AttackMontage = KatanaAssetMigrationTest::CreateMontage();
+	UAnimMontage* VictimMontage = KatanaAssetMigrationTest::CreateMontage();
+	UAttackData* AttackData = KatanaAssetMigrationTest::CreateAttackData(AttackMontage);
+	UPairedAnimationData* TemplateData = NewObject<UPairedAnimationData>(GetTransientPackage());
+	TemplateData->AttackerMontage = AttackMontage;
+	TemplateData->AttackerMontageSection = TEXT("Target");
+	TemplateData->VictimMontage = VictimMontage;
+	TemplateData->VictimMontageSection = TEXT("Target");
+
+	FCounterChainProofTargetSpec Spec;
+	Spec.InputTarget = TEXT("/Game/Test/Attack.Attack|/Game/Test/Counter.Counter|/Game/Test/Template.Template");
+	Spec.AttackDataObjectPath = TEXT("/Game/Test/Attack.Attack");
+	Spec.CounterDataPackageName = TEXT("/Game/Test/Counter");
+	Spec.CounterDataObjectPath = TEXT("/Game/Test/Counter.Counter");
+	Spec.TemplatePackageName = TEXT("/Game/Test/Template");
+	Spec.TemplateObjectPath = TEXT("/Game/Test/Template.Template");
+
+	FKatanaAssetMigrationRow Row;
+	const FCounterChainProofMigrationOperation Operation;
+	const int32 NotifyCountBefore = AttackMontage->Notifies.Num();
+	TestTrue(TEXT("Plan should succeed"), Operation.RunLoadedObjects(
+		Spec,
+		AttackData,
+		nullptr,
+		TemplateData,
+		EKatanaAssetMigrationMode::Plan,
+		Row));
+
+	TestEqual(TEXT("Plan should report WouldChange"), LexToString(Row.Status), FString(TEXT("WouldChange")));
+	TestEqual(TEXT("Plan should not mutate notifies"), AttackMontage->Notifies.Num(), NotifyCountBefore);
+	TestFalse(TEXT("Plan should not enable counter variant"), AttackData->bHasCounterVariant);
+	TestEqual(TEXT("Plan should identify three additions"), Row.PlannedAdditions.Num(), 3);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKatanaCounterChainProofApplySeedsCounterDataAndWindowTest,
+	"KatanaCombat.Editor.AssetMigration.CounterChainProof.ApplySeedsCounterDataAndWindow",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FKatanaCounterChainProofApplySeedsCounterDataAndWindowTest::RunTest(const FString& Parameters)
+{
+	UAnimMontage* AttackMontage = KatanaAssetMigrationTest::CreateMontage();
+	UAnimMontage* VictimMontage = KatanaAssetMigrationTest::CreateMontage();
+	UAttackData* AttackData = KatanaAssetMigrationTest::CreateAttackData(AttackMontage);
+	UPairedAnimationData* ExistingCounterData = NewObject<UPairedAnimationData>(GetTransientPackage());
+	UPairedAnimationData* TemplateData = NewObject<UPairedAnimationData>(GetTransientPackage());
+	TemplateData->AttackerMontage = AttackMontage;
+	TemplateData->AttackerMontageSection = TEXT("Target");
+	TemplateData->VictimMontage = VictimMontage;
+	TemplateData->VictimMontageSection = TEXT("Target");
+	TemplateData->bIsLethal = true;
+
+	FCounterChainProofTargetSpec Spec;
+	Spec.InputTarget = TEXT("/Game/Test/Attack.Attack|/Game/Test/Counter.Counter|/Game/Test/Template.Template");
+	Spec.AttackDataObjectPath = TEXT("/Game/Test/Attack.Attack");
+	Spec.CounterDataPackageName = TEXT("/Game/Test/Counter");
+	Spec.CounterDataObjectPath = TEXT("/Game/Test/Counter.Counter");
+	Spec.TemplatePackageName = TEXT("/Game/Test/Template");
+	Spec.TemplateObjectPath = TEXT("/Game/Test/Template.Template");
+
+	FKatanaAssetMigrationRow Row;
+	const FCounterChainProofMigrationOperation Operation;
+	TestTrue(TEXT("Apply should succeed"), Operation.RunLoadedObjects(
+		Spec,
+		AttackData,
+		ExistingCounterData,
+		TemplateData,
+		EKatanaAssetMigrationMode::Apply,
+		Row));
+
+	TestEqual(TEXT("Apply should report Changed"), LexToString(Row.Status), FString(TEXT("Changed")));
+	TestTrue(TEXT("AttackData should enable counter variant"), AttackData->bHasCounterVariant);
+	TestTrue(TEXT("AttackData should link counter data"), AttackData->CounterData == ExistingCounterData);
+	TestEqual(TEXT("Counter data should be typed as Counter"), static_cast<int32>(ExistingCounterData->ReactionType), static_cast<int32>(EPairedReactionType::Counter));
+	TestFalse(TEXT("Counter data should be nonlethal"), ExistingCounterData->bIsLethal);
+	TestTrue(TEXT("Counter data should remain valid"), ExistingCounterData->IsValid());
+
+	bool bFoundCounterWindow = false;
+	for (const FAnimNotifyEvent& Event : AttackMontage->Notifies)
+	{
+		if (const UAnimNotifyState_CounterWindow* CounterWindow = Cast<UAnimNotifyState_CounterWindow>(Event.NotifyStateClass))
+		{
+			bFoundCounterWindow |= CounterWindow->CounterData == ExistingCounterData &&
+				CounterWindow->AttackType == AttackData->AttackType &&
+				FMath::IsNearlyEqual(Event.GetTriggerTime(), 0.0f);
+		}
+	}
+	TestTrue(TEXT("Apply should seed a specific CounterWindow"), bFoundCounterWindow);
+	TestTrue(TEXT("Row should report counter window after apply"), Row.bHasCounterWindow);
+	TestTrue(TEXT("Row should report counter variant data after apply"), Row.bCounterVariantHasData);
 	return true;
 }
 

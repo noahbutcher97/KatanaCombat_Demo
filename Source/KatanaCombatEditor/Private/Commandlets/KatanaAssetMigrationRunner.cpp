@@ -6,6 +6,7 @@
 #include "Commandlets/Operations/AttackDataNotifyMigrationOperation.h"
 #include "Commandlets/Operations/AttackDataTimingMigrationOperation.h"
 #include "Commandlets/Operations/ContentReadinessAuditOperation.h"
+#include "Commandlets/Operations/CounterChainProofMigrationOperation.h"
 #include "Data/AttackData.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
@@ -48,6 +49,7 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	}
 	else if (!Options.Operation.Equals(FAttackDataNotifyMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FAttackDataTimingMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
+		!Options.Operation.Equals(FCounterChainProofMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FContentReadinessAuditOperation::OperationName, ESearchCase::IgnoreCase))
 	{
 		OutErrors.Add(FString::Printf(TEXT("Unknown operation '%s'"), *Options.Operation));
@@ -64,6 +66,10 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	else if (Options.Operation.Equals(FContentReadinessAuditOperation::OperationName, ESearchCase::IgnoreCase) && Options.bAllowGlobalScan)
 	{
 		OutErrors.Add(TEXT("ContentReadinessAudit requires an explicit TargetsFile; global scan is intentionally unsupported"));
+	}
+	else if (Options.Operation.Equals(FCounterChainProofMigrationOperation::OperationName, ESearchCase::IgnoreCase) && Options.bAllowGlobalScan)
+	{
+		OutErrors.Add(TEXT("CounterChainProofMigration requires an explicit TargetsFile; global scan is intentionally unsupported"));
 	}
 
 	if (!Options.bAllowGlobalScan && Options.TargetsFile.IsEmpty())
@@ -246,6 +252,9 @@ bool FKatanaAssetMigrationRunner::WriteReport(const FKatanaAssetMigrationReport&
 		RowObject->SetStringField(TEXT("attack_data"), Row.AttackData);
 		RowObject->SetStringField(TEXT("montage"), Row.Montage);
 		RowObject->SetStringField(TEXT("section"), Row.Section);
+		RowObject->SetStringField(TEXT("counter_data"), Row.CounterData);
+		RowObject->SetStringField(TEXT("counter_data_package"), Row.CounterDataPackage);
+		RowObject->SetStringField(TEXT("template_paired_data"), Row.TemplatePairedData);
 		RowObject->SetStringField(TEXT("status"), LexToString(Row.Status));
 		RowObject->SetNumberField(TEXT("section_start"), Row.SectionStart);
 		RowObject->SetNumberField(TEXT("section_end"), Row.SectionEnd);
@@ -465,6 +474,34 @@ bool FKatanaAssetMigrationRunner::RunContentReadinessAudit(const FKatanaAssetMig
 	return OutReport.Summary.Failed == 0;
 }
 
+bool FKatanaAssetMigrationRunner::RunCounterChainProofMigration(const FKatanaAssetMigrationOptions& Options, FKatanaAssetMigrationReport& OutReport) const
+{
+	FCounterChainProofMigrationOperation Operation;
+	OutReport.Operation = FCounterChainProofMigrationOperation::OperationName;
+	OutReport.Mode = Options.Mode;
+
+	TArray<FString> TargetStrings;
+	TArray<FKatanaAssetMigrationRow> FailedRows;
+	LoadTargetStrings(Options, TargetStrings, FailedRows);
+	OutReport.Rows.Append(FailedRows);
+
+	for (FString TargetString : TargetStrings)
+	{
+		TargetString.TrimStartAndEndInline();
+		if (TargetString.IsEmpty() || TargetString.StartsWith(TEXT("#")))
+		{
+			continue;
+		}
+
+		FKatanaAssetMigrationRow Row;
+		Operation.Run(TargetString, Options.Mode, Row);
+		OutReport.Rows.Add(Row);
+	}
+
+	Summarize(OutReport);
+	return OutReport.Summary.Failed == 0;
+}
+
 static void SnapshotInitiallyDirtyPackages(const TArray<UAttackData*>& Targets, TSet<FString>& OutDirtyPackages)
 {
 	for (const UAttackData* Target : Targets)
@@ -589,6 +626,46 @@ EKatanaAssetMigrationExitCode FKatanaAssetMigrationRunner::Run(const FKatanaAsse
 					UE_LOG(LogTemp, Error, TEXT("%s"), *ReportError);
 				}
 			}
+		}
+
+		return (Report.Summary.Failed > 0 || bReportFailed)
+			? EKatanaAssetMigrationExitCode::RowFailure
+			: EKatanaAssetMigrationExitCode::Success;
+	}
+	if (Options.Operation.Equals(FCounterChainProofMigrationOperation::OperationName, ESearchCase::IgnoreCase))
+	{
+		TArray<FString> TargetStrings;
+		LoadTargetStrings(Options, TargetStrings, FailedRows);
+
+		TSet<FString> InitiallyDirtyPackages;
+		FCounterChainProofMigrationOperation::SnapshotInitiallyDirtyPackages(TargetStrings, InitiallyDirtyPackages);
+
+		FKatanaAssetMigrationReport Report;
+		RunCounterChainProofMigration(Options, Report);
+
+		bool bSaveFailed = false;
+		if (Report.Summary.Failed == 0 && Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
+		{
+			bSaveFailed = !SaveChangedPackages(Options, InitiallyDirtyPackages, Report);
+		}
+
+		bool bReportFailed = false;
+		if (!Options.ReportPath.IsEmpty())
+		{
+			TArray<FString> ReportErrors;
+			if (!WriteReport(Report, Options.ReportPath, ReportErrors))
+			{
+				bReportFailed = true;
+				for (const FString& ReportError : ReportErrors)
+				{
+					UE_LOG(LogTemp, Error, TEXT("%s"), *ReportError);
+				}
+			}
+		}
+
+		if (bSaveFailed)
+		{
+			return EKatanaAssetMigrationExitCode::SaveFailure;
 		}
 
 		return (Report.Summary.Failed > 0 || bReportFailed)

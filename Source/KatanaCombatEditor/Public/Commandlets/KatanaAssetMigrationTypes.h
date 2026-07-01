@@ -50,6 +50,9 @@ struct FKatanaAssetMigrationRow
 	FString AttackData;
 	FString Montage;
 	FString Section;
+	FString CounterData;
+	FString CounterDataPackage;
+	FString TemplatePairedData;
 	EKatanaAssetMigrationStatus Status = EKatanaAssetMigrationStatus::Unchanged;
 	float SectionStart = 0.0f;
 	float SectionEnd = 0.0f;

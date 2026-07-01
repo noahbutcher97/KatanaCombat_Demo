@@ -1,0 +1,4 @@
+# Readiness audit targets for the counter-chain proof lane.
+
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1
+/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_1

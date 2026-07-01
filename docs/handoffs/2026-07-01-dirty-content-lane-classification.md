@@ -68,7 +68,7 @@ Follow-up notify save proof:
 - Final pre-merge readiness audit: `Saved/Logs/Commandlets/KatanaAssetMigration/branch-critical-content-readiness-final-premerge.json` - 41 targets, 41 unchanged, 0 failed
 - Final pre-merge notify audit: `Saved/Logs/Commandlets/KatanaAssetMigration/attackdata-notify-audit-final-premerge.json` - 20 targets, 20 unchanged, 0 failed
 
-Counter-chain caveat for a future commit: no audited AttackData currently reports `CounterData` set. The source flow is covered by automation, but content-authored counter-chain proof still needs authored counter data or a separate runtime fixture before claiming final asset-backed counter coverage.
+Counter-chain follow-up proof: `LightAttack_1` now reports `CounterData` set to `Counter_LightAttack_1`, and `AM_Light_Combo_1` has a section-scoped `CounterWindow` carrying that specific counter data. Targeted readiness and post-save idempotence audits are clean. This proves one asset-backed counter path, not broad counter animation coverage or map-level player-facing flow.
 
 ## Adversarial Notes
 
@@ -80,4 +80,4 @@ The bulk import lane dominates the dirty tree. Per final merge direction, it is 
 
 ## Future Commit Work
 
-Address the counter-chain proof gap by authoring and verifying at least one real AttackData `CounterData` path. Separately review the accepted bulk-import content and prune or reorganize any assets that are not needed by the current playable slice.
+Expand counter-chain coverage beyond the single `LightAttack_1` proof path with authored counter-specific animations and a map-level playtest. Separately review the accepted bulk-import content and prune or reorganize any assets that are not needed by the current playable slice.
