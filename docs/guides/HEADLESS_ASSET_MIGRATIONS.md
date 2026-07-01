@@ -64,8 +64,30 @@ Apply and save only reviewed targets:
 &"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=AttackDataTimingMigration -Mode=ApplyAndSave -TargetsFile="Config/AssetMigrations/AttackDataTimingTargets.txt" -AllowPackageSave -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/attackdata-timing-save.json" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
-## Counter And Paired Readiness Reporting
+## Counter Chain Proof Migration
 
-Parry, counter, and paired-animation support starts as readiness reporting. Do not automatically seed parry/counter windows or save packages from this operation until an audit report and reviewed target list identify exact assets and missing fields.
+Use `CounterChainProofMigration` only for reviewed counter-chain proof targets. Each target line has three fields:
 
-Readiness rows should report `CounterData`, `FinisherData`, parry/counter window presence, paired sync/collision notify presence, paired montage section validity, and lethal counter-data warnings.
+```text
+AttackData|CounterDataPackage|TemplatePairedData
+```
+
+Example target list: `Config/AssetMigrations/CounterChainProofTargets.txt`.
+
+Plan the reviewed target:
+
+```powershell
+&"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=CounterChainProofMigration -Mode=Plan -TargetsFile="Config/AssetMigrations/CounterChainProofTargets.txt" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/counter-chain-proof-plan.json" -unattended -nopause -NullRHI -nosplash -stdout
+```
+
+Apply and save only after the plan report names the exact packages:
+
+```powershell
+&"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=CounterChainProofMigration -Mode=ApplyAndSave -TargetsFile="Config/AssetMigrations/CounterChainProofTargets.txt" -AllowPackageSave -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/counter-chain-proof-save.json" -unattended -nopause -NullRHI -nosplash -stdout
+```
+
+This operation creates or updates a nonlethal `UPairedAnimationData` counter asset from a valid paired-data template, sets `AttackData::bHasCounterVariant` and `CounterData`, and seeds a section-scoped `AnimNotifyState_CounterWindow` with the specific counter data when needed. It rejects global scans and stays behind the same explicit package-save gate as other mutating asset migrations.
+
+Re-run `ContentReadinessAudit` on the AttackData and counter data target list, then re-run `CounterChainProofMigration` in `Plan` mode. Expected post-save result is `Unchanged`.
+
+Readiness rows report `CounterData`, `FinisherData`, parry/counter window presence, paired montage section validity, and lethal counter-data warnings.
