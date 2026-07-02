@@ -1,0 +1,6 @@
+# Readiness audit targets for counter-chain rollout batch 1.
+
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_2
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_3
+/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_2
+/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_3

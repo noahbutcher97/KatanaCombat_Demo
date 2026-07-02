@@ -1,0 +1,7 @@
+# Counter-chain rollout batch 1.
+# Reviewed package-save batch for AM_Light_Combo_1 after LightAttack_1 proof.
+# Format:
+# AttackData|CounterDataPackage|TemplatePairedData
+
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_2|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_2|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_3|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_3|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
