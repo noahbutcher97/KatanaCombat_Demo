@@ -49,4 +49,3 @@
 
 # Active maps in the branch-critical lane.
 /Game/ProjectFiles/Levels/Lvl_ThirdPerson1
-/Game/ProjectFiles/Levels/M_Showcase
