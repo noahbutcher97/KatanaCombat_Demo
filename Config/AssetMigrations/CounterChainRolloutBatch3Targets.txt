@@ -1,0 +1,10 @@
+# Counter-chain rollout batch 3.
+# Reviewed package-save batch for AM_Light_Combo_3 after LightAttack_1-6 proof.
+# Format:
+# AttackData|CounterDataPackage|TemplatePairedData
+
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_7|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_7|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_8|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_8|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_9|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_9|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_10|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_10|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
+/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_11|/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_11|/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A
