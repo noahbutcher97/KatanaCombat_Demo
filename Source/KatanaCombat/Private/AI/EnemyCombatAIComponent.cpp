@@ -2,6 +2,7 @@
 
 #include "AI/EnemyCombatAIComponent.h"
 #include "AI/CombatTokenSubsystem.h"
+#include "Characters/BaseCombatCharacter.h"
 #include "Data/AttackData.h"
 #include "Interfaces/CombatInterface.h"
 #include "Core/CombatComponent.h"
@@ -29,6 +30,8 @@ void UEnemyCombatAIComponent::BeginPlay()
 	// Initialize circling direction randomly
 	CirclingDirection = FMath::RandBool() ? 1 : -1;
 	ScheduleCirclingDirectionChange();
+
+	BindOwnerDeathEvents();
 }
 
 void UEnemyCombatAIComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -40,6 +43,12 @@ void UEnemyCombatAIComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (TokenSubsystem)
 	{
 		TokenSubsystem->OnTokenGranted.RemoveDynamic(this, &UEnemyCombatAIComponent::HandleTokenGranted);
+	}
+
+	if (ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner()))
+	{
+		OwnerCharacter->OnCharacterDying.RemoveDynamic(this, &UEnemyCombatAIComponent::HandleOwnerDying);
+		OwnerCharacter->OnCharacterDeath.RemoveDynamic(this, &UEnemyCombatAIComponent::HandleOwnerDying);
 	}
 
 	// Clear timers
@@ -63,6 +72,8 @@ void UEnemyCombatAIComponent::SetTokenSubsystemForTesting(UCombatTokenSubsystem*
 
 bool UEnemyCombatAIComponent::TryInitiateAttack()
 {
+	BindOwnerDeathEvents();
+
 	if (!CanAttemptAttack())
 	{
 		return false;
@@ -151,24 +162,39 @@ bool UEnemyCombatAIComponent::ExecuteAttack()
 		return false;
 	}
 
-	// Transition to attacking state
-	SetState(EEnemyAIState::Attacking);
-
-	// Play the attack montage
-	float MontageLength = AnimInstance->Montage_Play(SelectedAttack->AttackMontage, 1.0f);
-	if (MontageLength <= 0.0f)
+	UCombatComponent* CombatComponent = OwnerChar->FindComponentByClass<UCombatComponent>();
+	if (!CombatComponent)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: Failed to play attack montage"),
+		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: Cannot execute attack - no CombatComponent"),
 			*GetOwner()->GetName());
 		ReleaseTokenAndCleanup();
 		ReturnToReadyState();
 		return false;
 	}
 
-	// Jump to specific section if specified
-	if (SelectedAttack->MontageSection != NAME_None)
+	if (AActor* Target = CombatTarget.Get())
 	{
-		AnimInstance->Montage_JumpToSection(SelectedAttack->MontageSection, SelectedAttack->AttackMontage);
+		FVector ToTarget = Target->GetActorLocation() - OwnerChar->GetActorLocation();
+		ToTarget.Z = 0.0f;
+		if (!ToTarget.IsNearlyZero())
+		{
+			OwnerChar->SetActorRotation(ToTarget.Rotation());
+		}
+	}
+
+	// Transition to attacking state
+	SetState(EEnemyAIState::Attacking);
+
+	const EInputType AttackInputType = SelectedAttack->AttackType == EAttackType::Heavy
+		? EInputType::HeavyAttack
+		: EInputType::LightAttack;
+	if (!CombatComponent->ExecuteAttackData(SelectedAttack, CombatTarget.Get(), AttackInputType))
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: Failed to execute attack through CombatComponent"),
+			*GetOwner()->GetName());
+		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
+		return false;
 	}
 
 	// Bind to montage end
@@ -656,6 +682,20 @@ void UEnemyCombatAIComponent::OnAttackMontageEnded(UAnimMontage* Montage, bool b
 	}
 
 	OnAttackEnded.Broadcast(bInterrupted);
+}
+
+void UEnemyCombatAIComponent::HandleOwnerDying(AActor* Killer)
+{
+	OnDeath();
+}
+
+void UEnemyCombatAIComponent::BindOwnerDeathEvents()
+{
+	if (ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner()))
+	{
+		OwnerCharacter->OnCharacterDying.AddUniqueDynamic(this, &UEnemyCombatAIComponent::HandleOwnerDying);
+		OwnerCharacter->OnCharacterDeath.AddUniqueDynamic(this, &UEnemyCombatAIComponent::HandleOwnerDying);
+	}
 }
 
 void UEnemyCombatAIComponent::ScheduleCirclingDirectionChange()

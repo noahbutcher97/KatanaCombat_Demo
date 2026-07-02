@@ -7,6 +7,7 @@
 #include "Data/AttackConfiguration.h"
 #include "Data/WeaponData.h"
 #include "Data/CombatSettings.h"
+#include "Interfaces/TeamMemberInterface.h"
 #include "Utilities/WeaponTraceLibrary.h"
 #include "Debug/DebugConfig.h"
 #include "Debug/DebugUtils.h"
@@ -395,7 +396,7 @@ void UWeaponComponent::ProcessHit(const FHitResult& Hit)
 {
     AActor* HitActor = Hit.GetActor();
 
-    if (!HitActor || WasActorAlreadyHit(HitActor))
+    if (!HitActor || WasActorAlreadyHit(HitActor) || ShouldIgnoreHitActor(HitActor))
     {
         return;
     }
@@ -421,6 +422,38 @@ void UWeaponComponent::ProcessHit(const FHitResult& Hit)
 
     // Broadcast hit event
     OnWeaponHit.Broadcast(HitActor, Hit, AttackData);
+}
+
+bool UWeaponComponent::ShouldIgnoreHitActor(AActor* HitActor) const
+{
+    if (!HitActor || HitActor == OwnerCharacter)
+    {
+        return true;
+    }
+
+    AActor* OwnerActor = OwnerCharacter.Get();
+    if (!OwnerActor)
+    {
+        OwnerActor = GetOwner();
+    }
+
+    if (!OwnerActor)
+    {
+        return false;
+    }
+
+    if (OwnerActor->Implements<UTeamMemberInterface>() && HitActor->Implements<UTeamMemberInterface>())
+    {
+        if (ITeamMemberInterface::Execute_IsFriendlyTo(OwnerActor, HitActor))
+        {
+            UE_LOG(LogWeaponComponent, Verbose, TEXT("[%s] Ignoring friendly hit target %s"),
+                *GetNameSafe(OwnerActor),
+                *GetNameSafe(HitActor));
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void UWeaponComponent::AddHitActor(AActor* Actor)

@@ -26,6 +26,7 @@
 #include "Misc/Paths.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
+#include "Utilities/CombatGameplayTags.h"
 
 #if PLATFORM_WINDOWS
 #include <direct.h>
@@ -62,6 +63,24 @@ namespace KatanaAssetMigrationTest
 		AttackData->ManualTiming.RecoveryDuration = 0.50f;
 		AttackData->ManualTiming.HoldWindowStart = 0.45f;
 		return AttackData;
+	}
+
+	void AddSemanticTags(UAttackData* AttackData)
+	{
+		AttackData->AttackTags.AddTag(KatanaCombatGameplayTags::AttackPropertyUnblockable());
+		AttackData->RequiredContextTags.AddTag(KatanaCombatGameplayTags::ContextParryCounter());
+	}
+
+	void ExpectSemanticRowFields(FAutomationTestBase& Test, const FKatanaAssetMigrationRow& Row, const TCHAR* Label)
+	{
+		Test.TestTrue(FString::Printf(TEXT("%s row should include unblockable attack tag"), Label),
+			Row.AttackTags.Contains(TEXT("Attack.Property.Unblockable")));
+		Test.TestTrue(FString::Printf(TEXT("%s row should include parry counter context tag"), Label),
+			Row.RequiredContextTags.Contains(TEXT("Context.ParryCounter")));
+		Test.TestTrue(FString::Printf(TEXT("%s row should flag required context tags"), Label),
+			Row.bHasRequiredContextTags);
+		Test.TestTrue(FString::Printf(TEXT("%s row should flag unblockable tag"), Label),
+			Row.bHasUnblockableTag);
 	}
 
 	template <typename NotifyStateType>
@@ -343,6 +362,10 @@ bool FKatanaAssetMigrationReportJsonFieldsTest::RunTest(const FString& Parameter
 	Row.bPackageFileExists = true;
 	Row.bLoaded = true;
 	Row.bAttackDataSectionValid = true;
+	Row.AttackTags.Add(TEXT("Attack.Property.Unblockable"));
+	Row.RequiredContextTags.Add(TEXT("Context.ParryCounter"));
+	Row.bHasRequiredContextTags = true;
+	Row.bHasUnblockableTag = true;
 	Row.PlannedAdditions.Add(TEXT("AnimNotify_AttackPhaseTransition(Active)"));
 	Report.Rows.Add(Row);
 	FKatanaAssetMigrationRunner::Summarize(Report);
@@ -363,53 +386,120 @@ bool FKatanaAssetMigrationReportJsonFieldsTest::RunTest(const FString& Parameter
 	TestTrue(TEXT("rows should read"), JsonObject->TryGetArrayField(TEXT("rows"), Rows) && Rows && Rows->Num() == 1);
 	if (Rows && Rows->Num() == 1)
 	{
+		const TSharedPtr<FJsonObject> RowObject = (*Rows)[0]->AsObject();
 		TestTrue(TEXT("row should include package_name"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("package_name")));
+			RowObject->HasField(TEXT("package_name")));
 		TestTrue(TEXT("row should include object_path"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("object_path")));
+			RowObject->HasField(TEXT("object_path")));
 		TestTrue(TEXT("row should include asset_class"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("asset_class")));
+			RowObject->HasField(TEXT("asset_class")));
 		TestTrue(TEXT("row should include package_file_exists"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("package_file_exists")));
+			RowObject->HasField(TEXT("package_file_exists")));
 		TestTrue(TEXT("row should include loaded"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("loaded")));
+			RowObject->HasField(TEXT("loaded")));
 		TestTrue(TEXT("row should include map_loaded"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("map_loaded")));
+			RowObject->HasField(TEXT("map_loaded")));
 		TestTrue(TEXT("row should include attack_data_section_valid"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("attack_data_section_valid")));
+			RowObject->HasField(TEXT("attack_data_section_valid")));
 		TestTrue(TEXT("row should include paired_animation_valid"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("paired_animation_valid")));
+			RowObject->HasField(TEXT("paired_animation_valid")));
 		TestTrue(TEXT("row should include paired_attacker_section_valid"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("paired_attacker_section_valid")));
+			RowObject->HasField(TEXT("paired_attacker_section_valid")));
 		TestTrue(TEXT("row should include paired_victim_section_valid"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("paired_victim_section_valid")));
+			RowObject->HasField(TEXT("paired_victim_section_valid")));
 		TestTrue(TEXT("row should include stale canonical notify field"),
-			(*Rows)[0]->AsObject()->HasTypedField<EJson::Array>(TEXT("stale_canonical_notifies_found")));
+			RowObject->HasTypedField<EJson::Array>(TEXT("stale_canonical_notifies_found")));
 		TestTrue(TEXT("row should include section length"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("section_length")));
+			RowObject->HasField(TEXT("section_length")));
 		TestTrue(TEXT("row should include windup duration"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("windup_duration")));
+			RowObject->HasField(TEXT("windup_duration")));
 		TestTrue(TEXT("row should include active duration"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("active_duration")));
+			RowObject->HasField(TEXT("active_duration")));
 		TestTrue(TEXT("row should include recovery duration"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("recovery_duration")));
+			RowObject->HasField(TEXT("recovery_duration")));
 		TestTrue(TEXT("row should include timing total"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("timing_total")));
+			RowObject->HasField(TEXT("timing_total")));
 		TestTrue(TEXT("row should include proposed recovery duration"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("proposed_recovery_duration")));
+			RowObject->HasField(TEXT("proposed_recovery_duration")));
 		TestTrue(TEXT("row should include proposed timing total"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("proposed_timing_total")));
+			RowObject->HasField(TEXT("proposed_timing_total")));
 		TestTrue(TEXT("row should include branch readiness warnings"),
-			(*Rows)[0]->AsObject()->HasTypedField<EJson::Array>(TEXT("branch_readiness_warnings")));
+			RowObject->HasTypedField<EJson::Array>(TEXT("branch_readiness_warnings")));
+		TestTrue(TEXT("row should include attack_tags"),
+			RowObject->HasTypedField<EJson::Array>(TEXT("attack_tags")));
+		TestTrue(TEXT("row should include required_context_tags"),
+			RowObject->HasTypedField<EJson::Array>(TEXT("required_context_tags")));
+		TestTrue(TEXT("row should include has_required_context_tags"),
+			RowObject->HasField(TEXT("has_required_context_tags")));
+		TestTrue(TEXT("row should include has_unblockable_tag"),
+			RowObject->HasField(TEXT("has_unblockable_tag")));
+
+		const TArray<TSharedPtr<FJsonValue>>* AttackTags = nullptr;
+		TestTrue(TEXT("row attack_tags should read"),
+			RowObject->TryGetArrayField(TEXT("attack_tags"), AttackTags) && AttackTags && AttackTags->Num() == 1);
+		if (AttackTags && AttackTags->Num() == 1)
+		{
+			TestEqual(TEXT("row should serialize unblockable attack tag"),
+				(*AttackTags)[0]->AsString(),
+				FString(TEXT("Attack.Property.Unblockable")));
+		}
+
+		const TArray<TSharedPtr<FJsonValue>>* RequiredContextTags = nullptr;
+		TestTrue(TEXT("row required_context_tags should read"),
+			RowObject->TryGetArrayField(TEXT("required_context_tags"), RequiredContextTags) &&
+			RequiredContextTags &&
+			RequiredContextTags->Num() == 1);
+		if (RequiredContextTags && RequiredContextTags->Num() == 1)
+		{
+			TestEqual(TEXT("row should serialize parry counter context tag"),
+				(*RequiredContextTags)[0]->AsString(),
+				FString(TEXT("Context.ParryCounter")));
+		}
+
+		TestTrue(TEXT("row should serialize has_required_context_tags true"),
+			RowObject->GetBoolField(TEXT("has_required_context_tags")));
+		TestTrue(TEXT("row should serialize has_unblockable_tag true"),
+			RowObject->GetBoolField(TEXT("has_unblockable_tag")));
 		TestTrue(TEXT("row should include has_parry_window"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("has_parry_window")));
+			RowObject->HasField(TEXT("has_parry_window")));
 		TestTrue(TEXT("row should include has_counter_window"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("has_counter_window")));
+			RowObject->HasField(TEXT("has_counter_window")));
 		TestTrue(TEXT("row should include counter_variant_has_data"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("counter_variant_has_data")));
+			RowObject->HasField(TEXT("counter_variant_has_data")));
 		TestTrue(TEXT("row should include finisher_has_data"),
-			(*Rows)[0]->AsObject()->HasField(TEXT("finisher_has_data")));
+			RowObject->HasField(TEXT("finisher_has_data")));
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKatanaAssetMigrationRowsSemanticTagsTest,
+	"KatanaCombat.Editor.AssetMigration.Rows.SemanticTags",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FKatanaAssetMigrationRowsSemanticTagsTest::RunTest(const FString& Parameters)
+{
+	UAnimMontage* Montage = KatanaAssetMigrationTest::CreateMontage();
+	UAttackData* AttackData = KatanaAssetMigrationTest::CreateAttackData(Montage);
+	KatanaAssetMigrationTest::AddSemanticTags(AttackData);
+
+	FKatanaAssetMigrationRow NotifyRow;
+	const FAttackDataNotifyMigrationOperation NotifyOperation;
+	TestTrue(TEXT("Notify migration audit should succeed"),
+		NotifyOperation.Run(AttackData, EKatanaAssetMigrationMode::Audit, NotifyRow));
+	KatanaAssetMigrationTest::ExpectSemanticRowFields(*this, NotifyRow, TEXT("NotifyMigration"));
+
+	FKatanaAssetMigrationRow TimingRow;
+	const FAttackDataTimingMigrationOperation TimingOperation;
+	TestTrue(TEXT("Timing migration plan should succeed"),
+		TimingOperation.Run(AttackData, EKatanaAssetMigrationMode::Plan, TimingRow));
+	KatanaAssetMigrationTest::ExpectSemanticRowFields(*this, TimingRow, TEXT("TimingMigration"));
+
+	FKatanaAssetMigrationRow ReadinessRow;
+	const FContentReadinessAuditOperation ReadinessOperation;
+	TestTrue(TEXT("Content readiness audit should succeed"),
+		ReadinessOperation.RunLoadedObject(TEXT("/Game/Test/DA_Attack.DA_Attack"), AttackData, false, ReadinessRow));
+	KatanaAssetMigrationTest::ExpectSemanticRowFields(*this, ReadinessRow, TEXT("ContentReadiness"));
+
 	return true;
 }
 
@@ -618,6 +708,7 @@ bool FKatanaCounterChainProofApplySeedsCounterDataAndWindowTest::RunTest(const F
 	UAnimMontage* AttackMontage = KatanaAssetMigrationTest::CreateMontage();
 	UAnimMontage* VictimMontage = KatanaAssetMigrationTest::CreateMontage();
 	UAttackData* AttackData = KatanaAssetMigrationTest::CreateAttackData(AttackMontage);
+	KatanaAssetMigrationTest::AddSemanticTags(AttackData);
 	UPairedAnimationData* ExistingCounterData = NewObject<UPairedAnimationData>(GetTransientPackage());
 	UPairedAnimationData* TemplateData = NewObject<UPairedAnimationData>(GetTransientPackage());
 	TemplateData->AttackerMontage = AttackMontage;
@@ -664,6 +755,7 @@ bool FKatanaCounterChainProofApplySeedsCounterDataAndWindowTest::RunTest(const F
 	TestTrue(TEXT("Apply should seed a specific CounterWindow"), bFoundCounterWindow);
 	TestTrue(TEXT("Row should report counter window after apply"), Row.bHasCounterWindow);
 	TestTrue(TEXT("Row should report counter variant data after apply"), Row.bCounterVariantHasData);
+	KatanaAssetMigrationTest::ExpectSemanticRowFields(*this, Row, TEXT("CounterChainProof"));
 	return true;
 }
 

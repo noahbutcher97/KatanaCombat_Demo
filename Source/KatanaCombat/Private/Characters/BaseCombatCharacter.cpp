@@ -306,7 +306,13 @@ float ABaseCombatCharacter::ApplyDamage_Implementation(const FHitReactionInfo& H
         return 0.0f;
     }
 
-    // Not blocking - take full damage
+    if (CombatComponent && CombatComponent->CanBlockHit(HitInfo))
+    {
+        UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s blocked %.1f incoming damage"),
+            *GetName(), HitInfo.Damage);
+        return 0.0f;
+    }
+
     const float DamageDealt = HitReactionComponent->ApplyDamage(HitInfo);
 
     // Modify health by damage amount
@@ -328,8 +334,7 @@ bool ABaseCombatCharacter::CanBeDamaged_Implementation() const
 
 bool ABaseCombatCharacter::IsBlocking_Implementation() const
 {
-    // TODO: Migrate blocking system
-    return false;
+    return CombatComponent ? CombatComponent->IsBlocking() : false;
 }
 
 bool ABaseCombatCharacter::IsGuardBroken_Implementation() const
@@ -404,20 +409,17 @@ bool ABaseCombatCharacter::CanPerformAttack_Implementation() const
 
 ECombatState ABaseCombatCharacter::GetCombatState_Implementation() const
 {
-    // TODO: Delegate to CombatComponent when migrated
-    return ECombatState::Idle;
+    return CombatComponent ? CombatComponent->GetCombatState() : ECombatState::Idle;
 }
 
 bool ABaseCombatCharacter::IsAttacking_Implementation() const
 {
-    // TODO: Delegate to CombatComponent when migrated
-    return false;
+    return CombatComponent ? CombatComponent->IsAttacking() : false;
 }
 
 UAttackData* ABaseCombatCharacter::GetCurrentAttack_Implementation() const
 {
-    // TODO: Delegate to CombatComponent when migrated
-    return nullptr;
+    return CombatComponent ? CombatComponent->GetCurrentAttack() : nullptr;
 }
 
 EAttackPhase ABaseCombatCharacter::GetCurrentPhase_Implementation() const
@@ -487,6 +489,14 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         *GetName(),
         *HitActor->GetName(),
         *AttackData->GetName());
+
+    if (Implements<UTeamMemberInterface>() && HitActor->Implements<UTeamMemberInterface>() &&
+        ITeamMemberInterface::Execute_IsFriendlyTo(this, HitActor))
+    {
+        UE_LOG(LogCombat, Verbose, TEXT("[HIT] %s SKIPPED: Target %s is friendly"),
+            *GetName(), *HitActor->GetName());
+        return;
+    }
 
     // Skip dead/dying actors entirely - no damage, no reactions
     if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(HitActor))
@@ -591,8 +601,13 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         // HIT-1: Populate bWasCounter from attacker's counter window state
         HitInfo.bWasCounter = CombatComponent ? CombatComponent->IsInCounterWindow() : false;
 
-        // Compute block state once for audio and hitstop
-        const bool bWasBlocked = IDamageableInterface::Execute_IsBlocking(HitActor);
+        // Compute block state once for damage, audio, and hitstop.
+        bool bWasBlocked = IDamageableInterface::Execute_IsBlocking(HitActor);
+        if (ABaseCombatCharacter* HitCombatCharacter = Cast<ABaseCombatCharacter>(HitActor))
+        {
+            bWasBlocked = HitCombatCharacter->CombatComponent &&
+                HitCombatCharacter->CombatComponent->CanBlockHit(HitInfo);
+        }
 
         UE_LOG(LogCombat, Log, TEXT("[HIT] %s applying %.1f damage to %s (blocked: %s)"),
             *GetName(), HitInfo.Damage, *HitActor->GetName(),

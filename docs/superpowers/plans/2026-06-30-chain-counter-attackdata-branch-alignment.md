@@ -27,6 +27,7 @@ Complete this checklist before starting Task 1. The purpose is to reconcile the 
 - [ ] **Canonical runtime contract:** `docs/specs/PAIRED_ANIMATION_SPEC.md` states the shipped Chain path as Block press -> parryable attacker selection -> public `TryCounter()` -> active Chain context -> attack input -> counter step -> paired completion -> finisher or cancel.
 - [ ] **Component ownership:** `docs/architecture/ARCHITECTURE_QUICK.md` states that `UCombatComponent` owns input capture, queue ownership, and attack-data resolution, while `UPairedAnimationComponent` owns Chain state, retained target/context, paired counter/finisher execution, and cleanup.
 - [ ] **Active Chain context schema:** the spec names the runtime context fields before implementation: parried target, source attack metadata, selected counter `UAttackData`, resolved `CounterData`, resolved `FinisherData`, current Chain state, timeout handle, and paired-continuation flags.
+- [ ] **Semantics ownership policy:** `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md`, `CLAUDE.md`, `docs/architecture/ARCHITECTURE_QUICK.md`, `docs/architecture/ARCHITECTURE.md`, and `docs/specs/PAIRED_ANIMATION_SPEC.md` agree that enums own closed runtime state/results, booleans own local latches or direct readiness gates, gameplay tags own authored capabilities/properties/context requirements, and data references own concrete payloads.
 - [ ] **Counter data resolution:** the spec defines the priority order as selected `UAttackData::CounterData`, then attacker notify `SpecificCounterData` only when explicitly allowed, then non-paired counter fallback.
 - [ ] **Damage and lethality:** the spec states that Chain counter steps are nonlethal by default and the finisher step owns lethal damage; any `UPairedAnimationData::bIsLethal` exception for counter reaction types must be explicit.
 - [ ] **Completion and cancel semantics:** the spec lists timeout, montage interruption, paired cancel, partner death, owner death, invalid target, failed montage start, and normal completion as context-clearing exits.
@@ -81,8 +82,10 @@ This branch is complete only when all of these are true:
   - Add tests for canonical notify analysis that preserves current parry/counter windows and reports paired data.
 - Modify `Source/KatanaCombatTest/Private/KatanaAssetMigrationTests.cpp`
   - Add report-field tests for the expanded migration contract.
-- Modify `CLAUDE.md`, `docs/specs/PAIRED_ANIMATION_SPEC.md`, `docs/architecture/ARCHITECTURE_QUICK.md`, `docs/guides/HEADLESS_ASSET_MIGRATIONS.md`, and `docs/plans/gap-tracker.md`
+- Modify `CLAUDE.md`, `docs/specs/PAIRED_ANIMATION_SPEC.md`, `docs/architecture/ARCHITECTURE_QUICK.md`, `docs/architecture/ARCHITECTURE.md`, `docs/guides/HEADLESS_ASSET_MIGRATIONS.md`, and `docs/plans/gap-tracker.md`
   - Align docs with Chain Counter as required branch behavior, AttackData migration as in-scope tooling, and remaining asset proof as an explicit blocker.
+- Modify `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md`
+  - Preserve the accepted tag/enum/boolean/data ownership model and update it only when implementation proves a deliberate exception.
 - Modify `docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md`
   - Replace the earlier "decide whether Chain is in scope" language with the corrected decision.
 - Create `docs/handoffs/2026-06-30-branch-wip-lane-manifest.md`
@@ -105,8 +108,10 @@ Keep primitive tests for parry window toggling, parryable enemy discovery, AC3 f
 
 **Files:**
 - Modify: `CLAUDE.md`
+- Create/Modify: `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md`
 - Modify: `docs/specs/PAIRED_ANIMATION_SPEC.md`
 - Modify: `docs/architecture/ARCHITECTURE_QUICK.md`
+- Modify: `docs/architecture/ARCHITECTURE.md`
 - Modify: `docs/guides/HEADLESS_ASSET_MIGRATIONS.md`
 - Modify: `docs/plans/gap-tracker.md`
 - Modify: `docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md`
@@ -150,7 +155,18 @@ In `docs/architecture/ARCHITECTURE_QUICK.md`, add or update a Chain ownership se
 - The public Chain advance API is `TryAdvanceChainCounter(UAttackData* SelectedAttackData)`. Low-level state helpers remain protected/internal unless a test explicitly names them as internal primitive coverage.
 ```
 
-- [ ] **Step 3: Update CLAUDE current-status caveats**
+- [ ] **Step 3: Reconcile tag/enum/boolean/data ownership**
+
+Keep `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md` as the canonical policy:
+
+- Enums own closed runtime state, branch identity, and resolved outcomes.
+- Booleans own local runtime latches or direct readiness gates.
+- Gameplay tags own authored capabilities, properties, style categories, and context requirements.
+- Data references own concrete animation, paired-data, hit reaction, VFX, audio, and similar payloads.
+
+Apply that policy to Chain Counter and block/parry/counter design. `EChainCounterState` stays enum-driven; `Context.ParryCounter` and future defense tags gate eligibility; `CounterData` and `FinisherData` own payloads; `bHasCounterVariant` and `bCanTriggerFinisher` are validation-backed readiness gates.
+
+- [ ] **Step 4: Update CLAUDE current-status caveats**
 
 In `CLAUDE.md`, revise the Chain Counter status language to:
 
@@ -159,7 +175,7 @@ In `CLAUDE.md`, revise the Chain Counter status language to:
 | SpecificCounterData Wiring | In scope | Resolve selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only as an explicit fallback, then non-paired fallback. |
 ```
 
-- [ ] **Step 4: Update migration guide scope**
+- [ ] **Step 5: Update migration guide scope**
 
 In `docs/guides/HEADLESS_ASSET_MIGRATIONS.md`, add:
 
@@ -171,7 +187,7 @@ Parry, counter, and paired-animation support starts as readiness reporting. Do n
 Readiness rows should report `CounterData`, `FinisherData`, parry/counter window presence, paired sync/collision notify presence, paired montage section validity, and lethal counter-data warnings.
 ```
 
-- [ ] **Step 5: Update gap tracker and branch audit**
+- [ ] **Step 6: Update gap tracker and branch audit**
 
 In `docs/plans/gap-tracker.md`, set gaps 26.1, 26.2, 26.3, 26.5, and 26.6 to "In progress - canonical branch scope" and list blockers:
 
@@ -185,7 +201,7 @@ In `docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md`, repl
 Chain Counter is in scope for this branch. The branch is not ready until public runtime flow, paired completion handoff, readiness reporting, and asset proof are complete.
 ```
 
-- [ ] **Step 6: Create dirty WIP lane manifest**
+- [ ] **Step 7: Create dirty WIP lane manifest**
 
 Create `docs/handoffs/2026-06-30-branch-wip-lane-manifest.md` with this structure:
 
@@ -226,20 +242,20 @@ Branch: `feature/paired-animation-component`
 - User approval for any package-save or mass asset lane.
 ```
 
-- [ ] **Step 7: Run reconciliation sanity checks**
+- [ ] **Step 8: Run reconciliation sanity checks**
 
 Run:
 
 ```powershell
-rg -n "outside branch scope|decide whether Chain|protected helper tests are enough|auto-seed parry|auto-seed counter|Chain.*deferred|Chain.*not in scope|Chain.*optional|Chain.*prototype" CLAUDE.md docs/specs/PAIRED_ANIMATION_SPEC.md docs/architecture/ARCHITECTURE_QUICK.md docs/guides/HEADLESS_ASSET_MIGRATIONS.md docs/plans/gap-tracker.md docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md
+rg -n "outside branch scope|decide whether Chain|protected helper tests are enough|auto-seed parry|auto-seed counter|Chain.*deferred|Chain.*not in scope|Chain.*optional|Chain.*prototype" CLAUDE.md docs/specs/PAIRED_ANIMATION_SPEC.md docs/architecture/ARCHITECTURE_QUICK.md docs/architecture/ARCHITECTURE.md docs/guides/HEADLESS_ASSET_MIGRATIONS.md docs/plans/gap-tracker.md docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md
 ```
 
 Expected: no stale wording that contradicts canonical Chain scope, reporting-first migration scope, or public-flow proof requirements.
 
-- [ ] **Step 8: Commit reconciled docs**
+- [ ] **Step 9: Commit reconciled docs**
 
 ```powershell
-git add CLAUDE.md docs/specs/PAIRED_ANIMATION_SPEC.md docs/architecture/ARCHITECTURE_QUICK.md docs/guides/HEADLESS_ASSET_MIGRATIONS.md docs/plans/gap-tracker.md docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md docs/handoffs/2026-06-30-branch-wip-lane-manifest.md
+git add CLAUDE.md docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md docs/specs/PAIRED_ANIMATION_SPEC.md docs/architecture/ARCHITECTURE_QUICK.md docs/architecture/ARCHITECTURE.md docs/guides/HEADLESS_ASSET_MIGRATIONS.md docs/plans/gap-tracker.md docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md docs/handoffs/2026-06-30-branch-wip-lane-manifest.md
 git commit -m "Reconcile Chain counter branch spec"
 ```
 
@@ -1450,6 +1466,7 @@ git commit -m "Document AttackData migration proof"
 **Files:**
 - Modify: `docs/specs/PAIRED_ANIMATION_SPEC.md`
 - Modify: `docs/architecture/ARCHITECTURE_QUICK.md`
+- Modify: `docs/architecture/ARCHITECTURE.md`
 - Modify: `docs/plans/gap-tracker.md`
 - Modify: `docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md`
 
@@ -1508,7 +1525,7 @@ Replace the AttackData row with:
 Run:
 
 ```powershell
-rg -n "outside branch scope|Chain.*deferred|Chain.*not in scope|Chain.*optional|calls `ExecuteChainCounterAttack\\(\\)`|SpecificCounterData.*first" docs/specs/PAIRED_ANIMATION_SPEC.md docs/architecture/ARCHITECTURE_QUICK.md docs/plans/gap-tracker.md docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md
+rg -n "outside branch scope|Chain.*deferred|Chain.*not in scope|Chain.*optional|calls `ExecuteChainCounterAttack\\(\\)`|SpecificCounterData.*first" docs/specs/PAIRED_ANIMATION_SPEC.md docs/architecture/ARCHITECTURE_QUICK.md docs/architecture/ARCHITECTURE.md docs/plans/gap-tracker.md docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md
 ```
 
 Expected: no stale references that describe Chain Counter as outside branch scope, deferred, optional, executor-driven from `UCombatComponent`, or notify-data-first.
@@ -1516,7 +1533,7 @@ Expected: no stale references that describe Chain Counter as outside branch scop
 - [ ] **Step 6: Commit docs**
 
 ```powershell
-git add docs/specs/PAIRED_ANIMATION_SPEC.md docs/architecture/ARCHITECTURE_QUICK.md docs/plans/gap-tracker.md docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md
+git add docs/specs/PAIRED_ANIMATION_SPEC.md docs/architecture/ARCHITECTURE_QUICK.md docs/architecture/ARCHITECTURE.md docs/plans/gap-tracker.md docs/handoffs/2026-06-28-original-branch-intent-satisfaction-audit.md
 git commit -m "Align Chain counter and migration docs"
 ```
 

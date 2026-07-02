@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Characters/EnemyCharacter.h"
+#include "AI/EnemyCombatAIController.h"
 #include "AI/EnemyCombatAIComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -8,6 +9,8 @@
 AEnemyCharacter::AEnemyCharacter()
 {
     CombatAIComponent = CreateDefaultSubobject<UEnemyCombatAIComponent>(TEXT("CombatAIComponent"));
+    AIControllerClass = AEnemyCombatAIController::StaticClass();
+    AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
 
     // Set default team for enemy
     TeamId = ETeamId::Enemy;

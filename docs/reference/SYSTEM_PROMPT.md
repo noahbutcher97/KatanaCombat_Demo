@@ -470,7 +470,7 @@ Light2.HeavyComboAttack = Heavy2
 6. Assign to component's `DefaultLightAttack` / `DefaultHeavyAttack`
 7. Configure hit reactions in `HitReactionComponent`
 8. Implement AI controller:
-   - Use `ExecuteAttack()` from Behavior Tree tasks
+   - Use StateTree tasks that call `UEnemyCombatAIComponent::ExecuteAttack()`
    - Check `CanAttack()` in conditions
    - Monitor `GetCombatState()` for decision-making
 

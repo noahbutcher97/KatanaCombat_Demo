@@ -13,6 +13,7 @@
 #include "Animation/AnimNotifyState_ParryWindow.h"
 #include "Data/AttackData.h"
 #include "Data/PairedAnimationData.h"
+#include "Utilities/CombatGameplayTags.h"
 
 namespace
 {
@@ -70,6 +71,19 @@ namespace
 			Destination.AddUnique(Index);
 		}
 	}
+
+	TArray<FString> GameplayTagContainerToStrings(const FGameplayTagContainer& Tags)
+	{
+		TArray<FString> Values;
+		TArray<FGameplayTag> TagArray;
+		Tags.GetGameplayTagArray(TagArray);
+		for (const FGameplayTag& Tag : TagArray)
+		{
+			Values.Add(Tag.ToString());
+		}
+		Values.Sort();
+		return Values;
+	}
 }
 
 bool FAttackDataNotifyGenerationService::ShouldGenerateHoldWindowStart(const UAttackData* AttackData)
@@ -98,6 +112,13 @@ FAttackDataNotifyAnalysis FAttackDataNotifyGenerationService::AnalyzeAttackDataN
 		Analysis.Errors.Add(TEXT("AttackData is null"));
 		return Analysis;
 	}
+
+	Analysis.AttackTags = GameplayTagContainerToStrings(AttackData->AttackTags);
+	Analysis.RequiredContextTags = GameplayTagContainerToStrings(AttackData->RequiredContextTags);
+	Analysis.bHasRequiredContextTags = !AttackData->RequiredContextTags.IsEmpty();
+
+	const FGameplayTag UnblockableTag = KatanaCombatGameplayTags::AttackPropertyUnblockable();
+	Analysis.bHasUnblockableTag = UnblockableTag.IsValid() && AttackData->AttackTags.HasTag(UnblockableTag);
 
 	Analysis.Montage = AttackData->AttackMontage;
 	Analysis.SectionName = AttackData->MontageSection;

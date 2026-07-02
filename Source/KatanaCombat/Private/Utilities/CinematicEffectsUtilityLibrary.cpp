@@ -14,6 +14,19 @@
 #include "KatanaCombat.h"
 #include "Data/CombatFXData.h"
 
+namespace
+{
+	constexpr float HitstopFreezeDilation = 0.0001f;
+
+	struct FActiveHitstopState
+	{
+		float RestoreDilation = 1.0f;
+		double EndTime = 0.0;
+	};
+
+	TMap<TWeakObjectPtr<AActor>, FActiveHitstopState> GActiveHitstopStates;
+}
+
 // ============================================================================
 // TIME DILATION
 // ============================================================================
@@ -241,19 +254,42 @@ bool UCinematicEffectsUtilityLibrary::ApplyHitstop(
         ActorsToFreeze.Add(Victim);
     }
 
-    // Save pre-freeze time dilations (supports overlapping slow-mo)
-    TMap<TWeakObjectPtr<AActor>, float> SavedTimeDilations;
-    SavedTimeDilations.Reserve(ActorsToFreeze.Num());
-
-    for (AActor* Actor : ActorsToFreeze)
+    if (!ApplyHitstopToActors(ActorsToFreeze, EffectiveDuration))
     {
-        SavedTimeDilations.Add(Actor, Actor->CustomTimeDilation);
-        Actor->CustomTimeDilation = 0.0001f;
+        return false;
     }
 
     UE_LOG(LogKatanaCombat, Log, TEXT("[HITSTOP] Applied: %.3fs to %d actors (blocked: %s)"),
         EffectiveDuration, ActorsToFreeze.Num(),
         bWasBlocked ? TEXT("YES") : TEXT("NO"));
+
+    return true;
+}
+
+bool UCinematicEffectsUtilityLibrary::ApplyHitstopToActors(const TArray<AActor*>& Actors, float Duration)
+{
+    if (Duration <= 0.0f)
+    {
+        return false;
+    }
+
+    TArray<AActor*> UniqueActors;
+    UniqueActors.Reserve(Actors.Num());
+    for (AActor* Actor : Actors)
+    {
+        if (Actor)
+        {
+            UniqueActors.AddUnique(Actor);
+        }
+    }
+
+    if (UniqueActors.IsEmpty())
+    {
+        return false;
+    }
+
+    TArray<TWeakObjectPtr<AActor>> ActorRefs;
+    ActorRefs.Reserve(UniqueActors.Num());
 
     // ====================================================================
     // PLATFORM TIME-BASED RESTORATION
@@ -263,27 +299,62 @@ bool UCinematicEffectsUtilityLibrary::ApplyHitstop(
     // world or actor time dilation currently in effect.
 
     const double HitstopEndTime = FPlatformTime::Seconds()
-        + static_cast<double>(EffectiveDuration);
+        + static_cast<double>(Duration);
+
+    for (AActor* Actor : UniqueActors)
+    {
+        const TWeakObjectPtr<AActor> ActorKey(Actor);
+        FActiveHitstopState& State = GActiveHitstopStates.FindOrAdd(ActorKey);
+
+        // Preserve the first pre-hitstop value. Overlapping hitstops must not
+        // overwrite this with HitstopFreezeDilation, or the actor can stay frozen.
+        if (State.EndTime <= 0.0)
+        {
+            State.RestoreDilation = Actor->CustomTimeDilation;
+        }
+
+        State.EndTime = FMath::Max(State.EndTime, HitstopEndTime);
+        Actor->CustomTimeDilation = HitstopFreezeDilation;
+        ActorRefs.Add(ActorKey);
+    }
 
     FTSTicker::GetCoreTicker().AddTicker(
         FTickerDelegate::CreateLambda(
-            [SavedTimeDilations, HitstopEndTime](float DeltaTime) -> bool
+            [ActorRefs](float DeltaTime) -> bool
             {
-                if (FPlatformTime::Seconds() >= HitstopEndTime)
+                bool bAnyActorStillStopped = false;
+                const double CurrentTime = FPlatformTime::Seconds();
+
+                for (const TWeakObjectPtr<AActor>& ActorRef : ActorRefs)
                 {
-                    for (const auto& Pair : SavedTimeDilations)
+                    FActiveHitstopState* State = GActiveHitstopStates.Find(ActorRef);
+                    if (!State)
                     {
-                        if (AActor* Actor = Pair.Key.Get())
-                        {
-                            Actor->CustomTimeDilation = Pair.Value;
-                        }
+                        continue;
                     }
 
-                    UE_LOG(LogKatanaCombat, Verbose, TEXT("[HITSTOP] Restored %d actors"),
-                        SavedTimeDilations.Num());
-                    return false; // Remove ticker
+                    AActor* Actor = ActorRef.Get();
+                    if (!Actor)
+                    {
+                        GActiveHitstopStates.Remove(ActorRef);
+                        continue;
+                    }
+
+                    if (CurrentTime >= State->EndTime)
+                    {
+                        Actor->CustomTimeDilation = State->RestoreDilation;
+                        GActiveHitstopStates.Remove(ActorRef);
+
+                        UE_LOG(LogKatanaCombat, Verbose, TEXT("[HITSTOP] Restored %s to %.4f"),
+                            *Actor->GetName(), Actor->CustomTimeDilation);
+                    }
+                    else
+                    {
+                        bAnyActorStillStopped = true;
+                    }
                 }
-                return true; // Continue ticking
+
+                return bAnyActorStillStopped;
             })
     );
 

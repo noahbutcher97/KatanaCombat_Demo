@@ -14,6 +14,7 @@
 #include "Animation/AnimNotifyState_PairedAnimationSync.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
 #include "Utilities/PairedAnimationUtilityLibrary.h"
+#include "Interfaces/TeamMemberInterface.h"
 #include "GameFramework/WorldSettings.h"
 
 // ============================================================================
@@ -174,6 +175,56 @@ bool FFinisherTargetMutexTest::RunTest(const FString& Parameters)
 	TestTrue("Enemy should be vulnerable again after paired animation state cleared", HitReactionComp->IsVulnerableToFinisher());
 
 	World->DestroyActor(Enemy);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+/**
+ * Test: Paired Animations Reject Friendly Targets
+ * Verifies direct paired-animation entry enforces the same hostile-target policy as targeting.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedAnimationRejectsFriendlyTargetTest, "KatanaCombat.PairedAnimation.Targeting.RejectsFriendlyTarget", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FPairedAnimationRejectsFriendlyTargetTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+
+	AEnemyCharacter* Attacker = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector::ZeroVector);
+	AEnemyCharacter* FriendlyTarget = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
+	APlayerCharacter* HostileTarget = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector(250.0f, 0.0f, 0.0f));
+	if (!Attacker || !FriendlyTarget || !HostileTarget)
+	{
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Attacker->TeamId = ETeamId::Enemy;
+	FriendlyTarget->TeamId = ETeamId::Enemy;
+	HostileTarget->TeamId = ETeamId::Player;
+
+	UPairedAnimationComponent* PairedComp = Attacker->FindComponentByClass<UPairedAnimationComponent>();
+	if (!TestNotNull("Attacker should have PairedAnimationComponent", PairedComp))
+	{
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	TestFalse("Same-team target should be invalid for paired animation", PairedComp->IsValidPairedTarget(FriendlyTarget));
+	TestTrue("Hostile target should be valid for paired animation", PairedComp->IsValidPairedTarget(HostileTarget));
+
+	UPairedAnimationData* PairedData = NewObject<UPairedAnimationData>();
+	const bool bStartedAgainstFriendly = PairedComp->TryStartPairedAnimationWithTarget(
+		FriendlyTarget,
+		PairedData,
+		EPairedReactionType::Finisher);
+
+	TestFalse("Direct paired start should reject friendly targets", bStartedAgainstFriendly);
+	TestFalse("Friendly target should not be retained as current victim", PairedComp->CurrentFinisherVictim.IsValid());
+	TestEqual("Friendly target should not be registered as a paired partner", PairedComp->PairedAnimationPartners.Num(), 0);
+
+	World->DestroyActor(Attacker);
+	World->DestroyActor(FriendlyTarget);
+	World->DestroyActor(HostileTarget);
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

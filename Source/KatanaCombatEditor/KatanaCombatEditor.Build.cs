@@ -27,12 +27,18 @@ public class KatanaCombatEditor : ModuleRules
             "AssetRegistry",        // Finding assets
             "ContentBrowser",       // Asset browser integration
             "InputCore",            // Input handling
+            "EnhancedInput",        // Proof input action/context wiring
             "AnimGraph",            // Optional: For anim notify access
             "Blutility",            // Editor Utility Objects for testing
             "LevelEditor",          // Menu extension for Montage Analyzer window
             "AdvancedPreviewScene", // Preview scene for montage analysis dashboards
             "ApplicationCore",      // Clipboard functionality for copy/export
-            "Json"                  // Headless asset migration reports
+            "Json",                 // Headless asset migration reports
+            "KismetCompiler",       // Headless Blueprint compilation for migration-generated assets
+            "StateTreeModule",      // StateTree assets
+            "StateTreeEditorModule",// StateTree builder/compiler APIs
+            "GameplayStateTreeModule", // AI StateTree component schema
+            "PropertyBindingUtils"  // StateTree property binding implementation
         });
     }
 }

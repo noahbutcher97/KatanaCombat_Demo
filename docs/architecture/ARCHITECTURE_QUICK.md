@@ -84,6 +84,14 @@ Enemy in parry window?
 - `UPairedAnimationComponent` owns Chain state, retained target/context, paired counter execution, paired finisher execution, and cleanup.
 - The public Chain advance API is `TryAdvanceChainCounter(UAttackData* SelectedAttackData)`. Low-level state helpers remain protected/internal unless a test explicitly names them as internal primitive coverage.
 
+### Tags, Enums, Booleans, And Data
+
+Authoring semantics use a deliberate split. Enums own closed runtime identities and state machines such as combat state, attack phase, input type, attack type, chain state, paired reaction type, and resolved outcomes. Booleans own local runtime latches or direct authored gates such as blocking, input blocking, parry/counter window state, and explicit counter/finisher readiness flags. Gameplay tags own open-ended authored capabilities, properties, style categories, and context requirements such as combo capability, unblockable attacks, parry-counter context, or future block-interruptible rules. Data references own the concrete montage, paired animation, hit reaction, VFX, audio, or other payload.
+
+Gameplay-relevant tags must be consumed by runtime resolution and validation before designers rely on them. `RequiredContextTags` now gates already-linked attack-resolution candidates, and `Attack.Property.Unblockable` now bypasses `ABaseCombatCharacter` normal block when concrete `AttackData` is present. Context producers, generic hit-aware defense, and broader block/parry/recoil outcomes remain future work.
+
+See `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md` for the canonical ownership policy.
+
 ### 6. Cancel System (Bitmask)
 
 ```cpp

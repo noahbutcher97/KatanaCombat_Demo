@@ -29,6 +29,10 @@ namespace
 		OutRow.ProposedActiveDuration = Analysis.ActiveDuration;
 		OutRow.ProposedRecoveryDuration = Analysis.RecoveryDuration;
 		OutRow.ProposedTimingTotal = Analysis.TimingTotal;
+		OutRow.AttackTags = Analysis.AttackTags;
+		OutRow.RequiredContextTags = Analysis.RequiredContextTags;
+		OutRow.bHasRequiredContextTags = Analysis.bHasRequiredContextTags;
+		OutRow.bHasUnblockableTag = Analysis.bHasUnblockableTag;
 	}
 }
 

@@ -3,6 +3,7 @@
 #include "Animation/SamuraiAnimInstance.h"
 #include "Core/HitReactionComponent.h"
 #include "Interfaces/CombatInterface.h"
+#include "Interfaces/DamageableInterface.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
@@ -102,13 +103,26 @@ void USamuraiAnimInstance::UpdateMovement()
 
 void USamuraiAnimInstance::UpdateCombatState()
 {
-    // TODO: Connect to CombatComponent when interface is ready
-    CombatState = ECombatState::Idle;
-    CurrentPhase = EAttackPhase::None;
-    bIsAttacking = false;
-    bIsBlocking = false;
-    bIsGuardBroken = false;
-    bIsHoldingAttack = false;
+    if (!OwnerCharacter || !OwnerCharacter->Implements<UCombatInterface>())
+    {
+        CombatState = ECombatState::Idle;
+        CurrentPhase = EAttackPhase::None;
+        bIsAttacking = false;
+        bIsBlocking = false;
+        bIsGuardBroken = false;
+        bIsHoldingAttack = false;
+        return;
+    }
+
+    CombatState = ICombatInterface::Execute_GetCombatState(OwnerCharacter);
+    CurrentPhase = ICombatInterface::Execute_GetCurrentPhase(OwnerCharacter);
+    bIsAttacking = ICombatInterface::Execute_IsAttacking(OwnerCharacter);
+    bIsBlocking = OwnerCharacter->Implements<UDamageableInterface>() &&
+        IDamageableInterface::Execute_IsBlocking(OwnerCharacter);
+    bIsGuardBroken = OwnerCharacter->Implements<UDamageableInterface>() &&
+        IDamageableInterface::Execute_IsGuardBroken(OwnerCharacter);
+    bIsHoldingAttack = CombatState == ECombatState::HoldingLightAttack ||
+        CombatState == ECombatState::ChargingHeavyAttack;
 }
 
 void USamuraiAnimInstance::UpdateCombo()

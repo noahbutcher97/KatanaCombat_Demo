@@ -349,10 +349,16 @@ private:
 
     /**
      * Process a hit result
-     * Checks if actor was already hit, adds to list, broadcasts event
+     * Checks if actor is damageable/hostile, adds to list, broadcasts event
      * @param Hit - Hit result from trace
      */
     void ProcessHit(const FHitResult& Hit);
+
+    /**
+     * Returns true when the trace should ignore this actor before it is counted
+     * as hit. Friendly actors are intentionally ignored for the current proof pass.
+     */
+    bool ShouldIgnoreHitActor(AActor* HitActor) const;
 
     /**
      * Compute current trace point positions along the blade.
