@@ -194,6 +194,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AI|State")
 	bool IsStaggered() const { return CurrentState == EEnemyAIState::Staggered; }
 
+	/** Inject deterministic token ownership for automation worlds that do not own a GameInstance. */
+	void SetTokenSubsystemForTesting(UCombatTokenSubsystem* InTokenSubsystem);
+
 	// ============================================================================
 	// DELEGATES
 	// ============================================================================
@@ -251,6 +254,9 @@ protected:
 	/** Release attack token and clean up */
 	void ReleaseTokenAndCleanup();
 
+	/** Return to the next non-attacking state after an attack could not start. */
+	void ReturnToReadyState();
+
 	/** Called when recovery timer expires */
 	UFUNCTION()
 	void OnRecoveryComplete();
@@ -265,4 +271,10 @@ protected:
 
 	/** Schedule circling direction change */
 	void ScheduleCirclingDirectionChange();
+
+	/** Replace cached token subsystem and keep delegate bindings consistent. */
+	void SetTokenSubsystem(UCombatTokenSubsystem* InTokenSubsystem);
+
+	/** True only while this component is queued and waiting for an async token grant. */
+	bool bWaitingForTokenGrant = false;
 };

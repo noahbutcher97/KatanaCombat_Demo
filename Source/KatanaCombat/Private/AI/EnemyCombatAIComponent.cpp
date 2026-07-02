@@ -20,14 +20,10 @@ void UEnemyCombatAIComponent::BeginPlay()
 	Super::BeginPlay();
 
 	// Cache token subsystem reference
-	if (UGameInstance* GI = GetWorld()->GetGameInstance())
+	UWorld* World = GetWorld();
+	if (UGameInstance* GI = World ? World->GetGameInstance() : nullptr)
 	{
-		TokenSubsystem = GI->GetSubsystem<UCombatTokenSubsystem>();
-		if (TokenSubsystem)
-		{
-			// Bind to token granted delegate to know when we get a token from queue
-			TokenSubsystem->OnTokenGranted.AddDynamic(this, &UEnemyCombatAIComponent::HandleTokenGranted);
-		}
+		SetTokenSubsystem(GI->GetSubsystem<UCombatTokenSubsystem>());
 	}
 
 	// Initialize circling direction randomly
@@ -56,6 +52,11 @@ void UEnemyCombatAIComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	Super::EndPlay(EndPlayReason);
 }
 
+void UEnemyCombatAIComponent::SetTokenSubsystemForTesting(UCombatTokenSubsystem* InTokenSubsystem)
+{
+	SetTokenSubsystem(InTokenSubsystem);
+}
+
 // ============================================================================
 // COMBAT API
 // ============================================================================
@@ -82,6 +83,7 @@ bool UEnemyCombatAIComponent::TryInitiateAttack()
 	}
 
 	// Request attack token
+	bWaitingForTokenGrant = false;
 	bool bTokenGranted = TokenSubsystem->RequestAttackToken(GetOwner());
 
 	if (bTokenGranted)
@@ -97,9 +99,15 @@ bool UEnemyCombatAIComponent::TryInitiateAttack()
 	}
 	else
 	{
-		// Added to queue - keep circling
-		UE_LOG(LogTemp, Log, TEXT("[EnemyAI] %s: Token queued, continuing to circle"),
-			*GetOwner()->GetName());
+		bWaitingForTokenGrant = TokenSubsystem->IsInTokenQueue(GetOwner());
+		if (!bWaitingForTokenGrant)
+		{
+			SelectedAttack = nullptr;
+		}
+
+		UE_LOG(LogTemp, Log, TEXT("[EnemyAI] %s: Token %s"),
+			*GetOwner()->GetName(),
+			bWaitingForTokenGrant ? TEXT("queued, continuing to circle") : TEXT("request denied"));
 		return false;
 	}
 }
@@ -118,6 +126,7 @@ bool UEnemyCombatAIComponent::ExecuteAttack()
 		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: Cannot execute attack - no valid attack data"),
 			*GetOwner()->GetName());
 		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
 		return false;
 	}
 
@@ -128,6 +137,7 @@ bool UEnemyCombatAIComponent::ExecuteAttack()
 		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: Owner is not a character"),
 			*GetOwner()->GetName());
 		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
 		return false;
 	}
 
@@ -137,6 +147,7 @@ bool UEnemyCombatAIComponent::ExecuteAttack()
 		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: No anim instance"),
 			*GetOwner()->GetName());
 		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
 		return false;
 	}
 
@@ -149,8 +160,8 @@ bool UEnemyCombatAIComponent::ExecuteAttack()
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: Failed to play attack montage"),
 			*GetOwner()->GetName());
-		SetState(EEnemyAIState::Recovering);
 		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
 		return false;
 	}
 
@@ -306,9 +317,17 @@ void UEnemyCombatAIComponent::SetCombatTarget(AActor* Target)
 	{
 		SetState(EEnemyAIState::Circling);
 	}
-	else if (!Target && CurrentState == EEnemyAIState::Circling)
+	else if (!Target)
 	{
-		SetState(EEnemyAIState::Idle);
+		if (CurrentState == EEnemyAIState::Idle || CurrentState == EEnemyAIState::Circling || CurrentState == EEnemyAIState::Approaching)
+		{
+			ReleaseTokenAndCleanup();
+		}
+
+		if (CurrentState == EEnemyAIState::Circling || CurrentState == EEnemyAIState::Approaching)
+		{
+			SetState(EEnemyAIState::Idle);
+		}
 	}
 }
 
@@ -543,6 +562,8 @@ UAttackData* UEnemyCombatAIComponent::SelectAttack()
 
 void UEnemyCombatAIComponent::ReleaseTokenAndCleanup()
 {
+	bWaitingForTokenGrant = false;
+
 	if (TokenSubsystem)
 	{
 		if (TokenSubsystem->HasAttackToken(GetOwner()))
@@ -558,19 +579,21 @@ void UEnemyCombatAIComponent::ReleaseTokenAndCleanup()
 	SelectedAttack = nullptr;
 }
 
+void UEnemyCombatAIComponent::ReturnToReadyState()
+{
+	if (CurrentState == EEnemyAIState::Dying)
+	{
+		return;
+	}
+
+	SetState(CombatTarget.IsValid() ? EEnemyAIState::Circling : EEnemyAIState::Idle);
+}
+
 void UEnemyCombatAIComponent::OnRecoveryComplete()
 {
 	UE_LOG(LogTemp, Log, TEXT("[EnemyAI] %s: Recovery complete"), *GetOwner()->GetName());
 
-	// Return to circling if we have a target, otherwise idle
-	if (CombatTarget.IsValid())
-	{
-		SetState(EEnemyAIState::Circling);
-	}
-	else
-	{
-		SetState(EEnemyAIState::Idle);
-	}
+	ReturnToReadyState();
 }
 
 void UEnemyCombatAIComponent::HandleTokenGranted(AActor* Attacker)
@@ -581,8 +604,15 @@ void UEnemyCombatAIComponent::HandleTokenGranted(AActor* Attacker)
 		return;
 	}
 
+	if (!bWaitingForTokenGrant)
+	{
+		return;
+	}
+
+	bWaitingForTokenGrant = false;
+
 	// We were in queue and just got a token
-	if (CurrentState == EEnemyAIState::Circling)
+	if (CurrentState == EEnemyAIState::Circling && CombatTarget.IsValid())
 	{
 		SetState(EEnemyAIState::Approaching);
 		ApproachStartTime = GetWorld()->GetTimeSeconds();
@@ -590,6 +620,11 @@ void UEnemyCombatAIComponent::HandleTokenGranted(AActor* Attacker)
 
 		UE_LOG(LogTemp, Log, TEXT("[EnemyAI] %s: Token granted from queue, approaching"),
 			*GetOwner()->GetName());
+	}
+	else
+	{
+		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
 	}
 }
 
@@ -640,5 +675,26 @@ void UEnemyCombatAIComponent::ScheduleCirclingDirectionChange()
 			},
 			RandomInterval,
 			false);
+	}
+}
+
+void UEnemyCombatAIComponent::SetTokenSubsystem(UCombatTokenSubsystem* InTokenSubsystem)
+{
+	if (TokenSubsystem == InTokenSubsystem)
+	{
+		return;
+	}
+
+	if (TokenSubsystem)
+	{
+		TokenSubsystem->OnTokenGranted.RemoveDynamic(this, &UEnemyCombatAIComponent::HandleTokenGranted);
+	}
+
+	bWaitingForTokenGrant = false;
+	TokenSubsystem = InTokenSubsystem;
+
+	if (TokenSubsystem)
+	{
+		TokenSubsystem->OnTokenGranted.AddUniqueDynamic(this, &UEnemyCombatAIComponent::HandleTokenGranted);
 	}
 }
