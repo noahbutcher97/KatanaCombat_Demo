@@ -1118,6 +1118,14 @@ UAttackData* UMontageUtilityLibrary::ResolveNextAttack(
 // CONTEXT-AWARE ATTACK RESOLUTION
 // ============================================================================
 
+namespace
+{
+bool DoesAttackMeetRequiredContext(const UAttackData* AttackData, const FGameplayTagContainer& ActiveContext)
+{
+	return !AttackData || AttackData->RequiredContextTags.IsEmpty() || ActiveContext.HasAll(AttackData->RequiredContextTags);
+}
+}
+
 FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttackContextual(
 	UAttackData* CurrentAttack,
 	EInputType InputType,
@@ -1162,10 +1170,10 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttackContextual(
 		CurrentAttack ? *CurrentAttack->GetName() : TEXT("nullptr"));
 
 	// ========================================================================
-	// PRIORITY 1: Context-Sensitive Attacks (Future: Parry Counters, Finishers)
+	// PRIORITY 1: Context Tag Gate
 	// ========================================================================
-	// TODO: Check RequiredContextTags against ActiveContext
-	// For now, skip this priority (no context-sensitive attacks yet)
+	// RequiredContextTags filter each resolved candidate below. This preserves
+	// the structural resolution path instead of introducing a separate catalog scan.
 
 	// ========================================================================
 	// PRIORITY 2: Directional Follow-Ups (if hold COMPLETED + direction + current attack has directionals)
@@ -1190,6 +1198,13 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttackContextual(
 			UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Found DirectionalFollowUp for direction %d"), static_cast<int32>(Direction));
 		}
 
+		if (DirectionalAttack && !DoesAttackMeetRequiredContext(DirectionalAttack, ActiveContext))
+		{
+			UE_LOG(LogCombat, Log, TEXT("[RESOLVE] DirectionalFollowUp '%s' rejected by RequiredContextTags"),
+				*DirectionalAttack->GetName());
+			DirectionalAttack = nullptr;
+		}
+
 		if (DirectionalAttack)
 		{
 			Result.Attack = DirectionalAttack;
@@ -1212,6 +1227,13 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttackContextual(
 		UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Checking combo chain (ComboWindow active)..."));
 
 		UAttackData* ComboAttack = GetComboAttack(CurrentAttack, InputType, Direction);
+		if (ComboAttack && !DoesAttackMeetRequiredContext(ComboAttack, ActiveContext))
+		{
+			UE_LOG(LogCombat, Log, TEXT("[RESOLVE] NormalCombo '%s' rejected by RequiredContextTags"),
+				*ComboAttack->GetName());
+			ComboAttack = nullptr;
+		}
+
 		if (ComboAttack)
 		{
 			Result.Attack = ComboAttack;
@@ -1243,6 +1265,13 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttackContextual(
 			break; // Other input types don't have attacks
 	}
 
+	if (DefaultAttack && !DoesAttackMeetRequiredContext(DefaultAttack, ActiveContext))
+	{
+		UE_LOG(LogCombat, Log, TEXT("[RESOLVE] Default attack '%s' rejected by RequiredContextTags"),
+			*DefaultAttack->GetName());
+		DefaultAttack = nullptr;
+	}
+
 	if (DefaultAttack)
 	{
 		Result.Attack = DefaultAttack;
@@ -1264,7 +1293,7 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttackContextual(
 			TArray<UAttackData*> VisitedArray = VisitedAttacks.Array();
 			UAttackData* OriginalAttack = VisitedArray[0];
 
-			if (OriginalAttack)
+			if (OriginalAttack && DoesAttackMeetRequiredContext(OriginalAttack, ActiveContext))
 			{
 				Result.Attack = OriginalAttack;
 				Result.Path = EResolutionPath::Default; // Mark as default even though it's emergency
@@ -1280,6 +1309,11 @@ FAttackResolutionResult UMontageUtilityLibrary::ResolveNextAttackContextual(
 							InputType == EInputType::LightAttack ? TEXT("Light") : TEXT("Heavy")));
 				}
 				#endif
+			}
+			else if (OriginalAttack)
+			{
+				UE_LOG(LogCombat, Error, TEXT("[RESOLVE] Emergency fallback attack '%s' rejected by RequiredContextTags"),
+					*OriginalAttack->GetName());
 			}
 			else
 			{

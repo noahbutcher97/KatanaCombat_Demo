@@ -313,6 +313,46 @@ bool FSameTeamFriendlyTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+/**
+ * Test: Same Team Weapon Hits Do Not Apply Damage
+ * Verifies: weapon-hit damage policy respects team friendliness.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSameTeamWeaponHitNoDamageTest, "KatanaCombat.Integration.Team.SameTeamWeaponHitNoDamage", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FSameTeamWeaponHitNoDamageTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+
+	AEnemyCharacter* Attacker = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector::ZeroVector);
+	AEnemyCharacter* Victim = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(200.0f, 0.0f, 0.0f));
+	if (!Attacker || !Victim)
+	{
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Attacker->TeamId = ETeamId::Enemy;
+	Victim->TeamId = ETeamId::Enemy;
+
+	UAttackData* AttackData = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
+	AttackData->BaseDamage = 40.0f;
+
+	FHitResult HitResult;
+	HitResult.ImpactPoint = Victim->GetActorLocation();
+	HitResult.ImpactNormal = -Attacker->GetActorForwardVector();
+
+	const float InitialHealth = Victim->CurrentHealth;
+	Attacker->WeaponComponent->OnWeaponHit.Broadcast(Victim, HitResult, AttackData);
+
+	TestEqual("Same-team weapon hit should not reduce health", Victim->CurrentHealth, InitialHealth);
+	TestFalse("Same-team weapon hit should not put victim in dying/dead state", Victim->IsDeadOrDying());
+
+	World->DestroyActor(Attacker);
+	World->DestroyActor(Victim);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
 // ============================================================================
 // EDGE CASE INTEGRATION TESTS
 // ============================================================================

@@ -99,6 +99,22 @@ bool UPairedAnimationComponent::GetDebugDraw() const
 	return CombatDebug::IsPairedAnimDebugEnabled();
 }
 
+bool UPairedAnimationComponent::IsValidPairedTarget(AActor* TargetActor) const
+{
+	AActor* OwnerActor = GetOwner();
+	if (!OwnerActor || !TargetActor || OwnerActor == TargetActor)
+	{
+		return false;
+	}
+
+	if (OwnerActor->Implements<UTeamMemberInterface>() && TargetActor->Implements<UTeamMemberInterface>())
+	{
+		return ITeamMemberInterface::Execute_IsHostileTo(OwnerActor, TargetActor);
+	}
+
+	return true;
+}
+
 // ============================================================================
 // FINISHER EXECUTION
 // ============================================================================
@@ -147,6 +163,16 @@ bool UPairedAnimationComponent::TryExecuteFinisher(UAttackData* AttackData)
 			UE_LOG(LogPairedAnim, Log, TEXT("[FINISHER] No hard-lock, using soft-aim target: %s"),
 				*TargetActor->GetName());
 		}
+	}
+
+	if (!IsValidPairedTarget(TargetActor))
+	{
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogPairedAnim, Verbose, TEXT("[FINISHER] Rejecting non-hostile target %s"),
+				*GetNameSafe(TargetActor));
+		}
+		return false;
 	}
 
 	// ========================================================================
@@ -245,6 +271,16 @@ bool UPairedAnimationComponent::TryStartPairedAnimationWithTarget(AActor* Target
 	ABaseCombatCharacter* AttackerCharacter = GetOwnerCharacter();
 	if (!AttackerCharacter)
 	{
+		return false;
+	}
+
+	if (!IsValidPairedTarget(TargetActor))
+	{
+		if (GetDebugDraw())
+		{
+			UE_LOG(LogPairedAnim, Verbose, TEXT("[PAIRED START] Rejecting non-hostile target %s"),
+				*GetNameSafe(TargetActor));
+		}
 		return false;
 	}
 

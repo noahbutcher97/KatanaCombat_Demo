@@ -168,6 +168,43 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Input")
 	bool CanProcessInput(EInputType InputType) const;
 
+	/** Begin sustained normal blocking when Block is held and no counter/parry consumed the input. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Block")
+	bool BeginBlock(AActor* ThreatActor = nullptr);
+
+	/** End sustained normal blocking when Block is released or combat state is cleared. */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Block")
+	void EndBlock();
+
+	/** Is the owning character currently holding a normal block? */
+	UFUNCTION(BlueprintPure, Category = "Combat|Block")
+	bool IsBlocking() const { return bIsBlocking; }
+
+	/** True when the held block should mitigate an incoming attack from this attacker. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Block")
+	bool CanBlockAttackFrom(AActor* Attacker) const;
+
+	/** True when the held block should mitigate this concrete incoming hit. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Block")
+	bool CanBlockHit(const FHitReactionInfo& HitInfo) const;
+
+	/** Add an active runtime context tag for C++ attack-resolution code. */
+	void AddActiveContextTag(FGameplayTag ContextTag);
+
+	/** Remove an active runtime context tag for C++ attack-resolution code. */
+	void RemoveActiveContextTag(FGameplayTag ContextTag);
+
+	/** Clear all active runtime context tags. */
+	void ClearActiveContextTags();
+
+	/** True when this component currently has the supplied runtime context tag. */
+	UFUNCTION(BlueprintPure, Category = "Combat|Context")
+	bool HasActiveContextTag(FGameplayTag ContextTag) const;
+
+	/** Report the component-owned combat state for character interfaces and animation. */
+	UFUNCTION(BlueprintPure, Category = "Combat|State")
+	ECombatState GetCombatState() const;
+
 	// ============================================================================
 	// ACTION QUEUE MANAGEMENT
 	// ============================================================================
@@ -199,6 +236,13 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Queue")
 	bool ExecuteAction(FActionQueueEntry& Action);
+
+	/**
+	 * Execute an attack data asset through the normal CombatComponent path.
+	 * Used by AI and other non-input callers that already selected an attack.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Queue")
+	bool ExecuteAttackData(UAttackData* AttackData, AActor* ExplicitWarpTarget = nullptr, EInputType InputType = EInputType::LightAttack);
 
 	/**
 	 * Try to execute a finisher on the current target.
@@ -580,8 +624,8 @@ public:
 
 	/**
 	 * Active runtime context tags (e.g., ParryCounter, LowHealthFinisher)
-	 * Used by ResolveNextAttack for context-sensitive attack resolution
-	 * Updated dynamically based on combat events (parry success, health thresholds, etc.)
+	 * Used by ResolveNextAttack for context-sensitive attack resolution.
+	 * Mutated through C++ helpers; gameplay-event producers require explicit lifecycle ownership.
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Context")
 	FGameplayTagContainer ActiveContextTags;
@@ -709,6 +753,17 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	EInputType CurrentAttackInputType = EInputType::None;
 
+	/** True while the Block input is held and not consumed by a parry/counter. */
+	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
+	bool bIsBlocking = false;
+
+	/** Half-angle of the normal block defensive cone. */
+	UPROPERTY(EditAnywhere, Category = "Combat|Block", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float BlockFacingConeHalfAngle = 70.0f;
+
+	/** Optional target supplied by external attack execution, used before soft-aim fallback. */
+	TWeakObjectPtr<AActor> ExplicitAttackWarpTarget;
+
 	/** Timer handle for light attack ease transition (timer-based, NOT tick-based) */
 	FTimerHandle EaseTimerHandle;
 
@@ -776,6 +831,12 @@ protected:
 	 * @param AttackData - Attack being executed (contains WarpConfig)
 	 */
 	void SetupAttackWarp(UAttackData* AttackData);
+
+	/** Find the best nearby threat for normal block facing. */
+	AActor* FindBlockThreat() const;
+
+	/** Rotate owner yaw toward a threat once when normal block begins. */
+	void FaceThreatForBlock(AActor* ThreatActor);
 
 	/** Match press/release pairs */
 	void ProcessInputPair(const FQueuedInputAction& PressEvent, const FQueuedInputAction& ReleaseEvent);

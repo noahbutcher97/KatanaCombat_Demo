@@ -12,6 +12,9 @@ public class KatanaCombatTest : ModuleRules
 			"Core",
 			"CoreUObject",
 			"Engine",
+			"InputCore",
+			"EnhancedInput",
+			"GameplayTags",
 			"KatanaCombat"  // Main module we're testing
 		});
 
@@ -22,7 +25,9 @@ public class KatanaCombatTest : ModuleRules
 			{
 				"UnrealEd",          // For editor utilities in tests
 				"KatanaCombatEditor", // For editor tool regression tests
-				"Json"              // For asset migration report tests
+				"Json",             // For asset migration report tests
+				"StateTreeModule",  // Enemy AI proof asset validation
+				"GameplayStateTreeModule"
 			});
 		}
 

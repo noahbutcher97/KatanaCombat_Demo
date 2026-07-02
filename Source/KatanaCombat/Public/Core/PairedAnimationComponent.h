@@ -65,6 +65,7 @@ class KATANACOMBAT_API UPairedAnimationComponent : public UActorComponent
 	friend class FPairedAnim_PartnerTracking;
 	friend class FPairedAnim_InputBlocking;
 	friend class FPairedAnim_EffectLifecycle;
+	friend class FPairedAnimationRejectsFriendlyTargetTest;
 
 public:
 	UPairedAnimationComponent();
@@ -416,6 +417,9 @@ protected:
 
 	/** Start a paired animation directly against a known target using explicit paired data. */
 	bool TryStartPairedAnimationWithTarget(AActor* TargetActor, UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType);
+
+	/** True when a paired animation may legally start against TargetActor. */
+	bool IsValidPairedTarget(AActor* TargetActor) const;
 
 	/** Chain mode step 1: Parry the enemy's attack, opening a counter window on the player. */
 	bool TryCounter_ChainMode(const FCounterContext& Context);

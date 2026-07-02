@@ -14,7 +14,9 @@
 #include "Characters/BaseCombatCharacter.h"
 #include "Characters/EnemyCharacter.h"
 #include "Components/CapsuleComponent.h"
+#include "Interfaces/CombatInterface.h"
 #include "Interfaces/DamageableInterface.h"
+#include "Utilities/CombatGameplayTags.h"
 #include "CombatTypes.h"
 
 namespace
@@ -378,6 +380,153 @@ bool FCounter_BlockInputStartsChainParry::RunTest(const FString& Parameters)
 
 	ClearChainCounterTestEffects(World, Player->PairedAnimationComponent);
 	Enemy->PairedAnimationComponent->SetParryWindowActive(false);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+// ============================================================================
+// TEST: Block input falls back to normal sustained blocking when no parry target exists
+// ============================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_BlockInputStartsNormalBlockWhenNoParryTarget,
+	"KatanaCombat.CounterSystem.Input.BlockStartsNormalBlockWhenNoParryTarget",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCounter_BlockInputStartsNormalBlockWhenNoParryTarget::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	UCombatComponent* PlayerCombat = nullptr;
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
+	AEnemyCharacter* FrontEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
+	AEnemyCharacter* RearEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(-150.0f, 0.0f, 0.0f));
+
+	if (!Player || !PlayerCombat || !FrontEnemy || !RearEnemy)
+	{
+		AddError(TEXT("Failed to create normal block input test actor"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
+
+	TestTrue(TEXT("Block press with no parry target should enter sustained block"),
+		IDamageableInterface::Execute_IsBlocking(Player));
+	TestEqual(TEXT("Combat state should report Blocking while block is held"),
+		static_cast<int32>(ICombatInterface::Execute_GetCombatState(Player)),
+		static_cast<int32>(ECombatState::Blocking));
+	TestEqual(TEXT("Normal block should not queue a phantom action"),
+		PlayerCombat->GetPendingActionCount(),
+		0);
+	TestTrue(TEXT("Normal block should classify a front attacker as blockable"),
+		PlayerCombat->CanBlockAttackFrom(FrontEnemy));
+	TestFalse(TEXT("Normal block should not classify a rear attacker as blockable"),
+		PlayerCombat->CanBlockAttackFrom(RearEnemy));
+
+	const float HealthBeforeBlockedHit = Player->CurrentHealth;
+	FHitReactionInfo BlockedHit = FCombatTestHelpers::CreateTestHitInfo(FrontEnemy, 25.0f);
+	IDamageableInterface::Execute_ApplyDamage(Player, BlockedHit);
+	TestEqual(TEXT("Normal block should prevent health damage from an incoming hit"),
+		Player->CurrentHealth,
+		HealthBeforeBlockedHit);
+
+	FHitReactionInfo RearHit = FCombatTestHelpers::CreateTestHitInfo(RearEnemy, 25.0f);
+	IDamageableInterface::Execute_ApplyDamage(Player, RearHit);
+	TestEqual(TEXT("Normal block should not prevent rear-angle health damage"),
+		Player->CurrentHealth,
+		HealthBeforeBlockedHit - 25.0f);
+
+	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Release);
+
+	TestFalse(TEXT("Block release should leave sustained block"),
+		IDamageableInterface::Execute_IsBlocking(Player));
+	TestEqual(TEXT("Combat state should return to Idle after block release"),
+		static_cast<int32>(ICombatInterface::Execute_GetCombatState(Player)),
+		static_cast<int32>(ECombatState::Idle));
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_NullAttackDataPreservesNormalBlock,
+	"KatanaCombat.CounterSystem.Block.NullAttackDataPreservesBlock",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCounter_NullAttackDataPreservesNormalBlock::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	UCombatComponent* PlayerCombat = nullptr;
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
+	AEnemyCharacter* FrontEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
+
+	if (!Player || !PlayerCombat || !FrontEnemy)
+	{
+		AddError(TEXT("Failed to create null attack data block test actors"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
+
+	const float HealthBeforeHit = Player->CurrentHealth;
+	FHitReactionInfo LegacyHit = FCombatTestHelpers::CreateTestHitInfo(
+		FrontEnemy,
+		25.0f,
+		FVector::ForwardVector,
+		nullptr);
+
+	TestTrue(TEXT("Null AttackData should preserve normal block behavior"),
+		PlayerCombat->CanBlockHit(LegacyHit));
+
+	IDamageableInterface::Execute_ApplyDamage(Player, LegacyHit);
+	TestEqual(TEXT("Null AttackData blocked hit should not damage"),
+		Player->CurrentHealth,
+		HealthBeforeHit);
+
+	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Release);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_UnblockableTagBypassesNormalBlock,
+	"KatanaCombat.CounterSystem.Block.UnblockableTagBypassesBlock",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCounter_UnblockableTagBypassesNormalBlock::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	UCombatComponent* PlayerCombat = nullptr;
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
+	AEnemyCharacter* FrontEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
+
+	if (!Player || !PlayerCombat || !FrontEnemy)
+	{
+		AddError(TEXT("Failed to create unblockable block test actors"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
+	TestTrue(TEXT("Front enemy should be blockable before attack tags are considered"),
+		PlayerCombat->CanBlockAttackFrom(FrontEnemy));
+
+	UAttackData* UnblockableAttack = FCombatTestHelpers::CreateTestAttack(EAttackType::Heavy);
+	UnblockableAttack->AttackTags.AddTag(KatanaCombatGameplayTags::AttackPropertyUnblockable());
+
+	const float HealthBeforeHit = Player->CurrentHealth;
+	FHitReactionInfo Hit = FCombatTestHelpers::CreateTestHitInfo(
+		FrontEnemy,
+		25.0f,
+		FVector::ForwardVector,
+		UnblockableAttack);
+
+	TestFalse(TEXT("CanBlockHit should reject attacks tagged unblockable"),
+		PlayerCombat->CanBlockHit(Hit));
+
+	IDamageableInterface::Execute_ApplyDamage(Player, Hit);
+	TestEqual(TEXT("Unblockable tagged hit should damage through normal block"),
+		Player->CurrentHealth,
+		HealthBeforeHit - 25.0f);
+
+	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Release);
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

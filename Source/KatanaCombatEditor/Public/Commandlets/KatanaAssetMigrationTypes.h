@@ -70,6 +70,8 @@ struct FKatanaAssetMigrationRow
 	TArray<FString> StaleCanonicalNotifiesFound;
 	TArray<FString> CanonicalNotifiesMissing;
 	TArray<FString> BranchReadinessWarnings;
+	TArray<FString> AttackTags;
+	TArray<FString> RequiredContextTags;
 	TArray<FString> PlannedRemovals;
 	TArray<FString> PlannedAdditions;
 	TArray<FString> ChangedPackages;
@@ -87,6 +89,8 @@ struct FKatanaAssetMigrationRow
 	bool bHasCounterWindow = false;
 	bool bCounterVariantHasData = false;
 	bool bFinisherHasData = false;
+	bool bHasRequiredContextTags = false;
+	bool bHasUnblockableTag = false;
 };
 
 struct FKatanaAssetMigrationSummary

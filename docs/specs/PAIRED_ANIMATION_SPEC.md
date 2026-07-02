@@ -188,6 +188,16 @@ Runtime flow:
 - Counter data resolution remains selected `UAttackData::CounterData`, explicit notify fallback, then non-paired fallback.
 - Asset-backed montage proof remains separate from source-level automation. The 2026-07-01 `AttackDataNotifyMigration` audit/plan reports are read-only evidence and did not save packages.
 
+### Chain Counter Semantics Ownership
+
+Chain Counter keeps state and results explicit. `EChainCounterState` owns the active state machine; `UCombatComponent` resolves `EInputType` into selected `UAttackData`; `UPairedAnimationComponent` owns retained target/context and paired continuation. Tags may gate contextual eligibility, such as `Context.ParryCounter`, but tags do not replace Chain state.
+
+Counter and finisher payloads are data references. The selected defender `UAttackData::CounterData` and `FinisherData` identify the paired animations to play. Booleans such as `bHasCounterVariant` and `bCanTriggerFinisher` are readiness gates and must be validated against those references.
+
+Attack and defense properties that are extensible across authored content belong in tags. `Attack.Property.Unblockable` and future block/parry/recoil properties should be read by a centralized attack/defense resolver, which returns an explicit enum outcome before any montage, damage, VFX, or audio payload is executed.
+
+The ownership policy is defined in `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md`.
+
 ---
 
 ## 4. EDITOR-TIME ANALYSIS

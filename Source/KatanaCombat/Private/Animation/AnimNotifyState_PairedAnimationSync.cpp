@@ -6,9 +6,8 @@
 #include "Core/CombatComponent.h"
 #include "Core/PairedAnimationComponent.h"
 #include "Core/HitReactionComponent.h"
+#include "Utilities/CinematicEffectsUtilityLibrary.h"
 #include "Engine/World.h"
-#include "Containers/Ticker.h"
-#include "HAL/PlatformTime.h"
 
 UAnimNotifyState_PairedAnimationSync::UAnimNotifyState_PairedAnimationSync()
 {
@@ -161,62 +160,11 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
             }
         }
 
-        // Save pre-freeze time dilation for each actor (supports overlapping slow-mo)
-        // This ensures hitstop restores to the actor's PREVIOUS dilation, not hardcoded 1.0f
-        TMap<TWeakObjectPtr<AActor>, float> SavedTimeDilations;
-        SavedTimeDilations.Reserve(ActorsToFreeze.Num());
-
-        // Freeze all participants using CustomTimeDilation
-        // This is per-actor, so background/particles/other actors continue
-        for (AActor* ActorToFreeze : ActorsToFreeze)
+        if (UCinematicEffectsUtilityLibrary::ApplyHitstopToActors(ActorsToFreeze, HitstopDuration))
         {
-            SavedTimeDilations.Add(ActorToFreeze, ActorToFreeze->CustomTimeDilation);
-            ActorToFreeze->CustomTimeDilation = 0.0001f;
+            UE_LOG(LogCombat, Log, TEXT("[HITSTOP] %s: Freezing %d actors for %.3fs at sync point '%s'"),
+                *Owner->GetName(), ActorsToFreeze.Num(), HitstopDuration, *SyncPointName.ToString());
         }
-
-        UE_LOG(LogCombat, Log, TEXT("[HITSTOP] %s: Freezing %d actors for %.3fs at sync point '%s'"),
-            *Owner->GetName(), ActorsToFreeze.Num(), HitstopDuration, *SyncPointName.ToString());
-
-        // ====================================================================
-        // PLATFORM TIME-BASED RESTORATION (Sakurai Hitstop)
-        // ====================================================================
-        // Use FPlatformTime::Seconds() for accurate real wall-clock timing.
-        // This ensures hitstop duration is exact regardless of any world or
-        // actor time dilation effects. The ticker runs every frame and checks
-        // if enough real time has elapsed.
-
-        const double HitstopEndTime = FPlatformTime::Seconds() + static_cast<double>(HitstopDuration);
-
-        // Use FTSTicker (thread-safe ticker) to check platform time each frame
-        // Returns true to continue ticking, false to remove the ticker
-        FTSTicker::GetCoreTicker().AddTicker(
-            FTickerDelegate::CreateLambda([SavedTimeDilations, HitstopEndTime](float DeltaTime) -> bool
-            {
-                // Check if enough REAL time has elapsed (unaffected by any time dilation)
-                if (FPlatformTime::Seconds() >= HitstopEndTime)
-                {
-                    // Restore time dilation to pre-freeze values (not hardcoded 1.0f)
-                    for (const auto& Pair : SavedTimeDilations)
-                    {
-                        if (AActor* Actor = Pair.Key.Get())
-                        {
-                            Actor->CustomTimeDilation = Pair.Value;
-
-                            UE_LOG(LogCombat, Verbose, TEXT("[HITSTOP] Restored time dilation for %s to %.4f"),
-                                *Actor->GetName(), Pair.Value);
-                        }
-                    }
-
-                    UE_LOG(LogCombat, Verbose, TEXT("[HITSTOP] Hitstop complete (platform time)"));
-
-                    // Remove ticker - hitstop is complete
-                    return false;
-                }
-
-                // Continue ticking until enough real time has passed
-                return true;
-            })
-        );
     }
 
     // Log sync point for debugging

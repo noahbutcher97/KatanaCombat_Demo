@@ -16,6 +16,7 @@
 #include "Animation/AnimNotifyState_ParryWindow.h"
 #include "Data/AttackData.h"
 #include "Data/PairedAnimationData.h"
+#include "Utilities/CombatGameplayTags.h"
 
 namespace
 {
@@ -395,6 +396,50 @@ bool FAttackDataNotifyAnalysisReportsCounterReadinessTest::RunTest(const FString
 	TestTrue(TEXT("Analysis should detect counter window"), Analysis.bHasCounterWindow);
 	TestTrue(TEXT("Analysis should detect counter variant data"), Analysis.bCounterVariantHasData);
 	TestEqual(TEXT("Valid counter setup should have no branch readiness warnings"), Analysis.BranchReadinessWarnings.Num(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAttackDataNotifyAnalysisReportsSemanticTagsTest,
+	"KatanaCombat.Editor.AttackDataTools.Analysis.SemanticTags",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FAttackDataNotifyAnalysisReportsSemanticTagsTest::RunTest(const FString& Parameters)
+{
+	UAnimMontage* Montage = CreateTransientMontageWithSections();
+	UAttackData* AttackData = CreateValidLightAttackData(Montage);
+	AttackData->AttackTags.AddTag(KatanaCombatGameplayTags::AttackPropertyUnblockable());
+	AttackData->RequiredContextTags.AddTag(KatanaCombatGameplayTags::ContextParryCounter());
+
+	const FAttackDataNotifyAnalysis Analysis = FAttackDataNotifyGenerationService::AnalyzeAttackDataNotifies(AttackData);
+
+	TestTrue(TEXT("Analysis should carry unblockable attack tag"),
+		Analysis.AttackTags.Contains(TEXT("Attack.Property.Unblockable")));
+	TestTrue(TEXT("Analysis should carry parry counter context tag"),
+		Analysis.RequiredContextTags.Contains(TEXT("Context.ParryCounter")));
+	TestTrue(TEXT("Analysis should flag required context tags"), Analysis.bHasRequiredContextTags);
+	TestTrue(TEXT("Analysis should flag unblockable attack tag"), Analysis.bHasUnblockableTag);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAttackDataNotifyAnalysisReportsSemanticTagsInvalidMontageTest,
+	"KatanaCombat.Editor.AttackDataTools.Analysis.SemanticTagsInvalidMontage",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FAttackDataNotifyAnalysisReportsSemanticTagsInvalidMontageTest::RunTest(const FString& Parameters)
+{
+	UAttackData* AttackData = CreateValidLightAttackData(nullptr);
+	AttackData->AttackTags.AddTag(KatanaCombatGameplayTags::AttackPropertyUnblockable());
+	AttackData->RequiredContextTags.AddTag(KatanaCombatGameplayTags::ContextParryCounter());
+
+	const FAttackDataNotifyAnalysis Analysis = FAttackDataNotifyGenerationService::AnalyzeAttackDataNotifies(AttackData);
+
+	TestFalse(TEXT("Analysis should remain invalid without a montage"), Analysis.bValid);
+	TestTrue(TEXT("Invalid analysis should still carry unblockable attack tag"),
+		Analysis.AttackTags.Contains(TEXT("Attack.Property.Unblockable")));
+	TestTrue(TEXT("Invalid analysis should still carry parry counter context tag"),
+		Analysis.RequiredContextTags.Contains(TEXT("Context.ParryCounter")));
+	TestTrue(TEXT("Invalid analysis should still flag required context tags"), Analysis.bHasRequiredContextTags);
+	TestTrue(TEXT("Invalid analysis should still flag unblockable attack tag"), Analysis.bHasUnblockableTag);
 	return true;
 }
 

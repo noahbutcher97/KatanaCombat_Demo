@@ -87,6 +87,8 @@ Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 
 6. **Delegates (Two-Tier Rule)**: Cross-component delegates (used by multiple components or external systems) declared in CombatTypes.h. Component-internal delegates (only meaningful within one component) stay in that component's header. Components use `UPROPERTY` for delegate members.
 
+7. **Semantics Ownership**: Enums own closed runtime state and results; booleans own local latches or direct authored gates; gameplay tags own open-ended authored capabilities, properties, and context requirements; data references own the concrete animation, VFX, audio, or paired-data payload. Gameplay-relevant tags must be consumed by runtime resolution and validation before content can rely on them.
+
 ## File Structure
 
 ```

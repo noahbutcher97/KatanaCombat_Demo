@@ -27,6 +27,7 @@ plans/
 
 | Plan | Status | Description |
 |------|--------|-------------|
+| [Basic Combat Proof Enemy](basic-combat-proof-enemy.md) | Active | Minimal production-shaped enemy combat AI wiring for token-based attack proof. |
 | [Combat Polish](combat-polish-plan.md) | Impact Effects Complete, Camera Remaining | Hitstop, camera shake, audio, VFX all wired. Camera combat awareness TODO. |
 | [Counter Chain Rollout Inventory](counter-chain-rollout-inventory.md) | Active | Plan-only evidence and batching guidance for expanding counter-chain asset coverage beyond `LightAttack_1`. |
 | [Gap Tracker](gap-tracker.md) | Reference (cleaned 2026-02-09) | Gap coverage matrix. Resolved items trimmed, active P1 priorities retained. |

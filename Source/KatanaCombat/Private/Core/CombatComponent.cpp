@@ -23,6 +23,7 @@
 #include "Core/TargetingComponent.h"
 #include "Core/HitReactionComponent.h"
 #include "Utilities/MontageUtilityLibrary.h"
+#include "Utilities/CombatGameplayTags.h"
 #include "Utilities/CombatUtils.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
 #include "Utilities/ProceduralAnimationLibrary.h"
@@ -30,6 +31,20 @@
 #include "Utilities/PairedAnimationUtilityLibrary.h"
 #include "Debug/DebugUtils.h"
 #include "Engine/OverlapResult.h"
+
+namespace
+{
+bool IsAttackTaggedUnblockable(const UAttackData* AttackData)
+{
+	if (!AttackData)
+	{
+		return false;
+	}
+
+	const FGameplayTag UnblockableTag = KatanaCombatGameplayTags::AttackPropertyUnblockable();
+	return UnblockableTag.IsValid() && AttackData->AttackTags.HasTag(UnblockableTag);
+}
+}
 
 // ============================================================================
 // LOG CATEGORY DEFINITION
@@ -110,6 +125,7 @@ void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	// (Paired animation cleanup is handled by PairedAnimationComponent::EndPlay)
 	CurrentAttackData = nullptr;
 	CurrentPhase = EAttackPhase::None;
+	bIsBlocking = false;
 	CachedPairedAnimComp = nullptr;
 
 	Super::EndPlay(EndPlayReason);
@@ -234,6 +250,7 @@ void UCombatComponent::OnCharacterDeath()
 
 	// Clear held inputs
 	HeldInputs.Empty();
+	bIsBlocking = false;
 
 	// Reset to idle phase
 	SetPhase(EAttackPhase::None);
@@ -292,8 +309,7 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 
 ABaseCombatCharacter* UCombatComponent::GetOwnerCharacter() const
 {
-	// Return cached owner character (no cast needed - already cached in BeginPlay)
-	return OwnerCharacter;
+	return OwnerCharacter ? OwnerCharacter.Get() : Cast<ABaseCombatCharacter>(GetOwner());
 }
 
 bool UCombatComponent::GetDebugDraw() const
@@ -442,6 +458,15 @@ void UCombatComponent::OnInputEventAuto(
 
 void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection)
 {
+	// Test worlds and dynamic spawns can assign owner settings after component BeginPlay.
+	if (!CombatSettings)
+	{
+		if (const ABaseCombatCharacter* Character = GetOwnerCharacter())
+		{
+			CombatSettings = Character->CombatSettings;
+		}
+	}
+
 	// Early exit if no CombatSettings
 	if (!CombatSettings)
 	{
@@ -469,6 +494,19 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 		InputType == EInputType::Block &&
 		PairedAnimComp->TryCounter())
 	{
+		return;
+	}
+
+	if (InputType == EInputType::Block)
+	{
+		if (EventType == EInputEventType::Press)
+		{
+			BeginBlock();
+		}
+		else
+		{
+			EndBlock();
+		}
 		return;
 	}
 
@@ -622,6 +660,160 @@ bool UCombatComponent::CanProcessInput(EInputType InputType) const
 	// Accepts input unless explicitly disabled
 	// Higher-level systems (death, hit reactions) should disable input at the source
 	return true;
+}
+
+bool UCombatComponent::BeginBlock(AActor* ThreatActor)
+{
+	ABaseCombatCharacter* Character = GetOwnerCharacter();
+	if (!Character || Character->IsDeadOrDying())
+	{
+		return false;
+	}
+
+	// Do not turn normal block into a free interrupt for active attacks.
+	if (CurrentAttackData || CurrentPhase != EAttackPhase::None)
+	{
+		return false;
+	}
+
+	AActor* BlockThreat = ThreatActor ? ThreatActor : FindBlockThreat();
+	FaceThreatForBlock(BlockThreat);
+
+	bIsBlocking = true;
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[BLOCK] %s began blocking%s%s"),
+			*Character->GetName(),
+			BlockThreat ? TEXT(" toward ") : TEXT(""),
+			BlockThreat ? *BlockThreat->GetName() : TEXT(""));
+	}
+
+	return true;
+}
+
+void UCombatComponent::EndBlock()
+{
+	if (!bIsBlocking)
+	{
+		return;
+	}
+
+	bIsBlocking = false;
+
+	if (GetDebugDraw())
+	{
+		UE_LOG(LogCombat, Log, TEXT("[BLOCK] %s ended blocking"),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("Unknown"));
+	}
+}
+
+bool UCombatComponent::CanBlockAttackFrom(AActor* Attacker) const
+{
+	if (!bIsBlocking || !Attacker)
+	{
+		return false;
+	}
+
+	const ABaseCombatCharacter* Character = OwnerCharacter.Get();
+	if (!Character)
+	{
+		Character = Cast<ABaseCombatCharacter>(GetOwner());
+	}
+	if (!Character)
+	{
+		return false;
+	}
+
+	FVector ToAttacker = Attacker->GetActorLocation() - Character->GetActorLocation();
+	ToAttacker.Z = 0.0f;
+	if (ToAttacker.IsNearlyZero())
+	{
+		return true;
+	}
+
+	const float Dot = FVector::DotProduct(Character->GetActorForwardVector().GetSafeNormal2D(), ToAttacker.GetSafeNormal());
+	const float AngleDegrees = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(Dot, -1.0f, 1.0f)));
+	return AngleDegrees <= BlockFacingConeHalfAngle;
+}
+
+bool UCombatComponent::CanBlockHit(const FHitReactionInfo& HitInfo) const
+{
+	if (!CanBlockAttackFrom(HitInfo.Attacker))
+	{
+		return false;
+	}
+
+	if (IsAttackTaggedUnblockable(HitInfo.AttackData))
+	{
+		return false;
+	}
+
+	return true;
+}
+
+void UCombatComponent::AddActiveContextTag(FGameplayTag ContextTag)
+{
+	if (ContextTag.IsValid())
+	{
+		ActiveContextTags.AddTag(ContextTag);
+	}
+}
+
+void UCombatComponent::RemoveActiveContextTag(FGameplayTag ContextTag)
+{
+	if (ContextTag.IsValid())
+	{
+		ActiveContextTags.RemoveTag(ContextTag);
+	}
+}
+
+void UCombatComponent::ClearActiveContextTags()
+{
+	ActiveContextTags.Reset();
+}
+
+bool UCombatComponent::HasActiveContextTag(FGameplayTag ContextTag) const
+{
+	return ContextTag.IsValid() && ActiveContextTags.HasTag(ContextTag);
+}
+
+ECombatState UCombatComponent::GetCombatState() const
+{
+	const ABaseCombatCharacter* Character = OwnerCharacter.Get();
+	if (!Character)
+	{
+		Character = Cast<ABaseCombatCharacter>(GetOwner());
+	}
+
+	if (Character && Character->IsDeadOrDying())
+	{
+		return ECombatState::Dead;
+	}
+
+	if (bIsBlocking)
+	{
+		return ECombatState::Blocking;
+	}
+
+	if (CurrentAttackData)
+	{
+		if (HoldState.IsHolding())
+		{
+			if (CurrentAttackInputType == EInputType::HeavyAttack)
+			{
+				return ECombatState::ChargingHeavyAttack;
+			}
+			if (CurrentAttackInputType == EInputType::LightAttack)
+			{
+				return ECombatState::HoldingLightAttack;
+			}
+		}
+
+		return ECombatState::Attacking;
+	}
+
+	return ECombatState::Idle;
 }
 
 // ============================================================================
@@ -1077,6 +1269,34 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 	return bSuccess;
 }
 
+bool UCombatComponent::ExecuteAttackData(UAttackData* AttackData, AActor* ExplicitWarpTarget, EInputType InputType)
+{
+	if (!AttackData)
+	{
+		return false;
+	}
+
+	if (InputType != EInputType::LightAttack && InputType != EInputType::HeavyAttack)
+	{
+		InputType = (AttackData->AttackType == EAttackType::Heavy)
+			? EInputType::HeavyAttack
+			: EInputType::LightAttack;
+	}
+
+	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+	FQueuedInputAction InputAction(InputType, EInputEventType::Press, CurrentTime, bComboWindowActive);
+	FActionQueueEntry Entry(InputAction, AttackData, EActionExecutionMode::Immediate);
+	Entry.Priority = CalculatePriority(Entry);
+	Entry.TargetPhase = EAttackPhase::None;
+
+	const TWeakObjectPtr<AActor> PreviousExplicitWarpTarget = ExplicitAttackWarpTarget;
+	ExplicitAttackWarpTarget = ExplicitWarpTarget;
+	const bool bExecuted = ExecuteAction(Entry);
+	ExplicitAttackWarpTarget = PreviousExplicitWarpTarget;
+
+	return bExecuted;
+}
+
 bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 {
 	if (!AttackData || !AttackData->AttackMontage)
@@ -1321,6 +1541,10 @@ void UCombatComponent::ClearQueue(bool bCancelCurrent)
 	// Reset combo state when queue is cleared
 	CurrentAttackData = nullptr;
 	CurrentAttackInputType = EInputType::None;
+	if (bCancelCurrent)
+	{
+		bIsBlocking = false;
+	}
 
 	// CRITICAL: Clear directional input buffer on queue clear
 	// Prevents stale directional input from persisting across combat resets
@@ -2475,6 +2699,31 @@ void UCombatComponent::SetupAttackWarp(UAttackData* AttackData)
 		return;
 	}
 
+	if (AActor* ExplicitTarget = ExplicitAttackWarpTarget.Get())
+	{
+		const FVector ToTarget = ExplicitTarget->GetActorLocation() - Character->GetActorLocation();
+		if (!ToTarget.IsNearlyZero())
+		{
+			const FRotator TargetRotation = ToTarget.Rotation();
+			const bool bSuccess = Targeting->SetupAttackWarp(ExplicitTarget, TargetRotation, AttackData->WarpConfig);
+
+			if (GetDebugDraw())
+			{
+				if (bSuccess)
+				{
+					UE_LOG(LogCombat, Log, TEXT("[ATTACK WARP] Explicit target %s setup succeeded (Rotation=%.1f°)"),
+						*ExplicitTarget->GetName(), TargetRotation.Yaw);
+				}
+				else
+				{
+					UE_LOG(LogCombat, Warning, TEXT("[ATTACK WARP] Explicit target %s setup failed (Rotation=%.1f°)"),
+						*ExplicitTarget->GetName(), TargetRotation.Yaw);
+				}
+			}
+		}
+		return;
+	}
+
 	// Determine direction source and convert to world vector
 	EInputDirection FinalDirection = EInputDirection::None;
 	FVector WorldDirection = FVector::ZeroVector;
@@ -2640,6 +2889,93 @@ void UCombatComponent::SetupAttackWarp(UAttackData* AttackData)
 	{
 		DirectionalInputBuffer.Reset();
 	}
+}
+
+AActor* UCombatComponent::FindBlockThreat() const
+{
+	const ABaseCombatCharacter* Character = OwnerCharacter.Get();
+	if (!Character)
+	{
+		Character = Cast<ABaseCombatCharacter>(GetOwner());
+	}
+
+	UTargetingComponent* Targeting = Character ? Character->GetTargetingComponent() : nullptr;
+	if (!Character || !Targeting)
+	{
+		return nullptr;
+	}
+
+	TArray<AActor*> Targets;
+	Targeting->GetAllTargetsInRange(Targets);
+
+	AActor* BestTarget = nullptr;
+	float BestDistanceSq = TNumericLimits<float>::Max();
+	bool bBestTargetAttacking = false;
+	bool bBestTargetInFront = false;
+	float BestFacingDot = -1.0f;
+	const FVector CharacterForward = Character->GetActorForwardVector().GetSafeNormal2D();
+	const float MinFrontDot = FMath::Cos(FMath::DegreesToRadians(BlockFacingConeHalfAngle));
+
+	for (AActor* Target : Targets)
+	{
+		if (!Target || Target == Character)
+		{
+			continue;
+		}
+
+		if (Target->Implements<UDamageableInterface>() && !IDamageableInterface::Execute_IsAlive(Target))
+		{
+			continue;
+		}
+
+		const bool bTargetAttacking = Target->Implements<UCombatInterface>() &&
+			ICombatInterface::Execute_IsAttacking(Target);
+		FVector ToTarget = Target->GetActorLocation() - Character->GetActorLocation();
+		ToTarget.Z = 0.0f;
+		const float DistanceSq = ToTarget.SizeSquared();
+		const float FacingDot = ToTarget.IsNearlyZero()
+			? 1.0f
+			: FVector::DotProduct(CharacterForward, ToTarget.GetSafeNormal());
+		const bool bTargetInFront = FacingDot >= MinFrontDot;
+
+		if (!BestTarget ||
+			(bTargetAttacking && !bBestTargetAttacking) ||
+			(bTargetAttacking == bBestTargetAttacking && bTargetInFront && !bBestTargetInFront) ||
+			(bTargetAttacking == bBestTargetAttacking &&
+				bTargetInFront == bBestTargetInFront &&
+				(DistanceSq < BestDistanceSq || (FMath::IsNearlyEqual(DistanceSq, BestDistanceSq) && FacingDot > BestFacingDot))))
+		{
+			BestTarget = Target;
+			BestDistanceSq = DistanceSq;
+			bBestTargetAttacking = bTargetAttacking;
+			bBestTargetInFront = bTargetInFront;
+			BestFacingDot = FacingDot;
+		}
+	}
+
+	return BestTarget;
+}
+
+void UCombatComponent::FaceThreatForBlock(AActor* ThreatActor)
+{
+	ABaseCombatCharacter* Character = GetOwnerCharacter();
+	if (!Character || !ThreatActor)
+	{
+		return;
+	}
+
+	FVector ToThreat = ThreatActor->GetActorLocation() - Character->GetActorLocation();
+	ToThreat.Z = 0.0f;
+	if (ToThreat.IsNearlyZero())
+	{
+		return;
+	}
+
+	FRotator NewRotation = Character->GetActorRotation();
+	NewRotation.Yaw = ToThreat.Rotation().Yaw;
+	NewRotation.Pitch = 0.0f;
+	NewRotation.Roll = 0.0f;
+	Character->SetActorRotation(NewRotation);
 }
 
 // ============================================================================

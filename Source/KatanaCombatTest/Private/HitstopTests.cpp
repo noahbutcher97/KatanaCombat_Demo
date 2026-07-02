@@ -4,6 +4,9 @@
 #include "Data/AttackData.h"
 #include "Animation/AnimNotifyState_PairedAnimationSync.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
+#include "Containers/Ticker.h"
+#include "HAL/PlatformProcess.h"
+#include "HAL/PlatformTime.h"
 
 // ============================================================================
 // HITSTOP CONFIG TESTS
@@ -245,6 +248,52 @@ bool FHitstopPreserveDilationTest::RunTest(const FString& Parameters)
 	// The FTSTicker pattern is proven by the existing paired animation hitstop tests.
 	// The key invariant is that the SAVED values (0.5f and 0.7f) are captured correctly,
 	// not that they are restored within the test frame.
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+/**
+ * Test: overlapping hitstop restores the original pre-hitstop dilation.
+ * Regression coverage for crowded melee hits where a second impact can land
+ * while the same actor is already frozen by the first impact.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FHitstopOverlapRestoreTest, "KatanaCombat.Hitstop.Apply.OverlappingRestoresOriginalDilation", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FHitstopOverlapRestoreTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	if (!World) return false;
+
+	APlayerCharacter* Attacker = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	AEnemyCharacter* Victim = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(200.0f, 0.0f, 0.0f));
+	if (!Attacker || !Victim) return false;
+
+	Attacker->CustomTimeDilation = 0.65f;
+	Victim->CustomTimeDilation = 0.85f;
+
+	FHitstopConfig Config;
+	Config.Duration = 0.03f;
+
+	TestTrue("First hitstop applied", UCinematicEffectsUtilityLibrary::ApplyHitstop(Attacker, Victim, Config));
+	TestTrue("Attacker frozen by first hitstop", FMath::IsNearlyEqual(Attacker->CustomTimeDilation, 0.0001f, 0.001f));
+
+	FPlatformProcess::Sleep(0.005f);
+	FTSTicker::GetCoreTicker().Tick(0.005f);
+
+	TestTrue("Second overlapping hitstop applied", UCinematicEffectsUtilityLibrary::ApplyHitstop(Attacker, Victim, Config));
+	TestTrue("Victim remains frozen during overlap", FMath::IsNearlyEqual(Victim->CustomTimeDilation, 0.0001f, 0.001f));
+
+	const double PumpUntil = FPlatformTime::Seconds() + 0.08;
+	while (FPlatformTime::Seconds() < PumpUntil)
+	{
+		FPlatformProcess::Sleep(0.01f);
+		FTSTicker::GetCoreTicker().Tick(0.01f);
+	}
+	FTSTicker::GetCoreTicker().Tick(0.1f);
+
+	TestTrue("Attacker restored to original dilation after overlap", FMath::IsNearlyEqual(Attacker->CustomTimeDilation, 0.65f, 0.001f));
+	TestTrue("Victim restored to original dilation after overlap", FMath::IsNearlyEqual(Victim->CustomTimeDilation, 0.85f, 0.001f));
 
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;

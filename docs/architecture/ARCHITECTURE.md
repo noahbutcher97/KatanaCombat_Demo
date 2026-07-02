@@ -66,6 +66,16 @@ All values configurable via Data Assets:
 - CombatSettings: Global tuning values
 - No hardcoded magic numbers in C++
 
+### Authored Semantics Ownership
+The system uses gameplay tags, enums, booleans, and data references for different jobs:
+
+- **Enums** own closed runtime identities and state machines: combat state, attack phase, input type, attack type, Chain Counter state, paired reaction type, and resolved outcomes.
+- **Booleans** own local runtime latches or direct authored readiness gates: blocking, paired input blocking, parry/counter window state, counter-variant readiness, and finisher readiness.
+- **Gameplay tags** own open-ended authored semantics: attack capabilities, attack properties, style categories, and contextual requirements.
+- **Data references** own payloads: montages, paired animation data, hit reactions, VFX, audio, and other concrete assets.
+
+Gameplay-relevant tags must be evaluated by runtime resolution and validation before designers rely on them. `RequiredContextTags` now gates already-linked attack-resolution candidates, and `Attack.Property.Unblockable` now bypasses `ABaseCombatCharacter` normal block when concrete `AttackData` is present. Context lifecycle producers, generic `IDamageableInterface` hit-aware defense, and broader block/parry/recoil outcomes remain separate design work. The canonical policy lives in `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md`.
+
 ---
 
 ## Component Architecture
@@ -1824,7 +1834,7 @@ Light2.HeavyComboAttack = Heavy2
 5. Create AttackData assets
 6. Assign to DefaultLightAttack/DefaultHeavyAttack
 7. Configure hit reactions
-8. AI uses ExecuteAttack() from Behavior Tree
+8. AI uses StateTree tasks that call `UEnemyCombatAIComponent::ExecuteAttack()`
 
 ### Debugging
 ```cpp

@@ -91,3 +91,21 @@ This operation creates or updates a nonlethal `UPairedAnimationData` counter ass
 Re-run `ContentReadinessAudit` on the AttackData and counter data target list, then re-run `CounterChainProofMigration` in `Plan` mode. Expected post-save result is `Unchanged`.
 
 Readiness rows report `CounterData`, `FinisherData`, parry/counter window presence, paired montage section validity, and lethal counter-data warnings.
+
+## Enemy AI Proof Assets
+
+Use `EnemyAIProofAssets` to create or refresh the minimal playable enemy AI proof slice. This operation does not use a target file. It creates or updates `/Game/ProjectFiles/AI/ST_EnemyCombatProof`, creates or updates `/Game/ProjectFiles/AI/BP_EnemyCombatAIController`, assigns that controller and a fallback attack on `/Game/ProjectFiles/Core/Actors/Character/BP_EnemyCharacter`, then loads `/Game/ProjectFiles/Levels/Lvl_ThirdPerson1` to validate placed enemies.
+
+Plan the proof asset update:
+
+```powershell
+&"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=EnemyAIProofAssets -Mode=Plan -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/enemy-ai-proof-assets-plan.json" -unattended -nopause -NullRHI -nosplash -stdout
+```
+
+Apply and save only after reviewing the planned package list:
+
+```powershell
+&"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=EnemyAIProofAssets -Mode=ApplyAndSave -AllowPackageSave -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/enemy-ai-proof-assets-save.json" -unattended -nopause -NullRHI -nosplash -stdout
+```
+
+Re-run `Plan` after saving. Expected post-save result is `Unchanged`, with a warning that records how many `AEnemyCharacter` actors loaded from `Lvl_ThirdPerson1` and how many already had usable attacks. The operation only saves changed AI, controller, and enemy Blueprint packages; it should not resave the level or external actor packages unless a placed enemy is missing required defaults.

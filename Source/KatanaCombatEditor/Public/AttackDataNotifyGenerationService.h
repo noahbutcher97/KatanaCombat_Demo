@@ -38,10 +38,14 @@ struct FAttackDataNotifyAnalysis
 	TArray<FString> StaleCanonicalNotifiesFound;
 	TArray<FString> CanonicalNotifiesMissing;
 	TArray<FString> BranchReadinessWarnings;
+	TArray<FString> AttackTags;
+	TArray<FString> RequiredContextTags;
 	TArray<FString> Errors;
 	TArray<int32> LegacyNotifyIndices;
 	TArray<int32> CanonicalNotifyIndices;
 	TArray<int32> StaleCanonicalNotifyIndices;
+	bool bHasRequiredContextTags = false;
+	bool bHasUnblockableTag = false;
 };
 
 struct FAttackDataNotifyPlan

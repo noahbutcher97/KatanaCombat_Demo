@@ -615,10 +615,14 @@ public:
 	 * - Directional input clear signal (prevents directional attack loops)
 	 *
 	 * Resolution Priority:
-	 * 1. Context-sensitive attacks (if RequiredContextTags match ActiveContext)
+	 * 1. Filter each resolved candidate by RequiredContextTags before it can be returned
 	 * 2. Directional follow-ups (if HoldState.IsHoldCompleted() + Direction != None)
 	 * 3. Normal combo chain (if bComboWindowActive)
 	 * 4. Default attacks (fallback)
+	 *
+	 * This function filters already-linked directional, combo, default, and emergency fallback candidates.
+	 * It does not scan a global catalog for arbitrary context-sensitive attacks. Path remains structural
+	 * telemetry; required context tags do not convert a normal combo into a counter or finisher result.
 	 *
 	 * @param CurrentAttack - Currently executing attack (null if no combo active)
 	 * @param InputType - Input type being triggered (Light/Heavy)

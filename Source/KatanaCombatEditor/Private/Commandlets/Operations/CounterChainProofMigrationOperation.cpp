@@ -40,10 +40,14 @@ namespace
 		OutRow.StaleCanonicalNotifiesFound = Analysis.StaleCanonicalNotifiesFound;
 		OutRow.CanonicalNotifiesMissing = Analysis.CanonicalNotifiesMissing;
 		OutRow.BranchReadinessWarnings = Analysis.BranchReadinessWarnings;
+		OutRow.AttackTags = Analysis.AttackTags;
+		OutRow.RequiredContextTags = Analysis.RequiredContextTags;
 		OutRow.bHasParryWindow = Analysis.bHasParryWindow;
 		OutRow.bHasCounterWindow = Analysis.bHasCounterWindow;
 		OutRow.bCounterVariantHasData = Analysis.bCounterVariantHasData;
 		OutRow.bFinisherHasData = Analysis.bFinisherHasData;
+		OutRow.bHasRequiredContextTags = Analysis.bHasRequiredContextTags;
+		OutRow.bHasUnblockableTag = Analysis.bHasUnblockableTag;
 	}
 
 	void AddChangedPackage(UObject* Object, FKatanaAssetMigrationRow& OutRow)

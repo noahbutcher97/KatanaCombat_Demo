@@ -14,7 +14,7 @@
  * and creating readable, counterable attack patterns (AC3/Arkham style).
  *
  * Design:
- * - Limited pool of concurrent attack tokens (default: 2)
+ * - Limited pool of concurrent attack tokens (default: 1)
  * - Enemies request tokens before attacking
  * - Token holders execute attacks with counter windows
  * - Tokens released after attack completes or enemy is interrupted
@@ -38,7 +38,7 @@ public:
 
 	/** Maximum number of enemies that can attack simultaneously */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat Tokens")
-	int32 MaxConcurrentAttackers = 2;
+	int32 MaxConcurrentAttackers = 1;
 
 	/** Minimum time between granting tokens to the same enemy (prevents rapid re-requests) */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat Tokens")

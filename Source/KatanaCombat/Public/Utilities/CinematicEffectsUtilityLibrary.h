@@ -138,6 +138,17 @@ public:
         const FHitstopConfig& Config,
         bool bWasBlocked = false);
 
+    /**
+     * Apply per-actor hitstop to an arbitrary participant list.
+     * Overlapping calls preserve each actor's original pre-hitstop dilation and
+     * extend the active freeze window instead of restoring to a nested frozen value.
+     *
+     * @param Actors - Actors to freeze during hitstop
+     * @param Duration - Wall-clock duration in seconds
+     * @return True if at least one actor was frozen
+     */
+    static bool ApplyHitstopToActors(const TArray<AActor*>& Actors, float Duration);
+
     // ========================================================================
     // IMPACT AUDIO
     // ========================================================================

@@ -26,7 +26,7 @@ class UAnimMontage;
  * Usage:
  * - Add to enemy character alongside CombatComponent
  * - Configure circling/approach behavior via exposed properties
- * - Call TryInitiateAttack() from Behavior Tree when enemy wants to attack
+ * - Call TryInitiateAttack() from StateTree when enemy wants to attack
  * - Component handles token management and state transitions
  */
 UCLASS(ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
@@ -140,7 +140,7 @@ public:
 	void SetCombatTarget(AActor* Target);
 
 	// ============================================================================
-	// MOVEMENT API (for Behavior Tree tasks)
+	// MOVEMENT API (for StateTree tasks)
 	// ============================================================================
 
 	/**
@@ -193,6 +193,9 @@ public:
 	/** Check if staggered/vulnerable */
 	UFUNCTION(BlueprintPure, Category = "AI|State")
 	bool IsStaggered() const { return CurrentState == EEnemyAIState::Staggered; }
+
+	/** Inject deterministic token ownership for automation worlds that do not own a GameInstance. */
+	void SetTokenSubsystemForTesting(UCombatTokenSubsystem* InTokenSubsystem);
 
 	// ============================================================================
 	// DELEGATES
@@ -251,6 +254,9 @@ protected:
 	/** Release attack token and clean up */
 	void ReleaseTokenAndCleanup();
 
+	/** Return to the next non-attacking state after an attack could not start. */
+	void ReturnToReadyState();
+
 	/** Called when recovery timer expires */
 	UFUNCTION()
 	void OnRecoveryComplete();
@@ -263,6 +269,19 @@ protected:
 	UFUNCTION()
 	void OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 
+	/** Called when the owning combat character receives lethal damage. */
+	UFUNCTION()
+	void HandleOwnerDying(AActor* Killer);
+
 	/** Schedule circling direction change */
 	void ScheduleCirclingDirectionChange();
+
+	/** Replace cached token subsystem and keep delegate bindings consistent. */
+	void SetTokenSubsystem(UCombatTokenSubsystem* InTokenSubsystem);
+
+	/** Ensure owner death delegates are bound before this component can hold combat tokens. */
+	void BindOwnerDeathEvents();
+
+	/** True only while this component is queued and waiting for an async token grant. */
+	bool bWaitingForTokenGrant = false;
 };

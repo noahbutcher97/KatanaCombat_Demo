@@ -6,6 +6,8 @@
 #include "Characters/BaseCombatCharacter.h"
 #include "EnemyCharacter.generated.h"
 
+class UEnemyCombatAIComponent;
+
 /**
  * Base class for AI-controlled enemy characters
  * Inherits combat functionality from BaseCombatCharacter
@@ -24,6 +26,17 @@ class KATANACOMBAT_API AEnemyCharacter : public ABaseCombatCharacter
 
 public:
     AEnemyCharacter();
+
+    // ========================================================================
+    // ENEMY AI
+    // ========================================================================
+
+    /** Enemy combat AI component - token-based attack coordination and proof-combat entry point */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Enemy|AI")
+    TObjectPtr<UEnemyCombatAIComponent> CombatAIComponent;
+
+    UFUNCTION(BlueprintPure, Category = "Enemy|AI")
+    UEnemyCombatAIComponent* GetCombatAIComponent() const { return CombatAIComponent; }
 
     // ========================================================================
     // ENEMY CONFIGURATION

@@ -42,6 +42,10 @@
                         "Enabled":  true
                     },
                     {
+                        "Name":  "PropertyBindingUtils",
+                        "Enabled":  true
+                    },
+                    {
                         "Name":  "MotionWarping",
                         "Enabled":  true
                     },

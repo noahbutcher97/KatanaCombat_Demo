@@ -7,9 +7,11 @@
 #include "Commandlets/Operations/AttackDataTimingMigrationOperation.h"
 #include "Commandlets/Operations/ContentReadinessAuditOperation.h"
 #include "Commandlets/Operations/CounterChainProofMigrationOperation.h"
+#include "Commandlets/Operations/EnemyAIProofAssetsOperation.h"
 #include "Data/AttackData.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "Engine/World.h"
 #include "HAL/FileManager.h"
 #include "Modules/ModuleManager.h"
 #include "Misc/FileHelper.h"
@@ -50,7 +52,8 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	else if (!Options.Operation.Equals(FAttackDataNotifyMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FAttackDataTimingMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FCounterChainProofMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
-		!Options.Operation.Equals(FContentReadinessAuditOperation::OperationName, ESearchCase::IgnoreCase))
+		!Options.Operation.Equals(FContentReadinessAuditOperation::OperationName, ESearchCase::IgnoreCase) &&
+		!Options.Operation.Equals(FEnemyAIProofAssetsOperation::OperationName, ESearchCase::IgnoreCase))
 	{
 		OutErrors.Add(FString::Printf(TEXT("Unknown operation '%s'"), *Options.Operation));
 	}
@@ -72,7 +75,9 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 		OutErrors.Add(TEXT("CounterChainProofMigration requires an explicit TargetsFile; global scan is intentionally unsupported"));
 	}
 
-	if (!Options.bAllowGlobalScan && Options.TargetsFile.IsEmpty())
+	if (!Options.Operation.Equals(FEnemyAIProofAssetsOperation::OperationName, ESearchCase::IgnoreCase) &&
+		!Options.bAllowGlobalScan &&
+		Options.TargetsFile.IsEmpty())
 	{
 		OutErrors.Add(TEXT("Explicit targets are required unless -AllowGlobalScan is present"));
 	}
@@ -272,6 +277,8 @@ bool FKatanaAssetMigrationRunner::WriteReport(const FKatanaAssetMigrationReport&
 		RowObject->SetArrayField(TEXT("stale_canonical_notifies_found"), ToJsonArray(Row.StaleCanonicalNotifiesFound));
 		RowObject->SetArrayField(TEXT("canonical_notifies_missing"), ToJsonArray(Row.CanonicalNotifiesMissing));
 		RowObject->SetArrayField(TEXT("branch_readiness_warnings"), ToJsonArray(Row.BranchReadinessWarnings));
+		RowObject->SetArrayField(TEXT("attack_tags"), ToJsonArray(Row.AttackTags));
+		RowObject->SetArrayField(TEXT("required_context_tags"), ToJsonArray(Row.RequiredContextTags));
 		RowObject->SetBoolField(TEXT("package_file_exists"), Row.bPackageFileExists);
 		RowObject->SetBoolField(TEXT("loaded"), Row.bLoaded);
 		RowObject->SetBoolField(TEXT("map_loaded"), Row.bMapLoaded);
@@ -283,6 +290,8 @@ bool FKatanaAssetMigrationRunner::WriteReport(const FKatanaAssetMigrationReport&
 		RowObject->SetBoolField(TEXT("has_counter_window"), Row.bHasCounterWindow);
 		RowObject->SetBoolField(TEXT("counter_variant_has_data"), Row.bCounterVariantHasData);
 		RowObject->SetBoolField(TEXT("finisher_has_data"), Row.bFinisherHasData);
+		RowObject->SetBoolField(TEXT("has_required_context_tags"), Row.bHasRequiredContextTags);
+		RowObject->SetBoolField(TEXT("has_unblockable_tag"), Row.bHasUnblockableTag);
 		RowObject->SetArrayField(TEXT("planned_removals"), ToJsonArray(Row.PlannedRemovals));
 		RowObject->SetArrayField(TEXT("planned_additions"), ToJsonArray(Row.PlannedAdditions));
 		RowObject->SetArrayField(TEXT("changed_packages"), ToJsonArray(Row.ChangedPackages));
@@ -502,6 +511,20 @@ bool FKatanaAssetMigrationRunner::RunCounterChainProofMigration(const FKatanaAss
 	return OutReport.Summary.Failed == 0;
 }
 
+bool FKatanaAssetMigrationRunner::RunEnemyAIProofAssets(const FKatanaAssetMigrationOptions& Options, FKatanaAssetMigrationReport& OutReport) const
+{
+	FEnemyAIProofAssetsOperation Operation;
+	OutReport.Operation = FEnemyAIProofAssetsOperation::OperationName;
+	OutReport.Mode = Options.Mode;
+
+	FKatanaAssetMigrationRow Row;
+	Operation.Run(Options.Mode, Row);
+	OutReport.Rows.Add(Row);
+
+	Summarize(OutReport);
+	return OutReport.Summary.Failed == 0;
+}
+
 static void SnapshotInitiallyDirtyPackages(const TArray<UAttackData*>& Targets, TSet<FString>& OutDirtyPackages)
 {
 	for (const UAttackData* Target : Targets)
@@ -530,6 +553,17 @@ static void SnapshotInitiallyDirtyPackages(const TArray<UAttackData*>& Targets, 
 			}
 		}
 	}
+}
+
+static bool IsLoadedMapPackage(UPackage* Package)
+{
+	if (!Package)
+	{
+		return false;
+	}
+
+	const FString AssetName = FPackageName::GetLongPackageAssetName(Package->GetName());
+	return FindObject<UWorld>(Package, *AssetName) != nullptr;
 }
 
 bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigrationOptions& Options, const TSet<FString>& InitiallyDirtyPackages, FKatanaAssetMigrationReport& Report) const
@@ -569,11 +603,20 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 			}
 
 			FString PackageFileName;
-			if (!FPackageName::TryConvertLongPackageNameToFilename(PackageName, PackageFileName, FPackageName::GetAssetPackageExtension()))
+			const FString PackageExtension = IsLoadedMapPackage(Package)
+				? FPackageName::GetMapPackageExtension()
+				: FPackageName::GetAssetPackageExtension();
+			if (!FPackageName::TryConvertLongPackageNameToFilename(PackageName, PackageFileName, PackageExtension))
 			{
 				Row.Errors.Add(FString::Printf(TEXT("Failed to resolve package filename: %s"), *PackageName));
 				Row.Status = EKatanaAssetMigrationStatus::Failed;
 				continue;
+			}
+
+			const FString PackageDirectory = FPaths::GetPath(PackageFileName);
+			if (!PackageDirectory.IsEmpty())
+			{
+				IFileManager::Get().MakeDirectory(*PackageDirectory, true);
 			}
 
 			FSavePackageArgs SaveArgs;
@@ -642,6 +685,43 @@ EKatanaAssetMigrationExitCode FKatanaAssetMigrationRunner::Run(const FKatanaAsse
 
 		FKatanaAssetMigrationReport Report;
 		RunCounterChainProofMigration(Options, Report);
+
+		bool bSaveFailed = false;
+		if (Report.Summary.Failed == 0 && Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
+		{
+			bSaveFailed = !SaveChangedPackages(Options, InitiallyDirtyPackages, Report);
+		}
+
+		bool bReportFailed = false;
+		if (!Options.ReportPath.IsEmpty())
+		{
+			TArray<FString> ReportErrors;
+			if (!WriteReport(Report, Options.ReportPath, ReportErrors))
+			{
+				bReportFailed = true;
+				for (const FString& ReportError : ReportErrors)
+				{
+					UE_LOG(LogTemp, Error, TEXT("%s"), *ReportError);
+				}
+			}
+		}
+
+		if (bSaveFailed)
+		{
+			return EKatanaAssetMigrationExitCode::SaveFailure;
+		}
+
+		return (Report.Summary.Failed > 0 || bReportFailed)
+			? EKatanaAssetMigrationExitCode::RowFailure
+			: EKatanaAssetMigrationExitCode::Success;
+	}
+	if (Options.Operation.Equals(FEnemyAIProofAssetsOperation::OperationName, ESearchCase::IgnoreCase))
+	{
+		TSet<FString> InitiallyDirtyPackages;
+		FEnemyAIProofAssetsOperation::SnapshotInitiallyDirtyPackages(InitiallyDirtyPackages);
+
+		FKatanaAssetMigrationReport Report;
+		RunEnemyAIProofAssets(Options, Report);
 
 		bool bSaveFailed = false;
 		if (Report.Summary.Failed == 0 && Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
