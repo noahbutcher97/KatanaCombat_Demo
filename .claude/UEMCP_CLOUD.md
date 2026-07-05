@@ -47,18 +47,52 @@ The offline tools parse **binary** `.uasset`/`.umap`. But cloud clones come down
 with LFS content as ~130-byte **pointer stubs** (git-lfs isn't smudged on clone),
 so without a pull the tools have nothing real to read — they'd only see stubs.
 
-The bootstrap installs `git-lfs` (via apt) and pulls just the project-authored
-content — `Content/ProjectFiles/**`, ~2.2 MB / 104 assets — deliberately skipping
-the ~4.3 GB of marketplace anim packs. Override with:
+The bootstrap installs `git-lfs` (via apt) and pulls a chosen **scope**,
+defaulting to just the project-authored content. Without this, the binary-decode
+tools (`read_asset_properties`, `query_asset_registry`, `inspect_blueprint`, the
+`bp_*` graph tools) are inert; with it they decode real serialized asset data —
+the same capability that produced
+[`docs/audits/AUDIT_UEMCP_OFFLINE_2026-05-29.md`](../docs/audits/AUDIT_UEMCP_OFFLINE_2026-05-29.md).
 
-- `UEMCP_LFS_INCLUDE` — space-separated include globs (default `Content/ProjectFiles/**`)
-- `UEMCP_SKIP_LFS=1` — skip the pull entirely (offline tools then see only
-  text-derived data: `project_info`, `get_build_config`, `list_config_values`)
+#### Scope presets
 
-Without this, the binary-decode tools (`read_asset_properties`,
-`query_asset_registry`, `inspect_blueprint`, the `bp_*` graph tools) are inert.
-With it, they decode real serialized asset data — the same capability that
-produced [`docs/audits/AUDIT_UEMCP_OFFLINE_2026-05-29.md`](../docs/audits/AUDIT_UEMCP_OFFLINE_2026-05-29.md).
+| Scope | Globs | Size | Use when |
+|-------|-------|------|----------|
+| `project` *(default)* | `Content/ProjectFiles/**` | ~2 MB / 105 | asset/config/blueprint integrity — the game's own data |
+| `anims` | + `Content/Assets/Animations/**` | ~2.85 GB | you need to introspect the marketplace anim packs |
+| `marketplace` | + `Content/Assets/**` | ~4.27 GB | all imported assets (anims, characters, VFX, SFX) |
+| `all` | everything LFS-tracked | ~4.28 GB | full parity with a local checkout |
+
+Set the **startup** scope by exporting one of these in the environment setup
+script *before* the bootstrap call:
+
+```bash
+export UEMCP_LFS_SCOPE=anims          # or: project | marketplace | all
+bash .claude/scripts/uemcp-cloud-bootstrap.sh
+```
+
+Other knobs:
+- `UEMCP_LFS_INCLUDE` — explicit space-separated globs (overrides the preset)
+- `UEMCP_SKIP_LFS=1` — skip the pull entirely
+
+#### Expanding scope on demand (mid-session)
+
+You don't have to decide up front. Start lean (`project`) and pull more whenever
+a task needs it — objects already cached are not re-downloaded:
+
+```bash
+# Check cost first (pulls nothing):
+bash .claude/scripts/uemcp-lfs-pull.sh anims --dry-run
+
+# Then pull a preset...
+bash .claude/scripts/uemcp-lfs-pull.sh anims
+
+# ...or just one pack by explicit glob:
+bash .claude/scripts/uemcp-lfs-pull.sh 'Content/Assets/Animations/ARPG_Samurai/**'
+```
+
+`uemcp-lfs-pull.sh` is the single source of truth for scope resolution, sizing,
+and pulling; the bootstrap delegates its step 4 to it.
 
 Once provisioned, the **`uemcp-offline`** server in [`.mcp.json`](../.mcp.json)
 loads native `mcp__uemcp-offline__*` tools automatically. It auto-attaches to this
