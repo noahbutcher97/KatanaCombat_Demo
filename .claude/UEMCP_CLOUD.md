@@ -75,6 +75,16 @@ Other knobs:
 - `UEMCP_LFS_INCLUDE` — explicit space-separated globs (overrides the preset)
 - `UEMCP_SKIP_LFS=1` — skip the pull entirely
 
+#### Automatic per-session provisioning (SessionStart hook)
+
+`.claude/settings.json` wires a `SessionStart` hook to
+`uemcp-session-start.sh`, so **cloud sessions self-provision the `project`
+scope with zero manual steps** — including phone-initiated sessions. The hook
+is cloud-only by three layered guards: it exits immediately on non-Linux, on
+machines without the Claude cloud container env markers
+(`CLAUDE_CODE_CONTAINER_ID` / `CCR_AGENT_PROXY_ENABLED`), and when binaries are
+already materialized. Local Windows/Linux checkouts are never touched.
+
 #### Expanding scope on demand (mid-session)
 
 You don't have to decide up front. Start lean (`project`) and pull more whenever
