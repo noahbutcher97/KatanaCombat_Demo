@@ -38,7 +38,27 @@ bash .claude/scripts/uemcp-cloud-bootstrap.sh
 That script (idempotent, safe to re-run):
 1. clones/updates the public `uemcp` repo into `$HOME/uemcp`,
 2. `npm install`s the server deps (skipped when the lockfile is unchanged),
-3. smoke-checks that the server boots headless.
+3. smoke-checks that the server boots headless,
+4. **materializes this project's binary assets from Git LFS** (see next section).
+
+### Why step 4 matters — LFS binaries
+
+The offline tools parse **binary** `.uasset`/`.umap`. But cloud clones come down
+with LFS content as ~130-byte **pointer stubs** (git-lfs isn't smudged on clone),
+so without a pull the tools have nothing real to read — they'd only see stubs.
+
+The bootstrap installs `git-lfs` (via apt) and pulls just the project-authored
+content — `Content/ProjectFiles/**`, ~2.2 MB / 104 assets — deliberately skipping
+the ~4.3 GB of marketplace anim packs. Override with:
+
+- `UEMCP_LFS_INCLUDE` — space-separated include globs (default `Content/ProjectFiles/**`)
+- `UEMCP_SKIP_LFS=1` — skip the pull entirely (offline tools then see only
+  text-derived data: `project_info`, `get_build_config`, `list_config_values`)
+
+Without this, the binary-decode tools (`read_asset_properties`,
+`query_asset_registry`, `inspect_blueprint`, the `bp_*` graph tools) are inert.
+With it, they decode real serialized asset data — the same capability that
+produced [`docs/audits/AUDIT_UEMCP_OFFLINE_2026-05-29.md`](../docs/audits/AUDIT_UEMCP_OFFLINE_2026-05-29.md).
 
 Once provisioned, the **`uemcp-offline`** server in [`.mcp.json`](../.mcp.json)
 loads native `mcp__uemcp-offline__*` tools automatically. It auto-attaches to this

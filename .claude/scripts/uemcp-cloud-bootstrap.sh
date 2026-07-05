@@ -20,12 +20,20 @@
 #   UEMCP_HOME   install location            (default: $HOME/uemcp)
 #   UEMCP_REPO   clone URL (public repo)     (default: https://github.com/noahbutcher97/uemcp)
 #   UEMCP_REF    branch/tag/commit to check  (default: repo default branch)
-set -eu
+set -euf   # -f (noglob): keep $UEMCP_LFS_INCLUDE patterns literal for git-lfs;
+           # the script never relies on shell filename expansion (uses find).
 
 UEMCP_HOME="${UEMCP_HOME:-$HOME/uemcp}"
 UEMCP_REPO="${UEMCP_REPO:-https://github.com/noahbutcher97/uemcp}"
 UEMCP_REF="${UEMCP_REF:-}"
 SERVER_DIR="$UEMCP_HOME/server"
+
+# Which of THIS project's LFS binaries to fetch so the offline tools have real
+# assets to read. Default: project-authored content only (~2 MB), skipping the
+# multi-GB marketplace anim packs. Set UEMCP_SKIP_LFS=1 to skip entirely, or
+# override the include globs (space-separated).
+UEMCP_LFS_INCLUDE="${UEMCP_LFS_INCLUDE:-Content/ProjectFiles/**}"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 log() { printf '[uemcp-bootstrap] %s\n' "$*" >&2; }
 
@@ -94,6 +102,55 @@ if ( cd "$SERVER_DIR" && printf '%s\n' \
 else
   # A non-zero exit here is expected (server waits on stdin); treat as best-effort.
   log "OK — UEMCP provisioned at $SERVER_DIR (headless smoke inconclusive; this is normal)"
+fi
+
+# 4. Provision this project's LFS binaries -------------------------------
+# Cloud clones come down with LFS content as pointer stubs (git-lfs not smudged
+# on clone). uemcp offline tools parse binary .uasset/.umap, so without real
+# bytes they have nothing to read. Fetch just the project-authored content.
+if [ "${UEMCP_SKIP_LFS:-0}" = "1" ]; then
+  log "UEMCP_SKIP_LFS=1 — skipping project LFS provisioning"
+else
+  PROJECT_REPO="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || echo '')"
+  if [ -z "$PROJECT_REPO" ]; then
+    log "not inside a git repo; skipping LFS pull"
+  elif ! grep -q 'filter=lfs' "$PROJECT_REPO/.gitattributes" 2>/dev/null; then
+    log "project has no LFS-tracked files; skipping LFS pull"
+  else
+    if ! command -v git-lfs >/dev/null 2>&1; then
+      log "installing git-lfs"
+      ( apt-get install -y git-lfs >/dev/null 2>&1 || sudo apt-get install -y git-lfs >/dev/null 2>&1 ) \
+        || log "could not install git-lfs; offline tools will see pointer stubs, not binaries"
+    fi
+    if command -v git-lfs >/dev/null 2>&1; then
+      git -C "$PROJECT_REPO" lfs install --skip-smudge >/dev/null 2>&1 || true
+      inc_args=""
+      for glob in $UEMCP_LFS_INCLUDE; do inc_args="$inc_args --include=$glob"; done
+      log "pulling project LFS binaries ($UEMCP_LFS_INCLUDE)"
+      # shellcheck disable=SC2086
+      git -C "$PROJECT_REPO" lfs pull $inc_args >/dev/null 2>&1 || \
+        log "lfs pull reported an error (network policy?); attempting checkout from cache"
+      # `git lfs pull` skips the working-tree rewrite when smudge is disabled;
+      # force-materialize the pointers we just fetched.
+      for glob in $UEMCP_LFS_INCLUDE; do
+        git -C "$PROJECT_REPO" lfs checkout "${glob%/**}" >/dev/null 2>&1 || true
+      done
+      # Verify by size: a materialized .uasset is >1 KB; a pointer stub is ~130 B.
+      # Count real files across the pulled roots rather than sampling one.
+      real_ct=0
+      for glob in $UEMCP_LFS_INCLUDE; do
+        root="$PROJECT_REPO/${glob%%/**}"
+        [ -d "$root" ] || continue
+        n=$(find "$root" -name '*.uasset' -size +1k 2>/dev/null | wc -l)
+        real_ct=$((real_ct + n))
+      done
+      if [ "$real_ct" -gt 0 ]; then
+        log "OK — $real_ct project binaries materialized for offline introspection"
+      else
+        log "WARN — binaries still look like LFS pointers; offline tools limited to text-derived data"
+      fi
+    fi
+  fi
 fi
 
 log "done. Native offline tools load via the 'uemcp-offline' server in .mcp.json."
