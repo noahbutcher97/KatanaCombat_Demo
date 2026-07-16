@@ -169,14 +169,15 @@ Chain Counter is required branch behavior. It is not experimental and is not acc
 
 Runtime flow:
 1. Defender presses Block.
-2. `UCombatComponent` delegates to `UPairedAnimationComponent::TryCounter()`.
-3. Chain mode selects a parryable attacker from attacker-side `AnimNotifyState_ParryWindow`.
-4. `UPairedAnimationComponent` stores an active Chain context containing parried target, source attack metadata, selected counter `UAttackData`, resolved `CounterData`, resolved `FinisherData`, current Chain state, timeout handle, and paired-continuation flags.
-5. Light or Heavy input while Chain is waiting resolves `UAttackData` through `UCombatComponent::GetAttackForInput()` and calls `UPairedAnimationComponent::TryAdvanceChainCounter(UAttackData*)`.
-6. The counter step uses selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only when explicitly allowed, then non-paired counter fallback.
-7. Counter paired steps are nonlethal by default. The finisher step owns lethal damage unless counter data explicitly opts into lethal behavior and validation reports that exception.
-8. Paired counter completion either auto-continues to finisher with stored context or deliberately enters an unblocked `FinisherReady` state.
-9. Timeout, montage interruption, paired cancel, partner death, owner death, invalid target, failed montage start, and normal completion clear Chain context.
+2. `UCombatComponent` gathers incoming attacks once and resolves input intent through the centralized defense resolver.
+3. Perfect parry requires attacker-side `AnimNotifyState_ParryWindow`, `Attack.Defense.Parryable`, hostile team policy, stable attack identity, and reachable alignment.
+4. On committed perfect parry, `UPairedAnimationComponent` stores an active Chain context containing parried target, source attack metadata, selected counter `UAttackData`, resolved `CounterData`, resolved `FinisherData`, current Chain state, timeout handle, and paired-continuation flags.
+5. The parry bridge completes before Chain enters `CounterWindow`; Block fallback does not create a Chain context.
+6. Light or Heavy input while Chain is waiting resolves `UAttackData` through `UCombatComponent::GetAttackForInput()` and calls `UPairedAnimationComponent::TryAdvanceChainCounter(UAttackData*)`.
+7. The counter step uses selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only when explicitly allowed, then non-paired counter fallback.
+8. Counter paired steps are nonlethal by default. The finisher step owns lethal damage unless counter data explicitly opts into lethal behavior and validation reports that exception.
+9. Paired counter completion either transitions in place to finisher with stored context or deliberately enters an unblocked `FinisherReady` state.
+10. Timeout, montage interruption, paired cancel, partner death, owner death, invalid target, failed montage start, and normal completion clear Chain context.
 
 ### Chain Counter Implementation Evidence
 
@@ -187,6 +188,7 @@ Runtime flow:
 - Attack input resolves selected `UAttackData` in `UCombatComponent` and advances through `UPairedAnimationComponent::TryAdvanceChainCounter(UAttackData*)`.
 - Counter data resolution remains selected `UAttackData::CounterData`, explicit notify fallback, then non-paired fallback.
 - Asset-backed montage proof remains separate from source-level automation. The 2026-07-01 `AttackDataNotifyMigration` audit/plan reports are read-only evidence and did not save packages.
+- These tests describe the pre-defense-resolver implementation baseline. They do not prove the new alignment, one-pass resolution, parry bridge, or retained stage-transition contract.
 
 ### Chain Counter Semantics Ownership
 
@@ -197,6 +199,9 @@ Counter and finisher payloads are data references. The selected defender `UAttac
 Attack and defense properties that are extensible across authored content belong in tags. `Attack.Property.Unblockable` and future block/parry/recoil properties should be read by a centralized attack/defense resolver, which returns an explicit enum outcome before any montage, damage, VFX, or audio payload is executed.
 
 The ownership policy is defined in `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md`.
+The canonical defense outcome matrix, attack identity, alignment, parry bridge,
+and retained counter-to-finisher transition contract are defined in
+`docs/superpowers/specs/2026-07-16-defense-interaction-design.md`.
 
 ---
 

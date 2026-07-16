@@ -68,14 +68,26 @@ HoldWindow Starts:
 ```
 Defender Presses Block:
     ↓
-Find nearby enemies
+Gather incoming hostile attacks once
     ↓
-Enemy in parry window?
-├─ YES → PARRY ACTION (no damage, counter window)
-└─ NO → BLOCK ACTION (posture damage)
+Stable attack + parry tag/window + reachable alignment?
+├─ YES → PERFECT PARRY → parry bridge → counter window
+└─ NO → ENTER GUARD
+
+Physical contact while guard is held:
+    ↓
+Central resolver returns one contact outcome
+├─ Blockable + aligned → NORMAL BLOCK (zero damage + presentation)
+└─ Unblockable/out of alignment → HIT
 ```
 
-**Parry window is on ATTACKER's montage**, defender checks `ICombatInterface::IsInParryWindow()`.
+**Parry window is on ATTACKER's montage**. Perfect parry requires both the
+window and `Attack.Defense.Parryable`; normal block remains available while
+guard is held regardless of parry timing.
+
+Guard entry, contact block, perfect-parry alignment, and counter start are distinct
+decisions. See `docs/superpowers/specs/2026-07-16-defense-interaction-design.md`
+for the canonical two-stage defense matrix and retained sequence contract.
 
 ### Chain Counter Ownership
 
@@ -212,7 +224,7 @@ Default combo timing is inferred from phase transitions; do not add explicit com
 - Paired animation sync/collision notifies for finishers and counters.
 
 ### Chain Counter Requirements
-- Attacker montages that can be parried require `AnimNotifyState_ParryWindow`.
+- Attacks that can be parried require both `Attack.Defense.Parryable` and an explicitly timed `AnimNotifyState_ParryWindow`.
 - Attacker montages that can be directly countered require `AnimNotifyState_CounterWindow`.
 - Counter-capable `UAttackData` should set `bHasCounterVariant` and `CounterData` when a paired counter animation exists.
 - Paired counter/finisher montages require paired sync/collision notifies when they depend on impact timing or partner collision suppression.

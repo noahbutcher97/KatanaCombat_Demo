@@ -49,10 +49,14 @@ Defense resolution should follow this shape:
 
 1. Read attacker `UAttackData`, defender state, active context tags, attack phase/window state, facing/alignment, and team policy.
 2. Consume authored attack properties and requirements from tags, including unblockable or future block-interruptible/parryable semantics.
-3. Return one explicit resolved enum outcome such as hit, block, perfect parry, counter start, guard break, or unblockable hit.
+3. Return one explicit resolved defense outcome such as guard entry, hit, block, perfect parry, or unblockable hit. Counter start is a later Chain state transition caused by input after committed perfect parry, not another classification of the incoming attack.
 4. Execute the outcome through existing components using data references for animations, paired data, VFX, and audio.
 
 This keeps the authored layer flexible while preserving deterministic runtime state.
+
+The detailed two-stage outcome matrix, typed context contracts, alignment policy,
+presentation selection, and Chain transition rules are defined in
+`docs/superpowers/specs/2026-07-16-defense-interaction-design.md`.
 
 ## Current Reconciliation Targets
 
@@ -76,5 +80,5 @@ This keeps the authored layer flexible while preserving deterministic runtime st
 - Do not migrate runtime state machines to tags.
 - Do not add booleans for every new defense property.
 - Do not auto-seed parry, counter, sync, or collision windows from tags without reviewed timing policy and asset-level proof.
-- Do not treat unblockable-tag consumption as the full block system. Normal block, perfect parry, counter start, guard break, attacker recoil, block VFX/audio, and block alignment require a separate outcome matrix.
+- Do not treat unblockable-tag consumption as the full block system. Normal block, perfect parry, counter-sequence transitions, attacker recoil, block VFX/audio, and block alignment require the detailed defense interaction contract.
 - Do not claim unblockable behavior for generic `IDamageableInterface` implementers until they have a hit-aware defense path. This slice targets `ABaseCombatCharacter` damage and hit-impact classification.
