@@ -67,6 +67,12 @@ Add focused automation files instead of expanding the already large legacy suite
 - `Source/KatanaCombatTest/Private/DefenseArchitectureSourceTests.cpp`
 - `Source/KatanaCombatTest/Private/DefenseAssetValidationTests.cpp`
 
+Maintain one durable execution checkpoint throughout implementation:
+
+- `docs/handoffs/2026-07-16-defense-interaction-execution.md`
+
+The checkpoint is not an acceptance report. It records the current commit, authority version, completed and active work, changed files/assets, verification evidence, unresolved findings, proof gaps, and exact next action so work can resume safely after compaction or a worker/session change.
+
 Extend the existing editor framework:
 
 - `Source/KatanaCombatEditor/Public/DefenseAssetValidationService.h`
@@ -80,6 +86,7 @@ Extend the existing editor framework:
 
 | Accepted contract | Owning slice |
 |---|---|
+| Current-source/API/content feasibility and execution checkpoint | 0A |
 | IDs, immutable prediction/contact records, reasoned outcome matrix, tags, sparse selector | 1 |
 | Native rich contact, in-progress/cached receipts, team/invulnerability, weapon budget | 2 |
 | Input history/routes, threat publication/lock, alignment arbitration, normal block | 3 |
@@ -87,6 +94,7 @@ Extend the existing editor framework:
 | Retained Chain stages, context/time/collision/input ownership, marker handoff, rollback | 5 |
 | Commandlet/preflight, concrete `LightAttack_1` content, telemetry, visible vertical slice | 6 |
 | Nine height/lane cells, semantic attack cases, two-active-threat fixture, broad acceptance | 7 |
+| Context refresh, adversarial review, evidence classification, and intent traceability | Every slice; final closure in 7 |
 
 Event ordering/reentrancy is introduced in Slice 2 and re-proved for attack consumption and paired callbacks in Slices 4-5. Documentation state is updated only after the corresponding Gate evidence exists.
 
@@ -94,14 +102,43 @@ Event ordering/reentrancy is introduced in Slice 2 and re-proved for attack cons
 
 For every slice:
 
-1. Add the smallest failing automation test first.
-2. Run that test and record the expected failure.
-3. Implement only the slice contract.
-4. Run the focused test root and build `KatanaCombatEditor`.
-5. Inspect `git diff --check`, the task diff, and `git status --short`.
-6. Commit only that slice with an imperative message.
+1. Run the context-refresh preflight below and confirm that the accepted spec, current source, prior evidence, and working tree still support the slice assumptions.
+2. Revalidate every risky project or UE 5.6 API used by the slice against current primary source. Stop and reconcile the spec and plan when an assumption is unsupported or has drifted.
+3. Add the smallest failing automation test first. Add only compile-safe API scaffolding needed to load the test; scaffolding must return an intentionally incorrect neutral result rather than implement policy.
+4. Build `KatanaCombatEditor` so the new test is present, then run the focused test and record the behavioral failure. If the deliberate red state is a compiler/linker failure, record the failing `Build.bat` output and do not run a stale `UnrealEditor-Cmd` binary.
+5. Implement only the slice contract, build `KatanaCombatEditor`, then run the focused test roots.
+6. Run the slice validation ladder, including applicable static/source checks, commandlet checks, asset checks, and Editor/PIE proof. Keep source, asset, and runtime evidence distinct.
+7. Perform the slice adversarial review below. Fix every high/medium finding and add a regression test before continuing; document justified low findings and proof limits.
+8. Trace every contract assigned to the slice back to the accepted spec and classify it as `Proven`, `Partial`, `Not Implemented`, or `Out Of Scope`. `Partial` and `Not Implemented` block slice acceptance when the contract is in scope.
+9. Inspect `git diff --check`, the complete task diff, and `git status --short`. Classify unrelated user WIP without modifying it.
+10. Update the durable execution checkpoint, then commit only that slice with an imperative message.
 
 Do not continue when a focused regression is unexplained. Do not weaken a test merely to preserve current behavior that the accepted spec replaces.
+
+### Context-Refresh Preflight
+
+Run this before Task 0A, before every implementation slice, after any compaction/session/worker transition, and whenever source, assets, or branch state changes unexpectedly:
+
+```powershell
+git status --short --branch
+git log -3 --oneline
+git diff --name-status HEAD~1..HEAD
+```
+
+Then read the current task in this plan, its owning sections in the accepted defense spec, the narrowest architecture references, the previous checkpoint entry, and the exact source/assets being changed. Re-run narrow searches instead of trusting remembered line numbers or behavior. Confirm:
+
+- Current `HEAD`, branch, dirty-worktree classification, and user WIP boundaries.
+- Last completed slice and its build/test/commandlet/PIE evidence.
+- Unresolved audit findings, accepted proof limits, and whether any dependency API changed.
+- Files and assets already changed, files/assets this slice may change, and the exact next action.
+
+Update `docs/handoffs/2026-07-16-defense-interaction-execution.md` before a long-running operation, before pausing, and immediately after completing a slice. A resumed worker must treat that file as orientation evidence, verify it against live Git/source state, and correct stale entries before editing.
+
+### Slice Adversarial Review
+
+Review the implemented slice as a hostile caller and an interrupted lifecycle. At minimum challenge duplicate/reentrant calls, stale generations, participant destruction, partial start/rollback, owner-only lease release, overlapping owners, mutable second reads, clock-domain drift, null/missing assets, configuration fallback, input fallthrough, source/target invalidation, proof false positives, and claims based on the wrong evidence tier. Also ask what can bypass the new boundary through a legacy API, Blueprint path, notify callback, StateTree task, generic damage path, or direct transform/time mutation.
+
+The reviewer must compare the actual diff and tests to the spec, not only to this plan. Record each finding with severity, evidence, disposition, and regression proof in the execution checkpoint. No high/medium finding may be deferred merely to keep the slice moving.
 
 ---
 
@@ -142,6 +179,62 @@ rg -n "SetActorRotation|ApplyDamage_Implementation|CanBlockHit|HitActors.Add|Res
 ```
 
 Expected: matches identify the migration sites described in the empirical starting point. Later source-gate tests will narrow these searches to prohibited defense paths.
+
+---
+
+### Task 0A: Research And Feasibility Audit
+
+**Files:**
+- Read: `Source/KatanaCombat/Private/Core/CombatComponent.cpp`
+- Read: `Source/KatanaCombat/Private/Core/WeaponComponent.cpp`
+- Read: `Source/KatanaCombat/Private/Core/TargetingComponent.cpp`
+- Read: `Source/KatanaCombat/Private/Core/HitReactionComponent.cpp`
+- Read: `Source/KatanaCombat/Private/Core/PairedAnimationComponent.cpp`
+- Read: `Source/KatanaCombat/Private/Characters/BaseCombatCharacter.cpp`
+- Read: `Source/KatanaCombat/Private/Animation/AnimNotifyState_CombatWarp.cpp`
+- Read: `Source/KatanaCombat/Public/Animation/AnimNotifyState_PairedAnimationCollision.h`
+- Read: `Source/KatanaCombatEditor/Private/Commandlets/KatanaAssetMigrationRunner.cpp`
+- Read: `Source/KatanaCombatEditor/Private/Commandlets/Operations/EnemyAIProofAssetsOperation.cpp`
+- Add: `docs/handoffs/2026-07-16-defense-interaction-execution.md`
+
+**Produces:** A version-pinned feasibility matrix, refreshed source/asset baseline, resolved API assumptions, initial execution checkpoint, and an explicit stop/go decision for Slice 1. It changes no runtime code or assets.
+
+- [ ] **Step 1: Run the context-refresh preflight and initialize the checkpoint**
+
+Record branch/`HEAD`, accepted spec and plan commits, dirty-worktree classification, baseline evidence paths, current source hazards, current asset proof paths, and `Task 1` as the proposed next action. Do not copy stale evidence without reopening it.
+
+- [ ] **Step 2: Verify UE 5.6 APIs against installed engine source**
+
+Use the installed `C:\Program Files\Epic Games\UE_5.6\Engine` source as primary evidence. Verify notify montage-instance context and GUID access, `UMotionWarpingComponent::AddModifierFromTemplate`, runtime modifier update hooks and effective play rate, `UCharacterMovementComponent` rotation/tick ordering, `UAnimMontage::ExtractRootMotionFromTrackRange`, `FTSTicker`, and package-save APIs. Record exact header/source paths and signatures. Use official Epic 5.6 documentation only when local source is insufficient, and record any version mismatch.
+
+- [ ] **Step 3: Trace the current project call paths end to end**
+
+Trace Block input, attack prediction inputs, phase-driven hit detection, weapon candidate generation, target damage/health/death mutation, presentation/delegate broadcasts, AI token ownership, paired start/cleanup, collision/movement restoration, warp-target clearing, and time-dilation restoration. Identify every synchronous callback and every legacy path capable of bypassing the proposed owner.
+
+- [ ] **Step 4: Audit existing proof and migration infrastructure**
+
+Verify report-row cardinality, dirty-package snapshots, save ordering, external-actor handling, and whether a reviewed Plan artifact constrains Apply/ApplyAndSave. Inventory what `EnemyAIProofAssets` already owns for StateTree, AI controller, `IA_Block`, `IMC_Combat`, player Blueprint, enemy Blueprint, and `Lvl_ThirdPerson1`; the defense operation must reuse or validate that ownership rather than duplicate it.
+
+- [ ] **Step 5: Run read-only Gate A asset inventory**
+
+Confirm the exact `LightAttack_1`, `AM_Light_Combo_1` section `Attack_1`, `Lvl_ThirdPerson1`, input assets, proof actors, paired dependencies, current notifies, and external actor packages. Do not mutate, resave, or infer timing. Record unavailable live/visual facts as proof gaps requiring Editor/UEMCP review later.
+
+- [ ] **Step 6: Write the feasibility matrix**
+
+For every risky assumption, record `Assumption`, `Primary Evidence`, `Observed API/Behavior`, `Plan Impact`, `Status`, and `Required Change`. Status is one of `Supported`, `Supported With Constraint`, `Unsupported`, or `Needs Editor Evidence`. Any `Unsupported` architecture assumption or unresolved implementation-blocking ambiguity requires a spec/plan reconciliation before Task 1.
+
+- [ ] **Step 7: Run an adversarial feasibility review**
+
+Challenge the proposed boundaries for reentrancy, actor destruction, cross-stage first-commit ordering, selected-payload immutability, collision/input/movement overlap, telemetry survival, play-rate changes, test determinism, commandlet approval drift, and false headless confidence. Add missing research and regression obligations to the plan before declaring `GO`.
+
+- [ ] **Step 8: Record the stop/go decision**
+
+Update the checkpoint with all findings and exact required plan/spec edits. `GO` requires no unresolved high/medium feasibility finding and a concrete test/proof route for every Slice 1 contract. Commit the initial checkpoint as a docs-only commit such as:
+
+```powershell
+git add docs/handoffs/2026-07-16-defense-interaction-execution.md
+git commit -m "Record defense implementation feasibility"
+```
 
 ---
 
@@ -311,10 +404,11 @@ In `DefensePresentationSelectorTests.cpp`, prove exact fields outrank wildcards,
 - [ ] **Step 7: Run the tests to confirm the intended red state**
 
 ```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" KatanaCombatEditor Win64 Development -Project="KatanaCombat.uproject" -Progress -NoHotReload
 & "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat.Defense.Resolver;Quit" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
-Expected: compile/test failure because the new contracts and resolver are not implemented. Record the specific missing behavior, then implement.
+Before this step, add compile-safe resolver/selector declarations and neutral stubs only as needed for the test module to link. Expected: the editor build succeeds and the focused test fails on the unimplemented behavior. If the first red state is instead a deliberate compiler/linker failure, the failing build is the evidence; do not invoke `UnrealEditor-Cmd` until the test has been compiled into a fresh binary. Record the specific missing behavior, then implement.
 
 - [ ] **Step 8: Implement pure resolution and selection**
 
@@ -338,7 +432,7 @@ The resolver must not access `UWorld`, components, assets, selectors, delegates,
 
 - [ ] **Step 9: Verify and commit Slice 1**
 
-Run `KatanaCombat.Defense.Resolver`, `KatanaCombat.Defense.Presentation`, and `KatanaCombat.GameplayTags`, then build the editor target. Inspect `git diff --check` and commit:
+Build the editor target first, then run `KatanaCombat.Defense.Resolver`, `KatanaCombat.Defense.Presentation`, and `KatanaCombat.GameplayTags`. Complete the slice adversarial/spec-coverage gate, inspect `git diff --check`, and commit:
 
 ```powershell
 git commit -m "Add typed defense resolution contracts"
@@ -455,14 +549,15 @@ Direct gameplay and receipt finalization happen before presentation/delegates. S
 
 - [ ] **Step 7: Verify and commit Slice 2**
 
-Run:
+Build the fresh editor/test modules, then run:
 
 ```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" KatanaCombatEditor Win64 Development -Project="KatanaCombat.uproject" -Progress -NoHotReload
 & "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat.Defense.Contact;Quit" -unattended -nopause -NullRHI -nosplash -stdout
 & "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat.WeaponComponent;Quit" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
-Then run damage/death focused suites and build the editor. Commit:
+Then run damage/death focused suites and complete the slice adversarial/spec-coverage gate. Commit:
 
 ```powershell
 git commit -m "Make defense contact commits idempotent"
@@ -625,7 +720,7 @@ Remove `FaceThreatForBlock()` and its direct rotation. Remove the AI attack-star
 
 - [ ] **Step 9: Verify and commit Slice 3**
 
-Run `KatanaCombat.Defense.Input`, `.Threat`, `.Alignment`, `.CounterSystem.Input`, and `.Targeting`, then build. Run the source gate and confirm no defense path uses `SetActorRotation` and no shared warp template is mutated. Commit:
+Build first, then run `KatanaCombat.Defense.Input`, `.Threat`, `.Alignment`, `.CounterSystem.Input`, and `.Targeting`. Run the source gate, confirm no defense path uses `SetActorRotation` and no shared warp template is mutated, and complete the slice adversarial/spec-coverage gate. Commit:
 
 ```powershell
 git commit -m "Route guard input through owned defense alignment"
@@ -729,7 +824,7 @@ For paired bridge data, map the defender/sequence initiator to `UPairedAnimation
 
 - [ ] **Step 7: Verify and commit Slice 4**
 
-Run `KatanaCombat.Defense.Parry`, `.ParryDetection`, `.EnemyCombatAI`, and relevant contact tests. Build and run source gates for generation-blind window close, duplicate token release, and legacy block recalculation. Commit:
+Build first, then run `KatanaCombat.Defense.Parry`, `.ParryDetection`, `.EnemyCombatAI`, and relevant contact tests. Run source gates for generation-blind window close, duplicate token release, and legacy block recalculation, then complete the slice adversarial/spec-coverage gate. Commit:
 
 ```powershell
 git commit -m "Consume attacks on committed perfect parry"
@@ -837,7 +932,7 @@ Every successful multi-stage test asserts no intermediate `None`, queue clear, i
 
 - [ ] **Step 8: Verify and commit Slice 5**
 
-Run `KatanaCombat.Defense.Chain`, `.CombatEffects`, `.CounterSystem`, and `.PairedAnimation`, then build and run the full `KatanaCombat` automation root. Commit:
+Build first, run `KatanaCombat.Defense.Chain`, `.CombatEffects`, `.CounterSystem`, and `.PairedAnimation`, then run the full `KatanaCombat` automation root. Complete the slice adversarial/spec-coverage gate before committing:
 
 ```powershell
 git commit -m "Retain defense ownership across Chain stages"
@@ -1029,7 +1124,7 @@ Telemetry acceptance: final per-frame yaw is within `rate * simulation delta + 0
 
 - [ ] **Step 11: Verify and commit Slice 6**
 
-Run editor validation/migration tests, all defense tests, full build, and full automation. Update `docs/guides/HEADLESS_ASSET_MIGRATIONS.md` with exact operation usage and create a short Gate A evidence handoff under `docs/handoffs/` naming reports, telemetry, changed assets, and proof limits. Commit source/docs separately from reviewed binary assets when practical:
+Build first, then run editor validation/migration tests, all defense tests, and full automation. Complete the slice adversarial/spec-coverage gate. Update `docs/guides/HEADLESS_ASSET_MIGRATIONS.md` with exact operation usage and create a short Gate A evidence handoff under `docs/handoffs/` naming reports, telemetry, changed assets, and proof limits. Commit source/docs separately from reviewed binary assets when practical:
 
 ```powershell
 git commit -m "Add defense proof validation workflow"
@@ -1113,7 +1208,21 @@ Mark each contract as implemented only where automated and PIE evidence exists. 
 
 Review for duplicate resolution, stale callback cleanup, cross-owner warp/time/context release, input fallthrough, mutable second reads, event reentrancy, first-commit ordering, terminal tombstone eviction, actor destruction, neutral-team compatibility, missing fallback assets, configuration precedence drift, root-motion cap bypass, and headless/PIE overclaim. Fix every high/medium finding and add a regression test before merge readiness.
 
-- [ ] **Step 10: Commit Gate B and prepare review**
+- [ ] **Step 10: Run the final intent-satisfaction and traceability audit**
+
+Build a closure table in `docs/handoffs/2026-07-16-defense-gate-b-acceptance.md` with one row for every normative contract in the accepted spec. Each row records:
+
+```text
+Spec section/contract | Owning slice | Implementation files/assets |
+Automation evidence | Commandlet/static evidence | PIE/telemetry evidence |
+Status | Residual risk
+```
+
+Use only `Proven`, `Partial`, `Not Implemented`, or `Out Of Scope` for status. Source structure alone cannot produce `Proven` for runtime or animation behavior. Reconcile the original branch intent explicitly: held guard, contact-driven normal block, edge-triggered perfect parry, immutable defender/attacker presentation, bounded alignment, attack consumption, AI recovery, retained counter-to-finisher continuity, friendly-fire policy, repeatable proof fixtures, and no premature UI coupling.
+
+Compare the final branch diff to the Task 0/0A baseline and classify every changed source, config, manifest, and binary package as required, supporting evidence, or unrelated. Any in-scope `Partial`/`Not Implemented` row, unexplained package, stale canonical claim, or missing evidence blocks completion. Update the durable execution checkpoint with the final table location, remaining out-of-scope work, and exact merge-readiness decision.
+
+- [ ] **Step 11: Commit Gate B and prepare review**
 
 Stage intentional paths only. Separate large binary content from source when that improves reviewability. Use an imperative commit such as:
 
@@ -1123,8 +1232,8 @@ git commit -m "Prove the full defense interaction matrix"
 
 ## Completion Definition
 
-The feature is complete only when all seven slices are committed, the full suite is green, Gate A and Gate B post-audits are clean, both visible proof captures satisfy telemetry thresholds, the maps load without manual setup, and canonical docs distinguish proven behavior from future work. A green build, source inspection, commandlet load, or one-attack playtest alone is insufficient.
+The feature is complete only when Task 0A records a supported `GO`, every slice has a refreshed checkpoint and closed high/medium adversarial findings, all seven slices are committed, the full suite is green, Gate A and Gate B post-audits are clean, both visible proof captures satisfy telemetry thresholds, the maps load without manual setup, and the final intent table has no in-scope `Partial` or `Not Implemented` row. Canonical docs must distinguish proven behavior from future work. A green build, source inspection, commandlet load, remembered prior result, or one-attack playtest alone is insufficient.
 
 ## Execution Handoff
 
-Recommended execution is `superpowers:subagent-driven-development` with one fresh worker per slice and a spec/compliance review after each slice. `superpowers:executing-plans` is acceptable when work proceeds in a separate session. Do not parallelize slices that modify `CombatTypes.h`, `CombatComponent`, or paired state; their contracts are sequential. Editor inventory and independent test-file preparation may run in parallel only after the owning slice APIs are stable.
+Recommended execution is `superpowers:subagent-driven-development` with one fresh worker per slice and the mandatory context, validation, adversarial, and spec-coverage gates after each slice. `superpowers:executing-plans` is acceptable when work proceeds in a separate session. Every fresh or resumed worker starts from the live context-refresh preflight and verified execution checkpoint; conversation memory or a prior worker summary is orientation only. Do not parallelize slices that modify `CombatTypes.h`, `CombatComponent`, or paired state; their contracts are sequential. Editor inventory and independent test-file preparation may run in parallel only after the owning slice APIs are stable.
