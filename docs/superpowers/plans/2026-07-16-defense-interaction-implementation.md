@@ -51,6 +51,8 @@ Add focused runtime files:
 - `Source/KatanaCombat/Private/Subsystems/CombatEffectsWorldSubsystem.cpp`
 - `Source/KatanaCombat/Public/Animation/AnimNotify_ChainStageTransition.h`
 - `Source/KatanaCombat/Private/Animation/AnimNotify_ChainStageTransition.cpp`
+- `Source/KatanaCombat/Public/Animation/CombatAnimNotifyIdentity.h`
+- `Source/KatanaCombat/Private/Animation/CombatAnimNotifyIdentity.cpp`
 - `Source/KatanaCombat/Public/Debug/DefenseTelemetry.h`
 - `Source/KatanaCombat/Private/Debug/DefenseTelemetry.cpp`
 
@@ -62,6 +64,7 @@ Add focused automation files instead of expanding the already large legacy suite
 - `Source/KatanaCombatTest/Private/DefenseInputThreatTests.cpp`
 - `Source/KatanaCombatTest/Private/DefenseAlignmentTests.cpp`
 - `Source/KatanaCombatTest/Private/DefenseParryTests.cpp`
+- `Source/KatanaCombatTest/Private/CombatAnimNotifyIdentityTests.cpp`
 - `Source/KatanaCombatTest/Private/DefenseChainTests.cpp`
 - `Source/KatanaCombatTest/Private/CombatEffectsLeaseTests.cpp`
 - `Source/KatanaCombatTest/Private/DefenseArchitectureSourceTests.cpp`
@@ -153,7 +156,7 @@ The reviewer must compare the actual diff and tests to the spec, not only to thi
 
 **Produces:** A clean, reproducible pre-implementation evidence point and an explicit dirty-worktree classification.
 
-- [ ] **Step 1: Confirm branch and workspace scope**
+- [x] **Step 1: Confirm branch and workspace scope**
 
 ```powershell
 git status --short --branch
@@ -162,7 +165,7 @@ git log -3 --oneline
 
 Expected: the accepted design commits are present. Classify any later user WIP before touching overlapping files. Do not revert it.
 
-- [ ] **Step 2: Run the standard baseline**
+- [x] **Step 2: Run the standard baseline**
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "Tools\Codex\run-agent-baseline.ps1"
@@ -170,7 +173,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "Tools\Codex\run-agent-basel
 
 Expected: `BASELINE GREEN`, a successful editor build, and zero automation failures/errors in the timestamped `Saved/Logs/Codex-Agent-Baseline-*` evidence. If memory pressure blocks the build, rerun the build separately with UBT parallelism capped and record that deviation; do not call an incomplete run green.
 
-- [ ] **Step 3: Capture architecture hazards as source assertions**
+- [x] **Step 3: Capture architecture hazards as source assertions**
 
 Record current matches without modifying them yet:
 
@@ -199,35 +202,35 @@ Expected: matches identify the migration sites described in the empirical starti
 
 **Produces:** A version-pinned feasibility matrix, refreshed source/asset baseline, resolved API assumptions, initial execution checkpoint, and an explicit stop/go decision for Slice 1. It changes no runtime code or assets.
 
-- [ ] **Step 1: Run the context-refresh preflight and initialize the checkpoint**
+- [x] **Step 1: Run the context-refresh preflight and initialize the checkpoint**
 
 Record branch/`HEAD`, accepted spec and plan commits, dirty-worktree classification, baseline evidence paths, current source hazards, current asset proof paths, and `Task 1` as the proposed next action. Do not copy stale evidence without reopening it.
 
-- [ ] **Step 2: Verify UE 5.6 APIs against installed engine source**
+- [x] **Step 2: Verify UE 5.6 APIs against installed engine source**
 
-Use the installed `C:\Program Files\Epic Games\UE_5.6\Engine` source as primary evidence. Verify notify montage-instance context and GUID access, `UMotionWarpingComponent::AddModifierFromTemplate`, runtime modifier update hooks and effective play rate, `UCharacterMovementComponent` rotation/tick ordering, `UAnimMontage::ExtractRootMotionFromTrackRange`, `FTSTicker`, and package-save APIs. Record exact header/source paths and signatures. Use official Epic 5.6 documentation only when local source is insufficient, and record any version mismatch.
+Use the installed `C:\Program Files\Epic Games\UE_5.6\Engine` source as primary evidence. Verify notify montage-instance context and a runtime-safe notify-event identity (including why editor notify GUIDs are unavailable), `UMotionWarpingComponent::AddModifierFromTemplate`, runtime modifier update hooks and effective play rate, `UCharacterMovementComponent` rotation/tick ordering, `UAnimMontage::ExtractRootMotionFromTrackRange`, `FTSTicker`, and package-save APIs. Record exact header/source paths and signatures. Use official Epic 5.6 documentation only when local source is insufficient, and record any version mismatch.
 
-- [ ] **Step 3: Trace the current project call paths end to end**
+- [x] **Step 3: Trace the current project call paths end to end**
 
 Trace Block input, attack prediction inputs, phase-driven hit detection, weapon candidate generation, target damage/health/death mutation, presentation/delegate broadcasts, AI token ownership, paired start/cleanup, collision/movement restoration, warp-target clearing, and time-dilation restoration. Identify every synchronous callback and every legacy path capable of bypassing the proposed owner.
 
-- [ ] **Step 4: Audit existing proof and migration infrastructure**
+- [x] **Step 4: Audit existing proof and migration infrastructure**
 
 Verify report-row cardinality, dirty-package snapshots, save ordering, external-actor handling, and whether a reviewed Plan artifact constrains Apply/ApplyAndSave. Inventory what `EnemyAIProofAssets` already owns for StateTree, AI controller, `IA_Block`, `IMC_Combat`, player Blueprint, enemy Blueprint, and `Lvl_ThirdPerson1`; the defense operation must reuse or validate that ownership rather than duplicate it.
 
-- [ ] **Step 5: Run read-only Gate A asset inventory**
+- [x] **Step 5: Run read-only Gate A asset inventory**
 
 Confirm the exact `LightAttack_1`, `AM_Light_Combo_1` section `Attack_1`, `Lvl_ThirdPerson1`, input assets, proof actors, paired dependencies, current notifies, and external actor packages. Do not mutate, resave, or infer timing. Record unavailable live/visual facts as proof gaps requiring Editor/UEMCP review later.
 
-- [ ] **Step 6: Write the feasibility matrix**
+- [x] **Step 6: Write the feasibility matrix**
 
 For every risky assumption, record `Assumption`, `Primary Evidence`, `Observed API/Behavior`, `Plan Impact`, `Status`, and `Required Change`. Status is one of `Supported`, `Supported With Constraint`, `Unsupported`, or `Needs Editor Evidence`. Any `Unsupported` architecture assumption or unresolved implementation-blocking ambiguity requires a spec/plan reconciliation before Task 1.
 
-- [ ] **Step 7: Run an adversarial feasibility review**
+- [x] **Step 7: Run an adversarial feasibility review**
 
 Challenge the proposed boundaries for reentrancy, actor destruction, cross-stage first-commit ordering, selected-payload immutability, collision/input/movement overlap, telemetry survival, play-rate changes, test determinism, commandlet approval drift, and false headless confidence. Add missing research and regression obligations to the plan before declaring `GO`.
 
-- [ ] **Step 8: Record the stop/go decision**
+- [x] **Step 8: Record the stop/go decision**
 
 Update the checkpoint with all findings and exact required plan/spec edits. `GO` requires no unresolved high/medium feasibility finding and a concrete test/proof route for every Slice 1 contract. Commit the initial checkpoint as a docs-only commit such as:
 
@@ -300,7 +303,7 @@ UENUM(BlueprintType) enum class EDefenseReason : uint8
 };
 ```
 
-Use explicit `USTRUCT` value types for `FCombatantStableId`, `FAttackInstanceId`, `FAttackWindowInstanceId`, `FWeaponTraceInstanceId`, `FContactInstanceId`, `FDefenseInteractionKey`, and `FDefenseInteractionId`. Implement `IsValid`, equality, and `GetTypeHash`; never hash pointer addresses as an ordering key. `FAttackWindowInstanceId` includes attack ID, kind, window generation, notify GUID, montage-instance ID, simulation start, and simulation end. The montage-instance ID comes from `UE::Anim::FAnimNotifyMontageInstanceContext`, not from an asset-global notify object.
+Use explicit `USTRUCT` value types for `FCombatantStableId`, `FAttackInstanceId`, `FAnimNotifyRuntimeSourceId`, `FAttackWindowInstanceId`, `FWeaponTraceInstanceId`, `FContactInstanceId`, `FDefenseInteractionKey`, and `FDefenseInteractionId`. Implement `IsValid`, equality, and `GetTypeHash`; never hash pointer addresses as an ordering key. `FAnimNotifyRuntimeSourceId` contains the source animation `FSoftObjectPath` and the exact event index in `UAnimSequenceBase::Notifies`. Resolve that index by comparing the event-reference pointer only while locating its owning array element; never retain, hash, sort, or serialize the pointer. `FAttackWindowInstanceId` includes attack ID, kind, window generation, runtime notify source ID, montage-instance ID, simulation start, and simulation end. The montage-instance ID comes from `UE::Anim::FAnimNotifyMontageInstanceContext`, not from an asset-global notify object. A missing source/index or montage-instance context is a production-notify rejection with telemetry; only explicitly deprecated compatibility adapters may omit it.
 
 - [ ] **Step 2: Add immutable prediction, query, decision, and receipt records**
 
@@ -378,7 +381,9 @@ float TimeDilationLeaseWatchdogSeconds = 10.0f;
 
 Also store zero-centimeter authored normal-block translation allowance, 1 cm numerical drift tolerance, and 75 cm perfect-parry per-role translation cap.
 
-Define exact-or-wildcard presentation keys, required/excluded tags, integer priority, blend/warp/FX payload, and row name. Add `IsGenericFallback()` and specificity helpers. Tie after exact-field count, required-tag count, and priority is invalid authoring; lexical row name is runtime safety only.
+Add explicit defender bone-to-height rows, optional guard enter/exit montage references, default block/parry impact VFX and audio, and generic defender/attacker fallback rows. Bone rows are data, not a second attack-height authority: resolution checks exact hit bone, supplied skeleton-parent chain, then the attack profile's authored height while preserving provenance.
+
+Define exact-or-wildcard presentation keys, required/excluded tags, integer priority, blend/warp/FX/hitstop/contact payload, reviewed deflection marker, paired bridge reference, and row name. Add `IsGenericFallback()` and specificity helpers. Tie after exact-field count, required-tag count, and priority is invalid authoring; lexical row name is runtime safety only. A null configuration returns C++ gameplay defaults and no-montage presentation without dereferencing assets.
 
 - [ ] **Step 5: Write failing table-driven resolver tests**
 
@@ -512,7 +517,9 @@ void FinalizeResolvedWeaponContact(
 	AActor* Target, const FDefenseContactReceipt& Receipt);
 ```
 
-Keep `CommitResolvedDefenseDamage(const FDefenseResolution&)` private and native. It applies only the closed disposition: call a no-reclassification hit-reaction damage method for `ApplyRequestedDamage`, return zero for `SuppressDamage`, and perform nothing for `NoContactSideEffects`. Snapshot team, death, paired participation, `CanBeDamaged`, and i-frame state once before pure resolution. Finalize the receipt atomically before returning.
+Keep `CommitResolvedDefenseDamage(const FDefenseResolution&)` private and native. It applies only the closed disposition and returns an internal `FDefenseGameplayCommitResult`: call a no-reclassification, no-presentation hit-reaction damage method for `ApplyRequestedDamage`, return zero for `SuppressDamage`, and perform nothing for `NoContactSideEffects`. The result records actual damage, old/new health, any newly committed dying state, and immutable deferred hit/health/death notification data. Snapshot team, death, paired participation, `CanBeDamaged`, and i-frame state once before pure resolution. Finalize the receipt atomically before returning.
+
+Do not call the existing synchronous `UHitReactionComponent::ApplyDamage()`, `ABaseCombatCharacter::ModifyHealth()`, or `HandleDeath()` from the rich path. Split silent gameplay mutation from observable work: resistance and health/death state commit before receipt finalization; `OnDamageReceived`, `OnHealthChanged`, `OnCharacterDying`, hit/death montages, and optional effects dispatch only from the deferred result after the finalized receipt and source weapon accounting are coherent. Legacy entry points retain their immediate compatibility behavior by invoking the same silent primitive and then flushing it locally.
 
 Build `FActualDefenseContact` from the complete immutable `FHitReactionInfo`, accepted trace segment, active source socket, weapon velocity, source bearing, trajectory-derived lane, exact/parent bone-height provenance, and actual surface/contact data. Do not overwrite the retained prediction with actual values.
 
@@ -545,7 +552,9 @@ Dead, invulnerable, i-frame, and null-`AttackData` prefilters also move behind t
 
 - [ ] **Step 6: Enforce commit/event ordering and reentrancy**
 
-Direct gameplay and receipt finalization happen before presentation/delegates. Source finalization uses only the receipt, attempts defender presentation and attacker response, revalidates both actors after every cross-actor call, then broadcasts immutable events. Add a generation-keyed one-shot end-of-frame fallback when the source coordinator becomes invalid. A cached or in-progress receipt never replays effects or broadcasts.
+Direct silent gameplay mutation and receipt finalization happen before presentation/delegates. Source finalization uses only the finalized receipt plus its target-owned deferred gameplay result, completes weapon accounting, attempts defender presentation and attacker response, revalidates both actors after every cross-actor call, then broadcasts immutable events. Before each optional dispatch, verify that the owning actor and interaction generation remain valid; participant destruction suppresses remaining optional work without changing the committed receipt. Add a generation-keyed one-shot end-of-frame fallback when the source coordinator becomes invalid. A cached or in-progress receipt never replays effects or broadcasts.
+
+Add reentrancy tests whose `OnDamageReceived`, `OnHealthChanged`, and `OnCharacterDying` listeners query the same contact, begin another action, or destroy a participant. Assert that same-key reentry sees `InProgress` or the finalized cached receipt as appropriate, all listeners observe the finalized receipt, damage/death transition and each public event occur exactly once, weapon accounting is already coherent, and no optional presentation runs after its owner is destroyed.
 
 - [ ] **Step 7: Verify and commit Slice 2**
 
@@ -682,18 +691,22 @@ Priorities, high to low, are death/terminal cancellation, paired/parry bridge, b
 
 Enable `UTargetingComponent` tick only while a smooth-rotation request exists. Apply capped yaw through `UCharacterMovementComponent::MoveUpdatedComponent` with sweep; do not call `SetActorRotation`. Motion Warping requests own named targets and remove only those names.
 
+Set the targeting tick to `TG_PrePhysics` and add Character Movement's primary tick as a prerequisite so smooth alignment evaluates after Character Movement/root-motion composition in that group. Disable Character Movement/controller-driven actor yaw while an alignment owner is active, restore the exact captured settings after the last release, and permit only one rotation executor per actor per frame. Motion-Warping frames measure after Character Movement and must not also apply smooth yaw.
+
 `ClearMotionWarp(NAME_None)` is permitted only for death or component teardown. Add a source/test gate that normal request release removes its own target names and cannot clear another request.
 
 - [ ] **Step 6: Normalize Motion Warping rotation**
 
-Fix `UAnimNotifyState_CombatWarp::AddRootMotionModifier_Implementation()` so it never mutates the shared `RootMotionModifier` template. Duplicate the `URootMotionModifier_Warp`, set the request-owned target, `RotationMethod = EMotionWarpRotationMethod::ConstantRate`, and:
+Fix `UAnimNotifyState_CombatWarp::AddRootMotionModifier_Implementation()` so it never mutates or explicitly reuses mutable state from the shared `RootMotionModifier` template. Call `UMotionWarpingComponent::AddModifierFromTemplate()` first, cast and configure only the returned engine-owned clone, set the request-owned target and `RotationMethod = EMotionWarpRotationMethod::ConstantRate`, and register that clone against its alignment handle.
+
+Bind clone-local update/deactivation delegates through `UTargetingComponent`. UE 5.6 `URootMotionModifier::Update()` writes the current effective `PlayRate` before invoking `OnUpdateDelegate`, so the update callback recomputes:
 
 ```cpp
 RuntimeModifier->WarpMaxRotationRate = EffectiveDefenseTurnRate /
 	FMath::Max(FMath::Abs(EffectiveMontagePlayRate), SmallRate);
 ```
 
-Recompute when effective montage rate changes. At or below `SmallRate`, select no-warp fallback. Telemetry validates final composed actor yaw against `EffectiveDefenseTurnRate * SimulationDeltaSeconds`; modifier configuration alone is not success.
+Recompute every active update so montage-rate changes cannot retain a stale cap. At or below `SmallRate`, or for reverse playback, disable the owned modifier and select the no-warp fallback. Deactivation and request release unregister only that clone. Telemetry validates final composed actor yaw against `EffectiveDefenseTurnRate * SimulationDeltaSeconds`; modifier configuration alone is not success.
 
 Tests cover 0.5x, 1.0x, and 2.0x rates, world/actor dilation, request suspension/resume, owner-only release, exact settings restoration, total automatic-turn budget, and one executor per frame.
 
@@ -735,10 +748,16 @@ git commit -m "Route guard input through owned defense alignment"
 - Modify: `Source/KatanaCombat/Private/Core/CombatComponent.cpp`
 - Modify: `Source/KatanaCombat/Public/Core/PairedAnimationComponent.h`
 - Modify: `Source/KatanaCombat/Private/Core/PairedAnimationComponent.cpp`
+- Add: `Source/KatanaCombat/Public/Animation/CombatAnimNotifyIdentity.h`
+- Add: `Source/KatanaCombat/Private/Animation/CombatAnimNotifyIdentity.cpp`
+- Modify: `Source/KatanaCombat/Public/Animation/AnimNotify_AttackPhaseTransition.h`
+- Modify: `Source/KatanaCombat/Private/Animation/AnimNotify_AttackPhaseTransition.cpp`
 - Modify: `Source/KatanaCombat/Public/Animation/AnimNotifyState_ParryWindow.h`
 - Modify: `Source/KatanaCombat/Private/Animation/AnimNotifyState_ParryWindow.cpp`
 - Modify: `Source/KatanaCombat/Public/Animation/AnimNotifyState_CounterWindow.h`
 - Modify: `Source/KatanaCombat/Private/Animation/AnimNotifyState_CounterWindow.cpp`
+- Modify: `Source/KatanaCombat/Public/Interfaces/CombatInterface.h`
+- Modify: `Source/KatanaCombat/Public/Characters/BaseCombatCharacter.h`
 - Modify: `Source/KatanaCombat/Public/Core/WeaponComponent.h`
 - Modify: `Source/KatanaCombat/Private/Core/WeaponComponent.cpp`
 - Modify: `Source/KatanaCombat/Public/AI/EnemyCombatAIComponent.h`
@@ -747,6 +766,7 @@ git commit -m "Route guard input through owned defense alignment"
 - Modify: `Source/KatanaCombat/Private/AI/EnemyCombatStateTreeTasks.cpp`
 - Modify: `Source/KatanaCombat/Private/Characters/BaseCombatCharacter.cpp`
 - Add: `Source/KatanaCombatTest/Private/DefenseParryTests.cpp`
+- Add: `Source/KatanaCombatTest/Private/CombatAnimNotifyIdentityTests.cpp`
 - Modify: `Source/KatanaCombatTest/Private/ParryDetectionTests.cpp`
 - Modify: `Source/KatanaCombatTest/Private/EnemyCombatAITests.cpp`
 - Modify: `Source/KatanaCombatTest/Private/CounterSystemTests.cpp`
@@ -763,11 +783,15 @@ Include `Animation/ActiveMontageInstanceScope.h` and extract:
 const UE::Anim::FAnimNotifyMontageInstanceContext* Context =
 	EventReference.GetContextData<UE::Anim::FAnimNotifyMontageInstanceContext>();
 const int32 MontageInstanceId = Context ? Context->MontageInstanceID : INDEX_NONE;
-const FGuid NotifyGuid = EventReference.GetNotify()
-	? EventReference.GetNotify()->Guid : FGuid();
+const FAnimNotifyRuntimeSourceId NotifySourceId =
+	ResolveRuntimeNotifySourceId(EventReference);
 ```
 
-`NotifyBegin` calls `OpenAttackWindow(Kind, NotifyGuid, MontageInstanceId, Duration)` and stores the returned generation in the component record keyed by attack ID, notify GUID, and montage instance. `NotifyEnd` calls `CloseAttackWindow(Kind, NotifyGuid, MontageInstanceId)`; it can close only that matching record. Hit detection enable/disable uses the same model with a hit-window generation. Add stale End tests for old attack, same montage/new instance, same notify/new generation, and interrupted montage.
+Implement `ResolveRuntimeNotifySourceId` in `CombatAnimNotifyIdentity.*`. It uses `EventReference.GetSourceObject()`, casts it to `UAnimSequenceBase`, and finds the exact `EventReference.GetNotify()` address in that source's runtime `Notifies` array. It returns source soft path plus event index; UE 5.6's `FAnimNotifyEvent::Guid` is editor-only and must never appear in runtime code.
+
+`NotifyBegin` calls `OpenAttackWindow(Kind, NotifySourceId, MontageInstanceId, Duration)` and stores the returned generation in the component record keyed by attack ID, runtime notify source ID, and montage instance. `NotifyEnd` calls `CloseAttackWindow(Kind, NotifySourceId, MontageInstanceId)`; it can close only that matching record. Hit detection enable/disable uses the same model with a hit-window generation. Add stale End tests for old attack, same montage/new instance, same source event/new generation, invalid source index, missing montage context, and interrupted montage.
+
+`AnimNotify_AttackPhaseTransition(Active)` and `(Recovery)` are distinct point events. Add an identity-bearing combat-interface context call for production notifies: Active opens a Hit window using its source ID and montage instance; Recovery may close only the current attack's Hit generation for that same montage instance and records its own source ID as the close trigger. The old context-free phase call remains a deprecated compatibility adapter and cannot satisfy canonical authored-window proof. Deprecated `AnimNotify_ToggleHitDetection` may use only the compatibility trace generation and is prohibited from Gate A/B montages. Test stale Recovery from an old attack/montage, duplicate Active/Recovery, interruption cleanup, and compatibility isolation.
 
 Keep compatibility `SetParryWindowActive`/counter methods only as deprecated adapters for legacy tests/assets; production notifies use identities.
 
@@ -883,10 +907,10 @@ Reference-count tags by valid handle. Keep old add/remove calls as legacy ref-co
 void HandleChainStageTransition(
 	EChainStageTransitionType Transition,
 	int32 MontageInstanceId,
-	FGuid NotifyGuid);
+	FAnimNotifyRuntimeSourceId NotifySourceId);
 ```
 
-Only the authored driver role with the active interaction, stage generation, and montage instance may advance. Partner markers and duplicates record telemetry only. Bridge marker enters `CounterWindow`; it never drops montage/pose ownership. Counter auto-continue allocates and retires generations before starting the successor, so synchronous outgoing interruption cannot clean the new stage.
+Only the authored driver role with the active interaction, stage generation, montage instance, and valid runtime source event may advance. Partner markers and duplicates record telemetry only. Bridge marker enters `CounterWindow`; it never drops montage/pose ownership. Counter auto-continue allocates and retires generations before starting the successor, so synchronous outgoing interruption cannot clean the new stage.
 
 - [ ] **Step 4: Implement rollback-safe two-actor start**
 
@@ -900,13 +924,15 @@ Use an explicit transaction local to `UPairedAnimationComponent`:
 
 Never claim the interrupted outgoing pose can be restored. Unexpected bridge montage end before counter input is failure cleanup. A failed counter start expires only that input and keeps the original `CounterWindow` until timeout. A retryable automatic-finisher failure enters `FinisherReady`; invalid/non-retryable data performs terminal cleanup.
 
+Canonical stages acquire collision and movement leases before either role starts. `UAnimNotifyState_PairedAnimationCollision` becomes a compatibility adapter that delegates Begin/End to per-actor, per-montage-instance component records keyed by runtime notify source ID; it stores no cached owner, saved response/movement mode, partner array, or mutable active flag on the asset-shared notify object. Stale End can release only its matching record, and terminal sequence cleanup releases any surviving stage-owned lease.
+
 - [ ] **Step 5: Preserve ownership across successful stages**
 
 Counter completion that auto-continues must not call broad paired cleanup, clear the action queue, expose `ChainState::None`, restore collision/movement/input, remove `Context.ParryCounter`, clear warp targets owned by the successor, or release time leases. Terminal cleanup is idempotent and keyed by interaction plus active generation.
 
 Start `CounterWindow` only at the bridge driver marker and start its 2.0-second default timeout then, not at Block Press. `CounterWindow` and `FinisherReady` use unscaled real time; montage/marker progress and no-montage bridge fallback use simulation time. Light/Heavy input in either response state is `ChainOnly`; a failed finisher attempt expires only that edge and leaves `FinisherReady` retryable until its original timeout.
 
-Drive unscaled response deadlines from `FPlatformTime::Seconds()` through generation-keyed `FTSTicker` callbacks, not a world timer affected by dilation. Every callback validates interaction and stage generation before transition or cleanup.
+Drive unscaled response deadlines from `FPlatformTime::Seconds()` through generation-keyed `FTSTicker` callbacks, not a world timer affected by dilation. Store every returned `FDelegateHandle`; cancellation, component teardown, and world teardown remove it explicitly. Every callback validates weak world/actors, interaction, and stage generation before transition or cleanup and returns `false` on any stale owner.
 
 Rewrite public-flow counter tests named in the spec. Retire `KatanaCombat.CounterSystem.Internal.ChainParryTransition`. Rewrite `Internal.ChainParryStaggersEnemy` as data-driven `ParryStagger`. Keep narrow null/no-op primitives but do not count them as feature proof.
 
@@ -920,13 +946,13 @@ FTimeDilationLeaseHandle AcquireActorLease(AActor* Actor, FName Owner, float Abs
 void ReleaseLease(FTimeDilationLeaseHandle Handle);
 ```
 
-The first lease captures the prior value. Effective value is the minimum of baseline and active absolute requests. Releasing recomputes; the last release restores baseline. Use `FTSTicker` only for active unscaled watchdog/restoration callbacks; the subsystem itself does not tick continuously. World teardown releases safely without dereferencing actors.
+The first lease captures the prior value. Effective value is the minimum of baseline and active absolute requests. Releasing recomputes; the last release restores baseline. Use `FTSTicker` only for active unscaled watchdog/restoration callbacks; the subsystem itself does not tick continuously. Retain every ticker `FDelegateHandle`, remove it on normal release and `Deinitialize`, and make callbacks weak-world-safe. World teardown releases safely without dereferencing actors.
 
 Migrate `UCinematicEffectsUtilityLibrary` and hitstop to the subsystem. New paired code stores handles. Legacy Apply/Restore calls delegate through named compatibility leases and diagnose direct external dilation changes while leases are active. Remove static global actor hitstop restoration state after actor-lease tests replace it.
 
 - [ ] **Step 7: Add adversarial lifecycle tests**
 
-Test bridge marker delay, hold pose ownership, counter retry, auto-finisher success/failure, timeout, cancel, owner death, partner death, missing montage, one-role start failure, stale marker, stale montage end, duplicate callback, listener destruction, listener starting another action, overlapping world leases, overlapping actor freezes, baseline restoration, duplicate release, watchdog, and world teardown.
+Test bridge marker delay, hold pose ownership, counter retry, auto-finisher success/failure, timeout, cancel, owner death, partner death, missing montage, one-role start failure, stale marker, stale montage end, duplicate callback, listener destruction, listener starting another action, two actors sharing one notify asset, overlapping collision/movement windows, stale collision End, overlapping world leases, overlapping actor freezes, baseline restoration, duplicate release, watchdog, and world teardown.
 
 Every successful multi-stage test asserts no intermediate `None`, queue clear, input restore, collision restore, tag release, or warp clear. Every terminal path asserts each owner is restored exactly once.
 
@@ -1056,24 +1082,26 @@ The snippet defines shape, not accepted Gate A timing. Validation must reject `r
 - Sampled montage root yaw and horizontal translation.
 - Complete dependency closure for the named gate, including map/Blueprint/settings references.
 
-Use `UAnimMontage::ExtractRootMotionFromTrackRange` or the equivalent UE 5.6 montage API over the exact section/ranges. A normal-block montage above 1 cm horizontal numerical drift or with authored yaw that can violate the cap is invalid. A perfect-parry role above 75 cm horizontal displacement is invalid.
+Use the UE 5.6 three-argument `UAnimMontage::ExtractRootMotionFromTrackRange(StartTime, EndTime, ExtractContext)` overload over the exact section/ranges, with an explicitly initialized `FAnimExtractContext` that enables root-motion extraction. Do not use the deprecated two-argument overload. A normal-block montage above 1 cm horizontal numerical drift or with authored yaw that can violate the cap is invalid. A perfect-parry role above 75 cm horizontal displacement is invalid.
 
 - [ ] **Step 4: Extend the commandlet without weakening save gates**
 
 Register `DefenseProofMigration` in `FKatanaAssetMigrationRunner`. Extend report rows/schema with manifest/gate/case, profile fields, tag/window agreement, selected rows/fallbacks, marker/role checks, root-motion measurements, bone fallback provenance, dependency paths, coverage cells, and save packages.
 
+Upgrade the reusable migration report schema with backward-compatible common fields plus operation-specific details. `DefenseProofMigration` emits one row per manifest attack/presentation/paired/expected case, not one aggregate row, and includes a separate deterministically ordered package ledger with package role, initial dirty state, planned action, actual action, save result, and post-save reload result. Placeholder booleans from unrelated operations are not accepted as defense evidence.
+
 Modes:
 
 - `Audit`: load and validate only.
-- `Plan`: report exact property/notify/assignment changes and packages.
-- `Apply`: mutate in memory only.
-- `ApplyAndSave`: require `-AllowPackageSave`; require `-AllowTimingMutation` for a parry-window edit; reject initially dirty packages unless explicitly allowed; save only report-approved packages.
+- `Plan`: report exact property/notify/assignment changes and packages and emit a deterministic `plan_fingerprint` over operation/schema, canonical manifest content, current asset facts, ordered proposed changes, and ordered package ledger.
+- `Apply`: mutate in memory only and require `-ApprovedPlanReport` plus the reviewed `-ApprovedPlanFingerprint`; recompute the current plan before mutation and reject any structural or fingerprint drift.
+- `ApplyAndSave`: require the same reviewed-plan binding plus `-AllowPackageSave`; require `-AllowTimingMutation` for a parry-window edit; reject initially dirty packages unless explicitly allowed; require the actual changed-package set to equal the approved ledger; save only those packages.
 
-No mode invents parry timing, presentation assets, sockets, bones, or fallback rows. Apply is idempotent. Post-save Audit must return `Unchanged` with zero errors.
+Use a stable engine hash API over canonical UTF-8 bytes; this fingerprint is a drift/approval binding, not an authentication mechanism. No mode invents parry timing, presentation assets, sockets, bones, or fallback rows. Apply is idempotent. World Partition actor/object packages are listed individually, saved through a verified editor/package path, and reloaded before success is reported. Post-save Audit must return `Unchanged` with zero errors.
 
 - [ ] **Step 5: Add commandlet and validation tests**
 
-Use transient AttackData/montages/configurations plus small checked-in test fixtures. Prove malformed JSON, unknown schema/fields, missing assets, false review flag, timing outside section, duplicate parry window, tag/window mismatch, ambiguous rows, missing generic fallback, root-motion budget failure, marker-role ambiguity, incomplete dependency closure, plan/apply idempotence, dirty-package refusal, save-gate refusal, and JSON report serialization.
+Use transient AttackData/montages/configurations plus small checked-in test fixtures. Prove malformed JSON, unknown schema/fields, missing assets, false review flag, timing outside section, duplicate parry window, tag/window mismatch, ambiguous rows, missing generic fallback, root-motion budget failure, marker-role ambiguity, incomplete dependency closure, per-case row cardinality, canonical fingerprint stability, edited manifest/asset/plan drift refusal, missing or mismatched approval arguments, plan/apply idempotence, changed-package-set mismatch, dirty-package refusal, save-gate refusal, external-actor package reporting/reload, and JSON report serialization.
 
 - [ ] **Step 6: Run Gate A inventory and make the manifest concrete**
 
@@ -1090,10 +1118,14 @@ Write `Tools/Codex/manifests/defense-gate-a.json` only after all required fields
 
 Expected: Audit reports current gaps; Plan names only the reviewed attack, montage, configuration/settings, paired/presentation assets, and assignment packages. Stop if unrelated maps/assets appear.
 
+Review every row and package-ledger entry. Record the exact `plan_fingerprint` only after that review; extracting a fingerprint and immediately applying without scope review does not satisfy approval.
+
 - [ ] **Step 8: Prove mutation in memory before saving**
 
 ```powershell
-& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=Apply -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" -AllowTimingMutation -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-apply.json" -unattended -nopause -NullRHI -nosplash -stdout
+$approvedPlan = "Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-plan.json"
+$approvedFingerprint = "<reviewed plan_fingerprint>"
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=Apply -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" "-ApprovedPlanReport=$approvedPlan" "-ApprovedPlanFingerprint=$approvedFingerprint" -AllowTimingMutation -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-apply.json" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
 Expected: changed-in-memory rows match Plan, no package is saved, and reapplying in the same test context is idempotent.
@@ -1103,7 +1135,7 @@ Expected: changed-in-memory rows match Plan, no package is saved, and reapplying
 Close the Editor first. Confirm `git status --short` and initially dirty package state. Then:
 
 ```powershell
-& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=ApplyAndSave -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" -AllowTimingMutation -AllowPackageSave -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-save.json" -unattended -nopause -NullRHI -nosplash -stdout
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=ApplyAndSave -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" "-ApprovedPlanReport=$approvedPlan" "-ApprovedPlanFingerprint=$approvedFingerprint" -AllowTimingMutation -AllowPackageSave -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-save.json" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
 Rerun Audit. Expected: `Unchanged`, no errors, and only named packages changed. Inspect every binary path before staging.
