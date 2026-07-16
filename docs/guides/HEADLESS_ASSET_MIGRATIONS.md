@@ -94,7 +94,7 @@ Readiness rows report `CounterData`, `FinisherData`, parry/counter window presen
 
 ## Enemy AI Proof Assets
 
-Use `EnemyAIProofAssets` to create or refresh the minimal playable enemy AI proof slice. This operation does not use a target file. It creates or updates `/Game/ProjectFiles/AI/ST_EnemyCombatProof`, creates or updates `/Game/ProjectFiles/AI/BP_EnemyCombatAIController`, assigns that controller and a fallback attack on `/Game/ProjectFiles/Core/Actors/Character/BP_EnemyCharacter`, then loads `/Game/ProjectFiles/Levels/Lvl_ThirdPerson1` to validate placed enemies.
+Use `EnemyAIProofAssets` to create or refresh the minimal playable enemy AI proof slice. This operation does not use a target file. It creates or updates `/Game/ProjectFiles/AI/ST_EnemyCombatProof` and `/Game/ProjectFiles/AI/BP_EnemyCombatAIController`, assigns that controller and a fallback attack on `/Game/ProjectFiles/Core/Actors/Character/BP_EnemyCharacter`, and loads `/Game/ProjectFiles/Levels/Lvl_ThirdPerson1` to validate placed enemies. It also creates or repairs Boolean `/Game/ProjectFiles/Input/Actions/IA_Block`, assigns it and the combat mapping context on `/Game/ProjectFiles/Core/Actors/Character/BP_Player`, maps block to Thumb Mouse Button and Gamepad Left Shoulder in `/Game/ProjectFiles/Input/IMC_Combat`, and removes the deprecated Right Mouse Button block mapping so that binding remains available for heavy attack.
 
 Plan the proof asset update:
 
@@ -108,4 +108,4 @@ Apply and save only after reviewing the planned package list:
 &"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=EnemyAIProofAssets -Mode=ApplyAndSave -AllowPackageSave -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/enemy-ai-proof-assets-save.json" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
-Re-run `Plan` after saving. Expected post-save result is `Unchanged`, with a warning that records how many `AEnemyCharacter` actors loaded from `Lvl_ThirdPerson1` and how many already had usable attacks. The operation only saves changed AI, controller, and enemy Blueprint packages; it should not resave the level or external actor packages unless a placed enemy is missing required defaults.
+Re-run `Plan` after saving. Expected post-save result is `Unchanged`, with a warning that records how many `AEnemyCharacter` actors loaded from `Lvl_ThirdPerson1` and how many already had usable attacks. Review the report for every package before allowing saves: depending on detected drift, the operation may save the StateTree, controller Blueprint, enemy Blueprint, player Blueprint, `IA_Block`, and `IMC_Combat`. It should not resave the level or external actor packages unless a placed enemy is missing required defaults.

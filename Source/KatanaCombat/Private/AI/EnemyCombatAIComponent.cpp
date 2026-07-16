@@ -123,6 +123,21 @@ bool UEnemyCombatAIComponent::TryInitiateAttack()
 	}
 }
 
+void UEnemyCombatAIComponent::CancelQueuedAttackRequest()
+{
+	bWaitingForTokenGrant = false;
+
+	if (TokenSubsystem && TokenSubsystem->IsInTokenQueue(GetOwner()))
+	{
+		TokenSubsystem->RemoveFromQueue(GetOwner());
+	}
+
+	if (!HasAttackToken())
+	{
+		SelectedAttack = nullptr;
+	}
+}
+
 bool UEnemyCombatAIComponent::ExecuteAttack()
 {
 	if (CurrentState != EEnemyAIState::Approaching)

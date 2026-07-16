@@ -98,6 +98,13 @@ public:
 	bool TryInitiateAttack();
 
 	/**
+	 * Cancel a pending queued attack request without releasing an active token.
+	 * Used when a StateTree request task times out or exits before a grant.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AI|Combat")
+	void CancelQueuedAttackRequest();
+
+	/**
 	 * Execute the selected attack (called when in range)
 	 * Plays attack montage with CounterWindow notify
 	 * @return True if attack execution started

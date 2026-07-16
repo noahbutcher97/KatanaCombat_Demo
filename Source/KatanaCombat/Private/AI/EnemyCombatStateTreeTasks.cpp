@@ -142,9 +142,22 @@ EStateTreeRunStatus FStateTreeRequestEnemyAttackTokenTask::Tick(FStateTreeExecut
 		return EStateTreeRunStatus::Failed;
 	}
 
-	return InstanceData.ElapsedTime >= InstanceData.MaxQueueWaitTime
-		? EStateTreeRunStatus::Failed
-		: EStateTreeRunStatus::Running;
+	if (InstanceData.ElapsedTime >= InstanceData.MaxQueueWaitTime)
+	{
+		CombatAI->CancelQueuedAttackRequest();
+		return EStateTreeRunStatus::Failed;
+	}
+
+	return EStateTreeRunStatus::Running;
+}
+
+void FStateTreeRequestEnemyAttackTokenTask::ExitState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
+{
+	const FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
+	if (UEnemyCombatAIComponent* CombatAI = FindEnemyCombatAI(InstanceData.EnemyActor))
+	{
+		CombatAI->CancelQueuedAttackRequest();
+	}
 }
 
 EStateTreeRunStatus FStateTreeCircleEnemyCombatTargetTask::EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const

@@ -10,7 +10,7 @@ if (-not (Test-Path -LiteralPath $LogPath)) {
 }
 
 $Completed = Select-String -Path $LogPath -Pattern "Test Completed.*Result=" -ErrorAction SilentlyContinue
-$Failures = Select-String -Path $LogPath -Pattern "Test Completed\. Result=\{(Fail|Failed|Error|Cancelled|Timeout)\}|LogAutomation(CommandLine|Controller|Worker).*Error:" -ErrorAction SilentlyContinue
+$Failures = Select-String -Path $LogPath -Pattern "Test Completed\. Result=\{(Fail|Failed|Error|Cancelled|Timeout)\}|LogAutomation(CommandLine|Controller|Worker): Error:" -ErrorAction SilentlyContinue
 $Warnings = Select-String -Path $LogPath -Pattern "Warning:.*Automation|Automation.*Warning" -ErrorAction SilentlyContinue
 
 $Summary = [ordered]@{

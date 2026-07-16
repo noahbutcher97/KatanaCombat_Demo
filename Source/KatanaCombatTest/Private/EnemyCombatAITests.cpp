@@ -14,6 +14,7 @@
 #include "Engine/GameInstance.h"
 #include "EngineUtils.h"
 #include "FileHelpers.h"
+#include "GameFramework/PlayerController.h"
 #include "InputAction.h"
 #include "InputCoreTypes.h"
 #include "InputMappingContext.h"
@@ -329,6 +330,131 @@ bool FEnemyCombatAI_QueuedTargetClearReleasesQueue::RunTest(const FString& Param
 
 	TestFalse(TEXT("Cleared queued enemy should not receive the next token"), SecondAI->HasAttackToken());
 
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_QueuedTokenTimeoutRemovesRequest,
+	"KatanaCombat.EnemyAI.QueuedTokenTimeoutRemovesRequest",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_QueuedTokenTimeoutRemovesRequest::RunTest(const FString& Parameters)
+{
+	const FString StateTreePath = TEXT("/Game/ProjectFiles/AI/ST_EnemyCombatProof.ST_EnemyCombatProof");
+
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	APlayerController* PlayerController = World ? World->SpawnActor<APlayerController>() : nullptr;
+	AEnemyCharacter* TokenHolder = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(100.0f, 0.0f, 0.0f));
+	AEnemyCharacter* QueuedEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* HolderAI = TokenHolder ? TokenHolder->CombatAIComponent.Get() : nullptr;
+	UEnemyCombatAIComponent* QueuedAI = QueuedEnemy ? QueuedEnemy->CombatAIComponent.Get() : nullptr;
+	AEnemyCombatAIController* QueuedController = QueuedEnemy
+		? Cast<AEnemyCombatAIController>(QueuedEnemy->GetController())
+		: nullptr;
+	UEnemyStateTreeAIComponent* StateTreeComponent = QueuedController
+		? Cast<UEnemyStateTreeAIComponent>(QueuedController->GetStateTreeAIComponent())
+		: nullptr;
+	UStateTree* StateTree = Cast<UStateTree>(StaticLoadObject(UStateTree::StaticClass(), nullptr, *StateTreePath));
+	UCombatTokenSubsystem* TokenSubsystem = CreateTestTokenSubsystem();
+	UAttackData* AttackData = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
+
+	if (!Player || !PlayerController || !HolderAI || !QueuedAI || !QueuedController || !StateTreeComponent || !StateTree || !TokenSubsystem || !AttackData)
+	{
+		AddError(TEXT("Failed to create Enemy AI queued token timeout fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	PlayerController->Possess(Player);
+	StateTreeComponent->StopLogic(TEXT("Configure queued token timeout test"));
+	StateTreeComponent->SetStateTree(StateTree);
+
+	HolderAI->SetTokenSubsystemForTesting(TokenSubsystem);
+	QueuedAI->SetTokenSubsystemForTesting(TokenSubsystem);
+	HolderAI->SetCombatTarget(Player);
+	QueuedAI->SetCombatTarget(Player);
+	ConfigureSingleAttack(HolderAI, AttackData);
+	ConfigureSingleAttack(QueuedAI, AttackData);
+
+	TestTrue(TEXT("First enemy should occupy the only attack token"), HolderAI->TryInitiateAttack());
+	StateTreeComponent->StartLogic();
+	StateTreeComponent->TickComponent(0.01f, ELevelTick::LEVELTICK_All, nullptr);
+
+	TestTrue(TEXT("Proof StateTree should be running while the second enemy waits"), StateTreeComponent->IsRunning());
+	TestTrue(TEXT("Second enemy should enter the token queue through the proof StateTree"), QueuedAI->IsWaitingForToken());
+
+	StateTreeComponent->TickComponent(3.1f, ELevelTick::LEVELTICK_All, nullptr);
+
+	TestFalse(TEXT("StateTree timeout should remove the pending enemy from the token queue"), QueuedAI->IsWaitingForToken());
+	TestNull(TEXT("StateTree timeout should clear the queued attack selection"), QueuedAI->SelectedAttack.Get());
+	TestEqual(TEXT("StateTree timeout should preserve the combat target"), QueuedAI->CombatTarget.Get(), static_cast<AActor*>(Player));
+	TestTrue(TEXT("Cancelling the queued request should not release another enemy's active token"), HolderAI->HasAttackToken());
+
+	StateTreeComponent->StopLogic(TEXT("Queued token timeout test cleanup"));
+	TokenSubsystem->ResetAllTokens();
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_QueuedTokenStateTreeStopRemovesRequest,
+	"KatanaCombat.EnemyAI.QueuedTokenStateTreeStopRemovesRequest",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_QueuedTokenStateTreeStopRemovesRequest::RunTest(const FString& Parameters)
+{
+	const FString StateTreePath = TEXT("/Game/ProjectFiles/AI/ST_EnemyCombatProof.ST_EnemyCombatProof");
+
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	APlayerController* PlayerController = World ? World->SpawnActor<APlayerController>() : nullptr;
+	AEnemyCharacter* TokenHolder = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(100.0f, 0.0f, 0.0f));
+	AEnemyCharacter* QueuedEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* HolderAI = TokenHolder ? TokenHolder->CombatAIComponent.Get() : nullptr;
+	UEnemyCombatAIComponent* QueuedAI = QueuedEnemy ? QueuedEnemy->CombatAIComponent.Get() : nullptr;
+	AEnemyCombatAIController* QueuedController = QueuedEnemy
+		? Cast<AEnemyCombatAIController>(QueuedEnemy->GetController())
+		: nullptr;
+	UEnemyStateTreeAIComponent* StateTreeComponent = QueuedController
+		? Cast<UEnemyStateTreeAIComponent>(QueuedController->GetStateTreeAIComponent())
+		: nullptr;
+	UStateTree* StateTree = Cast<UStateTree>(StaticLoadObject(UStateTree::StaticClass(), nullptr, *StateTreePath));
+	UCombatTokenSubsystem* TokenSubsystem = CreateTestTokenSubsystem();
+	UAttackData* AttackData = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
+
+	if (!Player || !PlayerController || !HolderAI || !QueuedAI || !QueuedController || !StateTreeComponent || !StateTree || !TokenSubsystem || !AttackData)
+	{
+		AddError(TEXT("Failed to create Enemy AI queued StateTree stop fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	PlayerController->Possess(Player);
+	StateTreeComponent->StopLogic(TEXT("Configure queued StateTree stop test"));
+	StateTreeComponent->SetStateTree(StateTree);
+
+	HolderAI->SetTokenSubsystemForTesting(TokenSubsystem);
+	QueuedAI->SetTokenSubsystemForTesting(TokenSubsystem);
+	HolderAI->SetCombatTarget(Player);
+	QueuedAI->SetCombatTarget(Player);
+	ConfigureSingleAttack(HolderAI, AttackData);
+	ConfigureSingleAttack(QueuedAI, AttackData);
+
+	TestTrue(TEXT("First enemy should occupy the only attack token"), HolderAI->TryInitiateAttack());
+	StateTreeComponent->StartLogic();
+	StateTreeComponent->TickComponent(0.01f, ELevelTick::LEVELTICK_All, nullptr);
+
+	TestTrue(TEXT("Second enemy should enter the token queue before StateTree stop"), QueuedAI->IsWaitingForToken());
+	TestNotNull(TEXT("Queued request should retain its selected attack while waiting"), QueuedAI->SelectedAttack.Get());
+
+	StateTreeComponent->StopLogic(TEXT("Cancel queued token request"));
+
+	TestFalse(TEXT("Stopping the StateTree should remove the pending enemy from the token queue"), QueuedAI->IsWaitingForToken());
+	TestNull(TEXT("Stopping the StateTree should clear the queued attack selection"), QueuedAI->SelectedAttack.Get());
+	TestEqual(TEXT("Stopping the StateTree should preserve the combat target"), QueuedAI->CombatTarget.Get(), static_cast<AActor*>(Player));
+	TestTrue(TEXT("Stopping a queued request should not release another enemy's active token"), HolderAI->HasAttackToken());
+
+	TokenSubsystem->ResetAllTokens();
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }
