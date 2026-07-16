@@ -2,7 +2,7 @@
 
 **Condensed technical reference for KatanaCombat system.**
 
-Full details in [ARCHITECTURE.md](ARCHITECTURE.md)
+`ARCHITECTURE.md` is a legacy deep-dive and contains historical posture/parry material. Current source plus this quick reference are authoritative for implemented behavior. Reviewed target defense behavior is tracked separately in the dated defense design.
 
 ---
 
@@ -51,6 +51,8 @@ Combo Window Active?
 └─ NO → Execute at Recovery end (normal, "responsive")
 ```
 
+Every edge is captured. Stateful Block Press/Release is evaluated immediately and is not deferred; Chain-routed attack input is captured but cannot fall through into the normal attack queue after a failed Chain preflight. "Always buffered" means capture is unconditional, not that every input must become a later attack.
+
 ### 4. Hold Mechanics (State Check)
 
 ```
@@ -63,7 +65,11 @@ HoldWindow Starts:
         └─ NO → Continue normal combo
 ```
 
-### 5. Parry System (Contextual Block)
+### 5. Defense System (Current And Target)
+
+**Current runtime:** Block input and physical hit handling still use separate legacy paths, direct block-facing rotation, and pre-resolver Chain behavior. Existing tests prove that baseline only.
+
+**Reviewed target, not yet implemented:**
 
 ```
 Defender Presses Block:
@@ -85,22 +91,20 @@ Central resolver returns one contact outcome
 window and `Attack.Defense.Parryable`; normal block remains available while
 guard is held regardless of parry timing.
 
-Guard entry, contact block, perfect-parry alignment, and counter start are distinct
-decisions. See `docs/superpowers/specs/2026-07-16-defense-interaction-design.md`
-for the canonical two-stage defense matrix and retained sequence contract.
+Guard entry, contact block, perfect-parry alignment, and counter start are distinct decisions. See `docs/superpowers/specs/2026-07-16-defense-interaction-design.md` for the accepted target two-stage matrix, rich-contact handoff, alignment policy, and retained sequence contract. The target is approved for implementation planning but is not runtime behavior until its slices land and pass their proof gates.
 
-### Chain Counter Ownership
+### Target Chain Counter Ownership
 
-- `UCombatComponent` owns input capture, queue ownership, and attack-data resolution.
-- `UCombatComponent` must not enqueue successful Chain Block/attack inputs.
+- `UCombatComponent` owns unconditional input capture, route disposition, queue ownership, and attack-data resolution.
+- Stateful Block input is immediate. CounterWindow attack input is `ChainOnly` and cannot enter the normal queue after success or failed preflight.
 - `UPairedAnimationComponent` owns Chain state, retained target/context, paired counter execution, paired finisher execution, and cleanup.
 - The public Chain advance API is `TryAdvanceChainCounter(UAttackData* SelectedAttackData)`. Low-level state helpers remain protected/internal unless a test explicitly names them as internal primitive coverage.
 
 ### Tags, Enums, Booleans, And Data
 
-Authoring semantics use a deliberate split. Enums own closed runtime identities and state machines such as combat state, attack phase, input type, attack type, chain state, paired reaction type, and resolved outcomes. Booleans own local runtime latches or direct authored gates such as blocking, input blocking, parry/counter window state, and explicit counter/finisher readiness flags. Gameplay tags own open-ended authored capabilities, properties, style categories, and context requirements such as combo capability, unblockable attacks, parry-counter context, or future block-interruptible rules. Data references own the concrete montage, paired animation, hit reaction, VFX, audio, or other payload.
+Authoring semantics use a deliberate split. Enums own closed runtime identities and state machines such as combat state, attack phase, input type, attack type, chain state, paired reaction type, and resolved outcomes. Booleans own local runtime latches or direct authored gates such as blocking, input blocking, parry/counter window state, and explicit counter/finisher readiness flags. Gameplay tags own open-ended authored capabilities, properties, style categories, and context requirements such as combo capability, unblockable attacks, parry-counter context, or `Attack.Defense.BlockInterruptible`. Data references own the concrete montage, paired animation, hit reaction, VFX, audio, or other payload.
 
-Gameplay-relevant tags must be consumed by runtime resolution and validation before designers rely on them. `RequiredContextTags` now gates already-linked attack-resolution candidates, and `Attack.Property.Unblockable` now bypasses `ABaseCombatCharacter` normal block when concrete `AttackData` is present. Context producers, generic hit-aware defense, and broader block/parry/recoil outcomes remain future work.
+Gameplay-relevant tags must be consumed by runtime resolution and validation before designers rely on them. In current source, `RequiredContextTags` gates already-linked attack-resolution candidates and `Attack.Property.Unblockable` bypasses legacy normal block when concrete `AttackData` is present. Scoped `Context.ParryCounter`, rich-contact defense, and broader block/parry/recoil outcomes belong to the revised target design and must not be described as implemented yet.
 
 See `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md` for the canonical ownership policy.
 
@@ -228,7 +232,7 @@ Default combo timing is inferred from phase transitions; do not add explicit com
 - Attacker montages that can be directly countered require `AnimNotifyState_CounterWindow`.
 - Counter-capable `UAttackData` should set `bHasCounterVariant` and `CounterData` when a paired counter animation exists.
 - Paired counter/finisher montages require paired sync/collision notifies when they depend on impact timing or partner collision suppression.
-- Successful Chain Block and attack inputs are consumed only when `UPairedAnimationComponent` returns success.
+- All input edges are captured. Target Chain-only attack input is consumed on successful stage start and expires without normal-attack fallthrough on failure.
 - `UCombatComponent` resolves selected attack data before crossing into Chain advance.
 
 ### Do Not Default-Seed
@@ -259,18 +263,7 @@ ChargeReleaseBlendTime:       0.2s  // Blend out of charge loop on release
 ```
 
 ### Posture (DEPRECATED)
-**Note**: The posture system has been deprecated and replaced by contextual stagger mechanics. Posture values are maintained for backwards compatibility but are no longer the primary defense mechanism.
-
-```cpp
-MaxPosture:                   100.0f
-PostureRegenRate_Attacking:   50.0f  // Fastest
-PostureRegenRate_NotBlocking: 30.0f
-PostureRegenRate_Idle:        20.0f
-GuardBreakStunDuration:       2.0f
-GuardBreakRecoveryPercent:    0.5f   // 50%
-```
-
-**Use instead**: `ApplyStagger()`, `IsStaggered()`, `EndStagger()` from HitReactionComponent.
+Posture and posture-based guard break are sunset gameplay. Deprecated fields and interface stubs remain only for compatibility and must not drive block, parry, recoil, finisher eligibility, UI, or new content. Use explicit defense outcomes and contextual `ApplyStagger()`, `IsStaggered()`, and `EndStagger()` behavior instead.
 
 ### Motion Warping
 ```cpp
@@ -286,14 +279,6 @@ LightBaseDamage:              25.0f
 HeavyBaseDamage:              50.0f
 MaxChargeDamageMultiplier:    2.5f
 CounterDamageMultiplier:      1.5f
-
-// Posture Damage (when blocked)
-LightPostureDamage:           10.0f
-HeavyPostureDamage:           25.0f
-ChargedPostureDamage:         40.0f
-
-// Parry
-ParryPostureDamage:           40.0f  // To attacker
 ```
 
 ---
@@ -341,24 +326,27 @@ Source/KatanaCombat/Public/
 
 ### ICombatInterface
 ```cpp
+bool CanPerformAttack() const;
 ECombatState GetCombatState() const;
-EAttackPhase GetCurrentAttackPhase() const;
+UAttackData* GetCurrentAttack() const;
+EAttackPhase GetCurrentPhase() const;
 bool IsAttacking() const;
-bool IsBlocking() const;
-bool IsInCounterWindow() const;
-bool IsInParryWindow() const;  // CRITICAL for parry detection
-float GetPosturePercent() const;
-bool IsGuardBroken() const;
+bool IsInParryWindow() const;  // Current legacy attacker-timing query
 ```
 
 ### IDamageableInterface
 ```cpp
-void ApplyDamage(const FDamageInfo& DamageInfo);
+float ApplyDamage(const FHitReactionInfo& HitInfo);
+bool CanBeDamaged() const;
+bool IsBlocking() const;
+bool IsStaggered() const;
+bool IsInCounterWindow() const;
 float GetCurrentHealth() const;
 float GetMaxHealth() const;
-bool IsDead() const;
-bool IsVulnerableToFinisher() const;
+bool IsAlive() const;
 ```
+
+Deprecated posture/guard-break methods are omitted above. The target native rich-contact entry point belongs on `ABaseCombatCharacter`; it does not change the generic `IDamageableInterface` signature.
 
 ---
 
@@ -404,7 +392,7 @@ The suite changes with active combat work. Use the standard baseline and `Source
 1. **StateTransitionTests** - State machine validation
 2. **InputBufferingTests** - Hybrid responsive + snappy system
 3. **HoldWindowTests** - Button state detection
-4. **ParryDetectionTests** - Defender-side parry
+4. **ParryDetectionTests** - Legacy defender-side baseline; revised resolver/bridge tests must replace immediate-transition assumptions
 5. **AttackExecutionTests** - ExecuteAttack vs ExecuteComboAttack
 6. **PhasesVsWindowsTests** - Architectural separation
 

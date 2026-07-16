@@ -103,7 +103,8 @@ public:
 
 	/**
 	 * Is this actor currently in parry window? (Attacker-side state)
-	 * Defender checks this on nearby attackers to determine if parry is possible
+	 * Timing input only; target intent, capability, identity, team, and alignment
+	 * are additional requirements in the target defense resolver.
 	 * @return True if this actor is vulnerable to being parried
 	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")

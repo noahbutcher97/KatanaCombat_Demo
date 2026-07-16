@@ -73,7 +73,8 @@ public:
     bool IsStaggered() const;
 
     /**
-     * Execute a finisher on this actor (must be guard broken or stunned)
+     * Execute a finisher on this actor after explicit low-health, stagger, or contextual eligibility.
+     * Deprecated posture guard break is not a new-content eligibility source.
      * @param Attacker - Who is performing the finisher
      * @param FinisherData - Attack data for the finisher
      * @return True if finisher was successfully started

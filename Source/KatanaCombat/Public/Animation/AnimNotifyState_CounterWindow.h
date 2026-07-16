@@ -10,32 +10,18 @@
 class UPairedAnimationData;
 
 /**
- * AnimNotifyState that marks when the attacker can be countered by the defender
- * CRITICAL: This is placed on the ATTACKER's montage, NOT the defender's
+ * Marks attacker-owned timing for the legacy direct-counter path. Place this
+ * notify on the ATTACKER's montage.
  *
- * Design Philosophy (AC3/Arkham model):
- * - Counter window is on attacker's animation (typically Windup phase)
- * - Defender checks nearby attackers via IsInCounterWindow() when pressing counter
- * - If enemy is in counter window → Counter action (counter-kill or parry chain)
- * - If enemy NOT in counter window → Block/dodge action
+ * This notify window is not `EChainCounterState::CounterWindow`. Revised Chain
+ * Counter enters that state only after a committed perfect parry and completed
+ * parry bridge. Chain attack selection uses the defender's selected
+ * `UAttackData::CounterData`; `SpecificCounterData` is an explicitly allowed
+ * fallback, not the primary source.
  *
- * Differs from ParryWindow:
- * - ParryWindow: Defender deflects attack, attacker staggers (Sekiro model)
- * - CounterWindow: Defender performs counter-kill or initiates parry chain (AC3 model)
- *
- * Includes pose-matching data for procedural animation selection:
- * - SwingDirection: Horizontal/Vertical/Thrust/Sweep/Grab
- * - CounterData: Specific counter animation for this attack
- *
- * Counter Window Timeline:
- * [──Windup──][──Active──][──Recovery──]
- *      ▲▲▲▲▲▲▲▲
- *  Counter Window (attacker vulnerable to counter)
- *
- * During this window:
- * - Attacker is marked as "in counter window" (bIsInCounterWindow = true)
- * - Defender pressing counter checks IsInCounterWindow() on nearby attackers
- * - Successful counter → Counter animation plays based on mode (AC3 vs Chain)
+ * The revised target requires Notify Begin/End to affect only the matching
+ * window generation so a stale callback cannot close a newer direct-counter
+ * window.
  */
 UCLASS(meta = (DisplayName = "Counter Window"))
 class KATANACOMBAT_API UAnimNotifyState_CounterWindow : public UAnimNotifyState_ActionWindow_Base

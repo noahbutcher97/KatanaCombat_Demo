@@ -61,7 +61,7 @@ public:
     UPROPERTY(BlueprintReadOnly, Category = "Combat|State")
     bool bIsBlocking = false;
 
-    /** Is guard broken? (drives staggered pose) */
+    /** Deprecated compatibility alias used by legacy AnimBP graphs for contextual stagger. */
     UPROPERTY(BlueprintReadOnly, Category = "Combat|State")
     bool bIsGuardBroken = false;
 

@@ -1,6 +1,6 @@
 # Paired Animation System - Technical Specification
 
-> **Version**: 2.0 | **Date**: 2026-02-09 | **Status**: Implementation In Progress
+> **Version**: 2.1 | **Date**: 2026-07-16 | **Status**: Implementation In Progress; defense integration target accepted for implementation planning
 > **Reference Plan**: `.claude/plans/synthetic-painting-ritchie.md`
 
 ---
@@ -9,7 +9,7 @@
 
 ### 1.1 Purpose
 A production-quality paired animation system enabling synchronized two-character combat sequences including:
-- **Finishers**: Cinematic kill animations triggered by low health, guard break, or stun
+- **Finishers**: Cinematic kill animations triggered by explicit low-health, stagger, or contextual eligibility
 - **Counters**: Reactive attack animations following successful parries
 - **Parries**: Defensive paired animations with attacker/defender roles
 
@@ -159,25 +159,27 @@ OnMontageEnded → CompletePairedAnimation()
 
 ### 3.2 Vulnerability Triggers (Priority Order)
 
-1. **Guard Broken** (Highest) - Posture depleted
-2. **Stunned** - Heavy attack hitstun active
-3. **Low Health** (Lowest) - Below 25% threshold (configurable)
+1. **Explicit Context** (Highest) - Scripted or tagged finisher eligibility owned by the active combat interaction
+2. **Staggered** - Contextual stagger is active
+3. **Low Health** (Lowest) - Below the configured threshold
+
+Posture depletion and posture-based guard break are deprecated compatibility behavior and are not finisher triggers for new runtime logic or content.
 
 ### 3.3 Chain Counter Runtime Contract
 
-Chain Counter is required branch behavior. It is not experimental and is not accepted through protected helper calls.
+Chain Counter is required behavior. It is not experimental and is not accepted through protected helper calls. The flow below is the revised target contract; current immediate-transition tests remain baseline evidence until explicitly replaced during implementation.
 
 Runtime flow:
 1. Defender presses Block.
 2. `UCombatComponent` gathers incoming attacks once and resolves input intent through the centralized defense resolver.
 3. Perfect parry requires attacker-side `AnimNotifyState_ParryWindow`, `Attack.Defense.Parryable`, hostile team policy, stable attack identity, and reachable alignment.
-4. On committed perfect parry, `UPairedAnimationComponent` stores an active Chain context containing parried target, source attack metadata, selected counter `UAttackData`, resolved `CounterData`, resolved `FinisherData`, current Chain state, timeout handle, and paired-continuation flags.
+4. On committed perfect parry, `UPairedAnimationComponent` stores an active Chain context containing parried target, source attack metadata, current Chain state, generation, timeout and ownership handles. Selected counter `UAttackData`, `CounterData`, and `FinisherData` remain null until attack input selects them in `CounterWindow`.
 5. The parry bridge completes before Chain enters `CounterWindow`; Block fallback does not create a Chain context.
-6. Light or Heavy input while Chain is waiting resolves `UAttackData` through `UCombatComponent::GetAttackForInput()` and calls `UPairedAnimationComponent::TryAdvanceChainCounter(UAttackData*)`.
+6. Light or Heavy input while Chain is waiting is captured as `ChainOnly`, resolves `UAttackData` through `UCombatComponent::GetAttackForInput()`, and calls `UPairedAnimationComponent::TryAdvanceChainCounter(UAttackData*)`. Failure expires that edge without normal-attack fallthrough.
 7. The counter step uses selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only when explicitly allowed, then non-paired counter fallback.
 8. Counter paired steps are nonlethal by default. The finisher step owns lethal damage unless counter data explicitly opts into lethal behavior and validation reports that exception.
-9. Paired counter completion either transitions in place to finisher with stored context or deliberately enters an unblocked `FinisherReady` state.
-10. Timeout, montage interruption, paired cancel, partner death, owner death, invalid target, failed montage start, and normal completion clear Chain context.
+9. Paired counter completion either transitions in place to finisher with stored context or deliberately enters an unblocked, timed `FinisherReady` state. Chain-only attack input retries retained `FinisherData`; it cannot fall through to a normal attack.
+10. The sequence owns a scoped `Context.ParryCounter` lease through all active Chain states. Timeout, montage interruption, paired cancel, partner death, owner death, invalid target, failed montage start, and normal completion release it and all other stage-owned handles exactly once.
 
 ### Chain Counter Implementation Evidence
 
@@ -188,7 +190,7 @@ Runtime flow:
 - Attack input resolves selected `UAttackData` in `UCombatComponent` and advances through `UPairedAnimationComponent::TryAdvanceChainCounter(UAttackData*)`.
 - Counter data resolution remains selected `UAttackData::CounterData`, explicit notify fallback, then non-paired fallback.
 - Asset-backed montage proof remains separate from source-level automation. The 2026-07-01 `AttackDataNotifyMigration` audit/plan reports are read-only evidence and did not save packages.
-- These tests describe the pre-defense-resolver implementation baseline. They do not prove the new alignment, one-pass resolution, parry bridge, or retained stage-transition contract.
+- These tests describe the pre-defense-resolver implementation baseline. Immediate `ParryActive -> CounterWindow` expectations must be replaced; they do not prove the new alignment, one-pass resolution, parry bridge, or retained stage-transition contract.
 
 ### Chain Counter Semantics Ownership
 
@@ -196,12 +198,13 @@ Chain Counter keeps state and results explicit. `EChainCounterState` owns the ac
 
 Counter and finisher payloads are data references. The selected defender `UAttackData::CounterData` and `FinisherData` identify the paired animations to play. Booleans such as `bHasCounterVariant` and `bCanTriggerFinisher` are readiness gates and must be validated against those references.
 
-Attack and defense properties that are extensible across authored content belong in tags. `Attack.Property.Unblockable` and future block/parry/recoil properties should be read by a centralized attack/defense resolver, which returns an explicit enum outcome before any montage, damage, VFX, or audio payload is executed.
+Attack and defense properties that are extensible across authored content belong in tags. `Attack.Property.Unblockable`, `Attack.Defense.Parryable`, and `Attack.Defense.BlockInterruptible` are target inputs to the centralized defense resolver, which returns an explicit enum decision before any montage, damage, VFX, or audio payload is executed.
 
 The ownership policy is defined in `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md`.
-The canonical defense outcome matrix, attack identity, alignment, parry bridge,
-and retained counter-to-finisher transition contract are defined in
-`docs/superpowers/specs/2026-07-16-defense-interaction-design.md`.
+The revised target defense outcome matrix, rich-contact handoff, attack identity,
+alignment, parry bridge, and retained counter-to-finisher transition contract are
+defined in `docs/superpowers/specs/2026-07-16-defense-interaction-design.md`. It
+is the accepted implementation authority for defense integration. Current source remains the runtime baseline until the corresponding slices land and pass their proof gates.
 
 ---
 
@@ -351,12 +354,12 @@ Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 
 | Requirement | Test Criteria |
 |-------------|---------------|
-| Finisher triggers | Below 25% health, guard broken, or stunned |
+| Finisher triggers | Explicit context, configured low health, or contextual stagger; never deprecated posture guard break |
 | Victim dies correctly | No double death animation, direct ragdoll/freeze |
 | Input blocking | Player cannot attack/evade during finisher |
 | Warp tracking | Both characters track each other continuously |
 | Sync point | Distance < 150u at impact, auto-nudge if < 50u |
-| Time dilation | Slow-mo applies and restores without stacking |
+| Time dilation | Overlapping world and actor leases recompute effective dilation and restore the captured prior value |
 | Hitstop | Both characters freeze at impact |
 | Camera shake | Triggers at sync point |
 | Partner death | Animation cancels gracefully on either death |

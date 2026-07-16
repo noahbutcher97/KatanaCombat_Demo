@@ -2,6 +2,8 @@
 
 Complete API documentation for the KatanaCombat system components, data assets, and interfaces.
 
+> **Legacy snapshot:** Some signatures and posture/guard-break sections no longer match source. Current headers are API authority. Use `ARCHITECTURE_QUICK.md` for current rules and `docs/superpowers/specs/2026-07-16-defense-interaction-design.md` for the revised defense target.
+
 ---
 
 ## Table of Contents

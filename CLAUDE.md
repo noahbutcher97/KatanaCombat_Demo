@@ -69,9 +69,9 @@ Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 
 1. **Phases vs Windows**: Phases are exclusive (Windup→Active→Recovery). Windows overlap (ParryWindow, ComboWindow, HoldWindow).
 
-2. **Input ALWAYS Buffered**: Combo window modifies WHEN execution happens, not WHETHER input is captured.
+2. **Input ALWAYS Captured**: Combo windows modify WHEN attack execution happens, not WHETHER the edge is recorded. Stateful Block input is immediate, and planned Chain-only input must not fall through to the normal attack queue.
 
-3. **Parry = Contextual Block**: Defender checks enemy's ParryWindow (on attacker's montage), not their own.
+3. **Parry Timing Is Attacker-Owned**: `ParryWindow` is on the attacker's montage. Current source still uses legacy detection; the revised defense target also requires capability, identity, intent, team, and reachable alignment.
 
 4. **Hold = Button State Check**: At window start, check if button is STILL held. NOT duration tracking.
 
@@ -215,7 +215,7 @@ Active development plans with gap tracking. Read when continuing phased implemen
 
 **Hits not detecting**: Check weapon sockets (`WeaponStart/WeaponEnd`), `AnimNotify_AttackPhaseTransition(Active)` present
 
-**Parry not working**: `AnimNotifyState_ParryWindow` must be on ATTACKER's montage, defender calls `IsInParryWindow()` on enemy
+**Parry not working**: `AnimNotifyState_ParryWindow` must be on the ATTACKER's montage. Legacy source checks `IsInParryWindow()` directly; do not describe that baseline as proof of the revised resolver contract in `docs/superpowers/specs/2026-07-16-defense-interaction-design.md`.
 
 ## Coding Guidelines
 
@@ -478,7 +478,7 @@ Track ongoing work across sessions. This section provides detailed status of all
 |-----------|-------|--------|
 | Counter AC3 Mode | PairedAnimationComponent.cpp | `TryCounter_AC3Mode()` — instant counter-kill via slow-mo + lethal damage |
 | Counter Chain Mode | PairedAnimationComponent.cpp | `TryCounter_ChainMode()` — Parry→Counter→Finisher state machine |
-| Chain State Machine | PairedAnimationComponent.h | `EChainCounterState`: None→ParryActive→CounterWindow→CounterActive→FinisherReady |
+| Chain State Machine | PairedAnimationComponent.h | Current baseline ends at `FinisherReady`; revised target adds explicit `FinisherActive` and retained stage generations |
 | Parry Window | PairedAnimationComponent.h | `bParryWindowActive` + `AnimNotifyState_ParryWindow` wired |
 | Contextual Stagger | HitReactionComponent.h | `ApplyStagger()`, `IsStaggered()`, `EndStagger()` — replaces posture |
 | Procedural Blending | CombatComponent.cpp | 6 easing strategies wired in `PlayAttackMontage()` |
@@ -486,6 +486,7 @@ Track ongoing work across sessions. This section provides detailed status of all
 #### Branch Acceptance Caveats
 | Area | Status | Requirement |
 |------|--------|-------------|
+| Defense interaction | Accepted target; not implemented | Use `docs/superpowers/specs/2026-07-16-defense-interaction-design.md` as the implementation authority for rich-contact, alignment, block, parry, and Chain integration; do not claim runtime behavior until its slices land and pass proof gates. |
 | Counter Chain Mode | Canonical but incomplete | Must be proven through public Block/attack input flow, active Chain context, paired completion handoff, and asset readiness. Protected helper tests are not enough. |
 | SpecificCounterData Wiring | In scope | Resolve selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only as an explicit fallback, then non-paired fallback. |
 

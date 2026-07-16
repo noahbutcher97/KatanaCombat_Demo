@@ -2,6 +2,8 @@
 
 **Complete technical deep dive into the combat system**
 
+> **Legacy snapshot:** This document retains pre-sunset posture, direct parry detection, and older API examples for historical context. Do not use those sections as current implementation or target-design authority. Read `ARCHITECTURE_QUICK.md`, current source headers, and `docs/superpowers/specs/2026-07-16-defense-interaction-design.md` instead.
+
 This document provides comprehensive technical details on the KatanaCombat system architecture, design patterns, and implementation details.
 
 ---
