@@ -439,7 +439,8 @@ IA_HeavyAttack:
 - Right Mouse Button
 
 IA_Block:
-- Middle Mouse Button
+- Thumb Mouse Button
+- Gamepad Left Shoulder
 
 IA_Evade:
 - Spacebar

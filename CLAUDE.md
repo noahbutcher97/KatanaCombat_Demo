@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Data-driven attack configuration via AttackData assets
 - Per-hit impact effects (hitstop, audio, VFX) with pooled FX data assets
 - Death system with directional animations and ragdoll transitions
-- Comprehensive test suite (368 tests, all passing)
+- Comprehensive automation suite with current counts reported by the standard baseline runner
 
 ## Build & Development
 
@@ -31,24 +31,16 @@ dotnet "..\..\Engine\Binaries\DotNET\UnrealBuildTool\UnrealBuildTool.dll" Katana
 2. Automation tab → Filter: "KatanaCombat"
 3. Select tests and click "Start Tests"
 
-**Run Tests** (Command Line):
+**Run Tests** (Command Line, preferred):
 ```powershell
-# Run tests in background (don't wait for completion callback - it hangs)
-"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -ExecCmds="Automation RunTests KatanaCombat" -unattended -nopause -NullRHI -nosplash -stdout
+powershell -NoProfile -ExecutionPolicy Bypass -File "Tools\Codex\run-agent-baseline.ps1"
 ```
 
-**IMPORTANT**: The test command doesn't return a clean exit. Run it in background, wait ~5 minutes, then kill the process and check the log manually. This is the standard workflow.
+The baseline builds `KatanaCombatEditor`, runs `Automation RunTests KatanaCombat` with `;Quit`, writes timestamped evidence under `Saved/Logs/`, and exits nonzero on detected build or test failure. Direct `UnrealEditor-Cmd.exe` runs may still fail to exit cleanly; inspect the log rather than treating a lingering process as proof of failure.
 
 **Test Results**: Check the log file at `D:\UnrealProjects\5.6\KatanaCombat\Saved\Logs\KatanaCombat.log`
 ```powershell
-# View test results summary (pass/fail counts)
-grep -E "Test Completed.*Result=" D:/UnrealProjects/5.6/KatanaCombat/Saved/Logs/KatanaCombat.log | sed 's/.*Result={\([^}]*\)}.*/\1/' | sort | uniq -c
-
-# View failing tests with error messages
-grep -E "Error:" D:/UnrealProjects/5.6/KatanaCombat/Saved/Logs/KatanaCombat.log | grep -i "automation\|test" | head -20
-
-# View specific test failures
-grep -E "Test Completed.*Fail" D:/UnrealProjects/5.6/KatanaCombat/Saved/Logs/KatanaCombat.log
+powershell -NoProfile -ExecutionPolicy Bypass -File ".agents\skills\katana-verify\scripts\summarize-automation-log.ps1"
 ```
 
 **Debug Visualization** (CVar-controlled, use console commands):
@@ -502,7 +494,7 @@ Track ongoing work across sessions. This section provides detailed status of all
 |-----------|----------|---------|
 | Counter Animations | P1 | Parry, counter attack, chain finisher montages needed |
 | SpecificCounterData Wiring | P1 | In scope for Chain branch: selected `AttackData::CounterData` first; `SpecificCounterData` is an explicit fallback only. |
-| AI Attack Token System | P2 | Phase 5b-5 - `UCombatTokenSubsystem` |
+| Production Enemy AI | P2 | Minimal StateTree + `UCombatTokenSubsystem` combat proof is wired; perception, patrol, tactics, and production tuning remain future work. |
 
 #### Editor/Runtime Unification Gap (Needs Further Inquiry)
 
@@ -575,7 +567,7 @@ Player Input → CombatComponent::ExecuteAction()
 
 ## Test Suite
 
-**Coverage**: 368 tests (all passing)
+**Coverage**: Run the standard baseline for the current completed-result and failure counts. The dated baseline in `Source/KatanaCombatTest/README.md` is historical evidence, not a live total.
 
 **Run Tests**:
 - Editor: `Window → Developer Tools → Session Frontend → Automation tab → Filter: "KatanaCombat"`

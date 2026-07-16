@@ -21,6 +21,7 @@ KatanaCombat already has `UEnemyCombatAIComponent` and `UCombatTokenSubsystem`, 
 - Automation can inject a deterministic `UCombatTokenSubsystem` when synthetic worlds do not own a normal `GameInstance`.
 - Attack execution failure releases tokens and returns to `Circling` or `Idle` instead of leaving enemies stuck in `Approaching`.
 - Queued enemies leave the token queue if their combat target is cleared before a token is granted.
+- A StateTree token wait that times out or exits while still queued cancels its pending request without releasing an active token.
 
 ## Canonical AI Model
 
@@ -40,6 +41,7 @@ KatanaCombat already has `UEnemyCombatAIComponent` and `UCombatTokenSubsystem`, 
 - A configured enemy can request a token, select an attack, and enter `Approaching`.
 - A queued enemy receives the token when the current token holder is parried/interrupted.
 - A queued enemy that loses its target does not receive the next released token.
+- A queued enemy whose StateTree token wait expires is removed from the queue and can retry through the normal recovery loop.
 - Failed attack execution cleans up token and selected attack state.
 - Active source no longer contains project enemy Behavior Tree task/decorator implementations.
 

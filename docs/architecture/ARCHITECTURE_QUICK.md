@@ -384,7 +384,9 @@ bool IsVulnerableToFinisher() const;
 
 KatanaCombat includes a comprehensive **C++ unit test suite** (`KatanaCombatTest` module):
 
-### Test Coverage (19 Test Suites, 368 Tests)
+### Test Coverage
+
+The suite changes with active combat work. Use the standard baseline and `Source/KatanaCombatTest/README.md` for current result counts instead of treating this architecture reference as a live total.
 
 **Core Combat**:
 1. **StateTransitionTests** - State machine validation
