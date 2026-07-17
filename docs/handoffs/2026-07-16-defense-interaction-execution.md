@@ -98,3 +98,25 @@ Existing first-commit registration, immutable receipts/presentation, actor reval
 ## Stop/Go Decision
 
 `GO` for Task 1 only. The route is test-first: add failing contract/resolver/selector tests, implement typed value contracts and pure decision logic, run focused tests, build, run the Slice 1 adversarial/spec-coverage gate, and commit. This decision does not authorize asset edits, runtime wiring, or Gate A claims.
+
+## Slice 1 Completion
+
+Task 1 is complete. The implementation adds the closed defense enums and canonical identities, immutable prediction/query/decision/receipt contracts, `FDefenseAttackProfile`, semantic defense tags, `UDefenseConfiguration`, a pure resolver, and an interface-backed deterministic table selector. No production input, contact, animation, AI, map, Blueprint, or asset path is wired by this slice.
+
+Test-first evidence included compile failures for absent contracts, executable failures against neutral resolver/selector stubs, and focused red regressions for malformed notify/window identity, paired-takeover contact precedence, null authored data, stale target copies, selector payload semantics, and threat filtering. The implementation then closed each case.
+
+The adversarial pass additionally:
+
+- rejects negative notify/montage IDs and non-finite window timing;
+- replaces loop-based angle unwind with bounded finite normalization;
+- makes consumed contact win over paired takeover for late traces;
+- removes redundant `bHasAttackData` and `bHasActiveParryWindow` authorities;
+- requires canonical attack/window identity and explicit intended-defender agreement for perfect parry;
+- ignores fabricated defense tags on null-`AttackData` compatibility contacts;
+- fails closed on contradictory team relation and invalid geometry;
+- retains prediction targets, separate deadlines, actual source socket, threat-lock state, and alignment owner ID;
+- exposes selector policy through `IDefensePresentationSelector` for future storage alternatives.
+
+Final evidence is `Saved/Logs/Codex-Agent-Baseline-20260716-201508-*`. `KatanaCombatEditor Win64 Development` built successfully and all 452 `KatanaCombat` tests passed with zero failures/errors. The generated warning count remained 482, identical to the 439-test Task 0A baseline, and no new defense test emitted a warning. Static inspection found no world, component, asset-loading, delegate-broadcast, or mutable actor-state access in `FDefenseResolver`.
+
+`GO` for Task 2 after the Slice 1 commit. Gate A remains unclaimed, and all asset/editor/PIE obligations remain open.

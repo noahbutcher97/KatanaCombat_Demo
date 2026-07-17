@@ -16,6 +16,18 @@ FGameplayTag KatanaCombatGameplayTags::AttackPropertyUnblockable()
 	return Tag;
 }
 
+FGameplayTag KatanaCombatGameplayTags::AttackDefenseParryable()
+{
+	static const FGameplayTag Tag = RequestCombatSemanticTag(TEXT("Attack.Defense.Parryable"));
+	return Tag;
+}
+
+FGameplayTag KatanaCombatGameplayTags::AttackDefenseBlockInterruptible()
+{
+	static const FGameplayTag Tag = RequestCombatSemanticTag(TEXT("Attack.Defense.BlockInterruptible"));
+	return Tag;
+}
+
 FGameplayTag KatanaCombatGameplayTags::ContextParryCounter()
 {
 	static const FGameplayTag Tag = RequestCombatSemanticTag(TEXT("Context.ParryCounter"));

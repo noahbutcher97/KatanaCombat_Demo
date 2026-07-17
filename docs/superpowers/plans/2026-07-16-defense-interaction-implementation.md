@@ -264,7 +264,7 @@ git commit -m "Record defense implementation feasibility"
 
 **Produces:** Closed defense enums, stable IDs, immutable query/decision/resolution records, attack defense profiles, sparse presentation configuration, pure resolver APIs, and deterministic selector APIs. No production contact or input path uses them yet.
 
-- [ ] **Step 1: Add the closed enums and identity value types**
+- [x] **Step 1: Add the closed enums and identity value types**
 
 Add to `CombatTypes.h`:
 
@@ -305,7 +305,7 @@ UENUM(BlueprintType) enum class EDefenseReason : uint8
 
 Use explicit `USTRUCT` value types for `FCombatantStableId`, `FAttackInstanceId`, `FAnimNotifyRuntimeSourceId`, `FAttackWindowInstanceId`, `FWeaponTraceInstanceId`, `FContactInstanceId`, `FDefenseInteractionKey`, and `FDefenseInteractionId`. Implement `IsValid`, equality, and `GetTypeHash`; never hash pointer addresses as an ordering key. `FAnimNotifyRuntimeSourceId` contains the source animation `FSoftObjectPath` and the exact event index in `UAnimSequenceBase::Notifies`. Resolve that index by comparing the event-reference pointer only while locating its owning array element; never retain, hash, sort, or serialize the pointer. `FAttackWindowInstanceId` includes attack ID, kind, window generation, runtime notify source ID, montage-instance ID, simulation start, and simulation end. The montage-instance ID comes from `UE::Anim::FAnimNotifyMontageInstanceContext`, not from an asset-global notify object. A missing source/index or montage-instance context is a production-notify rejection with telemetry; only explicitly deprecated compatibility adapters may omit it.
 
-- [ ] **Step 2: Add immutable prediction, query, decision, and receipt records**
+- [x] **Step 2: Add immutable prediction, query, decision, and receipt records**
 
 Add the accepted fields to these reflected structs:
 
@@ -338,7 +338,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnAttackConsumedNative, const FAttackConsum
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnDefenseResolvedNative, const FDefenseResolution&);
 ```
 
-- [ ] **Step 3: Add attack authoring fields and semantic tags**
+- [x] **Step 3: Add attack authoring fields and semantic tags**
 
 Add `FDefenseAttackProfile` to `AttackData.h` with `Height`, `NominalLane`, `SwingShape`, `SourceContactSocketOverride`, `DefenderTargetBoneFallback`, and optional blocked-impact audio/VFX overrides. Add one `DefenseProfile` property to `UAttackData`; adapt `DefaultContactBone` as the fallback rather than creating a second competing bone value.
 
@@ -351,7 +351,7 @@ FGameplayTag KatanaCombatGameplayTags::AttackDefenseBlockInterruptible();
 
 Add `Attack.Defense.Parryable` and `Attack.Defense.BlockInterruptible` to `DefaultGameplayTags.ini`. Extend `GameplayTagContractTests.cpp` to require all five semantic tags, including the existing unblockable and context tags.
 
-- [ ] **Step 4: Add `UDefenseConfiguration` and sparse table contracts**
+- [x] **Step 4: Add `UDefenseConfiguration` and sparse table contracts**
 
 Define the provisional defaults from the accepted spec, including 70-degree hard cone/max turn, 180 deg/s turn rate, 35-degree block tolerance, 10-degree parry tolerance, 0.15-second lock, 0.10-second switch lead, 0.05-second refresh, 0.10-second max high-confidence prediction age, 1000 cm range, 1.0-second tombstone, 128 terminal records, 0.15-second no-montage bridge, 2.0-second CounterWindow/FinisherReady, and 10-second lease watchdog.
 
@@ -385,7 +385,7 @@ Add explicit defender bone-to-height rows, optional guard enter/exit montage ref
 
 Define exact-or-wildcard presentation keys, required/excluded tags, integer priority, blend/warp/FX/hitstop/contact payload, reviewed deflection marker, paired bridge reference, and row name. Add `IsGenericFallback()` and specificity helpers. Tie after exact-field count, required-tag count, and priority is invalid authoring; lexical row name is runtime safety only. A null configuration returns C++ gameplay defaults and no-montage presentation without dereferencing assets.
 
-- [ ] **Step 5: Write failing table-driven resolver tests**
+- [x] **Step 5: Write failing table-driven resolver tests**
 
 In `DefenseResolverTests.cpp`, table every input and contact matrix row. The test table must include unblockable-plus-parryable, null `AttackData`, stale identity, hard-cone failure, reachable normal but unreachable perfect alignment, friendly, invulnerable, consumed, not guarding, contact outside tolerance, and normal block.
 
@@ -402,11 +402,11 @@ Add deterministic threat tests with explicit `FCombatantStableId` values, equal 
 
 Add direction tests proving source bearing drives the cone while incoming trajectory drives defender-relative lane. Actual lane precedence is nonzero weapon velocity, accepted trace segment, then an explicitly flagged low-confidence nominal-lane fallback. Exact hit bone, mapped parent, and authored height remain distinct provenance values.
 
-- [ ] **Step 6: Write failing selector tests**
+- [x] **Step 6: Write failing selector tests**
 
 In `DefensePresentationSelectorTests.cpp`, prove exact fields outrank wildcards, required-tag count outranks priority, excluded tags reject, equal ranking reports ambiguity, lexical fallback is deterministic, attacker response reads the attacker's configuration, missing config returns no montage, and bridge usability fallback never changes `EDefenseOutcome::PerfectParry`.
 
-- [ ] **Step 7: Run the tests to confirm the intended red state**
+- [x] **Step 7: Run the tests to confirm the intended red state**
 
 ```powershell
 & "C:\Program Files\Epic Games\UE_5.6\Engine\Build\BatchFiles\Build.bat" KatanaCombatEditor Win64 Development -Project="KatanaCombat.uproject" -Progress -NoHotReload
@@ -415,7 +415,7 @@ In `DefensePresentationSelectorTests.cpp`, prove exact fields outrank wildcards,
 
 Before this step, add compile-safe resolver/selector declarations and neutral stubs only as needed for the test module to link. Expected: the editor build succeeds and the focused test fails on the unimplemented behavior. If the first red state is instead a deliberate compiler/linker failure, the failing build is the evidence; do not invoke `UnrealEditor-Cmd` until the test has been compiled into a fresh binary. Record the specific missing behavior, then implement.
 
-- [ ] **Step 8: Implement pure resolution and selection**
+- [x] **Step 8: Implement pure resolution and selection**
 
 Expose only pure/static APIs:
 
@@ -435,7 +435,7 @@ public:
 
 The resolver must not access `UWorld`, components, assets, selectors, delegates, or mutable actor state. Implement `FTableDefensePresentationSelector` separately against a supplied immutable resolution context and configuration.
 
-- [ ] **Step 9: Verify and commit Slice 1**
+- [x] **Step 9: Verify and commit Slice 1**
 
 Build the editor target first, then run `KatanaCombat.Defense.Resolver`, `KatanaCombat.Defense.Presentation`, and `KatanaCombat.GameplayTags`. Complete the slice adversarial/spec-coverage gate, inspect `git diff --check`, and commit:
 
