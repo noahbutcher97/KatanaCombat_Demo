@@ -161,6 +161,7 @@ struct FDefenseProofManifest
 	FString DefenseConfiguration;
 	FDefenseProofFixture Fixture;
 	TArray<FString> CombatSettings;
+	TArray<FString> SupportingAssets;
 	TArray<FDefenseProofAttackEntry> Attacks;
 	TArray<FDefenseProofPresentationEntry> Presentations;
 	TArray<FDefenseProofPairedDependencyEntry> PairedDependencies;

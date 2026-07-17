@@ -10,6 +10,7 @@
 #include "Animation/AnimNotifyState_PairedAnimationSync.h"
 #include "Animation/SamuraiAnimInstance.h"
 #include "AnimNotifyState_MotionWarping.h"
+#include "AnimGraphNode_AssetPlayerBase.h"
 #include "AnimStateNode.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Characters/PlayerCharacter.h"
@@ -375,6 +376,50 @@ void AddObjectDependency(const UObject* Object, FDefenseAssetValidationResult& R
 	}
 }
 
+void AddMontageDependencies(
+	const UAnimMontage* Montage,
+	FDefenseAssetValidationResult& Result)
+{
+	if (!Montage)
+	{
+		return;
+	}
+	for (const FSlotAnimationTrack& SlotTrack : Montage->SlotAnimTracks)
+	{
+		for (const FAnimSegment& Segment : SlotTrack.AnimTrack.AnimSegments)
+		{
+			AddObjectDependency(Segment.GetAnimReference(), Result);
+		}
+	}
+}
+
+void AddAnimBlueprintDependencies(
+	const UAnimBlueprint* AnimBlueprint,
+	FDefenseAssetValidationResult& Result)
+{
+	if (!AnimBlueprint)
+	{
+		return;
+	}
+	TArray<UEdGraph*> Graphs;
+	AnimBlueprint->GetAllGraphs(Graphs);
+	for (const UEdGraph* Graph : Graphs)
+	{
+		if (!Graph)
+		{
+			continue;
+		}
+		for (const UEdGraphNode* Node : Graph->Nodes)
+		{
+			if (const UAnimGraphNode_AssetPlayerBase* Player =
+				Cast<UAnimGraphNode_AssetPlayerBase>(Node))
+			{
+				AddObjectDependency(Player->GetAnimationAsset(), Result);
+			}
+		}
+	}
+}
+
 template <typename TObjectType>
 const TObjectType* FindTypedObject(
 	const FDefenseProofAssetSet& Assets,
@@ -557,7 +602,7 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 
 	RejectUnknownFields(Root,
 		{TEXT("schemaVersion"), TEXT("gate"), TEXT("map"), TEXT("defenseConfiguration"),
-		 TEXT("fixture"), TEXT("combatSettings"), TEXT("attacks"), TEXT("presentations"),
+		 TEXT("fixture"), TEXT("combatSettings"), TEXT("supportingAssets"), TEXT("attacks"), TEXT("presentations"),
 		 TEXT("pairedDependencies"), TEXT("expectedCases")},
 		TEXT("manifest"), OutErrors);
 	double SchemaVersion = 0.0;
@@ -653,6 +698,12 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 	for (const FString& Path : OutManifest.CombatSettings)
 	{
 		RequireGameObjectPath(Path, TEXT("manifest.combatSettings"), TEXT("entry"), OutErrors);
+	}
+	ReadStringArray(Root, TEXT("supportingAssets"), TEXT("manifest"),
+		OutManifest.SupportingAssets, OutErrors, false);
+	for (const FString& Path : OutManifest.SupportingAssets)
+	{
+		RequireGameObjectPath(Path, TEXT("manifest.supportingAssets"), TEXT("entry"), OutErrors);
 	}
 	if (!OutManifest.CombatSettings.Contains(OutManifest.Fixture.PlayerCombatSettings))
 	{
@@ -1170,6 +1221,10 @@ TArray<FString> FDefenseAssetValidationService::CollectExplicitObjectPaths(
 	{
 		AddPath(Path);
 	}
+	for (const FString& Path : Manifest.SupportingAssets)
+	{
+		AddPath(Path);
+	}
 	for (const FDefenseProofAttackEntry& Entry : Manifest.Attacks)
 	{
 		AddPath(Entry.AttackData);
@@ -1393,6 +1448,7 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 	if (GuardObject)
 	{
 		ValidateGuardAnimBlueprint(Manifest.Fixture, GuardObject, OutResult);
+		AddAnimBlueprintDependencies(Cast<UAnimBlueprint>(GuardObject), OutResult);
 	}
 	UClass* GuardClass = ResolveDeclaredClass(GuardObject);
 	UClass* PlayerClass = ResolveDeclaredClass(Assets.Find(Manifest.Fixture.PlayerBlueprint));
@@ -1466,7 +1522,9 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 	if (Configuration)
 	{
 		AddObjectDependency(Configuration->GuardEnterMontage, OutResult);
+		AddMontageDependencies(Configuration->GuardEnterMontage, OutResult);
 		AddObjectDependency(Configuration->GuardExitMontage, OutResult);
+		AddMontageDependencies(Configuration->GuardExitMontage, OutResult);
 		AddObjectDependency(Configuration->DefaultBlockImpactAudio.ImpactSound, OutResult);
 		AddObjectDependency(Configuration->DefaultBlockImpactVFX.ImpactVFX, OutResult);
 		AddObjectDependency(Configuration->DefaultParryImpactAudio.ImpactSound, OutResult);
@@ -1474,6 +1532,7 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 		for (const FDefensePresentationRow& Row : Configuration->DefenderPresentationRows)
 		{
 			AddObjectDependency(Row.Payload.Montage, OutResult);
+			AddMontageDependencies(Row.Payload.Montage, OutResult);
 			AddObjectDependency(Row.Payload.ImpactAudio.ImpactSound, OutResult);
 			AddObjectDependency(Row.Payload.ImpactVFX.ImpactVFX, OutResult);
 			AddObjectDependency(Row.Payload.PairedBridgeData, OutResult);
@@ -1481,6 +1540,7 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 		for (const FAttackerResponsePresentationRow& Row : Configuration->AttackerResponseRows)
 		{
 			AddObjectDependency(Row.Payload.Montage, OutResult);
+			AddMontageDependencies(Row.Payload.Montage, OutResult);
 			AddObjectDependency(Row.Payload.ImpactAudio.ImpactSound, OutResult);
 			AddObjectDependency(Row.Payload.ImpactVFX.ImpactVFX, OutResult);
 			AddObjectDependency(Row.Payload.PairedBridgeData, OutResult);
@@ -1500,6 +1560,7 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 		if (AttackData && Montage)
 		{
 			ValidateAttackEntry(Entry, AttackData, Montage, OutResult);
+			AddMontageDependencies(Montage, OutResult);
 			AddObjectDependency(AttackData->AttackMontage, OutResult);
 			AddObjectDependency(AttackData->CounterData, OutResult);
 			AddObjectDependency(AttackData->FinisherData, OutResult);
@@ -1545,6 +1606,8 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 		{
 			AddObjectDependency(PairedData->AttackerMontage, OutResult);
 			AddObjectDependency(PairedData->VictimMontage, OutResult);
+			AddMontageDependencies(PairedData->AttackerMontage, OutResult);
+			AddMontageDependencies(PairedData->VictimMontage, OutResult);
 		}
 	}
 	ValidatePairedSequence(Manifest.PairedDependencies, PairedAssets, OutResult);
@@ -1718,6 +1781,16 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 		}
 	}
 
+	const TSet<FString> ExplicitPathSet(ExplicitPaths);
+	for (const FString& Dependency : OutResult.Dependencies)
+	{
+		if (!ExplicitPathSet.Contains(Dependency))
+		{
+			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+				TEXT("UndeclaredManifestDependency"), Dependency,
+				TEXT("loaded assets reference this /Game object, but supportingAssets does not declare it"));
+		}
+	}
 	OutResult.Dependencies.Sort();
 }
 
@@ -2224,12 +2297,16 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 	FDefenseRootMotionMeasurement AttackerRoot;
 	FDefenseRootMotionMeasurement VictimRoot;
 	FString RootError;
+	const bool bApplyPerfectParryBridgeBudget = Entry.Role == TEXT("Bridge");
 	if (MeasureRootMotion(AttackerMontage, FName(*Entry.AttackerSection),
 		AttackerRoot, RootError))
 	{
-		ValidateRootMotionBudget(Context + TEXT(".attacker"), AttackerRoot,
-			Configuration->PerfectParryTranslationAllowancePerRole,
-			Configuration->DefenseTurnRate, OutResult);
+		if (bApplyPerfectParryBridgeBudget)
+		{
+			ValidateRootMotionBudget(Context + TEXT(".attacker"), AttackerRoot,
+				Configuration->PerfectParryTranslationAllowancePerRole,
+				Configuration->DefenseTurnRate, OutResult);
+		}
 	}
 	else
 	{
@@ -2239,9 +2316,12 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 	if (MeasureRootMotion(VictimMontage, FName(*Entry.VictimSection),
 		VictimRoot, RootError))
 	{
-		ValidateRootMotionBudget(Context + TEXT(".victim"), VictimRoot,
-			Configuration->PerfectParryTranslationAllowancePerRole,
-			Configuration->DefenseTurnRate, OutResult);
+		if (bApplyPerfectParryBridgeBudget)
+		{
+			ValidateRootMotionBudget(Context + TEXT(".victim"), VictimRoot,
+				Configuration->PerfectParryTranslationAllowancePerRole,
+				Configuration->DefenseTurnRate, OutResult);
+		}
 	}
 	else
 	{
@@ -2267,6 +2347,8 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 	Row.Facts.Add(TEXT("victim_terminal_pose_compatible"),
 		LexToString(Policy.bVictimTerminalPoseCompatible));
 	Row.Facts.Add(TEXT("auto_continue"), LexToString(Policy.bAutoContinue));
+	Row.Facts.Add(TEXT("perfect_parry_bridge_budget_applied"),
+		LexToString(bApplyPerfectParryBridgeBudget));
 	Row.Facts.Add(TEXT("attacker_root_horizontal_cm"), LexToString(AttackerRoot.HorizontalTranslation));
 	Row.Facts.Add(TEXT("victim_root_horizontal_cm"), LexToString(VictimRoot.HorizontalTranslation));
 	OutResult.Rows.Add(MoveTemp(Row));

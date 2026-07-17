@@ -1,5 +1,6 @@
 #include "Misc/AutomationTest.h"
 
+#include "Animation/AnimComposite.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_ChainStageTransition.h"
 #include "Animation/AnimNotifyState_ParryWindow.h"
@@ -41,6 +42,9 @@ FString ValidManifest()
   "combatSettings": [
     "/Game/ProjectFiles/Data/Combat/DA_PlayerCombat.DA_PlayerCombat",
     "/Game/ProjectFiles/Data/Combat/DA_EnemyCombat.DA_EnemyCombat"
+  ],
+  "supportingAssets": [
+    "/Game/ProjectFiles/Audio/SW_DefenseImpact.SW_DefenseImpact"
   ],
   "attacks": [{
     "name": "LightAttack_1",
@@ -963,6 +967,55 @@ bool FDefenseAssetPairedDependencyTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseAssetBridgeBudgetScopeTest,
+	"KatanaCombat.Editor.DefenseValidation.Assets.BridgeBudgetDoesNotConstrainLaterStages",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseAssetBridgeBudgetScopeTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>(GetTransientPackage());
+	Configuration->PerfectParryTranslationAllowancePerRole = -1.0f;
+	Configuration->DefenseTurnRate = -1.0f;
+
+	UPairedAnimationData* CounterData = DefenseAssetValidationTests::CreateBridgeData();
+	CounterData->ReactionType = EPairedReactionType::Counter;
+	FDefenseProofPairedDependencyEntry CounterEntry = DefenseAssetValidationTests::MakeBridgeEntry();
+	CounterEntry.Name = TEXT("Counter");
+	CounterEntry.Role = TEXT("Counter");
+	CounterEntry.PairedData = CounterData->GetPathName();
+	CounterEntry.AttackerMontage = CounterData->AttackerMontage->GetPathName();
+	CounterEntry.VictimMontage = CounterData->VictimMontage->GetPathName();
+	FDefenseAssetValidationResult CounterResult;
+	FDefenseAssetValidationService::ValidatePairedDependency(
+		CounterEntry, CounterData, Configuration, CounterResult);
+	TestFalse(TEXT("Perfect-parry bridge budgets must not reject the counter stage"),
+		CounterResult.HasFinding(TEXT("RootTranslationBudget"))
+			|| CounterResult.HasFinding(TEXT("RootYawRateBudget")));
+
+	UPairedAnimationData* FinisherData = DefenseAssetValidationTests::CreateBridgeData();
+	FinisherData->ReactionType = EPairedReactionType::Finisher;
+	FinisherData->ChainTransitionPolicy.RequiredMarker = NAME_None;
+	FDefenseProofPairedDependencyEntry FinisherEntry = DefenseAssetValidationTests::MakeBridgeEntry();
+	FinisherEntry.Name = TEXT("Finisher");
+	FinisherEntry.Role = TEXT("Finisher");
+	FinisherEntry.PairedData = FinisherData->GetPathName();
+	FinisherEntry.AttackerMontage = FinisherData->AttackerMontage->GetPathName();
+	FinisherEntry.VictimMontage = FinisherData->VictimMontage->GetPathName();
+	FinisherEntry.bHasDriverRole = false;
+	FinisherEntry.DriverRole.Reset();
+	FinisherEntry.bHasDriverMarker = false;
+	FinisherEntry.DriverMarker.Reset();
+	FDefenseAssetValidationResult FinisherResult;
+	FDefenseAssetValidationService::ValidatePairedDependency(
+		FinisherEntry, FinisherData, Configuration, FinisherResult);
+	TestFalse(TEXT("Perfect-parry bridge budgets must not reject the finisher stage"),
+		FinisherResult.HasFinding(TEXT("RootTranslationBudget"))
+			|| FinisherResult.HasFinding(TEXT("RootYawRateBudget")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FDefenseAssetPairedMarkerAmbiguityTest,
 	"KatanaCombat.Editor.DefenseValidation.Assets.PairedDriverMarkerAmbiguityRejected",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
@@ -1111,15 +1164,86 @@ bool FDefenseManifestExplicitPathClosureTest::RunTest(const FString& Parameters)
 
 	const TArray<FString> Paths =
 		FDefenseAssetValidationService::CollectExplicitObjectPaths(Manifest);
-	TestEqual(TEXT("Every declared object path should appear exactly once"), Paths.Num(), 14);
+	TestEqual(TEXT("Every declared object path should appear exactly once"), Paths.Num(), 15);
 	TestTrue(TEXT("Map should be explicit"), Paths.Contains(Manifest.Map));
 	TestTrue(TEXT("Block input action should be explicit"), Paths.Contains(Manifest.Fixture.InputAction));
+	TestTrue(TEXT("Supporting assets should be explicit"),
+		Paths.Contains(Manifest.SupportingAssets[0]));
 	TestTrue(TEXT("Paired victim montage should be explicit"),
 		Paths.Contains(Manifest.PairedDependencies[0].VictimMontage));
 	for (int32 Index = 1; Index < Paths.Num(); ++Index)
 	{
 		TestTrue(TEXT("Explicit paths should be deterministically sorted"), Paths[Index - 1] < Paths[Index]);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseManifestUndeclaredDependencyTest,
+	"KatanaCombat.Editor.DefenseValidation.Assets.UndeclaredDependencyRejected",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseManifestUndeclaredDependencyTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FDefenseProofManifest Manifest;
+	TArray<FString> Errors;
+	TestTrue(TEXT("Fixture manifest should parse"),
+		FDefenseAssetValidationService::ParseManifestJson(
+			DefenseAssetValidationTests::ValidManifest(), Manifest, Errors));
+
+	UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>(GetTransientPackage());
+	UPackage* AudioPackage = CreatePackage(TEXT("/Game/__Automation__/SW_UndeclaredDefenseImpact"));
+	USoundWave* UndeclaredAudio = NewObject<USoundWave>(
+		AudioPackage, TEXT("SW_UndeclaredDefenseImpact"));
+	Configuration->DefaultBlockImpactAudio.ImpactSound = UndeclaredAudio;
+
+	FDefenseProofAssetSet Assets;
+	Assets.Add(Manifest.DefenseConfiguration, Configuration);
+	FDefenseAssetValidationResult Result;
+	FDefenseAssetValidationService::ValidateManifestObjects(Manifest, Assets, Result);
+	TestTrue(TEXT("Discovered /Game dependencies must be declared explicitly"),
+		Result.HasFinding(TEXT("UndeclaredManifestDependency")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseManifestUndeclaredMontageSourceTest,
+	"KatanaCombat.Editor.DefenseValidation.Assets.UndeclaredMontageSourceRejected",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseManifestUndeclaredMontageSourceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FDefenseProofManifest Manifest;
+	TArray<FString> Errors;
+	TestTrue(TEXT("Fixture manifest should parse"),
+		FDefenseAssetValidationService::ParseManifestJson(
+			DefenseAssetValidationTests::ValidManifest(), Manifest, Errors));
+
+	UAnimMontage* Montage = NewObject<UAnimMontage>(GetTransientPackage());
+	UPackage* SequencePackage = CreatePackage(TEXT("/Game/__Automation__/AC_UndeclaredDefenseSource"));
+	UAnimComposite* SourceSequence = NewObject<UAnimComposite>(
+		SequencePackage, TEXT("AC_UndeclaredDefenseSource"));
+	FSlotAnimationTrack& Slot = Montage->AddSlot(TEXT("DefaultSlot"));
+	FAnimSegment Segment;
+	Segment.SetAnimReference(SourceSequence);
+	Segment.AnimStartTime = 0.0f;
+	Segment.AnimEndTime = 1.0f;
+	Slot.AnimTrack.AnimSegments.Add(Segment);
+	UAttackData* Attack = DefenseAssetValidationTests::CreateMatchingAttack(Montage);
+
+	FDefenseProofAssetSet Assets;
+	Assets.Add(Manifest.Attacks[0].AttackData, Attack);
+	Assets.Add(Manifest.Attacks[0].Montage, Montage);
+	FDefenseAssetValidationResult Result;
+	FDefenseAssetValidationService::ValidateManifestObjects(Manifest, Assets, Result);
+	TestTrue(TEXT("Montage source animations must be part of explicit dependency closure"),
+		Result.Findings.ContainsByPredicate([](const FDefenseAssetValidationFinding& Finding)
+		{
+			return Finding.Code == TEXT("UndeclaredManifestDependency")
+				&& Finding.Context.Contains(TEXT("AC_UndeclaredDefenseSource"));
+		}));
 	return true;
 }
 
