@@ -21,6 +21,7 @@ FString EventName(const EDefenseTelemetryEvent Event)
 	case EDefenseTelemetryEvent::AlignmentFrame: return TEXT("AlignmentFrame");
 	case EDefenseTelemetryEvent::StageStart: return TEXT("StageStart");
 	case EDefenseTelemetryEvent::StageTransition: return TEXT("StageTransition");
+	case EDefenseTelemetryEvent::StageDamage: return TEXT("StageDamage");
 	case EDefenseTelemetryEvent::Cleanup: return TEXT("Cleanup");
 	default: return TEXT("Unknown");
 	}

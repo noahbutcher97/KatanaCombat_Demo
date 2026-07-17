@@ -279,6 +279,9 @@ public:
 	/** Route an owner montage callback through generation-aware Chain lifecycle rules. */
 	bool HandleOwnerPairedMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 
+	/** Commit stage-end damage before victim death presentation consumes montage blend-out. */
+	bool HandleOwnerPairedMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
+
 	/** Resolve whether paired animation data should be treated as lethal for this reaction type. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
 	bool ShouldTreatPairedAnimationAsLethal(EPairedReactionType ReactionType, const UPairedAnimationData* PairedAnimData) const;
@@ -517,6 +520,10 @@ protected:
 		AActor* ReportingSource,
 		UAnimMontage* Montage,
 		bool bInterrupted);
+	bool HandleSourcePairedMontageBlendingOut(
+		AActor* ReportingSource,
+		UAnimMontage* Montage,
+		bool bInterrupted);
 	void ScheduleSourceMontageEndVerification(
 		UAnimMontage* Montage,
 		EChainCounterState ExpectedState,
@@ -534,6 +541,7 @@ protected:
 		FString& OutFailureReason) const;
 	int32 AllocateDefenseStageGeneration();
 	bool ApplyActivePairedDamageOnce();
+	bool IsExpectedDefenseFinisherSourceDeath(const AActor* Source) const;
 	UFUNCTION()
 	void HandleDefenseOwnerDying(AActor* Killer);
 	UFUNCTION()

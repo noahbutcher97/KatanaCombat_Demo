@@ -411,6 +411,7 @@ private:
 		FVector LastObservedPelvisLocation = FVector::ZeroVector;
 		float LastAnimationStartPosition = 0.0f;
 		float LastAnimationEndPosition = 0.0f;
+		float LastObservedPlayRate = 0.0f;
 		bool bHasYawBaseline = false;
 		bool bHasTransformBaseline = false;
 		bool bHasPelvisBaseline = false;
@@ -569,6 +570,10 @@ private:
     void ReevaluateAlignmentRequests();
     void SynchronizeAlignmentModifiers();
     void SynchronizeModifierBudget(FRegisteredAlignmentModifier& Record);
+	void ReconcileAlignmentModifierFrame(
+		FRegisteredAlignmentModifier& Record,
+		URootMotionModifier_Warp* RuntimeModifier);
+	void ResetAlignmentModifierFrameBaselines(FRegisteredAlignmentModifier& Record);
     void RemoveRegisteredAlignmentModifiersForHandle(FAlignmentRequestHandle Handle);
     void UnregisterAlignmentModifier(URootMotionModifier_Warp* Modifier, bool bMarkForRemoval);
     FRegisteredAlignmentModifier* FindRegisteredAlignmentModifier(URootMotionModifier_Warp* Modifier);

@@ -26,6 +26,7 @@
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "UObject/Package.h"
 
 const FString FDefenseProofMigrationOperation::OperationName = TEXT("DefenseProofMigration");
 
@@ -306,16 +307,66 @@ bool PairedDefinitionMatches(
 				&& Policy.bVictimTerminalPoseCompatible == Entry.bVictimTerminalPoseCompatible);
 }
 
+void AppendPackageByteFact(
+	const FString& ObjectPath,
+	const UObject* Object,
+	TArray<FString>& OutFacts,
+	TArray<FString>& OutErrors)
+{
+	const FString PackageName = FPackageName::ObjectPathToPackageName(ObjectPath);
+	const UPackage* ObjectPackage = Object ? Object->GetOutermost() : nullptr;
+	const UPackage* LoadedPackage = FindPackage(nullptr, *PackageName);
+	const bool bObjectUsesDeclaredPackage = ObjectPackage
+		&& ObjectPackage->GetName() == PackageName;
+	const bool bDirty = (LoadedPackage && LoadedPackage->IsDirty())
+		|| (bObjectUsesDeclaredPackage && ObjectPackage->IsDirty());
+	if (bDirty)
+	{
+		OutErrors.Add(FString::Printf(
+			TEXT("approval package has unsaved in-memory changes: %s"), *PackageName));
+	}
+
+	FString Filename;
+	if (!FPackageName::DoesPackageExist(PackageName, &Filename))
+	{
+		OutFacts.Add(FString::Printf(TEXT("package|%s|missing|dirty=%s"),
+			*ObjectPath, *LexToString(bDirty)));
+		if (bObjectUsesDeclaredPackage)
+		{
+			OutErrors.Add(FString::Printf(
+				TEXT("approval package has no readable on-disk file: %s"), *PackageName));
+		}
+		return;
+	}
+
+	TArray<uint8> Bytes;
+	if (!FFileHelper::LoadFileToArray(Bytes, *Filename))
+	{
+		OutFacts.Add(FString::Printf(TEXT("package|%s|unreadable|dirty=%s"),
+			*ObjectPath, *LexToString(bDirty)));
+		OutErrors.Add(FString::Printf(
+			TEXT("approval package could not be hashed: %s"), *PackageName));
+		return;
+	}
+
+	const FString FileHash = FSHA1::HashBuffer(
+		Bytes.GetData(), static_cast<uint64>(Bytes.Num())).ToString();
+	OutFacts.Add(FString::Printf(TEXT("package|%s|sha1=%s|size=%d|dirty=%s"),
+		*ObjectPath, *FileHash, Bytes.Num(), *LexToString(bDirty)));
+}
+
 void AddValidationFacts(
 	const FDefenseProofManifest& Manifest,
 	const FDefenseProofAssetSet& Assets,
 	const FDefenseAssetValidationResult& Validation,
-	FString& OutFacts)
+	FString& OutFacts,
+	TArray<FString>& OutErrors)
 {
 	TArray<FString> Facts;
 	for (const FString& Path : FDefenseAssetValidationService::CollectExplicitObjectPaths(Manifest))
 	{
 		const UObject* Object = Assets.Find(Path);
+		AppendPackageByteFact(Path, Object, Facts, OutErrors);
 		Facts.Add(FString::Printf(TEXT("object|%s|%s|dirty=%s"), *Path,
 			Object ? *Object->GetClass()->GetPathName() : TEXT("Missing"),
 			Object && Object->GetOutermost()
@@ -917,7 +968,8 @@ bool FDefenseProofMigrationOperation::BuildLoadedPlan(
 	{
 		return Left.PackageName < Right.PackageName;
 	});
-	AddValidationFacts(Manifest, Assets, OutPlan.Validation, OutPlan.CanonicalAssetFacts);
+	AddValidationFacts(
+		Manifest, Assets, OutPlan.Validation, OutPlan.CanonicalAssetFacts, OutErrors);
 	OutPlan.Fingerprint = ComputePlanFingerprint(
 		OutPlan.CanonicalManifest, OutPlan.CanonicalAssetFacts,
 		OutPlan.ProposedChanges, OutPlan.PackageLedger);

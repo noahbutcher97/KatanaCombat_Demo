@@ -14,6 +14,7 @@ enum class EDefenseTelemetryEvent : uint8
 	AlignmentFrame,
 	StageStart,
 	StageTransition,
+	StageDamage,
 	Cleanup
 };
 

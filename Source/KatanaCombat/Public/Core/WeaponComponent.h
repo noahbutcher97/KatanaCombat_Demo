@@ -221,6 +221,9 @@ public:
     UFUNCTION(BlueprintPure, Category = "Weapon")
     FVector GetSocketLocation(FName SocketName) const;
 
+	/** Resolve an authored weapon or character socket without applying a positional fallback. */
+	bool TryGetSocketLocation(FName SocketName, FVector& OutLocation) const;
+
     /** Get the effective start socket name (from WeaponData or manual config) */
     UFUNCTION(BlueprintPure, Category = "Weapon|Sockets")
     FName GetEffectiveStartSocketName() const { return GetEffectiveStartSocket(); }
@@ -256,8 +259,21 @@ public:
     int32 GetHitActorCount() const { return HitActors.Num(); }
 
 #if WITH_AUTOMATION_TESTS
+	DECLARE_MULTICAST_DELEGATE_ThreeParams(
+		FOnRichContactAccountedForTesting,
+		AActor*,
+		const FContactInstanceId&,
+		int32);
+
+	FOnRichContactAccountedForTesting OnRichContactAccountedForTesting;
 	int32 GetAcceptedHitCountForTesting() const { return AcceptedHitCount; }
 	const FContactInstanceId& GetActiveContactIdForTesting() const { return ActiveContactId; }
+	FDefenseContactRequest BuildDefenseContactRequestForTesting(
+		const FHitResult& Hit,
+		UAttackData* AttackData) const
+	{
+		return BuildDefenseContactRequest(Hit, AttackData);
+	}
 	void ProcessHitForTesting(const FHitResult& Hit, UAttackData* AttackData)
 	{
 		ProcessHitWithAttackData(Hit, AttackData);

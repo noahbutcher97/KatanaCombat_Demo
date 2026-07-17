@@ -15,6 +15,11 @@
 #include "Data/CombatFXData.h"
 #include "Subsystems/CombatEffectsWorldSubsystem.h"
 
+#if WITH_AUTOMATION_TESTS
+UCinematicEffectsUtilityLibrary::FOnImpactSoundPlaybackInvokedForTesting
+    UCinematicEffectsUtilityLibrary::OnImpactSoundPlaybackInvokedForTesting;
+#endif
+
 namespace
 {
 	constexpr float HitstopFreezeDilation = 0.0001f;
@@ -414,6 +419,14 @@ bool UCinematicEffectsUtilityLibrary::PlayImpactSound(
         nullptr,    // Sound attenuation (use sound's default)
         nullptr,    // Concurrency settings
         Attacker);  // Owner for attenuation override
+
+#if WITH_AUTOMATION_TESTS
+    OnImpactSoundPlaybackInvokedForTesting.Broadcast(
+        World,
+        SoundToPlay,
+        ImpactLocation,
+        Attacker);
+#endif
 
     UE_LOG(LogKatanaCombat, Verbose, TEXT("[AUDIO] Impact sound played: %s (Vol: %.2f, Pitch: %.2f) at %s"),
         *SoundToPlay->GetName(), FinalVolume, FinalPitch, *ImpactLocation.ToString());

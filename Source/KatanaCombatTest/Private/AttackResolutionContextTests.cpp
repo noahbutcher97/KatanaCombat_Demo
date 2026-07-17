@@ -1,4 +1,6 @@
 #include "Misc/AutomationTest.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimNotifyState_ParryWindow.h"
 #include "CombatTestHelpers.h"
 #include "Core/CombatComponent.h"
 #include "Data/AttackData.h"
@@ -138,5 +140,36 @@ bool FAttackResolutionEmergencyFallbackRejectsMissingRequiredContextTest::RunTes
 
 	TestNull(TEXT("Emergency repeat fallback must not bypass RequiredContextTags on the original attack"),
 		Result.Attack.Get());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMontageCheckpointDiscoversExplicitParryWindowTest,
+	"KatanaCombat.MontageUtility.Checkpoints.ExplicitParryWindow",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FMontageCheckpointDiscoversExplicitParryWindowTest::RunTest(const FString& Parameters)
+{
+	UAnimMontage* Montage = NewObject<UAnimMontage>();
+	Montage->SetCompositeLength(1.0f);
+	UAnimNotifyState_ParryWindow* ParryWindow = NewObject<UAnimNotifyState_ParryWindow>(Montage);
+	FAnimNotifyEvent Event;
+	Event.NotifyStateClass = ParryWindow;
+	Event.SetTime(0.2f);
+	Event.SetDuration(0.1f);
+	Montage->Notifies.Add(Event);
+
+	TArray<FTimerCheckpoint> Checkpoints;
+	const int32 NumDiscovered = UMontageUtilityLibrary::DiscoverCheckpoints(Montage, Checkpoints);
+
+	TestEqual(TEXT("Explicit notify state should produce one checkpoint"), NumDiscovered, 1);
+	TestEqual(TEXT("Discovered checkpoint should preserve the parry window type"),
+		Checkpoints.IsValidIndex(0) ? Checkpoints[0].WindowType : EActionWindowType::Combo,
+		EActionWindowType::Parry);
+	TestEqual(TEXT("Discovered checkpoint should preserve its start time"),
+		Checkpoints.IsValidIndex(0) ? Checkpoints[0].MontageTime : -1.0f,
+		0.2f);
+	TestEqual(TEXT("Discovered checkpoint should preserve its duration"),
+		Checkpoints.IsValidIndex(0) ? Checkpoints[0].Duration : -1.0f,
+		0.1f);
 	return true;
 }

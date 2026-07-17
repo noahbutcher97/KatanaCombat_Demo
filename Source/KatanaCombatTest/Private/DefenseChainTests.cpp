@@ -5,6 +5,7 @@
 
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_ChainStageTransition.h"
+#include "AI/EnemyCombatAIComponent.h"
 #include "Containers/Ticker.h"
 #include "Core/CombatComponent.h"
 #include "Core/PairedAnimationComponent.h"
@@ -239,12 +240,19 @@ UPairedAnimationData* CreateChainStageData(
 	Data->ChainTransitionPolicy.bFinisherRetryable = true;
 	if (!MarkerName.IsNone())
 	{
+		Data->AttackerMontage->SetCompositeLength(1.0f);
+		FCompositeSection StageSection;
+		StageSection.SectionName = TEXT("Stage");
+		StageSection.SetTime(0.0f);
+		Data->AttackerMontage->CompositeSections.Add(StageSection);
+		Data->AttackerMontageSection = StageSection.SectionName;
 		UAnimNotify_ChainStageTransition* Notify =
 			NewObject<UAnimNotify_ChainStageTransition>(Data->AttackerMontage);
 		Notify->Transition = Transition;
 		Notify->MarkerName = MarkerName;
 		FAnimNotifyEvent Event;
 		Event.Notify = Notify;
+		Event.SetTime(0.5f);
 		Data->AttackerMontage->Notifies.Add(Event);
 	}
 	return Data;
@@ -443,6 +451,21 @@ bool FDefenseChainSequenceOwnershipTimeoutTest::RunTest(const FString& Parameter
 		return false;
 	}
 	Fixture.DefenseConfig->CounterWindowSeconds = 0.01f;
+	UEnemyCombatAIComponent* SourceAI = Fixture.SourceAttacker->CombatAIComponent.Get();
+	if (!SourceAI)
+	{
+		AddError(TEXT("Defense Chain fixture source has no combat AI component"));
+		Fixture.Destroy();
+		return false;
+	}
+	FEnemyAttackConfig AttackConfig;
+	AttackConfig.AttackData = Fixture.SourceAttack;
+	AttackConfig.MinRange = 0.0f;
+	AttackConfig.MaxRange = 1000.0f;
+	SourceAI->AvailableAttacks = {AttackConfig};
+	SourceAI->SetCombatTarget(Fixture.Defender);
+	TestTrue(TEXT("Source AI is attack-capable before retained Chain ownership"),
+		SourceAI->CanAttemptAttack());
 	if (!Fixture.StartCommittedParry())
 	{
 		AddError(TEXT("Failed to start committed perfect parry"));
@@ -463,6 +486,16 @@ bool FDefenseChainSequenceOwnershipTimeoutTest::RunTest(const FString& Parameter
 	TestEqual(TEXT("Sequence retains the immutable committed interaction"),
 		Parry.OriginatingInteraction,
 		Fixture.DefenderCombat->GetLastInputDefenseResolutionForTesting().InteractionId);
+	TestTrue(TEXT("Retained Chain owns source AI attack suppression"),
+		SourceAI->IsDefenseChainSuppressed());
+	TestFalse(TEXT("Suppressed source AI cannot request another attack"),
+		SourceAI->CanAttemptAttack());
+	FDefenseInteractionId WrongInteraction = Parry.OriginatingInteraction;
+	++WrongInteraction.Epoch;
+	TestFalse(TEXT("A different interaction cannot release Chain AI suppression"),
+		SourceAI->ReleaseDefenseChainSuppression(WrongInteraction));
+	TestTrue(TEXT("Mismatched release leaves the exact Chain suppression active"),
+		SourceAI->IsDefenseChainSuppressed());
 	TestTrue(TEXT("Sequence owns input before a response window"), Fixture.Paired->IsInputBlocked());
 	TestTrue(TEXT("Sequence owns Context.ParryCounter"), Fixture.DefenderCombat->HasActiveContextTag(
 		KatanaCombatGameplayTags::ContextParryCounter()));
@@ -487,6 +520,10 @@ bool FDefenseChainSequenceOwnershipTimeoutTest::RunTest(const FString& Parameter
 		Fixture.Paired->GetChainState(), EChainCounterState::None);
 	TestFalse(TEXT("Timeout releases retained interaction"),
 		Fixture.Paired->GetActiveDefenseSequenceContext().OriginatingInteraction.IsValid());
+	TestFalse(TEXT("Terminal cleanup releases source AI suppression"),
+		SourceAI->IsDefenseChainSuppressed());
+	TestTrue(TEXT("Source AI can attack again after retained Chain cleanup"),
+		SourceAI->CanAttemptAttack());
 	TestFalse(TEXT("Timeout releases input ownership"), Fixture.Paired->IsInputBlocked());
 	TestFalse(TEXT("Timeout releases the context tag"), Fixture.DefenderCombat->HasActiveContextTag(
 		KatanaCombatGameplayTags::ContextParryCounter()));
@@ -588,7 +625,13 @@ bool FDefenseChainMarkerIdentityTest::RunTest(const FString& Parameters)
 	VictimBridgeData->ChainTransitionPolicy.bAttackerTerminalPoseCompatible = true;
 	VictimBridgeData->ChainTransitionPolicy.bVictimTerminalPoseCompatible = true;
 	VictimBridgeData->VictimMontage->Notifies = MoveTemp(
-	VictimBridgeData->AttackerMontage->Notifies);
+		VictimBridgeData->AttackerMontage->Notifies);
+	VictimBridgeData->VictimMontage->SetCompositeLength(1.0f);
+	VictimBridgeData->VictimMontage->CompositeSections = MoveTemp(
+		VictimBridgeData->AttackerMontage->CompositeSections);
+	VictimBridgeData->VictimMontageSection = VictimBridgeData->AttackerMontageSection;
+	VictimBridgeData->AttackerMontageSection = NAME_None;
+	VictimBridgeData->VictimMontage->Notifies[0].SetTime(0.5f);
 	VictimDriver.SourceAttacker->SetActorLocationAndRotation(
 		FVector(175.0f, 0.0f, 0.0f),
 		FRotator(0.0f, 180.0f, 0.0f));
@@ -617,7 +660,9 @@ bool FDefenseChainMarkerIdentityTest::RunTest(const FString& Parameters)
 			VictimBridgeData,
 			TEXT("VictimCounterReady"),
 			VictimPreflightFailure));
-	TestTrue(TEXT("Rotation-warp refusal reports the canonical role contract"),
+	TestTrue(*FString::Printf(
+		TEXT("Rotation-warp refusal reports the canonical role contract: %s"),
+		*VictimPreflightFailure),
 		VictimPreflightFailure.Contains(TEXT("rotation warp")));
 	VictimBridgeData->VictimWarpConfig.bWarpRotation = true;
 	VictimDriver.SetPendingRoleMontageCallback(
@@ -648,12 +693,108 @@ bool FDefenseChainMarkerIdentityTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Duplicate marker refusal reports the marker contract"),
 		VictimPreflightFailure.Contains(TEXT("one reviewed Chain marker")));
 	VictimBridgeData->VictimMontage->Notifies.RemoveAt(1);
+	VictimBridgeData->VictimMontage->SetCompositeLength(1.5f);
+	FCompositeSection BridgeSection;
+	BridgeSection.SectionName = TEXT("Bridge");
+	BridgeSection.SetTime(0.0f);
+	VictimBridgeData->VictimMontage->CompositeSections.Add(BridgeSection);
+	FCompositeSection ReadySection;
+	ReadySection.SectionName = TEXT("Ready");
+	ReadySection.SetTime(1.0f);
+	VictimBridgeData->VictimMontage->CompositeSections.Add(ReadySection);
+	VictimBridgeData->VictimMontageSection = TEXT("Bridge");
+	VictimBridgeData->VictimMontage->Notifies[0].SetTime(1.0f);
+	VictimPreflightFailure.Reset();
+	TestFalse(TEXT("Bridge preflight rejects a driver marker at the played section boundary"),
+		VictimDriver.PreflightBridge(
+			VictimBridgeData,
+			TEXT("VictimCounterReady"),
+			VictimPreflightFailure));
+	TestTrue(TEXT("Boundary-marker refusal reports the playable-section contract"),
+		VictimPreflightFailure.Contains(TEXT("played section")));
+	VictimBridgeData->VictimMontageSection = NAME_None;
+	VictimBridgeData->VictimMontage->CompositeSections.Reset();
+	VictimBridgeData->VictimMontage->Notifies[0].SetTime(0.0f);
+	VictimPreflightFailure.Reset();
+	TestFalse(TEXT("Bridge preflight rejects sectionless time-zero markers"),
+		VictimDriver.PreflightBridge(
+			VictimBridgeData,
+			TEXT("VictimCounterReady"),
+			VictimPreflightFailure));
+	TestTrue(TEXT("Sectionless marker refusal reports the playable-section contract"),
+		VictimPreflightFailure.Contains(TEXT("played section")));
+
+	VictimBridgeData->VictimMontage->CompositeSections.Add(BridgeSection);
+	VictimBridgeData->VictimMontage->CompositeSections.Add(ReadySection);
+	VictimBridgeData->VictimMontageSection = TEXT("Bridge");
+	VictimBridgeData->VictimMontage->Notifies[0].SetTime(0.5f);
 	VictimPreflightFailure.Reset();
 	FDefenseResolution AlreadyAligned =
 		VictimDriver.DefenderCombat->GetLastInputDefenseResolutionForTesting();
 	AlreadyAligned.Decision.MeasuredYawDegrees = 5.0f;
 	AlreadyAligned.Decision.RequiredFinalTolerance = 10.0f;
 	AlreadyAligned.Decision.AvailableTurnDegrees = 0.0f;
+	UDefenseConfiguration* SourceDefenseConfig = NewObject<UDefenseConfiguration>();
+	SourceDefenseConfig->MaximumAutomaticTurn = 70.0f;
+	SourceDefenseConfig->DefenseTurnRate = 180.0f;
+	VictimDriver.SourceCombat->DefenseConfigurationOverride = SourceDefenseConfig;
+
+	FDefenseResolution ContactDeadlineLimited = AlreadyAligned;
+	ContactDeadlineLimited.PredictedContact.bIsValid = true;
+	ContactDeadlineLimited.PredictedContact.ContactSimulationTime =
+		VictimDriver.World->GetTimeSeconds() + 0.02;
+	VictimDriver.SourceAttacker->SetActorRotation(FRotator(0.0f, 110.0f, 0.0f));
+	VictimPreflightFailure.Reset();
+	TestFalse(TEXT("Bridge preflight rejects source rotation that cannot finish before contact"),
+		VictimDriver.PreflightBridgeWithResolution(
+			VictimBridgeData,
+			TEXT("VictimCounterReady"),
+			ContactDeadlineLimited,
+			VictimPreflightFailure));
+	TestTrue(TEXT("Contact-deadline refusal reports the rotation budget"),
+		VictimPreflightFailure.Contains(TEXT("rotation budget")));
+
+	FDefenseResolution MarkerDeadlineLimited = AlreadyAligned;
+	MarkerDeadlineLimited.PredictedContact.bIsValid = true;
+	MarkerDeadlineLimited.PredictedContact.ContactSimulationTime =
+		VictimDriver.World->GetTimeSeconds() + 1.0;
+	VictimBridgeData->VictimMontage->Notifies[0].SetTime(0.05f);
+	VictimDriver.SourceAttacker->SetActorRotation(FRotator(0.0f, 150.0f, 0.0f));
+	float ResolvedMarkerOffset = 0.0f;
+	TestTrue(TEXT("Marker deadline fixture resolves the exact played-section offset"),
+		UAnimNotify_ChainStageTransition::TryGetSinglePlayableMarkerOffset(
+			VictimBridgeData->VictimMontage,
+			TEXT("VictimCounterReady"),
+			EChainStageTransitionType::OpenCounterWindow,
+			VictimBridgeData->VictimMontageSection,
+			ResolvedMarkerOffset));
+	TestEqual(TEXT("Marker deadline fixture uses a 50 ms section-relative marker"),
+		ResolvedMarkerOffset, 0.05f, 0.001f);
+	TestEqual(TEXT("Marker deadline fixture montage rate is unscaled"),
+		VictimBridgeData->VictimMontage->RateScale, 1.0f, 0.001f);
+	TestTrue(TEXT("Marker deadline fixture source dilation is a finite simulation rate"),
+		FMath::IsFinite(VictimDriver.SourceAttacker->CustomTimeDilation)
+			&& VictimDriver.SourceAttacker->CustomTimeDilation > 0.0f);
+	const float SourceYawDelta = FMath::Abs(FMath::FindDeltaAngleDegrees(
+		VictimDriver.SourceAttacker->GetActorRotation().Yaw,
+		(VictimDriver.Defender->GetActorLocation()
+			- VictimDriver.SourceAttacker->GetActorLocation()).Rotation().Yaw));
+	TestEqual(TEXT("Marker deadline fixture requires thirty degrees of source yaw"),
+		SourceYawDelta, 30.0f, 0.001f);
+	VictimPreflightFailure.Reset();
+	TestFalse(TEXT("Bridge preflight rejects source rotation that cannot finish before its marker"),
+		VictimDriver.PreflightBridgeWithResolution(
+			VictimBridgeData,
+			TEXT("VictimCounterReady"),
+			MarkerDeadlineLimited,
+			VictimPreflightFailure));
+	TestTrue(TEXT("Marker-deadline refusal reports the rotation budget"),
+		VictimPreflightFailure.Contains(TEXT("rotation budget")));
+
+	VictimBridgeData->VictimMontage->Notifies[0].SetTime(0.5f);
+	VictimDriver.SourceAttacker->SetActorRotation(FRotator(0.0f, 180.0f, 0.0f));
+	AlreadyAligned.PredictedContact.ContactSimulationTime =
+		VictimDriver.World->GetTimeSeconds() + 0.20;
 	TestTrue(TEXT("A bridge inside final tolerance requires no invented turn budget"),
 		VictimDriver.PreflightBridgeWithResolution(
 			VictimBridgeData,
@@ -1495,6 +1636,75 @@ bool FDefenseChainSourceMontageOwnershipTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Deferred source verification cannot reopen or recancel completion"),
 		NormalCompletion.Paired->GetChainState(), EChainCounterState::None);
 	NormalCompletion.Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseChainLethalFinisherBlendOutTest,
+	"KatanaCombat.Defense.Chain.LethalFinisherBlendOut",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseChainLethalFinisherBlendOutTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FDefenseChainFixture Fixture;
+	if (!Fixture.Initialize() || !Fixture.StartCommittedParry() || !Fixture.OpenCounterWindow())
+	{
+		AddError(TEXT("Failed to create lethal-finisher blend-out fixture"));
+		Fixture.Destroy();
+		return false;
+	}
+
+	UPairedAnimationData* CounterData = CreateChainStageData(
+		EPairedReactionType::Counter,
+		EChainStageTransitionType::AutoContinue,
+		TEXT("FinisherReady"),
+		true);
+	UPairedAnimationData* FinisherData = CreateChainStageData(EPairedReactionType::Finisher);
+	FinisherData->bIsLethal = true;
+	FinisherData->BaseDamage = 100.0f;
+	Fixture.CounterAttack->CounterData = CounterData;
+	Fixture.CounterAttack->FinisherData = FinisherData;
+	Fixture.SetPlaybackOverride([NextInstanceId = 1000](
+		const EPairedAnimationRole Role,
+		const UPairedAnimationData*,
+		int32& OutInstanceId) mutable
+	{
+		OutInstanceId = ++NextInstanceId + (Role == EPairedAnimationRole::Victim ? 100 : 0);
+		return true;
+	});
+
+	Fixture.DefenderCombat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
+	const int32 CounterMontageId =
+		Fixture.Paired->GetActiveDefenseSequenceContext().AttackerMontageInstanceId;
+	Fixture.Paired->HandleChainStageTransition(
+		EChainStageTransitionType::AutoContinue,
+		CounterMontageId,
+		MakeMarkerSource(CounterData->AttackerMontage));
+	TestEqual(TEXT("Reviewed transition starts the lethal finisher"),
+		Fixture.Paired->GetChainState(), EChainCounterState::FinisherActive);
+
+	TestTrue(TEXT("Victim-role blend-out routes to the canonical sequence owner"),
+		Fixture.SourcePaired->HandleOwnerPairedMontageBlendingOut(
+			FinisherData->VictimMontage, false));
+	TestTrue(TEXT("Lethal finisher damage enters the victim death lifecycle"),
+		Fixture.SourceAttacker->IsDeadOrDying());
+	Fixture.Paired->OnPairedPartnerDeath(Fixture.SourceAttacker);
+	TestEqual(TEXT("Expected finisher death does not cancel the active sequence"),
+		Fixture.Paired->GetChainState(), EChainCounterState::FinisherActive);
+	const float HealthAfterBlendOut = Fixture.SourceAttacker->CurrentHealth;
+	TestTrue(TEXT("Duplicate participant blend-out remains owned"),
+		Fixture.Paired->HandleOwnerPairedMontageBlendingOut(
+			FinisherData->AttackerMontage, false));
+	TestEqual(TEXT("Duplicate participant blend-out cannot replay lethal damage"),
+		Fixture.SourceAttacker->CurrentHealth, HealthAfterBlendOut);
+	TestTrue(TEXT("Owner montage end completes the expected lethal finisher"),
+		Fixture.Paired->HandleOwnerPairedMontageEnded(
+			FinisherData->AttackerMontage, false));
+	TestEqual(TEXT("Lethal finisher reaches terminal chain state"),
+		Fixture.Paired->GetChainState(), EChainCounterState::None);
+
+	Fixture.Destroy();
 	return true;
 }
 

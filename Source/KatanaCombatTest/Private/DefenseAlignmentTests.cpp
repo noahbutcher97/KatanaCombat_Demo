@@ -462,6 +462,8 @@ bool FDefenseAlignment_GuardManualOverridePreservesBudget::RunTest(const FString
 
 	Defender->SetActorRotation(FRotator::ZeroRotator);
 	TestTrue(TEXT("Held guard starts"), DefenderCombat->BeginBlock());
+	TestFalse(TEXT("Guard resume cannot depend on the disabled combat tick"),
+		DefenderCombat->IsComponentTickEnabled());
 	const FCombatantStableId LockedThreatId = DefenderCombat->GetLockedDefenseThreat().StableId;
 	const FAlignmentRequestHandle GuardHandle = Targeting->GetActiveAlignmentRequest();
 	TestTrue(TEXT("Guard request is active before manual input"), GuardHandle.IsValid());
@@ -483,12 +485,16 @@ bool FDefenseAlignment_GuardManualOverridePreservesBudget::RunTest(const FString
 		ManualSpec.RemainingTurnBudget, 61.0f, 0.1f);
 
 	DefenderCombat->SetDefenseManualYawInputForTesting(0.0f, 10.0);
+	TestTrue(TEXT("Dropping manual input schedules one unscaled resume callback"),
+		DefenderCombat->GuardManualResumeTickerHandle.IsValid());
 	DefenderCombat->SetDefenseManualYawInputForTesting(0.0f, 10.09);
 	Targeting->GetAlignmentRequestSpec(GuardHandle, ManualSpec);
 	TestFalse(TEXT("Auto-facing remains suspended before the unscaled delay"),
 		ManualSpec.bTrackTargetRotation);
 
 	DefenderCombat->SetDefenseManualYawInputForTesting(0.0f, 10.11);
+	TestFalse(TEXT("Manual resume callback ownership clears after auto-facing resumes"),
+		DefenderCombat->GuardManualResumeTickerHandle.IsValid());
 	FAlignmentRequestSpec ResumedSpec;
 	TestTrue(TEXT("Resumed guard request remains queryable"),
 		Targeting->GetAlignmentRequestSpec(GuardHandle, ResumedSpec));

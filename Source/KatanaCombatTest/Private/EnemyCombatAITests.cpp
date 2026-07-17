@@ -8,6 +8,7 @@
 #include "Characters/EnemyCharacter.h"
 #include "Characters/PlayerCharacter.h"
 #include "Core/CombatComponent.h"
+#include "Core/TargetingComponent.h"
 #include "Data/AttackData.h"
 #include "EnhancedActionKeyMapping.h"
 #include "Engine/BlueprintGeneratedClass.h"
@@ -578,6 +579,75 @@ bool FEnemyCombatAI_ProofEnemyExecutionSetsCombatCurrentAttack::RunTest(const FS
 		CombatAI->GetTokenReleaseCountForTesting(), ReleasesBeforeLegacyCallback);
 	TestEqual(TEXT("Legacy parry callback cannot end consumed ownership again"),
 		CombatAI->GetAttackEndBroadcastCountForTesting(), EndsBeforeLegacyCallback);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_AttackInterruptionReleasesWarp,
+	"KatanaCombat.EnemyAI.AttackInterruptionReleasesWarp",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_AttackInterruptionReleasesWarp::RunTest(const FString& Parameters)
+{
+	const FString EnemyClassPath = TEXT("/Game/ProjectFiles/Core/Actors/Character/BP_EnemyCharacter.BP_EnemyCharacter_C");
+
+	UClass* EnemyClass = StaticLoadClass(AEnemyCharacter::StaticClass(), nullptr, *EnemyClassPath);
+	TestNotNull(TEXT("BP_EnemyCharacter class should load"), EnemyClass);
+	if (!EnemyClass)
+	{
+		return false;
+	}
+
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
+	AEnemyCharacter* Enemy = World
+		? World->SpawnActor<AEnemyCharacter>(EnemyClass, FVector(150.0f, 0.0f, 0.0f), FRotator::ZeroRotator)
+		: nullptr;
+	UEnemyCombatAIComponent* CombatAI = Enemy ? Enemy->FindComponentByClass<UEnemyCombatAIComponent>() : nullptr;
+	UCombatTokenSubsystem* TokenSubsystem = CreateTestTokenSubsystem();
+	UTargetingComponent* Targeting = Enemy ? Enemy->GetTargetingComponent() : nullptr;
+
+	if (!Player || !Enemy || !CombatAI || !Targeting || !TokenSubsystem)
+	{
+		AddError(TEXT("Failed to create attack interruption fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	UAttackData* AttackData = nullptr;
+	for (const FEnemyAttackConfig& AttackConfig : CombatAI->AvailableAttacks)
+	{
+		if (AttackConfig.AttackData)
+		{
+			AttackData = AttackConfig.AttackData;
+			break;
+		}
+	}
+	TestNotNull(TEXT("Proof enemy should have a configured attack data asset"), AttackData);
+	if (!AttackData)
+	{
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	CombatAI->SetTokenSubsystemForTesting(TokenSubsystem);
+	CombatAI->SetCombatTarget(Player);
+	ConfigureSingleAttack(CombatAI, AttackData, 500.0f);
+
+	TestTrue(TEXT("Proof enemy should receive an attack token"), CombatAI->TryInitiateAttack());
+	TestTrue(TEXT("Proof enemy attack execution should start"), CombatAI->ExecuteAttack());
+	TestTrue(TEXT("Executing proof attack should own a regular attack alignment request"),
+		Targeting->GetActiveAlignmentRequest().IsValid());
+
+	CombatAI->OnDamaged();
+
+	TestFalse(TEXT("Attack interruption releases the regular attack alignment request before blend-out"),
+		Targeting->GetActiveAlignmentRequest().IsValid());
+	TestFalse(TEXT("Attack interruption releases its combat token"), CombatAI->HasAttackToken());
+	TestEqual(TEXT("Attack interruption enters staggered recovery"),
+		CombatAI->CurrentState,
+		EEnemyAIState::Staggered);
+
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

@@ -3,6 +3,7 @@
 
 #include "Core/HitReactionComponent.h"
 #include "Core/CombatComponent.h"
+#include "Core/PairedAnimationComponent.h"
 #include "Core/TargetingComponent.h"
 #include "Core/WeaponComponent.h"
 #include "GameFramework/Character.h"
@@ -1151,6 +1152,14 @@ bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
 
 void UHitReactionComponent::OnAnyMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
 {
+	if (const ABaseCombatCharacter* CombatOwner = Cast<ABaseCombatCharacter>(OwnerCharacter))
+	{
+		if (UPairedAnimationComponent* Paired = CombatOwner->PairedAnimationComponent.Get())
+		{
+			Paired->HandleOwnerPairedMontageBlendingOut(Montage, bInterrupted);
+		}
+	}
+
 	if (DefensePresentationMontage.Get() == Montage)
 	{
 		ReleasePresentationAlignment(false);

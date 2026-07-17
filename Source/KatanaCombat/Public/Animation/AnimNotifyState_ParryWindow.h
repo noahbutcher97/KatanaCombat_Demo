@@ -10,8 +10,8 @@
  * Marks an attacker-owned timing window during which a Block Press may qualify
  * for perfect parry. Place this notify on the ATTACKER's montage.
  *
- * Current runtime still uses legacy direct detection. Under the revised defense
- * target, this window supplies timing only. Target intent,
+ * This window supplies authored timing and asks the attacker's CombatComponent
+ * to publish target/path/deadline evidence. Target intent,
  * `Attack.Defense.Parryable`, attack/window identity, team policy, defender
  * state, and reachable alignment are separate requirements. Failed
  * qualification enters or retains guard; normal block is decided later from
@@ -33,6 +33,7 @@ public:
 
 	// Wire parry window state to CombatComponent
 	virtual void NotifyBegin(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference) override;
+	virtual void NotifyTick(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float FrameDeltaTime, const FAnimNotifyEventReference& EventReference) override;
 	virtual void NotifyEnd(USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override;
 
 #if WITH_EDITOR

@@ -79,8 +79,10 @@ New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
 
 $BuildOut = "$Prefix-build.out.log"
 $BuildErr = "$Prefix-build.err.log"
+$BuildLog = "$Prefix-ubt.log"
 $AutomationOut = "$Prefix-automation.out.log"
 $AutomationErr = "$Prefix-automation.err.log"
+$AutomationLog = "$Prefix-automation.log"
 $AutomationExit = "$Prefix-automation.exitcode.txt"
 $SummaryJson = "$Prefix-automation-summary.json"
 
@@ -90,7 +92,11 @@ $BuildArgs = @(
     "Development",
     "-Project=$ProjectFile",
     "-Progress",
-    "-NoHotReload"
+    "-NoHotReload",
+    "-NoUBA",
+    "-NoUBTMakefiles",
+    "-MaxParallelActions=1",
+    "-Log=$BuildLog"
 )
 
 $BuildCode = Invoke-LoggedProcess `
@@ -113,7 +119,9 @@ $AutomationArgs = @(
     "-NoSplash",
     "-Unattended",
     "-nopause",
-    "-stdout"
+    "-stdout",
+    "-FullStdOutLogOutput",
+    "-abslog=$AutomationLog"
 )
 
 $AutomationCode = Invoke-LoggedProcess `
@@ -126,16 +134,19 @@ $AutomationCode = Invoke-LoggedProcess `
 
 Set-Content -LiteralPath $AutomationExit -Value $AutomationCode -Encoding ASCII
 
-$summaryOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $SummaryScript -LogPath (Join-Path $LogDir "KatanaCombat.log")
+Assert-PathExists -Path $AutomationLog -Label "Automation engine log"
+$summaryOutput = & powershell -NoProfile -ExecutionPolicy Bypass -File $SummaryScript -LogPath $AutomationLog
 $summaryCode = $LASTEXITCODE
 $summaryOutput | Set-Content -LiteralPath $SummaryJson -Encoding UTF8
 $summary = $summaryOutput | ConvertFrom-Json
 
 Write-Host ""
 Write-Host "==> Baseline summary"
+Write-Host "    discovered: $($summary.discovered_count)"
 Write-Host "    completed: $($summary.completed_count)"
 Write-Host "    failures/errors: $($summary.failure_or_error_count)"
 Write-Host "    automation warnings: $($summary.automation_warning_count)"
+Write-Host "    explicit success marker: $($summary.has_success_exit_marker)"
 Write-Host "    summary: $SummaryJson"
 Write-Host "    automation exit: $AutomationCode"
 

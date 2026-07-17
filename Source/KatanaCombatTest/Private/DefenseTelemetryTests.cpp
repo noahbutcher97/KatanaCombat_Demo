@@ -16,7 +16,7 @@ public:
 		if (Variable)
 		{
 			PreviousValue = Variable->GetInt();
-			Variable->Set(NewValue, ECVF_SetByCode);
+			Variable->SetWithCurrentPriority(NewValue);
 		}
 	}
 
@@ -24,7 +24,7 @@ public:
 	{
 		if (Variable)
 		{
-			Variable->Set(PreviousValue, ECVF_SetByCode);
+			Variable->SetWithCurrentPriority(PreviousValue);
 		}
 	}
 
@@ -140,8 +140,15 @@ bool FDefenseTelemetryCsvTest::RunTest(const FString& Parameters)
 	Earlier.Outcome = EDefenseOutcome::PerfectParry;
 	Earlier.Reason = EDefenseReason::None;
 	Earlier.SelectedPresentationRow = TEXT("ExactParry");
+	FDefenseTelemetryRecord Damage;
+	Damage.Sequence = 8;
+	Damage.Event = EDefenseTelemetryEvent::StageDamage;
+	Damage.UnscaledTimestamp = 15.0;
+	Damage.SimulationTimestamp = 7.5;
+	Damage.DefenderStableId.Value = 11;
+	Damage.StageName = TEXT("FinisherActive");
 
-	const TArray<FDefenseTelemetryRecord> Unordered = {Later, Earlier};
+	const TArray<FDefenseTelemetryRecord> Unordered = {Later, Damage, Earlier};
 	const FString Csv = DefenseTelemetry::BuildCsv(Unordered);
 	TestTrue(TEXT("CSV should use the versioned stable header"),
 		Csv.StartsWith(TEXT("schema_version,sequence,event,simulation_timestamp,unscaled_timestamp")));
@@ -154,17 +161,23 @@ bool FDefenseTelemetryCsvTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("CSV should sort by timestamps and stable identity"),
 		EarlierOffset != INDEX_NONE && LaterOffset != INDEX_NONE && EarlierOffset < LaterOffset);
 	TestTrue(TEXT("CSV should emit enum names, not ordinal values"),
-		Csv.Contains(TEXT("PerfectParry")) && Csv.Contains(TEXT("Resolution")));
+		Csv.Contains(TEXT("PerfectParry"))
+			&& Csv.Contains(TEXT("Resolution"))
+			&& Csv.Contains(TEXT("StageDamage")));
+	TestFalse(TEXT("CSV should not contain blank records"), Csv.Contains(TEXT("\n\n")));
 	TArray<FString> Lines;
-	Csv.ParseIntoArrayLines(Lines, false);
-	TestEqual(TEXT("CSV fixture should contain one header and two rows"), Lines.Num(), 3);
-	if (Lines.Num() == 3)
+	Csv.ParseIntoArrayLines(Lines, true);
+	TestEqual(TEXT("CSV fixture should contain one header and three rows"), Lines.Num(), 4);
+	if (Lines.Num() == 4)
 	{
 		const int32 HeaderFields = DefenseTelemetryTests::CountCsvFields(Lines[0]);
-		TestEqual(TEXT("First data row should match header cardinality"),
-			DefenseTelemetryTests::CountCsvFields(Lines[1]), HeaderFields);
-		TestEqual(TEXT("Second data row should match header cardinality"),
-			DefenseTelemetryTests::CountCsvFields(Lines[2]), HeaderFields);
+		for (int32 LineIndex = 1; LineIndex < Lines.Num(); ++LineIndex)
+		{
+			TestEqual(
+				FString::Printf(TEXT("Data row %d should match header cardinality"), LineIndex),
+				DefenseTelemetryTests::CountCsvFields(Lines[LineIndex]),
+				HeaderFields);
+		}
 	}
 	return true;
 }

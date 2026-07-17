@@ -316,6 +316,80 @@ bool FCombatWarp_SuspensionBudgetAndOwnerRelease::RunTest(const FString& Paramet
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCombatWarp_TerminalFrameBudgetAndSuccessor,
+	"KatanaCombat.Defense.Alignment.CombatWarp.TerminalFrameBudgetAndSuccessor",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCombatWarp_TerminalFrameBudgetAndSuccessor::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	UCombatComponent* Combat = nullptr;
+	UTargetingComponent* Targeting = nullptr;
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombatAndTargeting(
+		World, Combat, Targeting);
+	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(300.0f, 0.0f, 0.0f));
+	if (!Player || !Targeting || !Enemy || !Player->MotionWarpingComponent)
+	{
+		AddError(TEXT("Failed to create terminal-frame combat-warp fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	const FAlignmentRequestHandle Handle = Targeting->AcquireAlignmentRequest(MakeOwnedWarpSpec(
+		Enemy,
+		TEXT("TerminalFrameOwner"),
+		TEXT("AttackTarget"),
+		EDefenseAlignmentPriority::ActiveAttackWarp,
+		180.0f,
+		70.0f));
+	UAnimNotifyState_CombatWarp* Notify = NewObject<UAnimNotifyState_CombatWarp>();
+	UAnimMontage* Animation = NewObject<UAnimMontage>();
+	URootMotionModifier_Warp* Modifier = AddCombatWarpModifier(
+		Notify, Player->MotionWarpingComponent, Animation);
+	if (!Handle.IsValid() || !Modifier)
+	{
+		AddError(TEXT("Failed to register terminal-frame combat-warp modifier"));
+		Targeting->ReleaseAlignmentRequest(Handle);
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	UpdateModifier(Modifier, Animation, 0.0f, 0.1f, 1.0f, 0.1f);
+	Player->SetActorRotation(FRotator(0.0f, 20.0f, 0.0f));
+	UpdateModifier(Modifier, Animation, 0.1f, 0.2f, 1.0f, 0.1f);
+	FAlignmentRequestSpec RequestSpec;
+	TestTrue(TEXT("Terminal-frame request remains queryable before deactivation"),
+		Targeting->GetAlignmentRequestSpec(Handle, RequestSpec));
+	TestEqual(TEXT("Observed update spends the first twenty degrees"),
+		RequestSpec.RemainingTurnBudget, 50.0f, 0.1f);
+
+	Player->SetActorRotation(FRotator(0.0f, 35.0f, 0.0f));
+	Modifier->SetState(ERootMotionModifierState::MarkedForRemoval);
+	TestEqual(TEXT("Terminal deactivation unregisters the finished modifier"),
+		Targeting->GetRegisteredAlignmentModifierCountForTesting(), 0);
+	TestTrue(TEXT("Request survives terminal modifier deactivation"),
+		Targeting->GetAlignmentRequestSpec(Handle, RequestSpec));
+	TestEqual(TEXT("Terminal frame spends its final fifteen degrees"),
+		RequestSpec.RemainingTurnBudget, 35.0f, 0.1f);
+
+	URootMotionModifier_Warp* Successor = AddCombatWarpModifier(
+		Notify, Player->MotionWarpingComponent, Animation);
+	TestNotNull(TEXT("Active owner may register a successor modifier"), Successor);
+	if (Successor)
+	{
+		UpdateModifier(Successor, Animation, 0.2f, 0.4f, 1.0f, 0.2f);
+		TestEqual(TEXT("Successor cap uses the reconciled remaining budget"),
+			Successor->WarpMaxRotationRate, 175.0f, 0.1f);
+	}
+
+	Targeting->ReleaseAlignmentRequest(Handle);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FCombatWarp_SetupAttackWarpOwnedLifecycle,
 	"KatanaCombat.Defense.Alignment.CombatWarp.SetupAttackWarpOwnedLifecycle",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

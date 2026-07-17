@@ -194,6 +194,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AI|State")
 	bool CanAttemptAttack() const;
 
+	/** Retain attack suppression for one exact defense interaction. */
+	bool AcquireDefenseChainSuppression(const FDefenseInteractionId& InteractionId);
+
+	/** Release only the suppression owned by the exact defense interaction. */
+	bool ReleaseDefenseChainSuppression(const FDefenseInteractionId& InteractionId);
+
+	bool IsDefenseChainSuppressed() const
+	{
+		return !DefenseChainSuppressions.IsEmpty();
+	}
+
 	/** Check if currently attacking */
 	UFUNCTION(BlueprintPure, Category = "AI|State")
 	bool IsAttacking() const { return CurrentState == EEnemyAIState::Attacking; }
@@ -319,6 +330,8 @@ protected:
 
 	/** True only while this component is queued and waiting for an async token grant. */
 	bool bWaitingForTokenGrant = false;
+
+	TSet<FDefenseInteractionId> DefenseChainSuppressions;
 
 	FAttackInstanceId ActiveAttackInstance;
 	FAttackInstanceId LastConsumedAttackInstance;

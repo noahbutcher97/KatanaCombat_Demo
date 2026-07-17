@@ -6,6 +6,7 @@
 #include "Data/AttackData.h"
 #include "Interfaces/CombatInterface.h"
 #include "Core/CombatComponent.h"
+#include "Core/TargetingComponent.h"
 #include "GameFramework/Character.h"
 #include "Animation/AnimInstance.h"
 #include "Engine/World.h"
@@ -36,6 +37,7 @@ void UEnemyCombatAIComponent::BeginPlay()
 
 void UEnemyCombatAIComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	DefenseChainSuppressions.Reset();
 	UnbindAttackConsumption();
 	// Clean up token if we have one
 	ReleaseTokenAndCleanup();
@@ -141,6 +143,13 @@ void UEnemyCombatAIComponent::CancelQueuedAttackRequest()
 
 bool UEnemyCombatAIComponent::ExecuteAttack()
 {
+	if (IsDefenseChainSuppressed())
+	{
+		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
+		return false;
+	}
+
 	if (CurrentState != EEnemyAIState::Approaching)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: Cannot execute attack - not in Approaching state"),
@@ -404,6 +413,11 @@ bool UEnemyCombatAIComponent::IsWaitingForToken() const
 
 bool UEnemyCombatAIComponent::CanAttemptAttack() const
 {
+	if (IsDefenseChainSuppressed())
+	{
+		return false;
+	}
+
 	// Can only initiate attack from Circling or Idle states
 	if (CurrentState != EEnemyAIState::Circling && CurrentState != EEnemyAIState::Idle)
 	{
@@ -594,6 +608,13 @@ bool UEnemyCombatAIComponent::TerminateActiveAttack(
 
 	bAttackTerminationCommitted = true;
 	UnbindAttackConsumption();
+	if (const ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner()))
+	{
+		if (UTargetingComponent* Targeting = OwnerCharacter->GetTargetingComponent())
+		{
+			Targeting->ReleaseActiveAttackWarp();
+		}
+	}
 	if (bStopActiveMontage)
 	{
 		if (ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
@@ -624,6 +645,30 @@ bool UEnemyCombatAIComponent::TerminateActiveAttack(
 #endif
 	OnAttackEnded.Broadcast(bInterrupted);
 	return true;
+}
+
+bool UEnemyCombatAIComponent::AcquireDefenseChainSuppression(
+	const FDefenseInteractionId& InteractionId)
+{
+	if (!InteractionId.IsValid())
+	{
+		return false;
+	}
+
+	const bool bWasSuppressed = IsDefenseChainSuppressed();
+	DefenseChainSuppressions.Add(InteractionId);
+	if (!bWasSuppressed)
+	{
+		ReleaseTokenAndCleanup();
+	}
+	return true;
+}
+
+bool UEnemyCombatAIComponent::ReleaseDefenseChainSuppression(
+	const FDefenseInteractionId& InteractionId)
+{
+	return InteractionId.IsValid()
+		&& DefenseChainSuppressions.Remove(InteractionId) > 0;
 }
 
 void UEnemyCombatAIComponent::UnbindAttackConsumption()
@@ -666,6 +711,12 @@ void UEnemyCombatAIComponent::HandleTokenGranted(AActor* Attacker)
 	// Only react if this is us getting the token from queue
 	if (Attacker != GetOwner())
 	{
+		return;
+	}
+	if (IsDefenseChainSuppressed())
+	{
+		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
 		return;
 	}
 

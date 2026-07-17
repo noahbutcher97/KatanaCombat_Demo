@@ -1038,11 +1038,11 @@ CSV output must be stable and machine-readable. Sample transforms immediately be
 
 - [x] **Step 2: Define the checked-in JSON manifest schema**
 
-`DefenseProofMigration` consumes only explicit JSON paths listed in `DefenseGateATargets.txt`/`DefenseGateBTargets.txt`; global scan is rejected. Use UE JSON APIs, not string parsing. Schema version 1 includes:
+`DefenseProofMigration` consumes only explicit JSON paths listed in `DefenseGateATargets.txt`/`DefenseGateBTargets.txt`; global scan is rejected. Use UE JSON APIs, not string parsing. Schema version 2 includes:
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "gate": "A",
   "map": "/Game/ProjectFiles/Levels/Lvl_ThirdPerson1.Lvl_ThirdPerson1",
   "defenseConfiguration": "required object path",
@@ -1059,11 +1059,12 @@ CSV output must be stable and machine-readable. Sample transforms immediately be
   }],
   "presentations": [],
   "pairedDependencies": [],
+  "proofCases": ["required unique runtime proof case names"],
   "expectedCases": []
 }
 ```
 
-The snippet defines shape, not accepted Gate A timing. Validation must reject `reviewed=false`, zero/negative windows, empty required paths/arrays, duplicate case names, assets outside `/Game`, and any field not consistent with loaded assets. Do not check in the concrete manifest until inventory replaces every required value and a human/agent visual review supplies real section-relative times.
+The snippet defines shape, not accepted Gate A timing. Validation must reject `reviewed=false`, zero/negative windows, empty required paths/arrays, empty or duplicate proof-case names, duplicate expected-case names, assets outside `/Game`, and any field not consistent with loaded assets. Do not check in the concrete manifest until inventory replaces every required value and a human/agent visual review supplies real section-relative times.
 
 - [x] **Step 3: Build read-only inventory and validation first**
 
@@ -1103,15 +1104,15 @@ Use a stable engine hash API over canonical UTF-8 bytes; this fingerprint is a d
 
 Use transient AttackData/montages/configurations plus small checked-in test fixtures. Prove malformed JSON, unknown schema/fields, missing assets, false review flag, timing outside section, duplicate parry window, tag/window mismatch, ambiguous rows, missing generic fallback, root-motion budget failure, marker-role ambiguity, incomplete dependency closure, per-case row cardinality, canonical fingerprint stability, edited manifest/asset/plan drift refusal, missing or mismatched approval arguments, plan/apply idempotence, changed-package-set mismatch, dirty-package refusal, save-gate refusal, external-actor package reporting/reload, and JSON report serialization.
 
-Evidence (2026-07-17 UTC): `KatanaCombatEditor` built with `-NoUBA -MaxParallelActions=1`; all 36 `KatanaCombat.Editor.AssetMigration` tests passed in `Saved/Logs/Asset-Migration-Commandlet-Final.log`; all 30 `KatanaCombat.Editor.DefenseValidation` tests passed in `Saved/Logs/Defense-Validation-Commandlet-Final.log`. Adversarial regressions cover approval-schema drift, exact package scope, save preflight, paired target-montage authority, bridge continuation policy, relevant asset-fact drift, missing-section atomicity, input conflicts, and deprecated right-mouse block removal.
+Evidence (2026-07-17 UTC): `KatanaCombatEditor` built with `-NoUBA -NoUBTMakefiles -MaxParallelActions=1`; all 41 `KatanaCombat.Editor.AssetMigration` tests passed in `Saved/Logs/Focused-AssetMigration-20260717-143808.log`; all 35 `KatanaCombat.Editor.DefenseValidation` tests passed in `Saved/Logs/Focused-DefenseValidation-schema2-20260717-143505.log`. Adversarial regressions cover approval-schema drift, exact package scope, save preflight, paired target-montage authority, bridge continuation policy, relevant asset-fact drift, missing-section atomicity, input conflicts, deprecated right-mouse block removal, proof-case ledger omission/duplication, approval dependency drift, and refusal-before-mutation.
 
-- [ ] **Step 6: Run Gate A inventory and make the manifest concrete**
+- [x] **Step 6: Run Gate A inventory and make the manifest concrete**
 
 Start with a read-only target that inventories the known attack/map. Use the report plus Editor/UEMCP visual inspection to choose exact existing or newly created defense assets and reviewed parry timing. The agent performs the asset creation/assignment; do not ask the user to wire the level manually.
 
 Write `Tools/Codex/manifests/defense-gate-a.json` only after all required fields are concrete, then set `Config/AssetMigrations/DefenseGateATargets.txt` to that one manifest path. Record every selected dependency and expected case. If a suitable bridge/counter/finisher pair does not visually align, create or select a different explicit pair instead of accepting template provenance.
 
-- [ ] **Step 7: Run Audit and Plan, then review exact package scope**
+- [x] **Step 7: Run Audit and Plan, then review exact package scope**
 
 ```powershell
 & "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=Audit -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-audit.json" -unattended -nopause -NullRHI -nosplash -stdout
@@ -1122,7 +1123,7 @@ Expected: Audit reports current gaps; Plan names only the reviewed attack, monta
 
 Review every row and package-ledger entry. Record the exact `plan_fingerprint` only after that review; extracting a fingerprint and immediately applying without scope review does not satisfy approval.
 
-- [ ] **Step 8: Prove mutation in memory before saving**
+- [x] **Step 8: Prove mutation in memory before saving**
 
 ```powershell
 $approvedPlan = "Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-plan.json"
@@ -1132,7 +1133,7 @@ $approvedFingerprint = "<reviewed plan_fingerprint>"
 
 Expected: changed-in-memory rows match Plan, no package is saved, and reapplying in the same test context is idempotent.
 
-- [ ] **Step 9: Apply and save only reviewed Gate A packages**
+- [x] **Step 9: Apply and save only reviewed Gate A packages**
 
 Close the Editor first. Confirm `git status --short` and initially dirty package state. Then:
 
@@ -1142,7 +1143,9 @@ Close the Editor first. Confirm `git status --short` and initially dirty package
 
 Rerun Audit. Expected: `Unchanged`, no errors, and only named packages changed. Inspect every binary path before staging.
 
-- [ ] **Step 10: Execute visible Gate A PIE proof**
+Evidence (2026-07-17 UTC): the concrete manifest and target ledger are checked in at the paths above. The original mutation Plan matched fingerprint `83A8A44F6215E752C0B540EC0B47510A43C9D741` and named only `AM_Light_Combo_1`, `LightAttack_1`, and `DA_CombatSettings_Default`. In-memory Apply changed those three packages without saving; `ApplyAndSave` saved and reloaded exactly those packages. The schema-v2 manifest now owns a nonempty 12-case proof ledger. Fresh-process final Audit at `Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-final-audit2.json` reports 27 unchanged, 0 would-change, 0 failed, 0 saved, and an empty package ledger. The final clean V4 authoring Plan at `Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-authoring-plan-final2.json` has fingerprint `22E58B55F3569BF22009E33E81CBB88DECBCBB90`, one unchanged operation, zero proposed writes, and an empty package ledger.
+
+- [x] **Step 10: Execute visible Gate A PIE proof**
 
 Open `Lvl_ThirdPerson1`; the level must be load-and-playable without manual reassignment. Capture telemetry and video for:
 
@@ -1156,7 +1159,9 @@ Open `Lvl_ThirdPerson1`; the level must be load-and-playable without manual reas
 
 Telemetry acceptance: final per-frame yaw is within `rate * simulation delta + 0.1 degrees`; normal-block horizontal drift is at most 1 cm; each parry-bridge actor moves at most 75 cm; stage-handoff unexpected displacement is at most 10 cm; pelvis discontinuity is at most 15 cm. Missing visible assets or missing telemetry blocks Gate A.
 
-- [ ] **Step 11: Verify and commit Slice 6**
+Evidence (2026-07-17 UTC): rendered PIE automation `KatanaCombat.Defense.GateA.PIEProof` passed in `Lvl_ThirdPerson1` with 49/49 captured, decoded, nontrivial, correctly framed images, physical weapon contact, and exact closure over all 12 manifest-declared proof cases. Structured evidence is at `Saved/DefenseProof/GateA/Rendered/defense-gate-a-evidence.json`; the regenerated 5 fps, 49-frame proof video is at `Saved/DefenseProof/GateA/Rendered/defense-gate-a-proof.mp4`. Headless suite evidence is isolated under `Saved/DefenseProof/GateA/Headless/` so it cannot overwrite visible acceptance. Same-window duplicate budget remained `1 -> 1`, normal-block drift and unexpected displacement were 0 cm, maximum yaw over budget was `0.0000093` degrees, maximum pelvis delta was `6.79` cm, and both bridge actors remained at 0 cm displacement in the deterministic fixture. The proof records 62 alignment frames and 122 telemetry rows with exactly one counter damage, one finisher damage, and one terminal cleanup event. Representative rendered frames were inspected for visible parry, counter, finisher, and cleanup states.
+
+- [x] **Step 11: Verify and commit Slice 6**
 
 Build first, then run editor validation/migration tests, all defense tests, and full automation. Complete the slice adversarial/spec-coverage gate. Update `docs/guides/HEADLESS_ASSET_MIGRATIONS.md` with exact operation usage and create a short Gate A evidence handoff under `docs/handoffs/` naming reports, telemetry, changed assets, and proof limits. Commit source/docs separately from reviewed binary assets when practical:
 
@@ -1166,6 +1171,8 @@ git commit -m "Prove the LightAttack_1 defense slice"
 ```
 
 Gate A does not authorize Gate B or broad defense claims.
+
+Evidence (2026-07-17 UTC): final focused runs completed `KatanaCombat.Defense` 127/127, `KatanaCombat.EnemyAI` 13/13, and `KatanaCombat.Editor.DefenseMigration` 16/16 with zero failures/errors. The standard baseline built with `-NoUBA -NoUBTMakefiles -MaxParallelActions=1` and completed all 609 discovered tests with zero failures/errors and the explicit success marker (`Saved/Logs/Codex-Agent-Baseline-20260717-164642`). The final adversarial pass added regression coverage for missing-file dirty package refusal, exact remaining parry-notify timing, synchronous bridge callback invalidation, and interrupted-attack warp release. No high or medium Gate A finding remains open; Gate B coverage and animation-catalog breadth remain deliberately unproven.
 
 ---
 

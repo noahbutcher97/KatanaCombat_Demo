@@ -158,6 +158,107 @@ bool FDefenseInput_UnconditionalCapture::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseThreat_ReviewedWindowRequiresAuthoredContactPoints,
+	"KatanaCombat.Defense.Threat.ReviewedWindowRequiresAuthoredContactPoints",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseThreat_ReviewedWindowRequiresAuthoredContactPoints::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Attacker = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector::ZeroVector);
+	APlayerCharacter* Defender = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector(250.0f, 0.0f, 0.0f));
+	UCombatComponent* AttackerCombat = Attacker ? Attacker->CombatComponent.Get() : nullptr;
+	if (!World || !Attacker || !Defender || !AttackerCombat)
+	{
+		AddError(TEXT("Failed to create reviewed-window prediction fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
+	Attack->DefenseProfile.SourceContactSocketOverride = TEXT("weapon_end");
+	Attack->DefenseProfile.Height = EAttackHeight::Middle;
+	Attack->DefenseProfile.NominalLane = EIncomingAttackLane::Center;
+	AttackerCombat->SeedAttackWindowStateForTesting(Attack, EAttackPhase::Windup, 73);
+	AttackerCombat->SetAttackIntentTarget(Defender);
+
+	FAnimNotifyRuntimeSourceId Source;
+	Source.SourceAnimation = FSoftObjectPath(TEXT("/Game/Test/Defense/ReviewedParryWindow"));
+	Source.NotifyEventIndex = 4;
+	const FAttackWindowInstanceId Window = AttackerCombat->OpenAttackWindow(
+		EAttackWindowKind::Parry, Source, 501, 0.25f);
+	TestTrue(TEXT("Reviewed parry window opens"), Window.IsValid());
+	TestFalse(TEXT("Missing authored sockets prevent reviewed prediction"),
+		AttackerCombat->PublishReviewedAttackWindowPrediction(Window));
+
+	const FAttackExecutionSnapshot Published = AttackerCombat->BuildAttackExecutionSnapshot();
+	TestFalse(TEXT("Missing source and target contact points fail closed"),
+		Published.PredictedContact.bIsValid);
+
+	TestTrue(TEXT("Reviewed parry window closes"),
+		AttackerCombat->CloseAttackWindow(EAttackWindowKind::Parry, Source, 501));
+	const FAttackExecutionSnapshot Closed = AttackerCombat->BuildAttackExecutionSnapshot();
+	TestFalse(TEXT("Closing the reviewed window invalidates its prediction"),
+		Closed.PredictedContact.bIsValid);
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseThreat_WindowRefreshPreservesGeneration,
+	"KatanaCombat.Defense.Threat.WindowRefreshPreservesGeneration",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseThreat_WindowRefreshPreservesGeneration::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Attacker = FCombatTestHelpers::CreateTestEnemyCharacter(World);
+	UCombatComponent* Combat = Attacker ? Attacker->CombatComponent.Get() : nullptr;
+	if (!World || !Attacker || !Combat)
+	{
+		AddError(TEXT("Failed to create attack-window refresh fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Combat->SeedAttackWindowStateForTesting(
+		FCombatTestHelpers::CreateTestAttack(EAttackType::Light),
+		EAttackPhase::Windup,
+		74);
+	FAnimNotifyRuntimeSourceId Source;
+	Source.SourceAnimation = FSoftObjectPath(TEXT("/Game/Test/Defense/RefreshParryWindow"));
+	Source.NotifyEventIndex = 2;
+	const FAttackWindowInstanceId Opened = Combat->OpenAttackWindow(
+		EAttackWindowKind::Parry, Source, 502, 0.25f);
+	const double RefreshNow = World->GetTimeSeconds();
+	const FAttackWindowInstanceId Refreshed = Combat->RefreshAttackWindow(
+		EAttackWindowKind::Parry, Source, 502, 0.75f);
+
+	TestTrue(TEXT("Refreshed window remains valid"), Refreshed.IsValid());
+	TestEqual(TEXT("Refresh preserves attack generation"),
+		Refreshed.AttackInstance.AttackGeneration, Opened.AttackInstance.AttackGeneration);
+	TestEqual(TEXT("Refresh preserves window generation"),
+		Refreshed.WindowGeneration, Opened.WindowGeneration);
+	TestEqual(TEXT("Refresh preserves simulation start"),
+		Refreshed.SimulationStartTime, Opened.SimulationStartTime);
+	TestTrue(TEXT("Refresh recomputes the runtime deadline"),
+		Refreshed.SimulationEndTime >= RefreshNow + 0.74
+		&& Refreshed.SimulationEndTime <= RefreshNow + 0.76);
+	TestTrue(TEXT("The refreshed value becomes the canonical active window"),
+		Combat->GetActiveAttackWindow(EAttackWindowKind::Parry) == Refreshed);
+	TestTrue(TEXT("The refreshed window closes through the original notify identity"),
+		Combat->CloseAttackWindow(EAttackWindowKind::Parry, Source, 502));
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FDefenseInput_BlockEdgesTerminal,
 	"KatanaCombat.Defense.Input.BlockEdgesAreStatefulAndTerminal",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

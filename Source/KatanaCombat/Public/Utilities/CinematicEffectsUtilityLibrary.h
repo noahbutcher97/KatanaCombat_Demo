@@ -28,6 +28,17 @@ class KATANACOMBAT_API UCinematicEffectsUtilityLibrary : public UBlueprintFuncti
     GENERATED_BODY()
 
 public:
+#if WITH_AUTOMATION_TESTS
+    DECLARE_MULTICAST_DELEGATE_FourParams(
+        FOnImpactSoundPlaybackInvokedForTesting,
+        UWorld*,
+        USoundBase*,
+        const FVector&,
+        AActor*);
+
+    static FOnImpactSoundPlaybackInvokedForTesting OnImpactSoundPlaybackInvokedForTesting;
+#endif
+
     // ========================================================================
     // TIME DILATION
     // ========================================================================

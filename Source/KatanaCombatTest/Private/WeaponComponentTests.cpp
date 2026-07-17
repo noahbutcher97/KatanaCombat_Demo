@@ -795,3 +795,46 @@ bool FDefenseWeaponInvulnerableBudgetTest::RunTest(const FString& Parameters)
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseWeaponCallbackLifetimeTest,
+	"KatanaCombat.Defense.Contact.WeaponCallbackLifetime",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseWeaponCallbackLifetimeTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(-100.0f, 0.0f, 0.0f));
+	APlayerCharacter* Target = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector(100.0f, 0.0f, 0.0f));
+	UWeaponComponent* Weapon = Source ? Source->WeaponComponent.Get() : nullptr;
+	if (!World || !Source || !Target || !Weapon)
+	{
+		AddError(TEXT("Failed to create weapon callback lifetime fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	Attack->BaseDamage = 20.0f;
+	Attack->MaxHitCount = 1;
+	Weapon->OnRichContactAccountedForTesting.AddLambda(
+		[Source](AActor*, const FContactInstanceId&, int32)
+		{
+			Source->Destroy();
+		});
+
+	Weapon->ProcessHitForTesting(
+		MakeWeaponBudgetContactHit(Target, Source->GetActorLocation()), Attack);
+	TestTrue(TEXT("The test callback destroys the source during accounting"),
+		Source->IsActorBeingDestroyed());
+	TestEqual(TEXT("Gameplay commit remains exactly once before callback teardown"),
+		Target->CurrentHealth, Target->MaxHealth - 20.0f);
+	TestEqual(TEXT("A destroyed source cannot enter stale impact finalization"),
+		Source->GetResolvedWeaponImpactAttemptCountForTesting(), 0);
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}

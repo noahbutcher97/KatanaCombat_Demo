@@ -166,6 +166,7 @@ struct FDefenseProofManifest
 	TArray<FDefenseProofPresentationEntry> Presentations;
 	TArray<FDefenseProofPairedDependencyEntry> PairedDependencies;
 	TArray<FDefenseProofExpectedCaseEntry> ExpectedCases;
+	TArray<FString> ProofCases;
 	FString SourcePath;
 };
 

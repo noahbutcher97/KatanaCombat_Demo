@@ -20,6 +20,7 @@
 #include "AnimStateTransitionNode.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Commandlets/KatanaAssetMigrationRunner.h"
+#include "Commandlets/Operations/DefenseProofMigrationOperation.h"
 #include "Data/DefenseConfiguration.h"
 #include "Data/PairedAnimationData.h"
 #include "Dom/JsonObject.h"
@@ -46,8 +47,11 @@ const FString FDefenseProofAuthoringOperation::OperationName = TEXT("DefenseProo
 
 namespace
 {
-constexpr int32 RecipeVersion = 2;
+constexpr int32 RecipeVersion = 4;
 constexpr float FloatTolerance = 0.001f;
+
+const FString DefenseManifestRelativePath =
+	TEXT("Tools/Codex/manifests/defense-gate-a.json");
 
 const FString GuardAnimBlueprintPath =
 	TEXT("/Game/ProjectFiles/Animation/ABP_SamuraiCharacter.ABP_SamuraiCharacter");
@@ -146,12 +150,9 @@ struct FDefenseAuthoringPairedSpec
 	bool bLethal = false;
 };
 
-struct FDefenseAuthoringPlan
+struct FDefenseAuthoringPlan : FDefenseProofAuthoringApprovalContract
 {
-	TArray<FString> ProposedChanges;
 	TArray<FString> Errors;
-	TArray<FKatanaAssetMigrationPackageLedgerEntry> PackageLedger;
-	FString Fingerprint;
 };
 
 FString BuildObjectPath(const FString& PackageName)
@@ -174,7 +175,7 @@ TArray<FDefenseAuthoringMontageSpec> BuildMontageSpecs()
 			{{TEXT("Bridge"), 0.0f}, {TEXT("CounterReady"), 0.70f}},
 			TEXT("PairedTarget"), 0.0f, 0.70f, true, true, true,
 			EPairedReactionType::Parry, 0.30f, false, true,
-			EChainStageTransitionType::OpenCounterWindow, TEXT("CounterReady"), 0.70f},
+			EChainStageTransitionType::OpenCounterWindow, TEXT("CounterReady"), 0.65f},
 		{BridgeAttackerMontagePackage,
 			{{StaggerSequencePath, 0.0f, 0.70f, 1.0f}, {StaggerSequencePath, 0.70f, 0.72f, 0.20f}},
 			{{TEXT("Bridge"), 0.0f}, {TEXT("CounterReady"), 0.70f}},
@@ -444,7 +445,17 @@ bool ChainNotifyMatches(
 			return false;
 		}
 	}
-	return Count == (Spec.bAddChainMarker ? 1 : 0);
+	if (Count != (Spec.bAddChainMarker ? 1 : 0))
+	{
+		return false;
+	}
+	return !Spec.bAddChainMarker
+		|| (!Spec.Sections.IsEmpty()
+			&& UAnimNotify_ChainStageTransition::HasExactlyOnePlayableMarker(
+				Montage,
+				Spec.ChainMarker,
+				Spec.ChainTransition,
+				Spec.Sections[0].Name));
 }
 
 bool MontageMatches(
@@ -509,48 +520,61 @@ void AddStateNotify(
 	Montage->Notifies.Add(MoveTemp(Event));
 }
 
-UAnimMontage* CreateMontage(
+bool ApplyMontageRecipe(
+	UAnimMontage* Montage,
 	const FDefenseAuthoringMontageSpec& Spec,
 	TArray<FString>& OutErrors)
 {
-	FString PackageError;
-	UPackage* Package = CreateOrLoadAssetPackage(Spec.PackageName, PackageError);
-	if (!Package)
-	{
-		OutErrors.Add(PackageError);
-		return nullptr;
-	}
-	const FString AssetName = FPackageName::GetLongPackageAssetName(Spec.PackageName);
-	UAnimMontage* Montage = NewObject<UAnimMontage>(
-		Package, *AssetName, RF_Public | RF_Standalone | RF_Transactional);
 	if (!Montage)
 	{
-		OutErrors.Add(FString::Printf(TEXT("could not create montage: %s"), *Spec.PackageName));
-		return nullptr;
+		OutErrors.Add(FString::Printf(TEXT("could not configure montage: %s"), *Spec.PackageName));
+		return false;
+	}
+	if (Spec.Segments.IsEmpty())
+	{
+		OutErrors.Add(FString::Printf(TEXT("montage recipe has no source segments: %s"),
+			*Spec.PackageName));
+		return false;
 	}
 
-	if (Montage->SlotAnimTracks.Num() != 1
-		|| Montage->SlotAnimTracks[0].SlotName != TEXT("DefaultSlot"))
-	{
-		OutErrors.Add(FString::Printf(TEXT("new montage has an unexpected default slot layout: %s"),
-			*Spec.PackageName));
-		return nullptr;
-	}
-	FSlotAnimationTrack& Slot = Montage->SlotAnimTracks[0];
-	float TimelineStart = 0.0f;
+	TArray<UAnimSequenceBase*> SourceAnimations;
+	SourceAnimations.Reserve(Spec.Segments.Num());
+	USkeleton* RecipeSkeleton = nullptr;
 	for (const FDefenseAuthoringSegmentSpec& SegmentSpec : Spec.Segments)
 	{
 		UAnimSequenceBase* Source = LoadObjectAtPath<UAnimSequenceBase>(SegmentSpec.SourcePath);
-		if (!Source)
+		if (!Source || !Source->GetSkeleton())
 		{
-			OutErrors.Add(FString::Printf(TEXT("source animation disappeared before apply: %s"),
+			OutErrors.Add(FString::Printf(TEXT("source animation or skeleton disappeared before apply: %s"),
 				*SegmentSpec.SourcePath));
-			return nullptr;
+			return false;
 		}
-		if (!Montage->GetSkeleton())
+		if (!RecipeSkeleton)
 		{
-			Montage->SetSkeleton(Source->GetSkeleton());
+			RecipeSkeleton = Source->GetSkeleton();
 		}
+		else if (!RecipeSkeleton->IsCompatibleForEditor(Source->GetSkeleton()))
+		{
+			OutErrors.Add(FString::Printf(TEXT("montage recipe mixes incompatible skeletons: %s"),
+				*Spec.PackageName));
+			return false;
+		}
+		SourceAnimations.Add(Source);
+	}
+
+	Montage->Modify();
+	Montage->SlotAnimTracks.Reset();
+	Montage->CompositeSections.Reset();
+	Montage->Notifies.Reset();
+	FSlotAnimationTrack NewSlot;
+	NewSlot.SlotName = TEXT("DefaultSlot");
+	Montage->SlotAnimTracks.Add(MoveTemp(NewSlot));
+	FSlotAnimationTrack& Slot = Montage->SlotAnimTracks[0];
+	float TimelineStart = 0.0f;
+	for (int32 SegmentIndex = 0; SegmentIndex < Spec.Segments.Num(); ++SegmentIndex)
+	{
+		const FDefenseAuthoringSegmentSpec& SegmentSpec = Spec.Segments[SegmentIndex];
+		UAnimSequenceBase* Source = SourceAnimations[SegmentIndex];
 		FAnimSegment Segment;
 		Segment.SetAnimReference(Source);
 		Segment.StartPos = TimelineStart;
@@ -561,6 +585,7 @@ UAnimMontage* CreateMontage(
 		Slot.AnimTrack.AnimSegments.Add(MoveTemp(Segment));
 		TimelineStart += SegmentDuration(SegmentSpec);
 	}
+	Montage->SetSkeleton(RecipeSkeleton);
 	Montage->SetCompositeLength(TimelineStart);
 	for (const FDefenseAuthoringSectionSpec& SectionSpec : Spec.Sections)
 	{
@@ -611,8 +636,29 @@ UAnimMontage* CreateMontage(
 
 	Montage->SortNotifies();
 	Montage->RefreshCacheData();
-	FAssetRegistryModule::AssetCreated(Montage);
 	Montage->MarkPackageDirty();
+	return true;
+}
+
+UAnimMontage* CreateMontage(
+	const FDefenseAuthoringMontageSpec& Spec,
+	TArray<FString>& OutErrors)
+{
+	FString PackageError;
+	UPackage* Package = CreateOrLoadAssetPackage(Spec.PackageName, PackageError);
+	if (!Package)
+	{
+		OutErrors.Add(PackageError);
+		return nullptr;
+	}
+	const FString AssetName = FPackageName::GetLongPackageAssetName(Spec.PackageName);
+	UAnimMontage* Montage = NewObject<UAnimMontage>(
+		Package, *AssetName, RF_Public | RF_Standalone | RF_Transactional);
+	if (!ApplyMontageRecipe(Montage, Spec, OutErrors))
+	{
+		return nullptr;
+	}
+	FAssetRegistryModule::AssetCreated(Montage);
 	return Montage;
 }
 
@@ -1331,29 +1377,189 @@ FString BuildRecipeFingerprintFacts()
 	return Facts;
 }
 
-FString ComputeFingerprint(const FDefenseAuthoringPlan& Plan)
+FString HashText(const FString& Input)
 {
-	FString Input = FString::Printf(TEXT("operation=%s\nrecipe_version=%d\n"),
-		*FDefenseProofAuthoringOperation::OperationName, RecipeVersion);
-	Input += BuildRecipeFingerprintFacts();
-	for (const FString& Change : Plan.ProposedChanges)
+	FTCHARToUTF8 Utf8(*Input);
+	return FSHA1::HashBuffer(Utf8.Get(), static_cast<uint64>(Utf8.Length())).ToString();
+}
+
+void AppendPackageStateFact(
+	const FString& Identity,
+	const FString& Role,
+	const bool bRequired,
+	const bool bRejectDirty,
+	TArray<FString>& OutFacts,
+	TArray<FString>& OutErrors)
+
+{
+	const FString PackageName = Identity.Contains(TEXT("."))
+		? FPackageName::ObjectPathToPackageName(Identity)
+		: Identity;
+	FString Filename;
+	const bool bExists = FPackageName::DoesPackageExist(PackageName, &Filename);
+	const UPackage* LoadedPackage = FindPackage(nullptr, *PackageName);
+	const bool bDirty = LoadedPackage && LoadedPackage->IsDirty();
+	if (bRejectDirty && bDirty)
+	{
+		OutErrors.Add(FString::Printf(
+			TEXT("approval package has unsaved in-memory changes: %s"), *PackageName));
+	}
+	if (!bExists)
+	{
+		OutFacts.Add(FString::Printf(TEXT("%s|%s|missing|dirty=%d"),
+			*Role, *Identity, bDirty));
+		if (bRequired)
+		{
+			OutErrors.Add(FString::Printf(TEXT("approval dependency package is missing: %s"),
+				*PackageName));
+		}
+		return;
+	}
+
+	TArray<uint8> Bytes;
+	if (!FFileHelper::LoadFileToArray(Bytes, *Filename))
+	{
+		OutFacts.Add(FString::Printf(TEXT("%s|%s|unreadable|dirty=%d"),
+			*Role, *Identity, bDirty));
+		OutErrors.Add(FString::Printf(TEXT("approval dependency package could not be hashed: %s"),
+			*PackageName));
+		return;
+	}
+
+	const FString FileHash = FSHA1::HashBuffer(
+		Bytes.GetData(), static_cast<uint64>(Bytes.Num())).ToString();
+	OutFacts.Add(FString::Printf(TEXT("%s|%s|sha1=%s|size=%d|dirty=%d"),
+		*Role, *Identity, *FileHash, Bytes.Num(), bDirty));
+}
+
+FString HashSortedFacts(TArray<FString>& Facts)
+{
+	Facts.Sort();
+	return HashText(FString::Join(Facts, TEXT("\n")));
+}
+
+void BuildSourceState(
+	FString& OutHash,
+	int32& OutCount,
+	TArray<FString>& OutErrors)
+{
+	TSet<FString> SourcePaths = {
+		GuardAnimBlueprintPath,
+		GuardSequencePath,
+		ImpactAudioPath,
+		ImpactVFXPath
+	};
+	for (const FDefenseAuthoringMontageSpec& Spec : BuildMontageSpecs())
+	{
+		for (const FDefenseAuthoringSegmentSpec& Segment : Spec.Segments)
+		{
+			SourcePaths.Add(Segment.SourcePath);
+		}
+	}
+
+	const TArray<FString> DirectSourcePaths = SourcePaths.Array();
+	for (const FString& SourcePath : DirectSourcePaths)
+	{
+		UObject* Source = LoadObjectAtPath<UObject>(SourcePath);
+		if (const UAnimSequenceBase* Sequence = Cast<UAnimSequenceBase>(Source))
+		{
+			if (Sequence->GetSkeleton())
+			{
+				SourcePaths.Add(Sequence->GetSkeleton()->GetPathName());
+			}
+		}
+		else if (const UAnimBlueprint* AnimBlueprint = Cast<UAnimBlueprint>(Source))
+		{
+			if (AnimBlueprint->TargetSkeleton)
+			{
+				SourcePaths.Add(AnimBlueprint->TargetSkeleton->GetPathName());
+			}
+		}
+	}
+
+	TArray<FString> Facts;
+	TArray<FString> SortedPaths = SourcePaths.Array();
+	SortedPaths.Sort();
+	for (const FString& SourcePath : SortedPaths)
+	{
+		AppendPackageStateFact(SourcePath, TEXT("source"), true, true, Facts, OutErrors);
+	}
+	OutCount = Facts.Num();
+	OutHash = HashSortedFacts(Facts);
+}
+
+void BuildDestinationState(
+	FString& OutHash,
+	int32& OutCount,
+	TArray<FString>& OutErrors)
+{
+	TArray<FString> Facts;
+	for (const FString& PackageName : FDefenseProofAuthoringOperation::GetDestinationPackageNames())
+	{
+		AppendPackageStateFact(PackageName, TEXT("destination"), false, true,
+			Facts, OutErrors);
+	}
+	OutCount = Facts.Num();
+	OutHash = HashSortedFacts(Facts);
+}
+
+FString BuildManifestHash(TArray<FString>& OutErrors)
+{
+	FString Json;
+	const FString ManifestPath = FKatanaAssetMigrationRunner::ResolveProjectRelativeFilePath(
+		DefenseManifestRelativePath);
+	if (!FFileHelper::LoadFileToString(Json, *ManifestPath))
+	{
+		OutErrors.Add(FString::Printf(TEXT("could not read Gate A defense manifest: %s"),
+			*ManifestPath));
+		return HashText(TEXT("missing"));
+	}
+
+	FString CanonicalManifest;
+	FString CanonicalError;
+	if (!FDefenseProofMigrationOperation::CanonicalizeJson(
+		Json, CanonicalManifest, CanonicalError))
+	{
+		OutErrors.Add(FString::Printf(TEXT("could not canonicalize Gate A defense manifest: %s"),
+			*CanonicalError));
+		return HashText(TEXT("invalid"));
+	}
+	return HashText(CanonicalManifest);
+}
+
+FString ComputeContractFingerprint(const FDefenseProofAuthoringApprovalContract& Contract)
+{
+	FString Input = FString::Printf(
+		TEXT("operation=%s\nrecipe_version=%d\nrecipe_facts_hash=%s\nsource_state_hash=%s\nsource_state_count=%d\ndestination_state_hash=%s\ndestination_state_count=%d\nmanifest_path=%s\nmanifest_hash=%s\n"),
+		*FDefenseProofAuthoringOperation::OperationName, Contract.RecipeVersion,
+		*Contract.RecipeFactsHash, *Contract.SourceStateHash, Contract.SourceStateCount,
+		*Contract.DestinationStateHash, Contract.DestinationStateCount,
+		*DefenseManifestRelativePath, *Contract.ManifestHash);
+	TArray<FString> Changes = Contract.ProposedChanges;
+	Changes.Sort();
+	for (const FString& Change : Changes)
 	{
 		Input += FString::Printf(TEXT("change=%s\n"), *Change);
 	}
-	for (const FKatanaAssetMigrationPackageLedgerEntry& Entry : Plan.PackageLedger)
+	TArray<FKatanaAssetMigrationPackageLedgerEntry> Ledger = Contract.PackageLedger;
+	Ledger.Sort([](const auto& Left, const auto& Right)
+	{
+		return Left.PackageName < Right.PackageName;
+	});
+	for (const FKatanaAssetMigrationPackageLedgerEntry& Entry : Ledger)
 	{
 		Input += FString::Printf(
 			TEXT("package=%s\nrole=%s\ndirty=%s\naction=%s\n"),
 			*Entry.PackageName, *Entry.PackageRole,
 			*LexToString(Entry.bInitiallyDirty), *Entry.PlannedAction);
 	}
-	FTCHARToUTF8 Utf8(*Input);
-	return FSHA1::HashBuffer(Utf8.Get(), static_cast<uint64>(Utf8.Length())).ToString();
+	return HashText(Input);
 }
 
 FDefenseAuthoringPlan BuildPlan()
 {
 	FDefenseAuthoringPlan Plan;
+	Plan.RecipeVersion = RecipeVersion;
 	UAnimBlueprint* AnimBlueprint = LoadObjectAtPath<UAnimBlueprint>(GuardAnimBlueprintPath);
 	UAnimSequenceBase* GuardSequence = LoadObjectAtPath<UAnimSequenceBase>(GuardSequencePath);
 	if (!AnimBlueprint
@@ -1397,9 +1603,9 @@ FDefenseAuthoringPlan BuildPlan()
 		{
 			if (!MontageMatches(Montage, Spec))
 			{
-				Plan.Errors.Add(FString::Printf(
-					TEXT("existing destination montage differs from the reviewed recipe: %s"),
-					*Spec.PackageName));
+				AddPlannedPackage(Plan,
+					FString::Printf(TEXT("RewriteMontage|%s"), *Spec.PackageName),
+					Spec.PackageName, TEXT("DefenseMontage"), TEXT("Modify"), Existing);
 			}
 		}
 		else
@@ -1484,32 +1690,34 @@ FDefenseAuthoringPlan BuildPlan()
 	{
 		return Left.PackageName < Right.PackageName;
 	});
+	Plan.RecipeFactsHash = HashText(BuildRecipeFingerprintFacts());
+	BuildSourceState(Plan.SourceStateHash, Plan.SourceStateCount, Plan.Errors);
+	BuildDestinationState(
+		Plan.DestinationStateHash, Plan.DestinationStateCount, Plan.Errors);
+	Plan.ManifestHash = BuildManifestHash(Plan.Errors);
 	Plan.Errors.Sort();
-	Plan.Fingerprint = ComputeFingerprint(Plan);
+	Plan.Fingerprint = ComputeContractFingerprint(Plan);
 	return Plan;
 }
 
-bool ValidateApprovedPlanBinding(
-	const FKatanaAssetMigrationOptions& Options,
-	const FDefenseAuthoringPlan& Plan,
+bool ValidateApprovedPlanJsonInternal(
+	const FString& Json,
+	const FString& ApprovedPlanFingerprint,
+	const FDefenseProofAuthoringApprovalContract& Plan,
 	TArray<FString>& OutErrors)
 {
-	if (Options.ApprovedPlanReport.IsEmpty() || Options.ApprovedPlanFingerprint.IsEmpty())
+	if (ApprovedPlanFingerprint.IsEmpty())
 	{
-		OutErrors.Add(TEXT("approved authoring Plan report and fingerprint are required"));
+		OutErrors.Add(TEXT("approved authoring fingerprint is required"));
 		return false;
 	}
-	if (Options.ApprovedPlanFingerprint != Plan.Fingerprint)
+	if (Plan.Fingerprint != ComputeContractFingerprint(Plan))
+	{
+		OutErrors.Add(TEXT("current authoring contract contains an invalid fingerprint"));
+	}
+	if (ApprovedPlanFingerprint != Plan.Fingerprint)
 	{
 		OutErrors.Add(TEXT("approved authoring fingerprint differs from the current plan"));
-	}
-	FString Json;
-	const FString ReportPath = FKatanaAssetMigrationRunner::ResolveProjectRelativeFilePath(
-		Options.ApprovedPlanReport);
-	if (!FFileHelper::LoadFileToString(Json, *ReportPath))
-	{
-		OutErrors.Add(FString::Printf(TEXT("could not read approved authoring Plan: %s"), *ReportPath));
-		return false;
 	}
 	TSharedPtr<FJsonObject> Root;
 	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Json);
@@ -1521,6 +1729,8 @@ bool ValidateApprovedPlanBinding(
 	FString Operation;
 	FString Mode;
 	FString Fingerprint;
+	FString ManifestPath;
+	FString Gate;
 	double SchemaVersion = 0.0;
 	if (!Root->TryGetNumberField(TEXT("schema_version"), SchemaVersion)
 		|| SchemaVersion != 2.0
@@ -1528,12 +1738,101 @@ bool ValidateApprovedPlanBinding(
 		|| Operation != FDefenseProofAuthoringOperation::OperationName
 		|| !Root->TryGetStringField(TEXT("mode"), Mode)
 		|| Mode != TEXT("Plan")
+		|| !Root->TryGetStringField(TEXT("manifest_path"), ManifestPath)
+		|| ManifestPath != DefenseManifestRelativePath
+		|| !Root->TryGetStringField(TEXT("gate"), Gate)
+		|| Gate != TEXT("A")
 		|| !Root->TryGetStringField(TEXT("plan_fingerprint"), Fingerprint)
 		|| Fingerprint != Plan.Fingerprint
-		|| Fingerprint != Options.ApprovedPlanFingerprint)
+		|| Fingerprint != ApprovedPlanFingerprint)
 	{
 		OutErrors.Add(TEXT("approved report must be the matching schema-v2 DefenseProofAuthoring Plan"));
 		return false;
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* Rows = nullptr;
+	if (!Root->TryGetArrayField(TEXT("rows"), Rows) || !Rows || Rows->Num() != 1)
+	{
+		OutErrors.Add(TEXT("approved authoring report must contain exactly one recipe row"));
+		return false;
+	}
+	const TSharedPtr<FJsonObject> Row = (*Rows)[0].IsValid() ? (*Rows)[0]->AsObject() : nullptr;
+	FString InputTarget;
+	FString AssetClass;
+	FString Status;
+	const FString ExpectedStatus = Plan.ProposedChanges.IsEmpty()
+		? TEXT("Unchanged")
+		: TEXT("WouldChange");
+	if (!Row.IsValid()
+		|| !Row->TryGetStringField(TEXT("input_target"), InputTarget)
+		|| InputTarget != TEXT("GateAReviewedRecipeV4")
+		|| !Row->TryGetStringField(TEXT("asset_class"), AssetClass)
+		|| AssetClass != TEXT("DefenseProofAuthoringRecipe")
+		|| !Row->TryGetStringField(TEXT("status"), Status)
+		|| Status != ExpectedStatus)
+	{
+		OutErrors.Add(TEXT("approved authoring recipe row identity or status differs from the current plan"));
+		return false;
+	}
+	for (const TCHAR* EmptyArrayField : {
+		TEXT("errors"), TEXT("planned_removals"),
+		TEXT("changed_packages"), TEXT("saved_packages")})
+	{
+		const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+		if (!Row->TryGetArrayField(EmptyArrayField, Values) || !Values || !Values->IsEmpty())
+		{
+			OutErrors.Add(FString::Printf(
+				TEXT("approved authoring Plan row must have an empty %s array"),
+				EmptyArrayField));
+			return false;
+		}
+	}
+
+	const TSharedPtr<FJsonObject>* Details = nullptr;
+	FString ApprovedRecipeVersion;
+	FString ApprovedRecipeHash;
+	FString ApprovedSourceHash;
+	FString ApprovedSourceCount;
+	FString ApprovedDestinationHash;
+	FString ApprovedDestinationCount;
+	FString ApprovedManifestHash;
+	if (!Row->TryGetObjectField(TEXT("details"), Details) || !Details || !Details->IsValid()
+		|| !(*Details)->TryGetStringField(TEXT("recipe_version"), ApprovedRecipeVersion)
+		|| ApprovedRecipeVersion != LexToString(Plan.RecipeVersion)
+		|| !(*Details)->TryGetStringField(TEXT("recipe_facts_hash"), ApprovedRecipeHash)
+		|| ApprovedRecipeHash != Plan.RecipeFactsHash
+		|| !(*Details)->TryGetStringField(TEXT("source_state_hash"), ApprovedSourceHash)
+		|| ApprovedSourceHash != Plan.SourceStateHash
+		|| !(*Details)->TryGetStringField(TEXT("source_state_count"), ApprovedSourceCount)
+		|| ApprovedSourceCount != LexToString(Plan.SourceStateCount)
+		|| !(*Details)->TryGetStringField(TEXT("destination_state_hash"), ApprovedDestinationHash)
+		|| ApprovedDestinationHash != Plan.DestinationStateHash
+		|| !(*Details)->TryGetStringField(TEXT("destination_state_count"), ApprovedDestinationCount)
+		|| ApprovedDestinationCount != LexToString(Plan.DestinationStateCount)
+		|| !(*Details)->TryGetStringField(TEXT("manifest_hash"), ApprovedManifestHash)
+		|| ApprovedManifestHash != Plan.ManifestHash)
+	{
+		OutErrors.Add(TEXT("approved authoring recipe, dependency, destination, or manifest facts differ"));
+		return false;
+	}
+
+	const TArray<TSharedPtr<FJsonValue>>* AdditionValues = nullptr;
+	if (!Row->TryGetArrayField(TEXT("planned_additions"), AdditionValues) || !AdditionValues
+		|| AdditionValues->Num() != Plan.ProposedChanges.Num())
+	{
+		OutErrors.Add(TEXT("approved authoring planned additions differ in cardinality"));
+		return false;
+	}
+	for (int32 Index = 0; Index < AdditionValues->Num(); ++Index)
+	{
+		FString Addition;
+		if (!(*AdditionValues)[Index].IsValid()
+			|| !(*AdditionValues)[Index]->TryGetString(Addition)
+			|| Addition != Plan.ProposedChanges[Index])
+		{
+			OutErrors.Add(TEXT("approved authoring planned additions differ from the current plan"));
+			return false;
+		}
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* LedgerValues = nullptr;
@@ -1552,17 +1851,20 @@ bool ValidateApprovedPlanBinding(
 			|| !Object->TryGetStringField(TEXT("package_name"), Entry.PackageName)
 			|| !Object->TryGetStringField(TEXT("package_role"), Entry.PackageRole)
 			|| !Object->TryGetBoolField(TEXT("initially_dirty"), Entry.bInitiallyDirty)
-			|| !Object->TryGetStringField(TEXT("planned_action"), Entry.PlannedAction))
+			|| !Object->TryGetStringField(TEXT("planned_action"), Entry.PlannedAction)
+			|| !Object->TryGetStringField(TEXT("actual_action"), Entry.ActualAction)
+			|| Entry.ActualAction != TEXT("None")
+			|| !Object->TryGetStringField(TEXT("save_result"), Entry.SaveResult)
+			|| Entry.SaveResult != TEXT("NotRun")
+			|| !Object->TryGetStringField(
+				TEXT("post_save_reload_result"), Entry.PostSaveReloadResult)
+			|| Entry.PostSaveReloadResult != TEXT("NotRun"))
 		{
 			OutErrors.Add(TEXT("approved authoring package ledger contains a malformed entry"));
 			return false;
 		}
 		ApprovedLedger.Add(MoveTemp(Entry));
 	}
-	ApprovedLedger.Sort([](const auto& Left, const auto& Right)
-	{
-		return Left.PackageName < Right.PackageName;
-	});
 	for (int32 Index = 0; Index < ApprovedLedger.Num(); ++Index)
 	{
 		const FKatanaAssetMigrationPackageLedgerEntry& Approved = ApprovedLedger[Index];
@@ -1579,6 +1881,28 @@ bool ValidateApprovedPlanBinding(
 	return OutErrors.IsEmpty();
 }
 
+bool ValidateApprovedPlanBindingInternal(
+	const FKatanaAssetMigrationOptions& Options,
+	const FDefenseProofAuthoringApprovalContract& Plan,
+	TArray<FString>& OutErrors)
+{
+	if (Options.ApprovedPlanReport.IsEmpty() || Options.ApprovedPlanFingerprint.IsEmpty())
+	{
+		OutErrors.Add(TEXT("approved authoring Plan report and fingerprint are required"));
+		return false;
+	}
+	FString Json;
+	const FString ReportPath = FKatanaAssetMigrationRunner::ResolveProjectRelativeFilePath(
+		Options.ApprovedPlanReport);
+	if (!FFileHelper::LoadFileToString(Json, *ReportPath))
+	{
+		OutErrors.Add(FString::Printf(TEXT("could not read approved authoring Plan: %s"), *ReportPath));
+		return false;
+	}
+	return ValidateApprovedPlanJsonInternal(
+		Json, Options.ApprovedPlanFingerprint, Plan, OutErrors);
+}
+
 void PopulateReport(
 	const FDefenseAuthoringPlan& Plan,
 	const EKatanaAssetMigrationMode Mode,
@@ -1589,13 +1913,21 @@ void PopulateReport(
 	OutReport.SchemaVersion = 2;
 	OutReport.Operation = FDefenseProofAuthoringOperation::OperationName;
 	OutReport.Mode = Mode;
+	OutReport.ManifestPath = DefenseManifestRelativePath;
 	OutReport.Gate = TEXT("A");
 	OutReport.PlanFingerprint = Plan.Fingerprint;
 	OutReport.PackageLedger = Plan.PackageLedger;
 	FKatanaAssetMigrationRow Row;
-	Row.InputTarget = TEXT("GateAReviewedRecipeV2");
+	Row.InputTarget = TEXT("GateAReviewedRecipeV4");
 	Row.AssetClass = TEXT("DefenseProofAuthoringRecipe");
 	Row.Details.Add(TEXT("recipe_version"), LexToString(RecipeVersion));
+	Row.Details.Add(TEXT("recipe_facts_hash"), Plan.RecipeFactsHash);
+	Row.Details.Add(TEXT("source_state_hash"), Plan.SourceStateHash);
+	Row.Details.Add(TEXT("source_state_count"), LexToString(Plan.SourceStateCount));
+	Row.Details.Add(TEXT("destination_state_hash"), Plan.DestinationStateHash);
+	Row.Details.Add(TEXT("destination_state_count"),
+		LexToString(Plan.DestinationStateCount));
+	Row.Details.Add(TEXT("manifest_hash"), Plan.ManifestHash);
 	Row.Details.Add(TEXT("destination_package_count"),
 		LexToString(FDefenseProofAuthoringOperation::GetDestinationPackageNames().Num()));
 	Row.PlannedAdditions = Plan.ProposedChanges;
@@ -1632,12 +1964,18 @@ bool ApplyPlan(
 {
 	for (const FDefenseAuthoringMontageSpec& Spec : BuildMontageSpecs())
 	{
-		if (!FindExistingAsset(BuildObjectPath(Spec.PackageName)))
+		UAnimMontage* Existing = LoadObjectAtPackage<UAnimMontage>(Spec.PackageName);
+		if (!Existing)
 		{
 			if (CreateMontage(Spec, OutErrors))
 			{
 				OutChangedPackages.Add(Spec.PackageName);
 			}
+		}
+		else if (!MontageMatches(Existing, Spec)
+			&& ApplyMontageRecipe(Existing, Spec, OutErrors))
+		{
+			OutChangedPackages.Add(Spec.PackageName);
 		}
 	}
 	if (!OutErrors.IsEmpty())
@@ -1709,6 +2047,40 @@ TArray<FString> FDefenseProofAuthoringOperation::GetDestinationPackageNames()
 	return Packages;
 }
 
+FString FDefenseProofAuthoringOperation::ComputeApprovalFingerprint(
+	const FDefenseProofAuthoringApprovalContract& Contract)
+{
+	return ComputeContractFingerprint(Contract);
+}
+
+bool FDefenseProofAuthoringOperation::BuildCurrentApprovalContract(
+	FDefenseProofAuthoringApprovalContract& OutContract,
+	TArray<FString>& OutErrors)
+{
+	const FDefenseAuthoringPlan Plan = BuildPlan();
+	OutContract = Plan;
+	OutErrors.Append(Plan.Errors);
+	return Plan.Errors.IsEmpty();
+}
+
+bool FDefenseProofAuthoringOperation::ValidateApprovedPlanJson(
+	const FString& Json,
+	const FString& ApprovedPlanFingerprint,
+	const FDefenseProofAuthoringApprovalContract& CurrentContract,
+	TArray<FString>& OutErrors)
+{
+	return ValidateApprovedPlanJsonInternal(
+		Json, ApprovedPlanFingerprint, CurrentContract, OutErrors);
+}
+
+bool FDefenseProofAuthoringOperation::ValidateApprovedPlanBinding(
+	const FKatanaAssetMigrationOptions& Options,
+	const FDefenseProofAuthoringApprovalContract& CurrentContract,
+	TArray<FString>& OutErrors)
+{
+	return ValidateApprovedPlanBindingInternal(Options, CurrentContract, OutErrors);
+}
+
 bool FDefenseProofAuthoringOperation::Run(
 	const FKatanaAssetMigrationOptions& Options,
 	FKatanaAssetMigrationReport& OutReport) const
@@ -1721,7 +2093,7 @@ bool FDefenseProofAuthoringOperation::Run(
 	}
 
 	TArray<FString> Errors;
-	if (!ValidateApprovedPlanBinding(Options, Plan, Errors))
+	if (!ValidateApprovedPlanBindingInternal(Options, Plan, Errors))
 	{
 		Plan.Errors.Append(Errors);
 		PopulateReport(Plan, Options.Mode, nullptr, OutReport);

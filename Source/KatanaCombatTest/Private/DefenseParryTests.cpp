@@ -262,6 +262,61 @@ bool FDefenseParry_BlockPressConsumesAttack::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseParry_ConsumeCallbackInvalidatesSource,
+	"KatanaCombat.Defense.Parry.ConsumeCallbackInvalidatesSource",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseParry_ConsumeCallbackInvalidatesSource::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FPerfectParryFixture Fixture;
+	if (!Fixture.Initialize())
+	{
+		AddError(TEXT("Failed to create consume-callback invalidation fixture"));
+		Fixture.Destroy();
+		return false;
+	}
+
+	FAttackConsumedEvent CapturedEvent;
+	Fixture.AttackerCombat->OnAttackConsumedInternal.AddLambda(
+		[&](const FAttackConsumedEvent& Event)
+		{
+			CapturedEvent = Event;
+			Fixture.World->DestroyActor(Fixture.Attacker);
+		});
+
+	Fixture.DefenderCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
+	TestFalse(TEXT("Synchronous consume callback destroys the source participant"),
+		IsValid(Fixture.Attacker));
+	const FDefenseResolution& Resolution =
+		Fixture.DefenderCombat->GetLastInputDefenseResolutionForTesting();
+	TestEqual(TEXT("Invalidated source terminates the commit as ignored"),
+		Resolution.Decision.Outcome, EDefenseOutcome::IgnoredInvalid);
+	TestEqual(TEXT("Invalidated source records the participant failure"),
+		Resolution.Decision.Reason, EDefenseReason::InvalidParticipant);
+	TestEqual(TEXT("Invalidated source cannot start retained Chain presentation"),
+		Fixture.Defender->PairedAnimationComponent->GetChainState(),
+		EChainCounterState::None);
+
+	FDefenseInteractionId CachedId;
+	FDefenseContactReceipt CachedReceipt;
+	const EDefenseCommitStatus CachedStatus = Fixture.DefenderCombat->BeginDefenseInteraction(
+		CapturedEvent.InteractionId.Key,
+		CachedId,
+		CachedReceipt,
+		false);
+	TestEqual(TEXT("Exact invalidated interaction is finalized for duplicate callers"),
+		CachedStatus, EDefenseCommitStatus::Cached);
+	TestEqual(TEXT("Cached invalidation preserves the terminal outcome"),
+		CachedReceipt.Resolution.Decision.Outcome, EDefenseOutcome::IgnoredInvalid);
+	TestEqual(TEXT("Cached invalidation preserves the terminal reason"),
+		CachedReceipt.Resolution.Decision.Reason, EDefenseReason::InvalidParticipant);
+
+	Fixture.Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FDefenseParry_MissingCapabilityDowngradesToSameGuardThreat,
 	"KatanaCombat.Defense.Parry.MissingCapabilityDowngradesToSameGuardThreat",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

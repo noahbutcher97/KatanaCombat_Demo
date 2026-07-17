@@ -143,6 +143,13 @@ public:
 		int32 MontageInstanceId,
 		float Duration);
 
+	/** Refresh one open window's runtime deadline without changing its canonical generation. */
+	FAttackWindowInstanceId RefreshAttackWindow(
+		EAttackWindowKind Kind,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId,
+		float RemainingDuration);
+
 	/** Retire the oldest matching Begin; closes the published window only when that Begin is current. */
 	bool CloseAttackWindow(
 		EAttackWindowKind Kind,
@@ -164,6 +171,9 @@ public:
 
 	/** Publish prediction evidence for the current attack generation. */
 	void PublishAttackThreatPrediction(const FAttackThreatPrediction& Prediction);
+
+	/** Publish high-confidence evidence from an authored runtime window and explicit attack target. */
+	bool PublishReviewedAttackWindowPrediction(const FAttackWindowInstanceId& Window);
 
 	/** Invalidate prediction evidence without mutating the active attack. */
 	void InvalidateAttackThreatPrediction(EThreatInvalidationReason Reason);
@@ -1031,6 +1041,7 @@ protected:
 	uint64 LastGuardThreatRefreshFrame = MAX_uint64;
 	FTimerHandle GuardThreatRefreshTimerHandle;
 	FTimerHandle CoalescedGuardThreatRefreshTimerHandle;
+	FTSTicker::FDelegateHandle GuardManualResumeTickerHandle;
 	float DefenseManualYawInput = 0.0f;
 	double GuardManualInputBelowThresholdRealTime = -1.0;
 	bool bGuardManualOverrideActive = false;
@@ -1135,6 +1146,9 @@ protected:
 	void RefreshGuardThreatInternal(EThreatRefreshReason Reason, bool bForceRevalidation);
 	void UpdateGuardAlignmentRequest();
 	void SetDefenseManualYawInputAtTime(float NormalizedYawInput, double UnscaledNow);
+	void ScheduleGuardManualResume(double DelaySeconds);
+	void CancelGuardManualResume();
+	bool HandleGuardManualResumeTicker(float DeltaTime);
 	void ResetDefenseManualYawOverride();
 	bool TryCommitPerfectParry(double BlockPressSimulationTime, double BlockPressUnscaledTime);
 	FDefenseQuery BuildDefenseInputQuery(

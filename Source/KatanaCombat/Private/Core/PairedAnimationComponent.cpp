@@ -21,9 +21,11 @@
 #include "Subsystems/CombatEffectsWorldSubsystem.h"
 #include "Animation/AnimNotifyState_PairedAnimationSync.h"
 #include "Animation/AnimNotify_ChainStageTransition.h"
+#include "AI/EnemyCombatAIComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
@@ -55,30 +57,6 @@ FDefensePresentationSelectionContext BuildDefenseBridgeSelectionContext(
 		Context.AttackTags = Resolution.Decision.SelectedAttack->AttackTags;
 	}
 	return Context;
-}
-
-bool MontageContainsExactlyOneReviewedParryMarker(
-	const UAnimMontage* Montage,
-	const FName MarkerName)
-{
-	if (!Montage || MarkerName.IsNone())
-	{
-		return false;
-	}
-
-	int32 MatchingMarkerCount = 0;
-	for (const FAnimNotifyEvent& NotifyEvent : Montage->Notifies)
-	{
-		const UAnimNotify_ChainStageTransition* ChainNotify =
-			Cast<UAnimNotify_ChainStageTransition>(NotifyEvent.Notify);
-		if (ChainNotify
-			&& ChainNotify->Transition == EChainStageTransitionType::OpenCounterWindow
-			&& ChainNotify->MarkerName == MarkerName)
-		{
-			++MatchingMarkerCount;
-		}
-	}
-	return MatchingMarkerCount == 1;
 }
 
 bool HasValidPairedRuntimeNumerics(const UPairedAnimationData& Data)
@@ -1025,8 +1003,6 @@ bool UPairedAnimationComponent::ApplyActivePairedDamageOnce()
 		return false;
 	}
 
-	// Install the marker before calling external damage code so reentry is harmless.
-	ActiveDefenseSequence.LastDamageAppliedStageGeneration = StageGeneration;
 	AActor* Victim = ActiveDefenseSequence.SourceAttacker.Get();
 	UPairedAnimationData* Data = ActiveDefenseSequence.ActivePairedData.Get();
 	AActor* DamageSource = ActiveDefenseSequence.Defender.Get();
@@ -1071,6 +1047,14 @@ bool UPairedAnimationComponent::ApplyActivePairedDamageOnce()
 			RequestedDamage,
 			CurrentHealth + 1.0f);
 	}
+	// Install the marker immediately before external damage code so reentry is
+	// harmless while invalid preflight data remains retryable and diagnosable.
+	ActiveDefenseSequence.LastDamageAppliedStageGeneration = StageGeneration;
+	AppendDefenseSequenceTelemetry(
+		CachedCombatComponent.Get(),
+		ActiveDefenseSequence,
+		EDefenseTelemetryEvent::StageDamage,
+		ActiveDefenseSequence.ChainState);
 	IDamageableInterface::Execute_ApplyDamage(Victim, HitInfo);
 	return true;
 }
@@ -1084,9 +1068,36 @@ void UPairedAnimationComponent::HandleDefenseOwnerDying(AActor* Killer)
 		TEXT("DefenseOwnerDeath"));
 }
 
+bool UPairedAnimationComponent::IsExpectedDefenseFinisherSourceDeath(
+	const AActor* Source) const
+{
+	const ABaseCombatCharacter* SourceCharacter = Cast<ABaseCombatCharacter>(Source);
+	UPairedAnimationData* ActiveData = ActiveDefenseSequence.ActivePairedData.Get();
+	return Source
+		&& Source == ActiveDefenseSequence.SourceAttacker.Get()
+		&& ChainState == EChainCounterState::FinisherActive
+		&& ActiveDefenseSequence.ChainState == EChainCounterState::FinisherActive
+		&& ActivePairedReactionType == EPairedReactionType::Finisher
+		&& ActiveDefenseSequence.StageGeneration > 0
+		&& ActiveDefenseSequence.LastDamageAppliedStageGeneration
+			== ActiveDefenseSequence.StageGeneration
+		&& ActiveData
+		&& ShouldTreatPairedAnimationAsLethal(EPairedReactionType::Finisher, ActiveData)
+		&& SourceCharacter
+		&& SourceCharacter->IsDeadOrDying();
+}
+
 void UPairedAnimationComponent::HandleDefenseSourceDying(AActor* Killer)
 {
-	(void)Killer;
+	const AActor* Defender = ActiveDefenseSequence.Defender.Get();
+	const bool bExpectedFinisherDeath = IsExpectedDefenseFinisherSourceDeath(
+		ActiveDefenseSequence.SourceAttacker.Get())
+		&& (Killer == Defender || Killer == nullptr);
+	if (bExpectedFinisherDeath)
+	{
+		return;
+	}
+
 	CleanupDefenseSequence(
 		ActiveDefenseSequence.StageGeneration,
 		0.0f,
@@ -1276,6 +1287,18 @@ void UPairedAnimationComponent::CleanupDefenseSequence(
 		{
 			return !Partner.IsValid();
 		});
+	if (UEnemyCombatAIComponent* DefenderAI = Defender
+		? Defender->FindComponentByClass<UEnemyCombatAIComponent>()
+		: nullptr)
+	{
+		DefenderAI->ReleaseDefenseChainSuppression(Sequence.OriginatingInteraction);
+	}
+	if (UEnemyCombatAIComponent* SourceAI = SourceAttacker
+		? SourceAttacker->FindComponentByClass<UEnemyCombatAIComponent>()
+		: nullptr)
+	{
+		SourceAI->ReleaseDefenseChainSuppression(Sequence.OriginatingInteraction);
+	}
 
 	if (DefenderCombat)
 	{
@@ -1453,6 +1476,21 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 	{
 		SourcePaired->AddPairedPartner(Defender);
 	}
+	UEnemyCombatAIComponent* DefenderAI =
+		Defender->FindComponentByClass<UEnemyCombatAIComponent>();
+	UEnemyCombatAIComponent* SourceAI =
+		SourceAttacker->FindComponentByClass<UEnemyCombatAIComponent>();
+	if ((DefenderAI
+			&& !DefenderAI->AcquireDefenseChainSuppression(Resolution.InteractionId))
+		|| (SourceAI
+			&& !SourceAI->AcquireDefenseChainSuppression(Resolution.InteractionId)))
+	{
+		CleanupDefenseSequence(
+			ActiveDefenseSequence.StageGeneration,
+			0.0f,
+			TEXT("AISuppressionAcquireFailed"));
+		return false;
+	}
 
 	ActiveChainContext.Reset();
 	ActiveChainContext.Attacker = SourceAttacker;
@@ -1595,6 +1633,11 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 		BridgePolicy.DriverRole == EPairedAnimationRole::Attacker
 		? BridgeData->AttackerMontage.Get()
 		: BridgeData->VictimMontage.Get();
+	const FName DriverSection =
+		BridgePolicy.DriverRole == EPairedAnimationRole::Attacker
+		? BridgeData->AttackerMontageSection
+		: BridgeData->VictimMontageSection;
+	float DriverMarkerOffsetSeconds = 0.0f;
 	if (Presentation.ReviewedDeflectionMarker.IsNone()
 		|| BridgePolicy.bAutoContinue
 		|| !BridgePolicy.HasRetainableReadyPose()
@@ -1606,11 +1649,14 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 				BridgePolicy.VictimReadySection))
 		|| Presentation.ReviewedDeflectionMarker
 			!= BridgePolicy.RequiredMarker
-		|| !MontageContainsExactlyOneReviewedParryMarker(
+		|| !UAnimNotify_ChainStageTransition::TryGetSinglePlayableMarkerOffset(
 			DriverMontage,
-			Presentation.ReviewedDeflectionMarker))
+			Presentation.ReviewedDeflectionMarker,
+			EChainStageTransitionType::OpenCounterWindow,
+			DriverSection,
+			DriverMarkerOffsetSeconds))
 	{
-		OutFailureReason = TEXT("driver montage lacks one reviewed Chain marker or retainable ready pose");
+		OutFailureReason = TEXT("driver montage lacks one reviewed Chain marker inside its played section or a retainable ready pose");
 		return false;
 	}
 	if (!BridgeData->AttackerWarpConfig.bWarpRotation
@@ -1717,37 +1763,98 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 		return false;
 	}
 
+	const double RemainingContactSeconds =
+		Resolution.PredictedContact.ContactSimulationTime
+		- (GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0);
+	const ACharacter* DriverCharacter =
+		BridgePolicy.DriverRole == EPairedAnimationRole::Attacker
+		? DefenderCharacter
+		: SourceCharacter;
+	const USkeletalMeshComponent* DriverMesh = DriverCharacter
+		? DriverCharacter->GetMesh()
+		: nullptr;
+	const double DriverPlaybackRate = DriverMontage && DriverMesh && DriverCharacter
+		? static_cast<double>(DriverMontage->RateScale)
+			* static_cast<double>(DriverMesh->GlobalAnimRateScale)
+			* static_cast<double>(DriverCharacter->CustomTimeDilation)
+		: 0.0;
+	const double MarkerDeadlineSeconds = DriverPlaybackRate > UE_DOUBLE_SMALL_NUMBER
+		? static_cast<double>(DriverMarkerOffsetSeconds) / DriverPlaybackRate
+		: 0.0;
+	if (!Resolution.PredictedContact.bIsValid
+		|| !FMath::IsFinite(RemainingContactSeconds)
+		|| RemainingContactSeconds <= 0.0
+		|| !FMath::IsFinite(DriverPlaybackRate)
+		|| DriverPlaybackRate <= UE_DOUBLE_SMALL_NUMBER
+		|| !FMath::IsFinite(MarkerDeadlineSeconds)
+		|| MarkerDeadlineSeconds <= 0.0)
+	{
+		OutFailureReason = TEXT("remaining predicted alignment or marker time is unavailable");
+		return false;
+	}
+	const double RemainingAlignmentSeconds = FMath::Min(
+		RemainingContactSeconds,
+		MarkerDeadlineSeconds);
+
 	const float RequiredDefenderTurn = FMath::Max(
 		0.0f,
 		FMath::Abs(Resolution.Decision.MeasuredYawDegrees)
 			- Resolution.Decision.RequiredFinalTolerance);
+	const float ConfiguredDefenderTurnBudget = DefenderConfiguration
+		? DefenderConfiguration->MaximumAutomaticTurn
+		: 0.0f;
+	const float ConfiguredDefenderTurnRate = DefenderConfiguration
+		? DefenderConfiguration->DefenseTurnRate
+		: 0.0f;
 	const float ConfiguredSourceTurnBudget = SourceConfiguration
 		? SourceConfiguration->MaximumAutomaticTurn
 		: 0.0f;
+	const float ConfiguredSourceTurnRate = SourceConfiguration
+		? SourceConfiguration->DefenseTurnRate
+		: 0.0f;
 	const float SourceYawToDefender = GetAbsoluteYawToTarget(SourceAttacker, Defender);
+	const float RequiredSourceTurn = FMath::Max(
+		0.0f,
+		SourceYawToDefender - Resolution.Decision.RequiredFinalTolerance);
+	const float DefenderSimulationRate = DefenderCharacter->CustomTimeDilation;
+	const float SourceSimulationRate = SourceCharacter->CustomTimeDilation;
+	const float AvailableDefenderTurn = FMath::Min3(
+		Resolution.Decision.AvailableTurnDegrees,
+		ConfiguredDefenderTurnBudget,
+		ConfiguredDefenderTurnRate
+			* static_cast<float>(RemainingAlignmentSeconds)
+			* DefenderSimulationRate);
+	const float AvailableSourceTurn = FMath::Min(
+		ConfiguredSourceTurnBudget,
+		ConfiguredSourceTurnRate
+			* static_cast<float>(RemainingAlignmentSeconds)
+			* SourceSimulationRate);
 	if (!FMath::IsFinite(RequiredDefenderTurn)
 		|| !FMath::IsFinite(Resolution.Decision.MeasuredYawDegrees)
 		|| !FMath::IsFinite(Resolution.Decision.RequiredFinalTolerance)
+		|| Resolution.Decision.RequiredFinalTolerance < 0.0f
 		|| !FMath::IsFinite(Resolution.Decision.AvailableTurnDegrees)
+		|| Resolution.Decision.AvailableTurnDegrees < 0.0f
+		|| !FMath::IsFinite(ConfiguredDefenderTurnBudget)
+		|| ConfiguredDefenderTurnBudget < 0.0f
+		|| !FMath::IsFinite(ConfiguredDefenderTurnRate)
+		|| ConfiguredDefenderTurnRate < 0.0f
 		|| !FMath::IsFinite(ConfiguredSourceTurnBudget)
 		|| ConfiguredSourceTurnBudget < 0.0f
+		|| !FMath::IsFinite(ConfiguredSourceTurnRate)
+		|| ConfiguredSourceTurnRate < 0.0f
+		|| !FMath::IsFinite(DefenderSimulationRate)
+		|| DefenderSimulationRate <= 0.0f
+		|| !FMath::IsFinite(SourceSimulationRate)
+		|| SourceSimulationRate <= 0.0f
 		|| !FMath::IsFinite(SourceYawToDefender)
-		|| RequiredDefenderTurn > Resolution.Decision.AvailableTurnDegrees + KINDA_SMALL_NUMBER
+		|| !FMath::IsFinite(AvailableDefenderTurn)
+		|| !FMath::IsFinite(AvailableSourceTurn)
+		|| RequiredDefenderTurn > AvailableDefenderTurn + KINDA_SMALL_NUMBER
 		|| (BridgeData->VictimWarpConfig.bWarpRotation
-			&& SourceYawToDefender
-				> ConfiguredSourceTurnBudget + Resolution.Decision.RequiredFinalTolerance))
+			&& RequiredSourceTurn > AvailableSourceTurn + KINDA_SMALL_NUMBER))
 	{
 		OutFailureReason = TEXT("a role exceeds its perfect-parry rotation budget");
-		return false;
-	}
-	const double RemainingAlignmentSeconds =
-		Resolution.PredictedContact.ContactSimulationTime
-		- (GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0);
-	if (!Resolution.PredictedContact.bIsValid
-		|| !FMath::IsFinite(RemainingAlignmentSeconds)
-		|| RemainingAlignmentSeconds <= 0.0)
-	{
-		OutFailureReason = TEXT("remaining predicted alignment time is unavailable");
 		return false;
 	}
 
@@ -2026,6 +2133,38 @@ bool UPairedAnimationComponent::HandleDefenseAutoContinueMarker(
 	return false;
 }
 
+bool UPairedAnimationComponent::HandleOwnerPairedMontageBlendingOut(
+	UAnimMontage* Montage,
+	const bool bInterrupted)
+{
+	if (!Montage)
+	{
+		return false;
+	}
+
+	if (ChainState != EChainCounterState::None
+		&& ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		if (!ActiveDefenseSequence.ActivePairedData
+			|| Montage != ActiveDefenseSequence.ActivePairedData->AttackerMontage)
+		{
+			return false;
+		}
+		if (!bInterrupted && ChainState == EChainCounterState::FinisherActive)
+		{
+			ApplyActivePairedDamageOnce();
+		}
+		return true;
+	}
+
+	if (UPairedAnimationComponent* SequenceOwner = FindDefenseSequenceOwner())
+	{
+		return SequenceOwner->HandleSourcePairedMontageBlendingOut(
+			GetOwner(), Montage, bInterrupted);
+	}
+	return false;
+}
+
 bool UPairedAnimationComponent::HandleOwnerPairedMontageEnded(
 	UAnimMontage* Montage,
 	const bool bInterrupted)
@@ -2145,6 +2284,28 @@ bool UPairedAnimationComponent::HandleOwnerPairedMontageEnded(
 	return true;
 }
 
+bool UPairedAnimationComponent::HandleSourcePairedMontageBlendingOut(
+	AActor* ReportingSource,
+	UAnimMontage* Montage,
+	const bool bInterrupted)
+{
+	if (!ReportingSource
+		|| ChainState == EChainCounterState::None
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid()
+		|| ActiveDefenseSequence.SourceAttacker.Get() != ReportingSource
+		|| !ActiveDefenseSequence.ActivePairedData
+		|| Montage != ActiveDefenseSequence.ActivePairedData->VictimMontage)
+	{
+		return false;
+	}
+
+	if (!bInterrupted && ChainState == EChainCounterState::FinisherActive)
+	{
+		ApplyActivePairedDamageOnce();
+	}
+	return true;
+}
+
 bool UPairedAnimationComponent::HandleSourcePairedMontageEnded(
 	AActor* ReportingSource,
 	UAnimMontage* Montage,
@@ -2236,10 +2397,25 @@ bool UPairedAnimationComponent::HandleSourceMontageEndVerification(
 		return false;
 	}
 
-	CleanupDefenseSequence(
-		ExpectedStageGeneration,
-		0.0f,
-		TEXT("SourceMontageEndedFirst"));
+	if (ExpectedState == EChainCounterState::FinisherActive)
+	{
+		ApplyActivePairedDamageOnce();
+		if (ActiveDefenseSequence.OriginatingInteraction == Interaction
+			&& ActiveDefenseSequence.StageGeneration == ExpectedStageGeneration)
+		{
+			CleanupDefenseSequence(
+				ExpectedStageGeneration,
+				0.0f,
+				TEXT("FinisherCompleted"));
+		}
+	}
+	else
+	{
+		CleanupDefenseSequence(
+			ExpectedStageGeneration,
+			0.0f,
+			TEXT("SourceMontageEndedFirst"));
+	}
 	return false;
 }
 
@@ -2614,6 +2790,12 @@ bool UPairedAnimationComponent::PreflightDefenseChainStage(
 	}
 
 	const FPairedChainTransitionPolicy& Policy = PairedAnimData->ChainTransitionPolicy;
+	const UAnimMontage* DriverMontage = Policy.DriverRole == EPairedAnimationRole::Attacker
+		? PairedAnimData->AttackerMontage.Get()
+		: PairedAnimData->VictimMontage.Get();
+	const FName DriverSection = Policy.DriverRole == EPairedAnimationRole::Attacker
+		? PairedAnimData->AttackerMontageSection
+		: PairedAnimData->VictimMontageSection;
 	if ((!Policy.AttackerReadySection.IsNone()
 			&& !PairedAnimData->AttackerMontage->IsValidSectionName(
 				Policy.AttackerReadySection))
@@ -2628,35 +2810,24 @@ bool UPairedAnimationComponent::PreflightDefenseChainStage(
 		&& (Policy.bAutoContinue
 			|| Policy.RequiredMarker.IsNone()
 			|| !Policy.HasRetainableReadyPose()
-			|| !MontageContainsExactlyOneReviewedParryMarker(
-				Policy.DriverRole == EPairedAnimationRole::Attacker
-					? PairedAnimData->AttackerMontage
-					: PairedAnimData->VictimMontage,
-				Policy.RequiredMarker)))
+			|| !UAnimNotify_ChainStageTransition::HasExactlyOnePlayableMarker(
+				DriverMontage,
+				Policy.RequiredMarker,
+				EChainStageTransitionType::OpenCounterWindow,
+				DriverSection)))
 	{
 		OutFailureReason = TEXT("parry bridge lacks an unambiguous retained-pose marker policy");
 		return false;
 	}
 	if (ReactionType == EPairedReactionType::Counter && Policy.bAutoContinue)
 	{
-		const UAnimMontage* DriverMontage = Policy.DriverRole == EPairedAnimationRole::Attacker
-			? PairedAnimData->AttackerMontage.Get()
-			: PairedAnimData->VictimMontage.Get();
-		int32 MarkerCount = 0;
-		for (const FAnimNotifyEvent& Event : DriverMontage->Notifies)
+		if (!UAnimNotify_ChainStageTransition::HasExactlyOnePlayableMarker(
+			DriverMontage,
+			Policy.RequiredMarker,
+			EChainStageTransitionType::AutoContinue,
+			DriverSection))
 		{
-			const UAnimNotify_ChainStageTransition* Notify =
-				Cast<UAnimNotify_ChainStageTransition>(Event.Notify);
-			if (Notify
-				&& Notify->Transition == EChainStageTransitionType::AutoContinue
-				&& Notify->MarkerName == Policy.RequiredMarker)
-			{
-				++MarkerCount;
-			}
-		}
-		if (Policy.RequiredMarker.IsNone() || MarkerCount != 1)
-		{
-			OutFailureReason = TEXT("auto-continuing counter lacks one driver marker");
+			OutFailureReason = TEXT("auto-continuing counter lacks one driver marker inside its played section");
 			return false;
 		}
 	}
@@ -4395,6 +4566,10 @@ void UPairedAnimationComponent::OnPairedPartnerDeath(AActor* DeadPartner)
 		SequenceOwner
 		&& SequenceOwner->ChainState != EChainCounterState::None)
 	{
+		if (SequenceOwner->IsExpectedDefenseFinisherSourceDeath(DeadPartner))
+		{
+			return;
+		}
 		SequenceOwner->CancelPairedAnimation();
 		return;
 	}

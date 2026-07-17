@@ -224,43 +224,55 @@ void UWeaponComponent::SetWeaponSockets(FName StartSocket, FName EndSocket)
 
 FVector UWeaponComponent::GetSocketLocation(FName SocketName) const
 {
+	FVector SocketLocation = FVector::ZeroVector;
+	if (TryGetSocketLocation(SocketName, SocketLocation))
+	{
+		return SocketLocation;
+	}
+
+	// Legacy traces retain their fallback, but reviewed defense prediction uses
+	// TryGetSocketLocation and therefore fails closed on invalid authored data.
+	if (OwnerCharacter)
+	{
+		UE_LOG(LogWeaponComponent, Error, TEXT("[%s] Socket '%s' not found on character or weapon mesh! "
+			"OwnerMesh=%s, SpawnedWeapon=%s. Returning actor location as fallback - hit traces will be inaccurate."),
+			*GetNameSafe(GetOwner()), *SocketName.ToString(),
+			OwnerMesh ? *OwnerMesh->GetName() : TEXT("null"),
+			SpawnedWeaponMesh ? *SpawnedWeaponMesh->GetName() : TEXT("null"));
+		return OwnerCharacter->GetActorLocation();
+	}
+
+	UE_LOG(LogWeaponComponent, Warning, TEXT("Socket '%s' not found and no owner character! Returning zero vector."),
+		*SocketName.ToString());
+	return FVector::ZeroVector;
+}
+
+bool UWeaponComponent::TryGetSocketLocation(FName SocketName, FVector& OutLocation) const
+{
+	if (SocketName.IsNone())
+	{
+		return false;
+	}
+
     // Priority 1: Check spawned weapon mesh for sockets (when NOT using character sockets)
     // This supports weapons with sockets defined on the weapon static mesh itself
     if (SpawnedWeaponMesh && WeaponData && !WeaponData->bUseCharacterSocketsForTrace)
     {
         if (SpawnedWeaponMesh->DoesSocketExist(SocketName))
         {
-            return SpawnedWeaponMesh->GetSocketLocation(SocketName);
-        }
-        else
-        {
-            // Log warning if socket not found on weapon mesh
-            UE_LOG(LogWeaponComponent, Warning, TEXT("[%s] Socket '%s' not found on weapon mesh! Check socket names on static mesh."),
-                *GetNameSafe(GetOwner()), *SocketName.ToString());
+			OutLocation = SpawnedWeaponMesh->GetSocketLocation(SocketName);
+			return true;
         }
     }
 
     // Priority 2: Check character skeletal mesh for sockets
     if (OwnerMesh && OwnerMesh->DoesSocketExist(SocketName))
     {
-        return OwnerMesh->GetSocketLocation(SocketName);
+		OutLocation = OwnerMesh->GetSocketLocation(SocketName);
+		return true;
     }
 
-    // HIT-1 FIX: Log error instead of silently falling back to actor center.
-    // Falling back to character center produces incorrect hit directions and misleading VFX.
-    if (OwnerCharacter)
-    {
-        UE_LOG(LogWeaponComponent, Error, TEXT("[%s] Socket '%s' not found on character or weapon mesh! "
-            "OwnerMesh=%s, SpawnedWeapon=%s. Returning actor location as fallback - hit traces will be inaccurate."),
-            *GetNameSafe(GetOwner()), *SocketName.ToString(),
-            OwnerMesh ? *OwnerMesh->GetName() : TEXT("null"),
-            SpawnedWeaponMesh ? *SpawnedWeaponMesh->GetName() : TEXT("null"));
-        return OwnerCharacter->GetActorLocation();
-    }
-
-    UE_LOG(LogWeaponComponent, Warning, TEXT("Socket '%s' not found and no owner character! Returning zero vector."),
-        *SocketName.ToString());
-    return FVector::ZeroVector;
+	return false;
 }
 
 // ============================================================================
@@ -489,6 +501,19 @@ void UWeaponComponent::ProcessHitWithAttackData(const FHitResult& Hit, UAttackDa
 			{
 				++AcceptedHitCount;
 			}
+#if WITH_AUTOMATION_TESTS
+			OnRichContactAccountedForTesting.Broadcast(
+				HitActor,
+				Request.ContactId,
+				AcceptedHitCount);
+#endif
+		}
+		if (!WeakThis.IsValid()
+			|| !WeakSource.IsValid()
+			|| !WeakTarget.IsValid()
+			|| !(WeakThis->ActiveContactId == Request.ContactId))
+		{
+			return;
 		}
 		WeakSource->FinalizeResolvedWeaponContact(HitActor, Receipt);
 		return;

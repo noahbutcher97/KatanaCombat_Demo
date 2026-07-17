@@ -483,6 +483,36 @@ bool FDefenseCanonicalNotifyIdentitySourceTest::RunTest(const FString& Parameter
 		TestTrue(*FString::Printf(TEXT("Notify resolves montage-instance identity: %s"), RelativePath),
 			Body.Contains(TEXT("ResolveRuntimeMontageInstanceId")));
 	}
+
+	FString ParrySource;
+	if (TestTrue(TEXT("Parry notify source loads for exact-instance timing"), LoadProjectSource(
+		TEXT("Source/KatanaCombat/Private/Animation/AnimNotifyState_ParryWindow.cpp"),
+		ParrySource)))
+	{
+		const FString ParryBody = StripCppComments(ParrySource);
+		TestTrue(TEXT("Parry timing resolves the exact montage instance"),
+			ParryBody.Contains(TEXT("GetMontageInstanceForID")));
+		TestFalse(TEXT("Parry timing never reads position from the first asset-wide instance"),
+			ParryBody.Contains(TEXT("Montage_GetPosition")));
+		TestFalse(TEXT("Parry timing never reads play rate from the first asset-wide instance"),
+			ParryBody.Contains(TEXT("Montage_GetEffectivePlayRate")));
+		TestTrue(TEXT("Parry timing accounts for skeletal-mesh animation scaling"),
+			ParryBody.Contains(TEXT("GlobalAnimRateScale")));
+		TestTrue(TEXT("Parry timing accounts for actor-local simulation dilation"),
+			ParryBody.Contains(TEXT("CustomTimeDilation")));
+
+		FString NotifyBeginBody;
+		if (TestTrue(TEXT("Parry NotifyBegin is extractable"), ExtractFunctionBody(
+			ParrySource,
+			TEXT("UAnimNotifyState_ParryWindow::NotifyBegin"),
+			NotifyBeginBody)))
+		{
+			TestTrue(TEXT("Parry begin derives the remaining exact-instance duration"),
+				NotifyBeginBody.Contains(TEXT("ResolveRemainingRuntimeWindowDuration")));
+			TestFalse(TEXT("Parry begin never republishes the full authored duration after a montage jump"),
+				NotifyBeginBody.Contains(TEXT("ResolveRuntimeWindowDuration")));
+		}
+	}
 	return true;
 }
 
@@ -515,5 +545,37 @@ bool FDefensePerfectParryCommitAuthoritySourceTest::RunTest(const FString& Param
 		Body.Contains(TEXT("TryCounter")));
 	TestFalse(TEXT("Perfect-parry commit does not mutate compatibility parry flags"),
 		Body.Contains(TEXT("SetParryWindowActive")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseAuthoringDirtyPackageRefusalOrderSourceTest,
+	"KatanaCombat.Defense.Architecture.AuthoringDirtyPackageRefusalOrder",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseAuthoringDirtyPackageRefusalOrderSourceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FString Source;
+	if (!TestTrue(TEXT("Defense authoring source loads"), LoadProjectSource(
+		TEXT("Source/KatanaCombatEditor/Private/Commandlets/Operations/DefenseProofAuthoringOperation.cpp"),
+		Source)))
+	{
+		return false;
+	}
+
+	FString Body;
+	if (!TestTrue(TEXT("Package-state helper is extractable"), ExtractFunctionBody(
+		Source, TEXT("AppendPackageStateFact"), Body)))
+	{
+		return false;
+	}
+
+	const int32 DirtyRefusalIndex = Body.Find(TEXT("if (bRejectDirty && bDirty)"));
+	const int32 MissingReturnIndex = Body.Find(TEXT("if (!bExists)"));
+	TestTrue(TEXT("Unsaved dirty packages are rejected before missing-package early returns"),
+		DirtyRefusalIndex != INDEX_NONE
+		&& MissingReturnIndex != INDEX_NONE
+		&& DirtyRefusalIndex < MissingReturnIndex);
 	return true;
 }

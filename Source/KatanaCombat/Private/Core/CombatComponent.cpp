@@ -20,6 +20,7 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "DrawDebugHelpers.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Characters/BaseCombatCharacter.h"
@@ -509,12 +510,7 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (bGuardManualOverrideActive && GuardManualInputBelowThresholdRealTime >= 0.0)
-	{
-		SetDefenseManualYawInputAtTime(DefenseManualYawInput, FPlatformTime::Seconds());
-	}
-
-	// Combat flow remains event-driven; tick only advances the unscaled guard-resume delay.
+	// Combat flow remains event-driven; guard resume uses an unscaled core ticker.
 	// - Input processing: OnInputEvent (immediate)
 	// - Queue execution: ProcessQueuedActions (called on phase transitions)
 	// - Hold easing: OnEaseTimerTick (timer-based, 60Hz)
@@ -1250,6 +1246,71 @@ FAttackWindowInstanceId UCombatComponent::OpenAttackWindow(
 	return Result;
 }
 
+FAttackWindowInstanceId UCombatComponent::RefreshAttackWindow(
+	const EAttackWindowKind Kind,
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId,
+	const float RemainingDuration)
+{
+	if (!NotifySource.IsValid()
+		|| MontageInstanceId < 0
+		|| !FMath::IsFinite(RemainingDuration)
+		|| RemainingDuration < 0.0f)
+	{
+		return {};
+	}
+
+	const int32 RecordIndex = OpenAttackWindowRecords.IndexOfByPredicate(
+		[Kind, &NotifySource, MontageInstanceId](const FAttackWindowInstanceId& Candidate)
+		{
+			return Candidate.Kind == Kind
+				&& Candidate.NotifySource == NotifySource
+				&& Candidate.MontageInstanceId == MontageInstanceId;
+		});
+	if (RecordIndex == INDEX_NONE)
+	{
+		return {};
+	}
+
+	FAttackWindowInstanceId* PublishedWindow = nullptr;
+	switch (Kind)
+	{
+		case EAttackWindowKind::Hit:
+			PublishedWindow = &ActiveHitWindow;
+			break;
+		case EAttackWindowKind::Parry:
+			PublishedWindow = &ActiveParryWindow;
+			break;
+		case EAttackWindowKind::Counter:
+			PublishedWindow = &ActiveCounterWindow;
+			break;
+		default:
+			return {};
+	}
+
+	const FAttackWindowInstanceId Existing = OpenAttackWindowRecords[RecordIndex];
+	if (!PublishedWindow || !(*PublishedWindow == Existing))
+	{
+		return {};
+	}
+
+	const double SimulationNow = GetWorld()
+		? static_cast<double>(GetWorld()->GetTimeSeconds())
+		: 0.0;
+	const double UpdatedEnd = SimulationNow + static_cast<double>(RemainingDuration);
+	if (!FMath::IsFinite(SimulationNow) || !FMath::IsFinite(UpdatedEnd))
+	{
+		return {};
+	}
+
+	FAttackWindowInstanceId Updated = Existing;
+	Updated.SimulationEndTime = FMath::Max(Updated.SimulationStartTime, UpdatedEnd);
+	OpenAttackWindowRecords[RecordIndex] = Updated;
+	*PublishedWindow = Updated;
+	RequestDefenderThreatRefresh(AttackIntentTarget.Get(), EThreatRefreshReason::WindowChanged);
+	return Updated;
+}
+
 bool UCombatComponent::CloseAttackWindow(
 	const EAttackWindowKind Kind,
 	const FAnimNotifyRuntimeSourceId& NotifySource,
@@ -1296,7 +1357,15 @@ bool UCombatComponent::CloseAttackWindow(
 	}
 
 	*PublishedWindow = {};
-	RequestDefenderThreatRefresh(AttackIntentTarget.Get(), EThreatRefreshReason::WindowChanged);
+	if (Kind == EAttackWindowKind::Parry
+		&& PublishedPredictionAttackInstance == ClosingWindow.AttackInstance)
+	{
+		InvalidateAttackThreatPrediction(EThreatInvalidationReason::WindowChanged);
+	}
+	else
+	{
+		RequestDefenderThreatRefresh(AttackIntentTarget.Get(), EThreatRefreshReason::WindowChanged);
+	}
 	return true;
 }
 
@@ -1571,6 +1640,114 @@ void UCombatComponent::PublishAttackThreatPrediction(const FAttackThreatPredicti
 		bTargetMatches && bUsablePath
 			? EThreatRefreshReason::PredictionPublished
 			: EThreatRefreshReason::PredictionInvalidated);
+}
+
+bool UCombatComponent::PublishReviewedAttackWindowPrediction(
+	const FAttackWindowInstanceId& Window)
+{
+	ABaseCombatCharacter* Source = GetOwnerCharacter();
+	ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(AttackIntentTarget.Get());
+	FAttackInstanceId CurrentAttack;
+	CurrentAttack.Attacker = GetOwner();
+	CurrentAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
+	if (!Source
+		|| !Defender
+		|| !CurrentAttackData
+		|| CurrentPhase == EAttackPhase::None
+		|| !Window.IsValid()
+		|| !(Window.AttackInstance == CurrentAttack)
+		|| Window.Kind != EAttackWindowKind::Parry
+		|| !(ActiveParryWindow == Window))
+	{
+		InvalidateAttackThreatPrediction(EThreatInvalidationReason::WindowChanged);
+		return false;
+	}
+
+	const double SimulationNow = GetWorld()
+		? static_cast<double>(GetWorld()->GetTimeSeconds())
+		: 0.0;
+	const FName SourceSocket = CurrentAttackData->DefenseProfile.SourceContactSocketOverride.IsNone()
+		? CurrentAttackData->AttackHand
+		: CurrentAttackData->DefenseProfile.SourceContactSocketOverride;
+	const FName TargetBone = CurrentAttackData->GetDefenseTargetBoneFallback();
+
+	FVector PathOrigin = FVector::ZeroVector;
+	bool bHasSourceContactPoint = false;
+	if (!SourceSocket.IsNone())
+	{
+		if (Source->WeaponComponent && Source->WeaponComponent->HasBegunPlay())
+		{
+			bHasSourceContactPoint = Source->WeaponComponent->TryGetSocketLocation(
+				SourceSocket, PathOrigin);
+		}
+		if (!bHasSourceContactPoint)
+		{
+			if (USkeletalMeshComponent* Mesh = Source->GetMesh(); Mesh && Mesh->DoesSocketExist(SourceSocket))
+			{
+				PathOrigin = Mesh->GetSocketLocation(SourceSocket);
+				bHasSourceContactPoint = true;
+			}
+		}
+	}
+
+	FVector PredictedContactPoint = FVector::ZeroVector;
+	bool bHasTargetContactPoint = false;
+	if (USkeletalMeshComponent* Mesh = Defender->GetMesh(); Mesh && !TargetBone.IsNone()
+		&& Mesh->DoesSocketExist(TargetBone))
+	{
+		PredictedContactPoint = Mesh->GetSocketLocation(TargetBone);
+		bHasTargetContactPoint = true;
+	}
+	if (!bHasSourceContactPoint || !bHasTargetContactPoint)
+	{
+		InvalidateAttackThreatPrediction(EThreatInvalidationReason::PathChanged);
+		return false;
+	}
+
+	const FVector Path = PredictedContactPoint - PathOrigin;
+	bool bPathIntersectsThreatVolume = false;
+	if (!Path.ContainsNaN() && !Path.IsNearlyZero())
+	{
+		if (const UCapsuleComponent* Capsule = Defender->GetCapsuleComponent())
+		{
+			const float Radius = Capsule->GetScaledCapsuleRadius();
+			const float AxisHalfLength = Capsule->GetScaledCapsuleHalfHeight_WithoutHemisphere();
+			const FVector CapsuleCenter = Capsule->GetComponentLocation();
+			const FVector CapsuleAxis = Capsule->GetUpVector() * AxisHalfLength;
+			FVector ClosestOnPath;
+			FVector ClosestOnCapsule;
+			FMath::SegmentDistToSegmentSafe(
+				PathOrigin,
+				PredictedContactPoint,
+				CapsuleCenter - CapsuleAxis,
+				CapsuleCenter + CapsuleAxis,
+				ClosestOnPath,
+				ClosestOnCapsule);
+			bPathIntersectsThreatVolume = FVector::DistSquared(ClosestOnPath, ClosestOnCapsule)
+				<= FMath::Square(FMath::Max(0.0f, Radius));
+		}
+	}
+
+	FAttackThreatPrediction Prediction;
+	Prediction.IntendedTarget = Defender;
+	Prediction.PathOrigin = PathOrigin;
+	Prediction.PathDirection = Path.GetSafeNormal();
+	Prediction.PredictedContactPoint = PredictedContactPoint;
+	Prediction.SourceSocket = SourceSocket;
+	Prediction.DefenderTargetBone = TargetBone;
+	Prediction.PredictedContactSimulationTime = Window.SimulationEndTime;
+	Prediction.PredictionSimulationTimestamp = SimulationNow;
+	Prediction.Lane = CurrentAttackData->DefenseProfile.NominalLane;
+	Prediction.Height = CurrentAttackData->DefenseProfile.Height;
+	Prediction.Confidence = Window.SimulationEndTime > SimulationNow
+		&& bPathIntersectsThreatVolume
+		? EDefensePredictionConfidence::High
+		: !Path.IsNearlyZero()
+			? EDefensePredictionConfidence::Low
+			: EDefensePredictionConfidence::None;
+	Prediction.bPathIntersectsThreatVolume = bPathIntersectsThreatVolume;
+	PublishAttackThreatPrediction(Prediction);
+	return Prediction.Confidence == EDefensePredictionConfidence::High;
 }
 
 void UCombatComponent::InvalidateAttackThreatPrediction(EThreatInvalidationReason Reason)
@@ -2001,6 +2178,7 @@ void UCombatComponent::SetDefenseManualYawInputAtTime(
 	const float ManualMagnitude = FMath::Abs(DefenseManualYawInput);
 	if (ManualMagnitude > UE_SMALL_NUMBER && ManualMagnitude >= Threshold)
 	{
+		CancelGuardManualResume();
 		bGuardManualOverrideActive = true;
 		GuardManualInputBelowThresholdRealTime = -1.0;
 		UpdateGuardAlignmentRequest();
@@ -2021,17 +2199,54 @@ void UCombatComponent::SetDefenseManualYawInputAtTime(
 		: 0.10;
 	if (UnscaledNow - GuardManualInputBelowThresholdRealTime + UE_DOUBLE_SMALL_NUMBER < ResumeDelay)
 	{
+		ScheduleGuardManualResume(
+			ResumeDelay - (UnscaledNow - GuardManualInputBelowThresholdRealTime));
 		UpdateGuardAlignmentRequest();
 		return;
 	}
 
+	CancelGuardManualResume();
 	bGuardManualOverrideActive = false;
 	GuardManualInputBelowThresholdRealTime = -1.0;
 	RefreshGuardThreatInternal(EThreatRefreshReason::ManualRevalidation, true);
 }
 
+void UCombatComponent::ScheduleGuardManualResume(const double DelaySeconds)
+{
+	if (GuardManualResumeTickerHandle.IsValid())
+	{
+		return;
+	}
+
+	GuardManualResumeTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateUObject(
+			this,
+			&UCombatComponent::HandleGuardManualResumeTicker),
+		static_cast<float>(FMath::Max(0.0, DelaySeconds)));
+}
+
+void UCombatComponent::CancelGuardManualResume()
+{
+	if (!GuardManualResumeTickerHandle.IsValid())
+	{
+		return;
+	}
+
+	FTSTicker::GetCoreTicker().RemoveTicker(GuardManualResumeTickerHandle);
+	GuardManualResumeTickerHandle.Reset();
+}
+
+bool UCombatComponent::HandleGuardManualResumeTicker(const float DeltaTime)
+{
+	(void)DeltaTime;
+	GuardManualResumeTickerHandle.Reset();
+	SetDefenseManualYawInputAtTime(DefenseManualYawInput, FPlatformTime::Seconds());
+	return false;
+}
+
 void UCombatComponent::ResetDefenseManualYawOverride()
 {
+	CancelGuardManualResume();
 	DefenseManualYawInput = 0.0f;
 	GuardManualInputBelowThresholdRealTime = -1.0;
 	bGuardManualOverrideActive = false;
@@ -2276,6 +2491,18 @@ bool UCombatComponent::TryCommitPerfectParry(
 		LastInputDefenseResolution,
 		DefenderConfiguration,
 		AttackerConfiguration);
+	const FDefenseResolution CommittedResolution = LastInputDefenseResolution;
+	const float ConfiguredStaggerDuration = AttackerConfiguration
+		? AttackerConfiguration->ParryStaggerDuration
+		: 1.5f;
+	const float StaggerDuration = FMath::IsFinite(ConfiguredStaggerDuration)
+		&& ConfiguredStaggerDuration > 0.0f
+		? ConfiguredStaggerDuration
+		: 1.5f;
+	TWeakObjectPtr<UCombatComponent> WeakDefenderCombat(this);
+	TWeakObjectPtr<ABaseCombatCharacter> WeakDefender(GetOwnerCharacter());
+	TWeakObjectPtr<ABaseCombatCharacter> WeakSourceCharacter(SourceCharacter);
+	TWeakObjectPtr<UCombatComponent> WeakSourceCombat(SourceCombat);
 
 	if (!SourceCombat
 		|| !SourceCombat->ConsumeActiveAttackInternal(
@@ -2283,6 +2510,12 @@ bool UCombatComponent::TryCommitPerfectParry(
 			EAttackConsumeReason::PerfectParry,
 			InteractionId))
 	{
+		if (!WeakDefenderCombat.IsValid())
+		{
+			return false;
+		}
+
+		LastInputDefenseResolution = CommittedResolution;
 		LastInputDefenseResolution.Decision.Outcome = EDefenseOutcome::GuardEntered;
 		LastInputDefenseResolution.Decision.Reason = EDefenseReason::Consumed;
 		LastInputDefenseResolution.Decision.AttackerResponse = EAttackerResponse::None;
@@ -2295,8 +2528,65 @@ bool UCombatComponent::TryCommitPerfectParry(
 		return false;
 	}
 
+	FDefenseInteractionCacheRecord* InteractionRecord = DefenseInteractionCache.Find(InteractionId.Key);
+	const bool bExactInteractionInProgress = InteractionRecord
+		&& !InteractionRecord->bFinalized
+		&& InteractionRecord->Id == InteractionId;
+	ABaseCombatCharacter* DefenderCharacter = WeakDefender.Get();
+	ABaseCombatCharacter* SurvivingSourceCharacter = WeakSourceCharacter.Get();
+	UCombatComponent* SurvivingSourceCombat = WeakSourceCombat.Get();
+	const bool bParticipantsStillValid = WeakDefenderCombat.Get() == this
+		&& IsValid(DefenderCharacter)
+		&& !DefenderCharacter->IsDeadOrDying()
+		&& DefenderCharacter->CombatComponent.Get() == this
+		&& IsValid(SurvivingSourceCharacter)
+		&& !SurvivingSourceCharacter->IsDeadOrDying()
+		&& SurvivingSourceCharacter->CombatComponent.Get() == SurvivingSourceCombat
+		&& IsValid(SurvivingSourceCombat)
+		&& SurvivingSourceCombat->IsAttackConsumed(Query.Attack.AttackInstance)
+		&& LastInputDefenseResolution.InteractionId == InteractionId;
+	if (!bExactInteractionInProgress || !bParticipantsStillValid)
+	{
+		if (!WeakDefenderCombat.IsValid())
+		{
+			return false;
+		}
+
+		if (InteractionRecord && InteractionRecord->bFinalized && InteractionRecord->Id == InteractionId)
+		{
+			LastInputDefenseResolution = InteractionRecord->Receipt.Resolution;
+			return false;
+		}
+
+		FDefenseResolution InvalidResolution = CommittedResolution;
+		InvalidResolution.Decision.Outcome = EDefenseOutcome::IgnoredInvalid;
+		InvalidResolution.Decision.Reason = EDefenseReason::InvalidParticipant;
+		InvalidResolution.Decision.AttackerResponse = EAttackerResponse::None;
+		InvalidResolution.Decision.AlignmentPolicy = EDefenseAlignmentPolicy::None;
+		InvalidResolution.Decision.bChainEligible = false;
+		InvalidResolution.AlignmentRequest = {};
+		InvalidResolution.Presentation = {};
+		InvalidResolution.PresentationRow = NAME_None;
+		InvalidResolution.PresentationFallback = EDefensePresentationFallbackLevel::NoPresentation;
+		InvalidResolution.AttackerPresentation = {};
+		InvalidResolution.AttackerPresentationRow = NAME_None;
+		InvalidResolution.AttackerPresentationFallback = EDefensePresentationFallbackLevel::NoPresentation;
+		LastInputDefenseResolution = InvalidResolution;
+
+		if (bExactInteractionInProgress)
+		{
+			FDefenseContactReceipt InvalidReceipt;
+			InvalidReceipt.Resolution = InvalidResolution;
+			InvalidReceipt.CommitStatus = EDefenseCommitStatus::NewCommit;
+			FinalizeDefenseInteraction(InteractionId, InvalidReceipt);
+		}
+		return false;
+	}
+
+	LastInputDefenseResolution = CommittedResolution;
+
 	FDefenseContactReceipt Receipt;
-	Receipt.Resolution = LastInputDefenseResolution;
+	Receipt.Resolution = CommittedResolution;
 	Receipt.CommitStatus = EDefenseCommitStatus::NewCommit;
 	FinalizeDefenseInteraction(InteractionId, Receipt);
 
@@ -2305,11 +2595,14 @@ bool UCombatComponent::TryCommitPerfectParry(
 	{
 		DefenseSequence = GetOwner()->FindComponentByClass<UPairedAnimationComponent>();
 	}
+	TWeakObjectPtr<UPairedAnimationComponent> WeakDefenseSequence(DefenseSequence);
 	const bool bDefenseSequenceStarted = DefenseSequence
-		&& DefenseSequence->BeginDefenseSequence(LastInputDefenseResolution);
+		&& DefenseSequence->BeginDefenseSequence(CommittedResolution);
+	DefenseSequence = WeakDefenseSequence.Get();
 	const bool bPairedBridgeStarted = bDefenseSequenceStarted
+		&& DefenseSequence
 		&& DefenseSequence->IsPairedAnimationActive();
-	FDefenseResolution DirectPresentationResolution = LastInputDefenseResolution;
+	FDefenseResolution DirectPresentationResolution = CommittedResolution;
 	if (bPairedBridgeStarted)
 	{
 		// The paired bridge owns both montage roles; direct presentation still owns FX.
@@ -2317,32 +2610,34 @@ bool UCombatComponent::TryCommitPerfectParry(
 		DirectPresentationResolution.AttackerPresentation.Montage = nullptr;
 	}
 
-	if (ABaseCombatCharacter* Defender = GetOwnerCharacter())
+	if (ABaseCombatCharacter* Defender = WeakDefender.Get())
 	{
 		if (Defender->HitReactionComponent)
 		{
 			Defender->HitReactionComponent->PlayDefensePresentation(DirectPresentationResolution);
 		}
 	}
-	if (IsValid(SourceCharacter) && SourceCharacter->HitReactionComponent)
+	SurvivingSourceCharacter = WeakSourceCharacter.Get();
+	if (IsValid(SurvivingSourceCharacter) && SurvivingSourceCharacter->HitReactionComponent)
 	{
+		TWeakObjectPtr<UHitReactionComponent> WeakSourceHitReaction(
+			SurvivingSourceCharacter->HitReactionComponent);
 		const bool bResponsePresented =
 			bPairedBridgeStarted
-			|| SourceCharacter->HitReactionComponent->PlayAttackerResponse(
+			|| SurvivingSourceCharacter->HitReactionComponent->PlayAttackerResponse(
 				DirectPresentationResolution);
-		const float ConfiguredStaggerDuration = AttackerConfiguration
-			? AttackerConfiguration->ParryStaggerDuration
-			: 1.5f;
-		const float StaggerDuration = FMath::IsFinite(ConfiguredStaggerDuration)
-			&& ConfiguredStaggerDuration > 0.0f
-			? ConfiguredStaggerDuration
-			: 1.5f;
-		SourceCharacter->HitReactionComponent->ApplyStagger(
-			StaggerDuration,
-			!bResponsePresented);
+		if (UHitReactionComponent* SourceHitReaction = WeakSourceHitReaction.Get())
+		{
+			SourceHitReaction->ApplyStagger(
+				StaggerDuration,
+				!bResponsePresented);
+		}
 	}
 
-	OnDefenseResolvedNative.Broadcast(LastInputDefenseResolution);
+	if (WeakDefenderCombat.IsValid())
+	{
+		OnDefenseResolvedNative.Broadcast(CommittedResolution);
+	}
 	return true;
 }
 

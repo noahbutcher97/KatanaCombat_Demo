@@ -24,7 +24,7 @@ namespace DefenseAssetValidationTests
 FString ValidManifest()
 {
 	return TEXT(R"json({
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "gate": "A",
   "map": "/Game/ProjectFiles/Levels/Lvl_ThirdPerson1.Lvl_ThirdPerson1",
   "defenseConfiguration": "/Game/ProjectFiles/Data/Defense/DA_Defense.DA_Defense",
@@ -46,6 +46,7 @@ FString ValidManifest()
   "supportingAssets": [
     "/Game/ProjectFiles/Audio/SW_DefenseImpact.SW_DefenseImpact"
   ],
+  "proofCases": ["PerfectParryMiddleCenter"],
   "attacks": [{
     "name": "LightAttack_1",
     "attackData": "/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1.LightAttack_1",
@@ -331,14 +332,15 @@ void AddStateNotify(UAnimMontage* Montage, const float Start = 0.60f, const floa
 void AddChainMarker(
 	UAnimMontage* Montage,
 	const FName Marker,
-	const EChainStageTransitionType Transition)
+	const EChainStageTransitionType Transition,
+	const float Time = 1.0f)
 {
 	UAnimNotify_ChainStageTransition* Notify = NewObject<UAnimNotify_ChainStageTransition>(Montage);
 	Notify->MarkerName = Marker;
 	Notify->Transition = Transition;
 	FAnimNotifyEvent Event;
 	Event.Notify = Notify;
-	Event.SetTime(1.0f);
+	Event.SetTime(Time);
 	Montage->Notifies.Add(Event);
 }
 
@@ -413,19 +415,51 @@ bool FDefenseManifestValidSchemaTest::RunTest(const FString& Parameters)
 	(void)Parameters;
 	FDefenseProofManifest Manifest;
 	TArray<FString> Errors;
-	TestTrue(TEXT("Reviewed schema-v1 manifest should parse"),
+	TestTrue(TEXT("Reviewed schema-v2 manifest should parse"),
 		FDefenseAssetValidationService::ParseManifestJson(
 			DefenseAssetValidationTests::ValidManifest(), Manifest, Errors));
 	TestEqual(TEXT("Parse should not emit errors"), Errors.Num(), 0);
 	TestEqual(TEXT("Gate should parse"), Manifest.Gate, FString(TEXT("A")));
 	TestEqual(TEXT("One attack should parse"), Manifest.Attacks.Num(), 1);
 	TestEqual(TEXT("One expected case should parse"), Manifest.ExpectedCases.Num(), 1);
+	TestEqual(TEXT("One proof case should parse"), Manifest.ProofCases.Num(), 1);
 	TestEqual(TEXT("Reviewed timing should parse"), Manifest.Attacks[0].ParryWindow.StartSeconds, 0.20);
 	TestTrue(TEXT("Parry timing should be present"), Manifest.Attacks[0].ParryWindow.bPresent);
 	TestEqual(TEXT("Swing should parse"), Manifest.Attacks[0].ExpectedSwing, FString(TEXT("Horizontal")));
 	TestEqual(TEXT("Fixture block key should parse"), Manifest.Fixture.BlockKey, FString(TEXT("ThumbMouseButton")));
 	TestEqual(TEXT("Attacker response should parse"), Manifest.ExpectedCases[0].AttackerResponse,
 		FString(TEXT("ParryStagger")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseManifestProofCaseLedgerTest,
+	"KatanaCombat.Editor.DefenseValidation.Manifest.ProofCaseLedgerRequired",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseManifestProofCaseLedgerTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FDefenseProofManifest Manifest;
+	TArray<FString> Errors;
+	FString EmptyLedger = DefenseAssetValidationTests::ValidManifest();
+	EmptyLedger.ReplaceInline(
+		TEXT("\"proofCases\": [\"PerfectParryMiddleCenter\"]"),
+		TEXT("\"proofCases\": []"));
+	TestFalse(TEXT("A proof manifest must declare at least one runtime proof case"),
+		FDefenseAssetValidationService::ParseManifestJson(EmptyLedger, Manifest, Errors));
+	TestTrue(TEXT("An empty proof ledger should identify the non-empty contract"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("non-empty")));
+
+	FString DuplicateLedger = DefenseAssetValidationTests::ValidManifest();
+	DuplicateLedger.ReplaceInline(
+		TEXT("\"proofCases\": [\"PerfectParryMiddleCenter\"]"),
+		TEXT("\"proofCases\": [\"PerfectParryMiddleCenter\", \"PerfectParryMiddleCenter\"]"));
+	Errors.Reset();
+	TestFalse(TEXT("A proof manifest must reject duplicate runtime proof cases"),
+		FDefenseAssetValidationService::ParseManifestJson(DuplicateLedger, Manifest, Errors));
+	TestTrue(TEXT("A duplicate proof case should be named"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("duplicate")));
 	return true;
 }
 
@@ -487,7 +521,7 @@ bool FDefenseManifestUnknownFieldTest::RunTest(const FString& Parameters)
 {
 	(void)Parameters;
 	FString Json = DefenseAssetValidationTests::ValidManifest();
-	Json.ReplaceInline(TEXT("\"schemaVersion\": 1,"), TEXT("\"schemaVersion\": 1, \"unexpected\": true,"));
+	Json.ReplaceInline(TEXT("\"schemaVersion\": 2,"), TEXT("\"schemaVersion\": 2, \"unexpected\": true,"));
 	Json.ReplaceInline(TEXT("\"name\": \"LightAttack_1\","),
 		TEXT("\"name\": \"LightAttack_1\", \"nestedUnexpected\": 3,"));
 	FDefenseProofManifest Manifest;
@@ -1039,6 +1073,29 @@ bool FDefenseAssetPairedMarkerAmbiguityTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseAssetPairedMarkerSectionBoundaryTest,
+	"KatanaCombat.Editor.DefenseValidation.Assets.PairedDriverMarkerSectionBoundaryRejected",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseAssetPairedMarkerSectionBoundaryTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UPairedAnimationData* Data = DefenseAssetValidationTests::CreateBridgeData();
+	FAnimNotifyEvent& DriverMarker = Data->AttackerMontage->Notifies[0];
+	DriverMarker.SetTime(1.5f);
+	FDefenseProofPairedDependencyEntry Entry = DefenseAssetValidationTests::MakeBridgeEntry();
+	Entry.PairedData = Data->GetPathName();
+	Entry.AttackerMontage = Data->AttackerMontage->GetPathName();
+	Entry.VictimMontage = Data->VictimMontage->GetPathName();
+	FDefenseAssetValidationResult Result;
+	FDefenseAssetValidationService::ValidatePairedDependency(
+		Entry, Data, NewObject<UDefenseConfiguration>(GetTransientPackage()), Result);
+	TestTrue(TEXT("A marker at the exclusive end of the played section should fail"),
+		Result.HasFinding(TEXT("DriverMarkerOutsideActiveSection")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FDefenseAssetManifestMontageAuthorityTest,
 	"KatanaCombat.Editor.DefenseValidation.Assets.ManifestMontageAuthority",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
@@ -1274,6 +1331,8 @@ bool FDefenseManifestMissingObjectClosureTest::RunTest(const FString& Parameters
 		Result.FindRows(TEXT("Paired")).Num(), Manifest.PairedDependencies.Num());
 	TestEqual(TEXT("Every expected case still receives a report row"),
 		Result.FindRows(TEXT("ExpectedCase")).Num(), Manifest.ExpectedCases.Num());
+	TestEqual(TEXT("Every runtime proof case still receives a report row"),
+		Result.FindRows(TEXT("ProofCase")).Num(), Manifest.ProofCases.Num());
 	return true;
 }
 

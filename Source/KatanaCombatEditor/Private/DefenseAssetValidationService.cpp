@@ -603,17 +603,17 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 	RejectUnknownFields(Root,
 		{TEXT("schemaVersion"), TEXT("gate"), TEXT("map"), TEXT("defenseConfiguration"),
 		 TEXT("fixture"), TEXT("combatSettings"), TEXT("supportingAssets"), TEXT("attacks"), TEXT("presentations"),
-		 TEXT("pairedDependencies"), TEXT("expectedCases")},
+		 TEXT("pairedDependencies"), TEXT("expectedCases"), TEXT("proofCases")},
 		TEXT("manifest"), OutErrors);
 	double SchemaVersion = 0.0;
 	if (!ReadRequiredNumber(Root, TEXT("schemaVersion"), TEXT("manifest"), SchemaVersion, OutErrors)
-		|| SchemaVersion != 1.0)
+		|| SchemaVersion != 2.0)
 	{
-		AddError(OutErrors, TEXT("manifest"), TEXT("schemaVersion must be exactly 1"));
+		AddError(OutErrors, TEXT("manifest"), TEXT("schemaVersion must be exactly 2"));
 	}
 	else
 	{
-		OutManifest.SchemaVersion = 1;
+		OutManifest.SchemaVersion = 2;
 	}
 	ReadRequiredString(Root, TEXT("gate"), TEXT("manifest"), OutManifest.Gate, OutErrors);
 	if (OutManifest.Gate != TEXT("A") && OutManifest.Gate != TEXT("B"))
@@ -701,6 +701,8 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 	}
 	ReadStringArray(Root, TEXT("supportingAssets"), TEXT("manifest"),
 		OutManifest.SupportingAssets, OutErrors, false);
+	ReadStringArray(Root, TEXT("proofCases"), TEXT("manifest"),
+		OutManifest.ProofCases, OutErrors);
 	for (const FString& Path : OutManifest.SupportingAssets)
 	{
 		RequireGameObjectPath(Path, TEXT("manifest.supportingAssets"), TEXT("entry"), OutErrors);
@@ -1268,6 +1270,15 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 				TEXT("MissingManifestAsset"), Path,
 				TEXT("explicit manifest object did not load"));
 		}
+	}
+	for (const FString& ProofCase : Manifest.ProofCases)
+	{
+		FDefenseAssetValidationRow Row;
+		Row.Kind = TEXT("ProofCase");
+		Row.Name = ProofCase;
+		Row.Facts.Add(TEXT("declared"), TEXT("true"));
+		Row.Facts.Add(TEXT("gate"), Manifest.Gate);
+		OutResult.Rows.Add(MoveTemp(Row));
 	}
 
 	const UWorld* ProofWorld = FindTypedObject<UWorld>(
@@ -2207,6 +2218,21 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 				TEXT("DriverMarkerAmbiguous"), Context,
 				TEXT("exactly one matching marker must exist on the driver and none on the partner"));
+		}
+		const FName DriverSection = ExpectedDriver == EPairedAnimationRole::Attacker
+			? FName(*Entry.AttackerSection)
+			: FName(*Entry.VictimSection);
+		if (DriverMarkers == 1
+			&& !bUnexpectedDriverMarker
+			&& !UAnimNotify_ChainStageTransition::HasExactlyOnePlayableMarker(
+				DriverMontage,
+				FName(*Entry.DriverMarker),
+				Transition,
+				DriverSection))
+		{
+			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+				TEXT("DriverMarkerOutsideActiveSection"), Context,
+				TEXT("the driver marker must be strictly inside the paired section that runtime plays"));
 		}
 		if (Entry.Role == TEXT("Counter") && !Policy.bAutoContinue)
 		{
