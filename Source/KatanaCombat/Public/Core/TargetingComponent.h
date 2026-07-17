@@ -12,6 +12,8 @@
 class ACharacter;
 class AActor;
 class UMotionWarpingComponent;
+class URootMotionModifier;
+class URootMotionModifier_Warp;
 class UCombatSettings;
 class UTargetingSettings;
 
@@ -38,6 +40,11 @@ class KATANACOMBAT_API UTargetingComponent : public UActorComponent
 
 public:
     UTargetingComponent();
+
+    virtual void TickComponent(
+        float DeltaTime,
+        ELevelTick TickType,
+        FActorComponentTickFunction* ThisTickFunction) override;
 
     // ============================================================================
     // SETTINGS
@@ -95,7 +102,12 @@ public:
      * @return Number of targets found
      */
     UFUNCTION(BlueprintCallable, Category = "Targeting")
-    int32 GetAllTargetsInRange(TArray<AActor*>& OutTargets);
+    int32 GetAllTargetsInRange(TArray<AActor*>& OutTargets, float MaxRange = -1.0f);
+
+#if WITH_AUTOMATION_TESTS
+    int32 GetAllTargetsInRangeCallCountForTesting() const { return AllTargetsInRangeCallCount; }
+    void ResetAllTargetsInRangeCallCountForTesting() { AllTargetsInRangeCallCount = 0; }
+#endif
 
     // ============================================================================
     // TARGETING - UTILITY QUERIES
@@ -253,8 +265,8 @@ public:
      * - If Target is null: Uses RotationWarpName with rotation-only toward TargetRotation
      *
      * Animation Setup Required:
-     * - Add AnimNotifyState_MotionWarping with name matching Config.TargetWarpName (bWarpTranslation=true)
-     * - Add AnimNotifyState_MotionWarping with name matching Config.RotationWarpName (bWarpTranslation=false)
+     * - Add AnimNotifyState_CombatWarp with target names matching the attack config
+     * - Runtime translation policy and rotation rate come from the owned request
      *
      * @param Target - Target actor (null = rotation-only warp)
      * @param TargetRotation - Rotation to face (used when Target is null)
@@ -264,12 +276,41 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping")
     bool SetupAttackWarp(AActor* Target, const FRotator& TargetRotation, const struct FAttackWarpConfig& Config);
 
+    /** Release the currently owned regular-attack warp request, if any. */
+    void ReleaseActiveAttackWarp();
+
     /**
      * Clear motion warp targets
      * @param WarpTargetName - Name of warp target to clear (NAME_None = all)
      */
     UFUNCTION(BlueprintCallable, Category = "Targeting|Motion Warping")
-    void ClearMotionWarp(FName WarpTargetName = NAME_None);
+    void ClearMotionWarp(
+        FName WarpTargetName = NAME_None,
+        EAlignmentReleaseReason Reason = EAlignmentReleaseReason::OwnerCompleted);
+
+    // ============================================================================
+    // OWNED ALIGNMENT REQUESTS
+    // ============================================================================
+
+    FAlignmentRequestHandle AcquireAlignmentRequest(const FAlignmentRequestSpec& Spec);
+    bool UpdateAlignmentRequest(FAlignmentRequestHandle Handle, const FAlignmentRequestSpec& Spec);
+    void ReleaseAlignmentRequest(FAlignmentRequestHandle Handle);
+    void ReleaseAllAlignmentRequests(EAlignmentReleaseReason Reason);
+    bool GetAlignmentRequestSpec(FAlignmentRequestHandle Handle, FAlignmentRequestSpec& OutSpec) const;
+    FAlignmentRequestHandle GetActiveAlignmentRequest() const { return ActiveAlignmentRequest; }
+
+    /** Configure and bind one runtime modifier clone to its active named request. */
+    bool RegisterAlignmentModifier(
+        FName WarpTargetName,
+        URootMotionModifier_Warp* RuntimeModifier,
+        bool bAllowTranslation);
+
+#if WITH_AUTOMATION_TESTS
+    int32 GetAlignmentRequestCountForTesting() const { return AlignmentRequests.Num(); }
+    int32 GetRegisteredAlignmentModifierCountForTesting() const { return RegisteredAlignmentModifiers.Num(); }
+    int32 GetAlignmentExecutionCountForTesting() const { return AlignmentExecutionCount; }
+    void ResetAlignmentExecutionFrameForTesting() { LastAlignmentExecutionFrame = MAX_uint64; }
+#endif
 
     // ========================================================================
     // VICTIM WARP (for paired animations - victim warps to attacker)
@@ -346,6 +387,29 @@ protected:
     virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
+    struct FAlignmentRequestRecord
+    {
+        FAlignmentRequestHandle Handle;
+        FAlignmentRequestSpec Spec;
+        uint64 AcquisitionOrder = 0;
+    };
+
+    struct FCapturedRotationSettings
+    {
+        bool bCaptured = false;
+        bool bUseControllerRotationYaw = false;
+        bool bOrientRotationToMovement = false;
+        bool bUseControllerDesiredRotation = false;
+    };
+
+    struct FRegisteredAlignmentModifier
+    {
+        TWeakObjectPtr<URootMotionModifier_Warp> Modifier;
+        FAlignmentRequestHandle Handle;
+        float LastObservedYaw = 0.0f;
+        bool bHasYawBaseline = false;
+    };
+
     // ============================================================================
     // STATE
     // ============================================================================
@@ -371,11 +435,14 @@ private:
     /** Target being tracked for continuous warp updates (weak to handle destruction) */
     TWeakObjectPtr<AActor> TrackedWarpTarget;
 
-    /** Active warp configuration for continuous updates */
-    FAttackWarpConfig ActiveWarpConfig;
-
     /** Whether we're actively tracking a target for warp updates */
     bool bIsTrackingWarpTarget = false;
+
+    /** Regular attack warp ownership. Paired/defense stages use their own handles. */
+    FAlignmentRequestHandle ActiveAttackAlignmentRequest;
+
+    /** Monotonic generation for regular attack-warp owners. */
+    int32 NextAttackAlignmentGeneration = 1;
 
     /** Callback for continuous warp updates - called each frame by MotionWarpingComponent */
     UFUNCTION()
@@ -434,12 +501,27 @@ private:
     UPROPERTY()
     TObjectPtr<UMotionWarpingComponent> MotionWarpingComponent;
 
+    TMap<FAlignmentRequestHandle, FAlignmentRequestRecord> AlignmentRequests;
+    TArray<FRegisteredAlignmentModifier> RegisteredAlignmentModifiers;
+    FAlignmentRequestHandle ActiveAlignmentRequest;
+    uint64 NextAlignmentRequestValue = 1;
+    uint64 NextAlignmentAcquisitionOrder = 1;
+    uint64 LastAlignmentExecutionFrame = MAX_uint64;
+    EAlignmentExecutor LastAlignmentExecutor = EAlignmentExecutor::None;
+    FCapturedRotationSettings CapturedRotationSettings;
+    bool bAlignmentTickPrerequisiteRegistered = false;
+
+#if WITH_AUTOMATION_TESTS
+    int32 AllTargetsInRangeCallCount = 0;
+    int32 AlignmentExecutionCount = 0;
+#endif
+
     // ============================================================================
     // INTERNAL HELPERS - TARGET FINDING
     // ============================================================================
 
     /** Get all actors in sphere around owner */
-    void GetActorsInRange(TArray<AActor*>& OutActors) const;
+    void GetActorsInRange(TArray<AActor*>& OutActors, float MaxRange = -1.0f) const;
 
     /** Filter actors by targetable class */
     void FilterByTargetableClass(TArray<AActor*>& InOutActors) const;
@@ -466,6 +548,38 @@ private:
 
     /** Calculate warp target location based on distance constraints */
     FVector CalculateWarpLocation(AActor* Target, float MaxDistance) const;
+
+    // ============================================================================
+    // INTERNAL HELPERS - OWNED ALIGNMENT
+    // ============================================================================
+
+    bool EnsureAlignmentDependencies();
+    bool ValidateAlignmentSpec(const FAlignmentRequestSpec& Spec) const;
+    bool CaptureAlignmentRotationSettings();
+    void RestoreAlignmentRotationSettings();
+    FAlignmentRequestHandle ChooseActiveAlignmentRequest() const;
+    bool HasSmoothAlignmentRequest() const;
+    void ReevaluateAlignmentRequests();
+    void SynchronizeAlignmentModifiers();
+    void SynchronizeModifierBudget(FRegisteredAlignmentModifier& Record);
+    void RemoveRegisteredAlignmentModifiersForHandle(FAlignmentRequestHandle Handle);
+    void UnregisterAlignmentModifier(URootMotionModifier_Warp* Modifier, bool bMarkForRemoval);
+    FRegisteredAlignmentModifier* FindRegisteredAlignmentModifier(URootMotionModifier_Warp* Modifier);
+    const FAlignmentRequestRecord* FindAlignmentRequestByWarpTarget(FName WarpTargetName) const;
+    void RemoveAlignmentWarpTarget(const FAlignmentRequestRecord& Record);
+    void ConfigureAlignmentWarpTarget(const FAlignmentRequestRecord& Record);
+    FRotator ResolveAlignmentRotation(const FAlignmentRequestSpec& Spec) const;
+    bool IsAlignmentWarpTargetOwned(FName WarpTargetName) const;
+
+    UFUNCTION()
+    void OnAlignmentModifierUpdated(
+        UMotionWarpingComponent* InMotionWarpingComponent,
+        URootMotionModifier* RootMotionModifier);
+
+    UFUNCTION()
+    void OnAlignmentModifierDeactivated(
+        UMotionWarpingComponent* InMotionWarpingComponent,
+        URootMotionModifier* RootMotionModifier);
 
     // ============================================================================
     // DEBUG VISUALIZATION

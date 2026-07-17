@@ -27,6 +27,10 @@ class KATANACOMBAT_API APlayerCharacter : public ABaseCombatCharacter
 {
     GENERATED_BODY()
 
+#if WITH_AUTOMATION_TESTS
+    friend class FDefenseAlignment_PlayerLookRoutesManualYaw;
+#endif
+
 public:
     APlayerCharacter();
 
@@ -84,6 +88,9 @@ protected:
 
     /** Look input (continuous) */
     void Look(const FInputActionValue& Value);
+
+    /** Clear held-guard manual yaw intent when the look action stops. */
+    void StopLook(const FInputActionValue& Value);
 
     /** Light attack button pressed */
     void OnLightAttackPressed(const FInputActionValue& Value);

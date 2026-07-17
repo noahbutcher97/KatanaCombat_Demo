@@ -26,6 +26,8 @@ public class KatanaCombatTest : ModuleRules
 				"UnrealEd",          // For editor utilities in tests
 				"KatanaCombatEditor", // For editor tool regression tests
 				"Json",             // For asset migration report tests
+				"MotionWarping",    // For alignment warp-target ownership tests
+				"Niagara",          // For defense presentation effect fixtures
 				"StateTreeModule",  // Enemy AI proof asset validation
 				"GameplayStateTreeModule"
 			});

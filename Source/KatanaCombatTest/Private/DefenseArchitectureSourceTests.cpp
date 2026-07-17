@@ -270,3 +270,97 @@ bool FDefensePresentationBeforeCallbacksSourceTest::RunTest(const FString& Param
 		Body.Contains(TEXT("DispatchCommittedDamage")));
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseEnemyAttackFacingOwnershipSourceTest,
+	"KatanaCombat.Defense.Alignment.Architecture.EnemyAttackUsesOwnedWarp",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseEnemyAttackFacingOwnershipSourceTest::RunTest(const FString& Parameters)
+{
+	FString Source;
+	if (!TestTrue(TEXT("Enemy combat AI source loads"), LoadProjectSource(
+		TEXT("Source/KatanaCombat/Private/AI/EnemyCombatAIComponent.cpp"), Source)))
+	{
+		return false;
+	}
+
+	FString Body;
+	if (!TestTrue(TEXT("Enemy attack execution has an extractable body"), ExtractFunctionBody(
+		Source, TEXT("UEnemyCombatAIComponent::ExecuteAttack()"), Body)))
+	{
+		return false;
+	}
+
+	const int32 IntentIndex = Body.Find(TEXT("SetAttackIntentTarget"), ESearchCase::CaseSensitive);
+	const int32 ExecuteIndex = Body.Find(TEXT("ExecuteAttackData"), ESearchCase::CaseSensitive);
+	TestFalse(TEXT("Enemy attack execution performs no direct actor rotation"),
+		Body.Contains(TEXT("SetActorRotation")));
+	TestTrue(TEXT("Enemy attack publishes its explicit intent target"), IntentIndex != INDEX_NONE);
+	TestTrue(TEXT("Enemy attack executes through CombatComponent"), ExecuteIndex != INDEX_NONE);
+	TestTrue(TEXT("Enemy attack publishes intent before execution acquires its owned warp"),
+		IntentIndex != INDEX_NONE && ExecuteIndex != INDEX_NONE && IntentIndex < ExecuteIndex);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseNoDirectRotationSourceTest,
+	"KatanaCombat.Defense.Alignment.Architecture.NoDirectRotation",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseNoDirectRotationSourceTest::RunTest(const FString& Parameters)
+{
+	const TCHAR* DefenseOwnerSources[] =
+	{
+		TEXT("Source/KatanaCombat/Private/AI/EnemyCombatAIComponent.cpp"),
+		TEXT("Source/KatanaCombat/Private/Characters/BaseCombatCharacter.cpp"),
+		TEXT("Source/KatanaCombat/Private/Core/CombatComponent.cpp"),
+		TEXT("Source/KatanaCombat/Private/Core/HitReactionComponent.cpp"),
+		TEXT("Source/KatanaCombat/Private/Core/TargetingComponent.cpp")
+	};
+
+	for (const TCHAR* RelativePath : DefenseOwnerSources)
+	{
+		FString Source;
+		if (!TestTrue(*FString::Printf(TEXT("Defense owner source loads: %s"), RelativePath),
+			LoadProjectSource(RelativePath, Source)))
+		{
+			continue;
+		}
+		TestFalse(*FString::Printf(TEXT("Defense owner has no direct actor rotation: %s"), RelativePath),
+			StripCppComments(Source).Contains(TEXT("SetActorRotation")));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseCombatWarpCloneOwnershipSourceTest,
+	"KatanaCombat.Defense.Alignment.Architecture.CombatWarpClonesBeforeConfiguration",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseCombatWarpCloneOwnershipSourceTest::RunTest(const FString& Parameters)
+{
+	FString Source;
+	if (!TestTrue(TEXT("Combat warp notify source loads"), LoadProjectSource(
+		TEXT("Source/KatanaCombat/Private/Animation/AnimNotifyState_CombatWarp.cpp"), Source)))
+	{
+		return false;
+	}
+
+	FString Body;
+	if (!TestTrue(TEXT("Combat warp modifier factory has an extractable body"), ExtractFunctionBody(
+		Source, TEXT("UAnimNotifyState_CombatWarp::AddRootMotionModifier_Implementation"), Body)))
+	{
+		return false;
+	}
+
+	const int32 CloneIndex = Body.Find(TEXT("AddModifierFromTemplate"), ESearchCase::CaseSensitive);
+	const int32 RegistrationIndex = Body.Find(TEXT("RegisterAlignmentModifier"), ESearchCase::CaseSensitive);
+	TestTrue(TEXT("Combat warp creates an engine-owned clone"), CloneIndex != INDEX_NONE);
+	TestTrue(TEXT("Combat warp registers only the runtime clone"), RegistrationIndex != INDEX_NONE);
+	TestTrue(TEXT("Clone creation precedes runtime configuration"),
+		CloneIndex != INDEX_NONE && RegistrationIndex > CloneIndex);
+	TestFalse(TEXT("Combat warp never mutates the shared notify template"),
+		Body.Contains(TEXT("RootMotionModifier->")));
+	return true;
+}

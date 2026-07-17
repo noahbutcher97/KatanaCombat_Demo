@@ -10,6 +10,9 @@
 #include "Core/WeaponComponent.h"
 #include "Data/AttackData.h"
 #include "Data/DefenseConfiguration.h"
+#include "Animation/AnimMontage.h"
+#include "NiagaraSystem.h"
+#include "Sound/SoundWave.h"
 #include "Utilities/CombatGameplayTags.h"
 #include "Containers/Ticker.h"
 #include "HAL/PlatformTime.h"
@@ -686,13 +689,14 @@ bool FDefenseContactBlockMatrixTest::RunTest(const FString& Parameters)
 	APlayerCharacter* Target = FCombatTestHelpers::CreateTestPlayerCharacter(World);
 	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
 	Attack->BaseDamage = 30.0f;
+	Attack->AttackTags.AddTag(KatanaCombatGameplayTags::AttackDefenseBlockInterruptible());
 	UCombatEventRecorder* Recorder = NewObject<UCombatEventRecorder>();
 	BindRecorder(Source, Target, Recorder);
 	TestTrue(TEXT("Defender enters held guard"), Target->CombatComponent->BeginBlock(Source));
 
 	const float InitialHealth = Target->CurrentHealth;
-	const FDefenseContactReceipt Block = ResolveAndFinalize(
-		Source, Target, MakeContactRequest(Source, Target, Attack, 1));
+	const FDefenseContactRequest BlockRequest = MakeContactRequest(Source, Target, Attack, 1);
+	const FDefenseContactReceipt Block = ResolveAndFinalize(Source, Target, BlockRequest);
 	TestEqual(TEXT("Aligned guard resolves normal block"),
 		Block.Resolution.Decision.Outcome, EDefenseOutcome::NormalBlock);
 	TestEqual(TEXT("Normal block suppresses damage"), Block.AppliedDamage, 0.0f);
@@ -701,8 +705,27 @@ bool FDefenseContactBlockMatrixTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Normal block preserves health"), Target->CurrentHealth, InitialHealth);
 	TestEqual(TEXT("Normal block presents one accepted impact"),
 		Source->GetResolvedWeaponImpactAttemptCountForTesting(), 1);
+	TestEqual(TEXT("Normal block dispatches defender presentation once"),
+		Target->HitReactionComponent->GetDefensePresentationAttemptCountForTesting(), 1);
+	TestEqual(TEXT("Normal block dispatches attacker response once"),
+		Source->HitReactionComponent->GetAttackerResponseAttemptCountForTesting(), 1);
 	TestEqual(TEXT("Normal block emits no damage callback"), Recorder->DamageReceivedCount, 0);
 	TestEqual(TEXT("Normal block emits no health callback"), Recorder->HealthChangedCount, 0);
+	TestFalse(TEXT("Committed defender presentation rejects the source component"),
+		Source->HitReactionComponent->PlayDefensePresentation(Block.Resolution));
+	TestFalse(TEXT("Committed attacker response rejects the defender component"),
+		Target->HitReactionComponent->PlayAttackerResponse(Block.Resolution));
+	TestEqual(TEXT("Wrong owner cannot claim a defender presentation attempt"),
+		Source->HitReactionComponent->GetDefensePresentationAttemptCountForTesting(), 0);
+	TestEqual(TEXT("Wrong owner cannot claim an attacker response attempt"),
+		Target->HitReactionComponent->GetAttackerResponseAttemptCountForTesting(), 0);
+
+	Source->FinalizeResolvedWeaponContact(Target, Block);
+	ResolveAndFinalize(Source, Target, BlockRequest);
+	TestEqual(TEXT("Retained and cached receipts cannot replay defender presentation"),
+		Target->HitReactionComponent->GetDefensePresentationAttemptCountForTesting(), 1);
+	TestEqual(TEXT("Retained and cached receipts cannot replay attacker response"),
+		Source->HitReactionComponent->GetAttackerResponseAttemptCountForTesting(), 1);
 
 	Attack->AttackTags.AddTag(KatanaCombatGameplayTags::AttackPropertyUnblockable());
 	const FDefenseContactReceipt Unblockable = ResolveAndFinalize(
@@ -715,6 +738,186 @@ bool FDefenseContactBlockMatrixTest::RunTest(const FString& Parameters)
 		Source->GetResolvedWeaponImpactAttemptCountForTesting(), 2);
 	TestEqual(TEXT("Unblockable hit emits damage exactly once"), Recorder->DamageReceivedCount, 1);
 	TestEqual(TEXT("Unblockable hit emits health exactly once"), Recorder->HealthChangedCount, 1);
+
+	World->DestroyActor(Source);
+	World->DestroyActor(Target);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseContactConfigurationPolicyTest,
+	"KatanaCombat.Defense.Contact.ConfigurationPolicy",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseContactConfigurationPolicyTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(100.0f, 17.63f, 0.0f));
+	APlayerCharacter* Target = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>();
+	Target->CombatComponent->DefenseConfigurationOverride = Configuration;
+	TestTrue(TEXT("Defender enters held guard"), Target->CombatComponent->BeginBlock(Source));
+
+	Configuration->NormalBlockFinalTolerance = 5.0f;
+	const FDefenseContactReceipt Narrow = ResolveAndFinalize(
+		Source, Target, MakeContactRequest(Source, Target, Attack, 80));
+	TestEqual(TEXT("Authored narrow tolerance rejects a ten-degree contact"),
+		Narrow.Resolution.Decision.Outcome, EDefenseOutcome::Hit);
+	TestEqual(TEXT("Committed decision records authored narrow tolerance"),
+		Narrow.Resolution.Decision.RequiredFinalTolerance, 5.0f);
+
+	Configuration->NormalBlockFinalTolerance = 15.0f;
+	const FDefenseContactReceipt Wide = ResolveAndFinalize(
+		Source, Target, MakeContactRequest(Source, Target, Attack, 81));
+	TestEqual(TEXT("Authored wide tolerance accepts the same contact"),
+		Wide.Resolution.Decision.Outcome, EDefenseOutcome::NormalBlock);
+	TestEqual(TEXT("Committed decision records authored wide tolerance"),
+		Wide.Resolution.Decision.RequiredFinalTolerance, 15.0f);
+
+	World->DestroyActor(Source);
+	World->DestroyActor(Target);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseBlockedPresentationPrecedenceTest,
+	"KatanaCombat.Defense.Presentation.BlockedImpactPrecedence",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseBlockedPresentationPrecedenceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(100.0f, 0.0f, 0.0f));
+	APlayerCharacter* Target = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	Attack->AttackTags.AddTag(KatanaCombatGameplayTags::AttackDefenseBlockInterruptible());
+
+	UDefenseConfiguration* DefenderConfiguration = NewObject<UDefenseConfiguration>();
+	UDefenseConfiguration* AttackerConfiguration = NewObject<UDefenseConfiguration>();
+	Target->CombatComponent->DefenseConfigurationOverride = DefenderConfiguration;
+	Source->CombatComponent->DefenseConfigurationOverride = AttackerConfiguration;
+
+	USoundWave* ExactSound = NewObject<USoundWave>(DefenderConfiguration);
+	USoundWave* AttackSound = NewObject<USoundWave>(Attack);
+	USoundWave* GenericSound = NewObject<USoundWave>(DefenderConfiguration);
+	USoundWave* DefaultSound = NewObject<USoundWave>(DefenderConfiguration);
+	UNiagaraSystem* ExactVFX = NewObject<UNiagaraSystem>(DefenderConfiguration);
+	UNiagaraSystem* AttackVFX = NewObject<UNiagaraSystem>(Attack);
+	UNiagaraSystem* GenericVFX = NewObject<UNiagaraSystem>(DefenderConfiguration);
+	UNiagaraSystem* DefaultVFX = NewObject<UNiagaraSystem>(DefenderConfiguration);
+
+	FDefensePresentationRow GenericRow;
+	GenericRow.RowName = TEXT("GenericBlock");
+	GenericRow.Outcome = EDefenseOutcome::NormalBlock;
+	GenericRow.Payload.bOverrideImpactAudio = true;
+	GenericRow.Payload.ImpactAudio.ImpactSound = GenericSound;
+	GenericRow.Payload.bOverrideImpactVFX = true;
+	GenericRow.Payload.ImpactVFX.ImpactVFX = GenericVFX;
+
+	FDefensePresentationRow ExactRow = GenericRow;
+	ExactRow.RowName = TEXT("ExactBlock");
+	ExactRow.bMatchAnyHeight = false;
+	ExactRow.Height = EAttackHeight::Middle;
+	ExactRow.bMatchAnyLane = false;
+	ExactRow.Lane = EIncomingAttackLane::Center;
+	ExactRow.bMatchAnySwingShape = false;
+	ExactRow.SwingShape = ESwingDirection::Horizontal;
+	ExactRow.Payload.ImpactAudio.ImpactSound = ExactSound;
+	ExactRow.Payload.ImpactVFX.ImpactVFX = ExactVFX;
+	DefenderConfiguration->DefenderPresentationRows = {GenericRow, ExactRow};
+
+	FAttackerResponsePresentationRow RecoilRow;
+	RecoilRow.RowName = TEXT("AttackerOwnedRecoil");
+	RecoilRow.Response = EAttackerResponse::Recoil;
+	RecoilRow.Payload.Montage = NewObject<UAnimMontage>(AttackerConfiguration);
+	FAttackerResponsePresentationRow ExactRecoilWithoutMontage = RecoilRow;
+	ExactRecoilWithoutMontage.RowName = TEXT("ExactRecoilWithoutMontage");
+	ExactRecoilWithoutMontage.bMatchAnyHeight = false;
+	ExactRecoilWithoutMontage.Height = EAttackHeight::Middle;
+	ExactRecoilWithoutMontage.bMatchAnyLane = false;
+	ExactRecoilWithoutMontage.Lane = EIncomingAttackLane::Center;
+	ExactRecoilWithoutMontage.bMatchAnySwingShape = false;
+	ExactRecoilWithoutMontage.SwingShape = ESwingDirection::Horizontal;
+	ExactRecoilWithoutMontage.Payload.Montage = nullptr;
+	AttackerConfiguration->AttackerResponseRows = {RecoilRow, ExactRecoilWithoutMontage};
+
+	TestTrue(TEXT("Defender enters held guard"), Target->CombatComponent->BeginBlock(Source));
+	FDefenseContactReceipt Exact = Source->ResolveWeaponContactCandidate(
+		Target, MakeContactRequest(Source, Target, Attack, 90));
+	TestEqual(TEXT("Exact defense row is committed"), Exact.Resolution.PresentationRow,
+		FName(TEXT("ExactBlock")));
+	TestEqual(TEXT("Exact row retains exact fallback provenance"),
+		Exact.Resolution.PresentationFallback, EDefensePresentationFallbackLevel::Exact);
+	TestTrue(TEXT("Exact defense-row audio outranks every fallback"),
+		Exact.Resolution.Presentation.ImpactAudio.ImpactSound == ExactSound);
+	TestTrue(TEXT("Exact defense-row VFX outranks every fallback"),
+		Exact.Resolution.Presentation.ImpactVFX.ImpactVFX == ExactVFX);
+	TestEqual(TEXT("Attacker response is selected from attacker configuration"),
+		Exact.Resolution.AttackerPresentationRow, FName(TEXT("AttackerOwnedRecoil")));
+	TestTrue(TEXT("Committed attacker payload retains attacker montage"),
+		Exact.Resolution.AttackerPresentation.Montage == RecoilRow.Payload.Montage);
+	TestEqual(TEXT("Missing exact recoil montage commits the authored generic recoil"),
+		Exact.Resolution.AttackerPresentationFallback,
+		EDefensePresentationFallbackLevel::Generic);
+	Source->FinalizeResolvedWeaponContact(Target, Exact);
+
+	DefenderConfiguration->DefenderPresentationRows[1].Payload.bOverrideImpactAudio = false;
+	DefenderConfiguration->DefenderPresentationRows[1].Payload.bOverrideImpactVFX = false;
+	Attack->DefenseProfile.bOverrideBlockedImpactAudio = true;
+	Attack->DefenseProfile.BlockedImpactAudio.ImpactSound = AttackSound;
+	Attack->DefenseProfile.bOverrideBlockedImpactVFX = true;
+	Attack->DefenseProfile.BlockedImpactVFX.ImpactVFX = AttackVFX;
+	FDefenseContactReceipt AttackOverride = Source->ResolveWeaponContactCandidate(
+		Target, MakeContactRequest(Source, Target, Attack, 91));
+	TestTrue(TEXT("Attack-profile audio wins when exact row has no audio override"),
+		AttackOverride.Resolution.Presentation.ImpactAudio.ImpactSound == AttackSound);
+	TestTrue(TEXT("Attack-profile VFX wins when exact row has no VFX override"),
+		AttackOverride.Resolution.Presentation.ImpactVFX.ImpactVFX == AttackVFX);
+	Source->FinalizeResolvedWeaponContact(Target, AttackOverride);
+
+	Attack->DefenseProfile.bOverrideBlockedImpactAudio = false;
+	Attack->DefenseProfile.bOverrideBlockedImpactVFX = false;
+	FDefenseContactReceipt GenericImpactFallback = Source->ResolveWeaponContactCandidate(
+		Target, MakeContactRequest(Source, Target, Attack, 94));
+	TestEqual(TEXT("Specialized row remains the committed animation selection"),
+		GenericImpactFallback.Resolution.PresentationRow, FName(TEXT("ExactBlock")));
+	TestTrue(TEXT("Generic row audio fills a missing specialized impact override"),
+		GenericImpactFallback.Resolution.Presentation.ImpactAudio.ImpactSound == GenericSound);
+	TestTrue(TEXT("Generic row VFX fills a missing specialized impact override"),
+		GenericImpactFallback.Resolution.Presentation.ImpactVFX.ImpactVFX == GenericVFX);
+	Source->FinalizeResolvedWeaponContact(Target, GenericImpactFallback);
+
+	DefenderConfiguration->DefenderPresentationRows = {GenericRow};
+	FDefenseContactReceipt Generic = Source->ResolveWeaponContactCandidate(
+		Target, MakeContactRequest(Source, Target, Attack, 92));
+	TestEqual(TEXT("Wildcard row is committed as generic provenance"),
+		Generic.Resolution.PresentationFallback, EDefensePresentationFallbackLevel::Generic);
+	TestTrue(TEXT("Generic defense-row audio follows attack fallback"),
+		Generic.Resolution.Presentation.ImpactAudio.ImpactSound == GenericSound);
+	TestTrue(TEXT("Generic defense-row VFX follows attack fallback"),
+		Generic.Resolution.Presentation.ImpactVFX.ImpactVFX == GenericVFX);
+	Source->FinalizeResolvedWeaponContact(Target, Generic);
+
+	DefenderConfiguration->DefenderPresentationRows[0].Payload.bOverrideImpactAudio = false;
+	DefenderConfiguration->DefenderPresentationRows[0].Payload.bOverrideImpactVFX = false;
+	DefenderConfiguration->DefaultBlockImpactAudio.ImpactSound = DefaultSound;
+	DefenderConfiguration->DefaultBlockImpactVFX.ImpactVFX = DefaultVFX;
+	FDefenseContactReceipt Default = Source->ResolveWeaponContactCandidate(
+		Target, MakeContactRequest(Source, Target, Attack, 93));
+	TestTrue(TEXT("Defense default audio follows generic row fallback"),
+		Default.Resolution.Presentation.ImpactAudio.ImpactSound == DefaultSound);
+	TestTrue(TEXT("Defense default VFX follows generic row fallback"),
+		Default.Resolution.Presentation.ImpactVFX.ImpactVFX == DefaultVFX);
+	TestEqual(TEXT("Actual target bone remains authoritative across asset fallback"),
+		Default.Resolution.ActualContact.HitInfo.BoneName, FName(TEXT("spine_03")));
+	Source->FinalizeResolvedWeaponContact(Target, Default);
 
 	World->DestroyActor(Source);
 	World->DestroyActor(Target);

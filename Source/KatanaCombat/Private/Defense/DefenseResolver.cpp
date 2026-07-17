@@ -92,7 +92,12 @@ FThreatRank BuildThreatRank(
 	const FDefenseThreatSelectionContext& Context)
 {
 	FThreatRank Rank;
-	Rank.bCredibleIntent = Candidate.bHasCredibleIntent;
+	Rank.Confidence = GetEffectivePredictionConfidence(
+		Candidate.PredictedContact,
+		Context.CurrentSimulationTime,
+		Context.MaximumHighConfidencePredictionAge);
+	Rank.bCredibleIntent = Candidate.bHasCredibleIntent
+		&& Rank.Confidence == EDefensePredictionConfidence::High;
 	Rank.Deadline = SanitizedDeadline(Candidate.TimeToAlignmentDeadline);
 	Rank.bReachable = Candidate.TimeToAlignmentDeadline >= 0.0f
 		&& FMath::IsFinite(Candidate.TimeToAlignmentDeadline)
@@ -103,10 +108,6 @@ FThreatRank BuildThreatRank(
 			Context.PerfectParryFinalTolerance,
 			Context.HardGuardConeHalfAngle,
 			FMath::Min(Context.MaximumAutomaticTurn, Context.RemainingAutomaticTurn)).bReachable;
-	Rank.Confidence = GetEffectivePredictionConfidence(
-		Candidate.PredictedContact,
-		Context.CurrentSimulationTime,
-		Context.MaximumHighConfidencePredictionAge);
 	Rank.AbsoluteYaw = SanitizedYawMagnitude(Candidate.RelativeYawDegrees);
 	Rank.Distance = FMath::IsFinite(Candidate.DistanceToDefender)
 		? FMath::Max(0.0f, Candidate.DistanceToDefender)

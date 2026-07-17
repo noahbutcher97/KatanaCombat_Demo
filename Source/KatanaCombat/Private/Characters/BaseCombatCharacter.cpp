@@ -8,6 +8,7 @@
 #include "Core/HitReactionComponent.h"
 #include "Core/PairedAnimationComponent.h"
 #include "Defense/DefenseResolver.h"
+#include "Defense/DefensePresentationSelector.h"
 #include "Data/AttackData.h"
 #include "Data/DefenseConfiguration.h"
 #include "Data/WeaponData.h"
@@ -53,6 +54,144 @@ bool DoesContactIdentityBelongToSource(
 	return ContactWeapon
 		&& Source->WeaponComponent.Get() == ContactWeapon
 		&& ContactWeapon->GetOwner() == Source;
+}
+
+FDefensePresentationSelectionContext BuildPresentationContext(const FDefenseResolution& Resolution)
+{
+	FDefensePresentationSelectionContext Context;
+	Context.Outcome = Resolution.Decision.Outcome;
+	Context.AttackerResponse = Resolution.Decision.AttackerResponse;
+	Context.Height = Resolution.Decision.Height;
+	Context.Lane = Resolution.Decision.Lane;
+	Context.SwingShape = Resolution.Decision.SwingShape;
+	if (Resolution.Decision.SelectedAttack)
+	{
+		Context.AttackTags = Resolution.Decision.SelectedAttack->AttackTags;
+	}
+	return Context;
+}
+
+void CommitNormalBlockPresentation(
+	FDefenseResolution& Resolution,
+	const UDefenseConfiguration* DefenderConfiguration,
+	const UDefenseConfiguration* AttackerConfiguration)
+{
+	const FTableDefensePresentationSelector Selector;
+	const FDefensePresentationSelectionContext Context = BuildPresentationContext(Resolution);
+	const FDefensePresentationSelectionResult DefenderSelection =
+		Selector.SelectDefender(Context, DefenderConfiguration);
+	const FDefensePresentationSelectionResult GenericDefenderSelection =
+		Selector.SelectGenericDefender(Context, DefenderConfiguration);
+	if (DefenderSelection.bFound)
+	{
+		Resolution.Presentation = DefenderSelection.Payload;
+		Resolution.PresentationRow = DefenderSelection.RowName;
+		Resolution.PresentationFallback = DefenderSelection.FallbackLevel;
+	}
+
+	const UAttackData* AttackData = Resolution.Decision.SelectedAttack;
+	const bool bExactRowAudio = DefenderSelection.bFound
+		&& DefenderSelection.FallbackLevel == EDefensePresentationFallbackLevel::Exact
+		&& DefenderSelection.Payload.bOverrideImpactAudio
+		&& DefenderSelection.Payload.ImpactAudio.ImpactSound;
+	const bool bAttackAudio = AttackData
+		&& AttackData->DefenseProfile.bOverrideBlockedImpactAudio
+		&& AttackData->DefenseProfile.BlockedImpactAudio.ImpactSound;
+	const bool bGenericRowAudio = GenericDefenderSelection.bFound
+		&& GenericDefenderSelection.Payload.bOverrideImpactAudio
+		&& GenericDefenderSelection.Payload.ImpactAudio.ImpactSound;
+	Resolution.Presentation.bOverrideImpactAudio = true;
+	if (bExactRowAudio)
+	{
+		Resolution.Presentation.ImpactAudio = DefenderSelection.Payload.ImpactAudio;
+	}
+	else if (bAttackAudio)
+	{
+		Resolution.Presentation.ImpactAudio = AttackData->DefenseProfile.BlockedImpactAudio;
+	}
+	else if (bGenericRowAudio)
+	{
+		Resolution.Presentation.ImpactAudio = GenericDefenderSelection.Payload.ImpactAudio;
+	}
+	else
+	{
+		Resolution.Presentation.ImpactAudio = DefenderConfiguration
+			? DefenderConfiguration->DefaultBlockImpactAudio
+			: FImpactAudioConfig();
+	}
+
+	const bool bExactRowVFX = DefenderSelection.bFound
+		&& DefenderSelection.FallbackLevel == EDefensePresentationFallbackLevel::Exact
+		&& DefenderSelection.Payload.bOverrideImpactVFX
+		&& DefenderSelection.Payload.ImpactVFX.ImpactVFX;
+	const bool bAttackVFX = AttackData
+		&& AttackData->DefenseProfile.bOverrideBlockedImpactVFX
+		&& AttackData->DefenseProfile.BlockedImpactVFX.ImpactVFX;
+	const bool bGenericRowVFX = GenericDefenderSelection.bFound
+		&& GenericDefenderSelection.Payload.bOverrideImpactVFX
+		&& GenericDefenderSelection.Payload.ImpactVFX.ImpactVFX;
+	Resolution.Presentation.bOverrideImpactVFX = true;
+	if (bExactRowVFX)
+	{
+		Resolution.Presentation.ImpactVFX = DefenderSelection.Payload.ImpactVFX;
+	}
+	else if (bAttackVFX)
+	{
+		Resolution.Presentation.ImpactVFX = AttackData->DefenseProfile.BlockedImpactVFX;
+	}
+	else if (bGenericRowVFX)
+	{
+		Resolution.Presentation.ImpactVFX = GenericDefenderSelection.Payload.ImpactVFX;
+	}
+	else
+	{
+		Resolution.Presentation.ImpactVFX = DefenderConfiguration
+			? DefenderConfiguration->DefaultBlockImpactVFX
+			: FImpactVFXConfig();
+	}
+
+	if (!Resolution.Presentation.bOverrideHitstop
+		&& AttackData
+		&& AttackData->HitstopConfig.IsActive())
+	{
+		Resolution.Presentation.bOverrideHitstop = true;
+		Resolution.Presentation.Hitstop = AttackData->HitstopConfig;
+	}
+
+	FDefensePresentationSelectionResult AttackerSelection =
+		Selector.SelectAttacker(Context, AttackerConfiguration);
+	const bool bAttackerMontageUsable = AttackerSelection.Payload.Montage
+		&& (AttackerSelection.Payload.MontageSection.IsNone()
+			|| AttackerSelection.Payload.Montage->GetSectionIndex(
+				AttackerSelection.Payload.MontageSection) != INDEX_NONE);
+	if (!bAttackerMontageUsable)
+	{
+		const FDefensePresentationSelectionResult GenericAttackerSelection =
+			Selector.SelectGenericAttacker(Context, AttackerConfiguration);
+		const bool bGenericMontageUsable = GenericAttackerSelection.Payload.Montage
+			&& (GenericAttackerSelection.Payload.MontageSection.IsNone()
+				|| GenericAttackerSelection.Payload.Montage->GetSectionIndex(
+					GenericAttackerSelection.Payload.MontageSection) != INDEX_NONE);
+		if (bGenericMontageUsable)
+		{
+			AttackerSelection = GenericAttackerSelection;
+		}
+	}
+	if (AttackerSelection.bFound)
+	{
+		Resolution.AttackerPresentation = AttackerSelection.Payload;
+		Resolution.AttackerPresentationRow = AttackerSelection.RowName;
+		Resolution.AttackerPresentationFallback = AttackerSelection.FallbackLevel;
+	}
+
+	if (DefenderSelection.bAmbiguous
+		|| GenericDefenderSelection.bAmbiguous
+		|| AttackerSelection.bAmbiguous)
+	{
+		UE_LOG(LogCombat, Warning,
+			TEXT("Ambiguous defense presentation resolved deterministically for interaction epoch %llu"),
+			Resolution.InteractionId.Epoch);
+	}
 }
 }
 
@@ -278,6 +417,10 @@ void ABaseCombatCharacter::DispatchCommittedDying(
     {
         CombatComponent->SetComponentTickEnabled(false);
     }
+    if (TargetingComponent)
+    {
+        TargetingComponent->ReleaseAllAlignmentRequests(EAlignmentReleaseReason::Death);
+    }
 }
 
 void ABaseCombatCharacter::FinalizeDeath()
@@ -443,6 +586,9 @@ FActualDefenseContact ABaseCombatCharacter::BuildActualDefenseContact(
 	{
 		Contact.SourceSocket = Request.HitInfo.AttackData->DefenseProfile.SourceContactSocketOverride;
 	}
+	const UDefenseConfiguration* Configuration = CombatComponent
+		? CombatComponent->GetEffectiveDefenseConfiguration()
+		: nullptr;
 
 	const EIncomingAttackLane AuthoredLane = Request.HitInfo.AttackData
 		? Request.HitInfo.AttackData->DefenseProfile.NominalLane
@@ -453,7 +599,7 @@ FActualDefenseContact ABaseCombatCharacter::BuildActualDefenseContact(
 		Request.TraceEnd,
 		AuthoredLane,
 		GetActorTransform(),
-		12.0f);
+		Configuration ? Configuration->CenterLaneHalfAngle : 12.0f);
 	Contact.Lane = Lane.Lane;
 	Contact.LaneProvenance = Lane.Provenance;
 	Contact.IncomingTrajectory = Lane.IncomingTrajectory;
@@ -492,9 +638,6 @@ FActualDefenseContact ABaseCombatCharacter::BuildActualDefenseContact(
 		}
 	}
 
-	const UDefenseConfiguration* Configuration = CombatComponent
-		? CombatComponent->DefenseConfigurationOverride.Get()
-		: nullptr;
 	const FDefenseHeightResolution HeightResolution = Configuration
 		? Configuration->ResolveHeight(
 			Request.HitInfo.BoneName,
@@ -534,6 +677,19 @@ void ABaseCombatCharacter::PopulateDefenseContactQuery(
 		Query.DefenderTransform,
 		ActualContact.SourceBearing);
 	Query.CurrentSimulationTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	const UDefenseConfiguration* Configuration = CombatComponent
+		? CombatComponent->GetEffectiveDefenseConfiguration()
+		: GetDefault<UDefenseConfiguration>();
+	if (Configuration)
+	{
+		Query.HardGuardConeHalfAngle = Configuration->HardGuardConeHalfAngle;
+		Query.MaximumAutomaticTurn = Configuration->MaximumAutomaticTurn;
+		Query.RemainingAutomaticTurn = Configuration->MaximumAutomaticTurn;
+		Query.DefenseTurnRate = Configuration->DefenseTurnRate;
+		Query.NormalBlockFinalTolerance = Configuration->NormalBlockFinalTolerance;
+		Query.PerfectParryFinalTolerance = Configuration->PerfectParryFinalTolerance;
+		Query.MaximumHighConfidencePredictionAge = Configuration->MaximumHighConfidencePredictionAge;
+	}
 
 	AActor* Source = Request.HitInfo.Attacker;
 	UAttackData* AttackData = Request.HitInfo.AttackData;
@@ -690,6 +846,35 @@ FDefenseContactReceipt ABaseCombatCharacter::ResolveAndCommitCombatContact(
 	Receipt.Resolution.ActualContact = ActualContact;
 	Receipt.Resolution.bHasActualContact = ActualContact.bIsValid;
 	Receipt.Resolution.Decision = FDefenseResolver::Resolve(Query);
+	if (Receipt.Resolution.Decision.Outcome == EDefenseOutcome::NormalBlock)
+	{
+		const UDefenseConfiguration* DefenderConfiguration =
+			CombatComponent->GetEffectiveDefenseConfiguration();
+		const UDefenseConfiguration* AttackerConfiguration = RequestSource
+			&& RequestSource->CombatComponent
+			? RequestSource->CombatComponent->GetEffectiveDefenseConfiguration()
+			: GetDefault<UDefenseConfiguration>();
+		CommitNormalBlockPresentation(
+			Receipt.Resolution,
+			DefenderConfiguration,
+			AttackerConfiguration);
+
+		Receipt.Resolution.AlignmentRequest.OwnerInteraction = InteractionId;
+		Receipt.Resolution.AlignmentRequest.Policy = EDefenseAlignmentPolicy::BlockContact;
+		Receipt.Resolution.AlignmentRequest.Target = Request.HitInfo.Attacker;
+		Receipt.Resolution.AlignmentRequest.MaximumTurnRate = DefenderConfiguration
+			? FMath::Max(0.0f, DefenderConfiguration->DefenseTurnRate)
+			: 180.0f;
+		const float MaximumTurn = DefenderConfiguration
+			? FMath::Max(0.0f, DefenderConfiguration->MaximumAutomaticTurn)
+			: 70.0f;
+		Receipt.Resolution.AlignmentRequest.RemainingTurnBudget = FMath::Min(
+			MaximumTurn,
+			FMath::Abs(Receipt.Resolution.Decision.MeasuredYawDegrees));
+		Receipt.Resolution.AlignmentRequest.MaximumTranslation = DefenderConfiguration
+			? FMath::Max(0.0f, DefenderConfiguration->NormalBlockTranslationAllowance)
+			: 0.0f;
+	}
 	Receipt.CommitStatus = EDefenseCommitStatus::NewCommit;
 	Receipt.bAcceptsWeaponHit = DefenseOutcomeAcceptsWeaponHit(
 		Receipt.Resolution.Decision.Outcome);
@@ -946,6 +1131,24 @@ void ABaseCombatCharacter::PlayResolvedWeaponImpact(
 		return;
 	}
 #endif
+
+	if (Receipt.Resolution.Decision.Outcome == EDefenseOutcome::NormalBlock)
+	{
+		ABaseCombatCharacter* TargetCharacter = Cast<ABaseCombatCharacter>(Target);
+		if (TargetCharacter && TargetCharacter->HitReactionComponent)
+		{
+			TargetCharacter->HitReactionComponent->PlayDefensePresentation(Receipt.Resolution);
+			if (!IsPresentationCurrent())
+			{
+				return;
+			}
+		}
+		if (HitReactionComponent)
+		{
+			HitReactionComponent->PlayAttackerResponse(Receipt.Resolution);
+		}
+		return;
+	}
 
 	const FHitReactionInfo& HitInfo = Receipt.Resolution.ActualContact.HitInfo;
 	UAttackData* AttackData = HitInfo.AttackData;

@@ -26,10 +26,10 @@ class UAnimSequenceBase;
  * 4. This notify detects which exists and configures itself appropriately
  *
  * How it works:
- * - When AddRootMotionModifier is called, we check which target exists
- * - If TargetWarpName exists: Enable translation+rotation toward enemy
- * - If RotationWarpName exists: Disable translation, only rotate toward direction
- * - If neither exists: Skip warping entirely (return nullptr)
+ * - SetupAttackWarp publishes one request-owned target through TargetingComponent
+ * - AddRootMotionModifier clones the shared template before runtime configuration
+ * - TargetingComponent binds the clone to the owning alignment handle and rate cap
+ * - If no owned target exists, warping fails closed without mutating the template
  */
 UCLASS(DisplayName = "Combat Warp", meta = (DisplayName = "Combat Warp"))
 class KATANACOMBAT_API UAnimNotifyState_CombatWarp : public UAnimNotifyState_MotionWarping
@@ -66,7 +66,7 @@ public:
     // ========================================================================
 
     /**
-     * Override to dynamically configure warp settings based on which target exists.
+     * Override to configure the engine-owned runtime clone for the active owned target.
      * Called when this notify becomes relevant during animation playback.
      */
     virtual URootMotionModifier* AddRootMotionModifier_Implementation(

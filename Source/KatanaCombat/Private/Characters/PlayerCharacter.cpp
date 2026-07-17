@@ -71,6 +71,8 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
         if (LookAction)
         {
             EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &APlayerCharacter::Look);
+            EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Completed, this, &APlayerCharacter::StopLook);
+            EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Canceled, this, &APlayerCharacter::StopLook);
         }
 
         // Light Attack (Started = pressed, Completed = released)
@@ -141,10 +143,27 @@ void APlayerCharacter::Look(const FInputActionValue& Value)
 {
     const FVector2D LookAxisVector = Value.Get<FVector2D>();
 
+    if (CombatComponent)
+    {
+        const float NormalizedYaw = FMath::IsFinite(LookAxisVector.X)
+            ? FMath::Clamp(LookAxisVector.X, -1.0f, 1.0f)
+            : 0.0f;
+        CombatComponent->SetDefenseManualYawInput(NormalizedYaw);
+    }
+
     if (Controller)
     {
         AddControllerYawInput(LookAxisVector.X);
         AddControllerPitchInput(LookAxisVector.Y);
+    }
+}
+
+void APlayerCharacter::StopLook(const FInputActionValue& Value)
+{
+    (void)Value;
+    if (CombatComponent)
+    {
+        CombatComponent->SetDefenseManualYawInput(0.0f);
     }
 }
 

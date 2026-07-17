@@ -32,4 +32,14 @@ public:
 	FDefensePresentationSelectionResult SelectAttacker(
 		const FDefensePresentationSelectionContext& Context,
 		const UDefenseConfiguration* AttackerConfiguration) const override;
+
+	/** Select only the explicit wildcard defender fallback for payload composition. */
+	FDefensePresentationSelectionResult SelectGenericDefender(
+		const FDefensePresentationSelectionContext& Context,
+		const UDefenseConfiguration* Configuration) const;
+
+	/** Select only the explicit wildcard attacker fallback for an unusable exact montage. */
+	FDefensePresentationSelectionResult SelectGenericAttacker(
+		const FDefensePresentationSelectionContext& Context,
+		const UDefenseConfiguration* AttackerConfiguration) const;
 };

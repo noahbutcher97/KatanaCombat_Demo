@@ -702,7 +702,7 @@ bool FMultipleWeaponsIndependentTest::RunTest(const FString& Parameters)
 
 namespace
 {
-FHitResult MakeWeaponContactHit(AActor* Target, const FVector& TraceStart)
+FHitResult MakeWeaponBudgetContactHit(AActor* Target, const FVector& TraceStart)
 {
 	FHitResult Hit(Target, Cast<UPrimitiveComponent>(Target ? Target->GetRootComponent() : nullptr),
 		Target ? Target->GetActorLocation() : FVector::ZeroVector, FVector::BackwardVector);
@@ -736,22 +736,22 @@ bool FDefenseWeaponBudgetAccountingTest::RunTest(const FString& Parameters)
 	Hostile->HitReactionComponent->OnDamageReceived.AddDynamic(
 		Recorder, &UCombatEventRecorder::HandleDamageReceived);
 
-	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Friendly, Source->GetActorLocation()), Attack);
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Friendly, Source->GetActorLocation()), Attack);
 	TestEqual(TEXT("Friendly does not consume budget"), Weapon->GetAcceptedHitCountForTesting(), 0);
 	TestEqual(TEXT("Friendly is not added to rich dedupe list"), Weapon->GetHitActorCount(), 0);
-	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Friendly, Source->GetActorLocation()), Attack);
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Friendly, Source->GetActorLocation()), Attack);
 	TestEqual(TEXT("Cached friendly repeat does not consume budget"), Weapon->GetAcceptedHitCountForTesting(), 0);
 	TestEqual(TEXT("Cached friendly repeat remains outside rich dedupe list"), Weapon->GetHitActorCount(), 0);
 
 	const float HostileHealth = Hostile->CurrentHealth;
-	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Hostile, Source->GetActorLocation()), Attack);
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Hostile, Source->GetActorLocation()), Attack);
 	TestEqual(TEXT("Later hostile hit consumes budget"), Weapon->GetAcceptedHitCountForTesting(), 1);
 	TestEqual(TEXT("Later hostile hit is deduped"), Weapon->GetHitActorCount(), 1);
 	TestEqual(TEXT("Later hostile hit applies damage"), Hostile->CurrentHealth, HostileHealth - 20.0f);
 	TestEqual(TEXT("Damage listener observes coherent weapon accounting"),
 		Recorder->AcceptedHitCountObservedDuringDamage, 1);
 
-	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Hostile, Source->GetActorLocation()), Attack);
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Hostile, Source->GetActorLocation()), Attack);
 	TestEqual(TEXT("Accepted duplicate does not consume again"), Weapon->GetAcceptedHitCountForTesting(), 1);
 	TestEqual(TEXT("Accepted duplicate does not replay damage"), Recorder->DamageReceivedCount, 1);
 
@@ -779,11 +779,11 @@ bool FDefenseWeaponInvulnerableBudgetTest::RunTest(const FString& Parameters)
 	Attack->BaseDamage = 25.0f;
 	Attack->MaxHitCount = 1;
 
-	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Invulnerable, Source->GetActorLocation()), Attack);
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Invulnerable, Source->GetActorLocation()), Attack);
 	TestEqual(TEXT("Invulnerable target does not consume budget"), Weapon->GetAcceptedHitCountForTesting(), 0);
 	TestEqual(TEXT("Invulnerable target takes no damage"), Invulnerable->CurrentHealth, Invulnerable->MaxHealth);
 
-	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Hostile, Source->GetActorLocation()), Attack);
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Hostile, Source->GetActorLocation()), Attack);
 	TestEqual(TEXT("Hostile after invulnerable target consumes budget"),
 		Weapon->GetAcceptedHitCountForTesting(), 1);
 	TestEqual(TEXT("Hostile after invulnerable target takes damage"),

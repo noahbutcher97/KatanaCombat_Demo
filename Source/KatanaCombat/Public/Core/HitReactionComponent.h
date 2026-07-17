@@ -162,6 +162,12 @@ public:
 	/** Broadcast only the immutable damage event; performs no presentation. */
 	void BroadcastCommittedDamage(const FCommittedHitReactionDamage& Commit);
 
+	/** Play the defender-side presentation already selected by a committed resolution. */
+	bool PlayDefensePresentation(const FDefenseResolution& Resolution);
+
+	/** Play the attacker-side response already selected by a committed resolution. */
+	bool PlayAttackerResponse(const FDefenseResolution& Resolution);
+
 #if WITH_AUTOMATION_TESTS
 	void SetIFrameStateForTesting(bool bActive)
 	{
@@ -169,6 +175,14 @@ public:
 		CurrentReactionTime = 0.5f;
 		CurrentIFrameStart = 0.0f;
 		CurrentIFrameEnd = bActive ? 1.0f : 0.0f;
+	}
+	int32 GetDefensePresentationAttemptCountForTesting() const
+	{
+		return DefensePresentationAttemptCountForTesting;
+	}
+	int32 GetAttackerResponseAttemptCountForTesting() const
+	{
+		return AttackerResponseAttemptCountForTesting;
 	}
 #endif
 
@@ -496,6 +510,7 @@ public:
 
 protected:
     virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
     // ============================================================================
@@ -533,6 +548,18 @@ private:
     UPROPERTY()
     TObjectPtr<UAnimInstance> AnimInstance;
 
+	FAlignmentRequestHandle DefensePresentationAlignmentHandle;
+	FAlignmentRequestHandle AttackerResponseAlignmentHandle;
+	TWeakObjectPtr<UAnimMontage> DefensePresentationMontage;
+	TWeakObjectPtr<UAnimMontage> AttackerResponseMontage;
+	int32 NextDefensePresentationAlignmentGeneration = 1;
+	int32 NextAttackerResponseAlignmentGeneration = 1;
+
+#if WITH_AUTOMATION_TESTS
+	int32 DefensePresentationAttemptCountForTesting = 0;
+	int32 AttackerResponseAttemptCountForTesting = 0;
+#endif
+
     // ============================================================================
     // INTERNAL HELPERS
     // ============================================================================
@@ -551,6 +578,12 @@ private:
      * @return Owner character or nullptr
      */
     ACharacter* GetOwnerCharacterCached() const;
+	UAnimInstance* ResolveAnimInstance();
+	bool PlayCommittedDefenseMontage(
+		const FDefenseResolution& Resolution,
+		const FDefensePresentationPayload& Payload,
+		bool bAttackerResponse);
+	void ReleasePresentationAlignment(bool bAttackerResponse);
 
     /** Update stun timer (called in Tick) */
     void UpdateStun(float DeltaTime);

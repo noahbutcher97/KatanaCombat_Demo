@@ -30,6 +30,57 @@ enum class EInputEventType : uint8
 	Release
 };
 
+/** Routing owner selected for one captured combat-input edge. */
+UENUM(BlueprintType)
+enum class ECombatInputRoute : uint8
+{
+	StatefulControl,
+	ChainOnly,
+	NormalQueue
+};
+
+/** Terminal or in-flight state of one captured combat-input edge. */
+UENUM(BlueprintType)
+enum class ECombatInputDisposition : uint8
+{
+	Captured,
+	Consumed,
+	Queued,
+	Rejected,
+	Expired
+};
+
+/** Immutable input identity plus the route's current disposition. */
+USTRUCT(BlueprintType)
+struct FCombatInputRecord
+{
+	GENERATED_BODY()
+
+	/** Native-only because Blueprint reflection does not support uint64 properties. */
+	uint64 Serial = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	EInputType InputType = EInputType::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	EInputEventType EventType = EInputEventType::Press;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	EInputDirection Direction = EInputDirection::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	double SimulationTimestamp = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	double UnscaledTimestamp = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	ECombatInputRoute Route = ECombatInputRoute::NormalQueue;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	ECombatInputDisposition Disposition = ECombatInputDisposition::Captured;
+};
+
 /**
  * Action execution timing modes
  */

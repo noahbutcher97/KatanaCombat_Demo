@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/AnimNotifyState_CombatWarp.h"
+#include "Core/TargetingComponent.h"
 #include "MotionWarpingComponent.h"
 #include "RootMotionModifier.h"
 
@@ -34,15 +35,6 @@ URootMotionModifier* UAnimNotifyState_CombatWarp::AddRootMotionModifier_Implemen
 
     // Check which warp target was set up by SetupAttackWarp()
     // Priority: TargetWarpName (with translation) > RotationWarpName (rotation only)
-
-    // Cast to URootMotionModifier_Warp to access warp-specific properties
-    URootMotionModifier_Warp* WarpModifierTemplate = Cast<URootMotionModifier_Warp>(RootMotionModifier);
-    if (!WarpModifierTemplate)
-    {
-        // Not a warp modifier - fall back to parent behavior
-        UE_LOG(LogCombatWarp, Warning, TEXT("Combat Warp: RootMotionModifier is not a URootMotionModifier_Warp subclass"));
-        return Super::AddRootMotionModifier_Implementation(MotionWarpingComp, Animation, StartTime, EndTime);
-    }
 
     // Determine which target exists and configure accordingly
     FName ActiveTargetName = NAME_None;
@@ -79,13 +71,33 @@ URootMotionModifier* UAnimNotifyState_CombatWarp::AddRootMotionModifier_Implemen
         return nullptr;
     }
 
-    // Temporarily modify the template's properties for this warp
-    // Note: We modify the template directly since AddModifierFromTemplate will copy it
-    WarpModifierTemplate->WarpTargetName = ActiveTargetName;
-    WarpModifierTemplate->bWarpTranslation = bEnableTranslation;
+    URootMotionModifier* RuntimeModifier = MotionWarpingComp->AddModifierFromTemplate(
+        RootMotionModifier,
+        Animation,
+        StartTime,
+        EndTime);
+    URootMotionModifier_Warp* RuntimeWarpModifier = Cast<URootMotionModifier_Warp>(RuntimeModifier);
+    UTargetingComponent* Targeting = MotionWarpingComp->GetOwner()
+        ? MotionWarpingComp->GetOwner()->FindComponentByClass<UTargetingComponent>()
+        : nullptr;
+    if (!RuntimeWarpModifier || !Targeting
+        || !Targeting->RegisterAlignmentModifier(
+            ActiveTargetName,
+            RuntimeWarpModifier,
+            bEnableTranslation))
+    {
+        if (RuntimeModifier)
+        {
+            RuntimeModifier->SetState(ERootMotionModifierState::MarkedForRemoval);
+        }
+        UE_LOG(LogCombatWarp, Warning,
+            TEXT("[%s] Combat Warp: target '%s' could not bind to one active alignment owner; skipping warp"),
+            *GetNameSafe(MotionWarpingComp->GetOwner()),
+            *ActiveTargetName.ToString());
+        return nullptr;
+    }
 
-    // Let the motion warping component create and add the modifier from our configured template
-    return MotionWarpingComp->AddModifierFromTemplate(RootMotionModifier, Animation, StartTime, EndTime);
+    return RuntimeWarpModifier;
 }
 
 FString UAnimNotifyState_CombatWarp::GetNotifyName_Implementation() const

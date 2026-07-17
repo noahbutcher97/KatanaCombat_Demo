@@ -1,5 +1,9 @@
 #include "Misc/AutomationTest.h"
 
+#include "Characters/PlayerCharacter.h"
+#include "CombatTestHelpers.h"
+#include "Core/CombatComponent.h"
+#include "Data/CombatSettings.h"
 #include "Data/DefenseConfiguration.h"
 #include "Defense/DefensePresentationSelector.h"
 #include "Utilities/CombatGameplayTags.h"
@@ -233,5 +237,63 @@ bool FDefenseConfigurationDefaultsTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Normal-block authored translation"), Configuration->NormalBlockTranslationAllowance, 0.0f);
 	TestEqual(TEXT("Normal-block numerical drift"), Configuration->NormalBlockTranslationDriftTolerance, 1.0f);
 	TestEqual(TEXT("Perfect-parry per-role translation"), Configuration->PerfectParryTranslationAllowancePerRole, 75.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseConfigurationPrecedenceTest,
+	"KatanaCombat.Defense.Presentation.ConfigurationPrecedence",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseConfigurationPrecedenceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	UCombatComponent* Combat = nullptr;
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, Combat);
+	if (!Player || !Combat)
+	{
+		AddError(TEXT("Failed to create defense-configuration fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	UDefenseConfiguration* SettingsConfiguration = NewObject<UDefenseConfiguration>();
+	UDefenseConfiguration* ComponentConfiguration = NewObject<UDefenseConfiguration>();
+	UDefenseConfiguration* FirstStanceConfiguration = NewObject<UDefenseConfiguration>();
+	UDefenseConfiguration* NewestStanceConfiguration = NewObject<UDefenseConfiguration>();
+	UCombatSettings* Settings = NewObject<UCombatSettings>();
+	Settings->DefenseConfiguration = SettingsConfiguration;
+	Player->CombatSettings = Settings;
+
+	TestTrue(TEXT("Character settings provide the base defense configuration"),
+		Combat->GetEffectiveDefenseConfiguration() == SettingsConfiguration);
+	Combat->DefenseConfigurationOverride = ComponentConfiguration;
+	TestTrue(TEXT("Component override wins over character settings"),
+		Combat->GetEffectiveDefenseConfiguration() == ComponentConfiguration);
+
+	const FDefenseConfigurationOverrideHandle FirstHandle =
+		Combat->AcquireDefenseStanceOverride(FirstStanceConfiguration);
+	const FDefenseConfigurationOverrideHandle NewestHandle =
+		Combat->AcquireDefenseStanceOverride(NewestStanceConfiguration);
+	TestTrue(TEXT("First stance override returns an opaque handle"), FirstHandle.IsValid());
+	TestTrue(TEXT("Newest stance override returns an opaque handle"), NewestHandle.IsValid());
+	TestTrue(TEXT("Newest active stance override has highest precedence"),
+		Combat->GetEffectiveDefenseConfiguration() == NewestStanceConfiguration);
+
+	Combat->ReleaseDefenseStanceOverride(FirstHandle);
+	TestTrue(TEXT("Out-of-order release does not disturb the newest override"),
+		Combat->GetEffectiveDefenseConfiguration() == NewestStanceConfiguration);
+	Combat->ReleaseDefenseStanceOverride(NewestHandle);
+	TestTrue(TEXT("Releasing all stance overrides restores component precedence"),
+		Combat->GetEffectiveDefenseConfiguration() == ComponentConfiguration);
+
+	Combat->DefenseConfigurationOverride = nullptr;
+	TestTrue(TEXT("Clearing the component override restores settings precedence"),
+		Combat->GetEffectiveDefenseConfiguration() == SettingsConfiguration);
+	Settings->DefenseConfiguration = nullptr;
+	TestTrue(TEXT("Missing authored configuration falls back to C++ defaults"),
+		Combat->GetEffectiveDefenseConfiguration() == GetDefault<UDefenseConfiguration>());
+
+	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

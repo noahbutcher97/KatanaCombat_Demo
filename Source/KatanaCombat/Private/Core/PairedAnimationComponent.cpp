@@ -923,10 +923,7 @@ bool UPairedAnimationComponent::TryCounter_ChainMode(const FCounterContext& Cont
 	ActiveChainAttackData = nullptr;
 	bContinueChainAfterCounterPairedAnimation = false;
 
-	// Chain Mode Step 1: Parry
-	// TODO: When parry animations are available, play parry montage here and wait for
-	// montage completion before transitioning to CounterWindow. Currently transitions
-	// immediately since no parry animation exists yet.
+	// Chain Mode Step 1 remains active until the authored bridge marker opens input.
 	ChainState = EChainCounterState::ParryActive;
 
 	// Notify the enemy that their attack was parried
@@ -950,22 +947,7 @@ bool UPairedAnimationComponent::TryCounter_ChainMode(const FCounterContext& Cont
 		UCinematicEffectsUtilityLibrary::ApplySlowMotion(World, 0.3f);
 	}
 
-	// Transition to CounterWindow state
-	ChainState = EChainCounterState::CounterWindow;
-
-	// Set timeout: player has 2s to press attack for the counter
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimer(
-			ChainTimeoutHandle,
-			this,
-			&UPairedAnimationComponent::OnChainTimeout,
-			2.0f,
-			false
-		);
-	}
-
-	UE_LOG(LogPairedAnim, Log, TEXT("[COUNTER-CHAIN] Parry successful! Player is now in Countering state. Press attack to continue chain."));
+	UE_LOG(LogPairedAnim, Log, TEXT("[COUNTER-CHAIN] Parry started; awaiting the authored bridge transition."));
 	return true;
 }
 
@@ -1199,6 +1181,10 @@ void UPairedAnimationComponent::BeginPairedAnimation(UPairedAnimationData* Paire
 	ActivePairedAnimData = PairedAnimData;
 	ActivePairedReactionType = ReactionType;
 	bBlockCombatInput = true;
+	if (UCombatComponent* Combat = GetOwner() ? GetOwner()->FindComponentByClass<UCombatComponent>() : nullptr)
+	{
+		Combat->ClearGuardThreat(EThreatClearReason::PairedTakeover);
+	}
 
 	if (bIsCriticalMoment && PairedAnimData->bApplySlowMotion)
 	{
@@ -1256,6 +1242,10 @@ void UPairedAnimationComponent::EndPairedAnimation()
 	ActivePairedAnimData = nullptr;
 	ActivePairedReactionType = EPairedReactionType::None;
 	bBlockCombatInput = false;
+	if (UCombatComponent* Combat = GetOwner() ? GetOwner()->FindComponentByClass<UCombatComponent>() : nullptr)
+	{
+		Combat->RefreshGuardThreat(EThreatRefreshReason::ManualRevalidation);
+	}
 
 	// BUG-1 FIX: Explicit movement restoration
 	if (ABaseCombatCharacter* Character = GetOwnerCharacter())

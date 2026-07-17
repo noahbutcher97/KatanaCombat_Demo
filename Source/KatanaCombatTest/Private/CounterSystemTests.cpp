@@ -371,9 +371,9 @@ bool FCounter_BlockInputStartsChainParry::RunTest(const FString& Parameters)
 
 	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
 
-	TestEqual(TEXT("Block press should start Chain parry and enter CounterWindow"),
+	TestEqual(TEXT("Block press should start Chain parry without opening input early"),
 		static_cast<int32>(Player->PairedAnimationComponent->GetChainState()),
-		static_cast<int32>(EChainCounterState::CounterWindow));
+		static_cast<int32>(EChainCounterState::ParryActive));
 	TestEqual(TEXT("Successful Chain parry should consume Block input without queueing"),
 		PlayerCombat->GetPendingActionCount(),
 		0);
@@ -798,10 +798,10 @@ bool FCounter_AC3SpecificCounterDataFallbackDamage::RunTest(const FString& Param
 }
 
 // ============================================================================
-// TEST: Internal Chain parry helper transitions to CounterWindow state
+// TEST: Internal Chain parry helper enters ParryActive
 // ============================================================================
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_ChainParryTransition,
-	"KatanaCombat.CounterSystem.Internal.ChainParryTransition",
+	"KatanaCombat.CounterSystem.Internal.ChainParryEntersParryActive",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FCounter_ChainParryTransition::RunTest(const FString& Parameters)
@@ -838,9 +838,8 @@ bool FCounter_ChainParryTransition::RunTest(const FString& Parameters)
 	bool bSuccess = PairedComp->TryCounter_ChainMode(Context);
 	TestTrue(TEXT("Chain parry should succeed"), bSuccess);
 
-	// Should transition to CounterWindow
-	TestTrue(TEXT("Chain state should be CounterWindow after parry"),
-		PairedComp->ChainState == EChainCounterState::CounterWindow);
+	TestTrue(TEXT("Chain state should remain ParryActive until a bridge marker"),
+		PairedComp->ChainState == EChainCounterState::ParryActive);
 
 	// Cleanup - cancel the chain to restore time dilation
 	PairedComp->CancelChainCounter();
@@ -882,6 +881,7 @@ bool FCounter_ChainAttackInputAdvancesCounter::RunTest(const FString& Parameters
 	Enemy->PairedAnimationComponent->SetParryWindowActive(true);
 
 	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
+	Player->PairedAnimationComponent->ChainState = EChainCounterState::CounterWindow;
 	TestTrue(TEXT("Chain should wait for attack input"),
 		Player->PairedAnimationComponent->IsChainCounterWaitingForAttack());
 
@@ -926,6 +926,7 @@ bool FCounter_ChainAdvanceRejectsNullAttackData::RunTest(const FString& Paramete
 
 	ConfigureChainInputFixture(Player, PlayerCombat, Enemy);
 	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
+	Player->PairedAnimationComponent->ChainState = EChainCounterState::CounterWindow;
 	TestTrue(TEXT("Chain should wait for attack input"),
 		Player->PairedAnimationComponent->IsChainCounterWaitingForAttack());
 
@@ -976,8 +977,8 @@ bool FCounter_ChainCancelResetsState::RunTest(const FString& Parameters)
 	Context.Attacker = Enemy;
 	Context.AttackType = EAttackType::Light;
 	PairedComp->TryCounter_ChainMode(Context);
-	TestTrue(TEXT("Should be in CounterWindow"),
-		PairedComp->ChainState == EChainCounterState::CounterWindow);
+	TestTrue(TEXT("Should be in ParryActive before the bridge marker"),
+		PairedComp->ChainState == EChainCounterState::ParryActive);
 
 	// Cancel the chain
 	PairedComp->CancelChainCounter();

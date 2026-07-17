@@ -600,7 +600,7 @@ git commit -m "Make defense contact commits idempotent"
 
 **Produces:** Unconditional input history, explicit routes/dispositions, published attack predictions, stable threat selection with hysteresis, owned alignment arbitration, normalized turn caps, and visible normal-block presentation.
 
-- [ ] **Step 1: Add input record and route contracts**
+- [x] **Step 1: Add input record and route contracts**
 
 Add to `ActionQueueTypes.h`:
 
@@ -631,7 +631,7 @@ struct FCombatInputRecord
 
 Keep a bounded 64-record history on `UCombatComponent`. `OnInputEvent()` creates the record before settings lookup, `CanProcessInput`, block/counter routing, or `CanAcceptNewInput`. Add a test-only accessor and production debug accessor returning a const view.
 
-- [ ] **Step 2: Add failing route tests**
+- [x] **Step 2: Add failing route tests**
 
 Prove:
 
@@ -645,7 +645,7 @@ Prove:
 
 Rewrite `KatanaCombat.CounterSystem.Input.BlockStartsChainParry` here so it no longer expects `CounterWindow` in the Block call. It should initially assert `ParryActive`; Task 5 will assert the later marker transition.
 
-- [ ] **Step 3: Publish immutable attack execution records**
+- [x] **Step 3: Publish immutable attack execution records**
 
 Add to `UCombatComponent`:
 
@@ -660,7 +660,7 @@ Create the active attack ID from owner plus `AttackStateMachine.AttackGeneration
 
 Assign each `UCombatComponent` one immutable `FCombatantStableId` from a process-monotonic 64-bit serial at registration. Add a test-only explicit setter under `WITH_AUTOMATION_TESTS`. Do not use `GetUniqueID`, pointer value, transient GUID, or query order.
 
-- [ ] **Step 4: Add threat lock and guarded refresh ownership**
+- [x] **Step 4: Add threat lock and guarded refresh ownership**
 
 Add:
 
@@ -676,7 +676,7 @@ Line-of-sight loss disqualifies input-intent parry and auto-facing but never sup
 
 Tests use two explicit stable IDs and scripted deadlines to prove lock stability, switch lead, invalidation, low/stale confidence downgrade, same-candidate guard fallback, and no second enumeration after failed parry evaluation.
 
-- [ ] **Step 5: Add opaque alignment handles and priority arbitration**
+- [x] **Step 5: Add opaque alignment handles and priority arbitration**
 
 Add `FAlignmentRequestHandle`, `FAlignmentRequestSpec`, `EDefenseAlignmentPriority`, and `EAlignmentExecutor` to shared types. Add to `UTargetingComponent`:
 
@@ -695,7 +695,7 @@ Set the targeting tick to `TG_PrePhysics` and add Character Movement's primary t
 
 `ClearMotionWarp(NAME_None)` is permitted only for death or component teardown. Add a source/test gate that normal request release removes its own target names and cannot clear another request.
 
-- [ ] **Step 6: Normalize Motion Warping rotation**
+- [x] **Step 6: Normalize Motion Warping rotation**
 
 Fix `UAnimNotifyState_CombatWarp::AddRootMotionModifier_Implementation()` so it never mutates or explicitly reuses mutable state from the shared `RootMotionModifier` template. Call `UMotionWarpingComponent::AddModifierFromTemplate()` first, cast and configure only the returned engine-owned clone, set the request-owned target and `RotationMethod = EMotionWarpRotationMethod::ConstantRate`, and register that clone against its alignment handle.
 
@@ -710,13 +710,13 @@ Recompute every active update so montage-rate changes cannot retain a stale cap.
 
 Tests cover 0.5x, 1.0x, and 2.0x rates, world/actor dilation, request suspension/resume, owner-only release, exact settings restoration, total automatic-turn budget, and one executor per frame.
 
-- [ ] **Step 7: Implement sustained guard manual override**
+- [x] **Step 7: Implement sustained guard manual override**
 
 Feed normalized yaw input from `APlayerCharacter` look handling into `UCombatComponent::SetDefenseManualYawInput`. Suspend only `GuardFacing` at or above 0.25 magnitude. Resume after 0.10 unscaled seconds below threshold, revalidating the locked threat without resetting its interaction turn budget. Committed block/parry/paired alignment retains ownership over steering.
 
 Camera/control yaw may remain responsive, but Character Movement actor yaw while guarding must still be capped by the same resolved defense rate for manual and automatic sources. Test final actor yaw, not controller yaw.
 
-- [ ] **Step 8: Wire configuration precedence and normal-block presentation**
+- [x] **Step 8: Wire configuration precedence and normal-block presentation**
 
 Add `UDefenseConfiguration* DefenseConfiguration` to `UCombatSettings` and `UDefenseConfiguration* DefenseConfigurationOverride` to `UCombatComponent`. Add scoped stance-override acquire/release handles. Resolve in this order: active scoped stance override, component override, combat settings, C++ defaults.
 
@@ -731,7 +731,7 @@ They may select/play assets but may not recalculate block, damage, team, or geom
 
 Remove `FaceThreatForBlock()` and its direct rotation. Remove the AI attack-start `SetActorRotation`; active attack alignment/warp owns that facing operation.
 
-- [ ] **Step 9: Verify and commit Slice 3**
+- [x] **Step 9: Verify and commit Slice 3**
 
 Build first, then run `KatanaCombat.Defense.Input`, `.Threat`, `.Alignment`, `.CounterSystem.Input`, and `.Targeting`. Run the source gate, confirm no defense path uses `SetActorRotation` and no shared warp template is mutated, and complete the slice adversarial/spec-coverage gate. Commit:
 

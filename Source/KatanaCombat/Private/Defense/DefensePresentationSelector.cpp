@@ -185,3 +185,115 @@ FDefensePresentationSelectionResult FTableDefensePresentationSelector::SelectAtt
 	}
 	return Result;
 }
+
+FDefensePresentationSelectionResult FTableDefensePresentationSelector::SelectGenericDefender(
+	const FDefensePresentationSelectionContext& Context,
+	const UDefenseConfiguration* Configuration) const
+{
+	FDefensePresentationSelectionResult Result;
+	Result.Outcome = Context.Outcome;
+	Result.AttackerResponse = Context.AttackerResponse;
+	if (!Configuration)
+	{
+		return Result;
+	}
+
+	const FDefensePresentationRow* BestRow = nullptr;
+	for (const FDefensePresentationRow& Row : Configuration->DefenderPresentationRows)
+	{
+		if (Row.Outcome != Context.Outcome
+			|| !Row.IsGenericFallback()
+			|| !MatchesSharedFields(
+				Context,
+				Row.bMatchAnyHeight,
+				Row.Height,
+				Row.bMatchAnyLane,
+				Row.Lane,
+				Row.bMatchAnySwingShape,
+				Row.SwingShape,
+				Row.RequiredTags,
+				Row.ExcludedTags,
+				Row.Payload))
+		{
+			continue;
+		}
+		if (!BestRow || Row.Priority > BestRow->Priority)
+		{
+			BestRow = &Row;
+			Result.bAmbiguous = false;
+		}
+		else if (Row.Priority == BestRow->Priority)
+		{
+			Result.bAmbiguous = true;
+			if (LexicallyBefore(Row.RowName, BestRow->RowName))
+			{
+				BestRow = &Row;
+			}
+		}
+	}
+
+	if (BestRow)
+	{
+		Result.bFound = true;
+		Result.RowName = BestRow->RowName;
+		Result.Payload = BestRow->Payload;
+		Result.FallbackLevel = EDefensePresentationFallbackLevel::Generic;
+	}
+	return Result;
+}
+
+FDefensePresentationSelectionResult FTableDefensePresentationSelector::SelectGenericAttacker(
+	const FDefensePresentationSelectionContext& Context,
+	const UDefenseConfiguration* AttackerConfiguration) const
+{
+	FDefensePresentationSelectionResult Result;
+	Result.Outcome = Context.Outcome;
+	Result.AttackerResponse = Context.AttackerResponse;
+	if (!AttackerConfiguration)
+	{
+		return Result;
+	}
+
+	const FAttackerResponsePresentationRow* BestRow = nullptr;
+	for (const FAttackerResponsePresentationRow& Row : AttackerConfiguration->AttackerResponseRows)
+	{
+		if (Row.Response != Context.AttackerResponse
+			|| !Row.IsGenericFallback()
+			|| !MatchesSharedFields(
+				Context,
+				Row.bMatchAnyHeight,
+				Row.Height,
+				Row.bMatchAnyLane,
+				Row.Lane,
+				Row.bMatchAnySwingShape,
+				Row.SwingShape,
+				Row.RequiredTags,
+				Row.ExcludedTags,
+				Row.Payload))
+		{
+			continue;
+		}
+		if (!BestRow || Row.Priority > BestRow->Priority)
+		{
+			BestRow = &Row;
+			Result.bAmbiguous = false;
+		}
+		else if (Row.Priority == BestRow->Priority)
+		{
+			Result.bAmbiguous = true;
+			if (LexicallyBefore(Row.RowName, BestRow->RowName))
+			{
+				BestRow = &Row;
+			}
+		}
+	}
+
+	if (BestRow)
+	{
+		Result.bFound = true;
+		Result.RowName = BestRow->RowName;
+		Result.Payload = BestRow->Payload;
+		Result.FallbackLevel = EDefensePresentationFallbackLevel::Generic;
+	}
+	return Result;
+}

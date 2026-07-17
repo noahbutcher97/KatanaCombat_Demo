@@ -92,7 +92,6 @@ class KATANACOMBAT_API UCombatComponent : public UActorComponent
 	friend class FComboRace_RevertOnFailure;
 	friend class FComboRace_AttackDataSetBeforePlay;
 	friend class FComboRace_AttackDataNotNullAfterExecute;
-
 public:
 	UCombatComponent();
 
@@ -122,6 +121,50 @@ public:
 
 	/** Current attack-state generation used for native contact identity validation. */
 	int32 GetCurrentAttackGeneration() const { return AttackStateMachine.AttackGeneration; }
+
+	/** Immutable process-local identity used as the deterministic threat tie-break. */
+	FCombatantStableId GetCombatantStableId() const { return CombatantStableId; }
+
+	/** Build a value snapshot of the currently published attack state. */
+	FAttackExecutionSnapshot BuildAttackExecutionSnapshot() const;
+
+	/** Publish prediction evidence for the current attack generation. */
+	void PublishAttackThreatPrediction(const FAttackThreatPrediction& Prediction);
+
+	/** Invalidate prediction evidence without mutating the active attack. */
+	void InvalidateAttackThreatPrediction(EThreatInvalidationReason Reason);
+
+	/** Capture the explicit defender intended by the active or pending attack. */
+	void SetAttackIntentTarget(AActor* IntendedTarget);
+
+	/** Enumerate and deterministically select one immutable defense threat snapshot. */
+	FDefenseThreatSelectionResult SelectDefenseThreat(double SimulationNow);
+
+	/** Refresh the held-guard threat lock, coalescing event requests within one frame. */
+	void RefreshGuardThreat(EThreatRefreshReason Reason);
+
+	/** Release held-guard threat ownership and its simulation-time refresh timer. */
+	void ClearGuardThreat(EThreatClearReason Reason);
+
+	/** Route normalized player yaw intent through the capped held-guard alignment request. */
+	void SetDefenseManualYawInput(float NormalizedYawInput);
+
+	/** Resolve stance, component, character-settings, then C++ default defense configuration. */
+	const UDefenseConfiguration* GetEffectiveDefenseConfiguration() const;
+
+	/** Install a scoped stance override. The newest active override has highest precedence. */
+	FDefenseConfigurationOverrideHandle AcquireDefenseStanceOverride(UDefenseConfiguration* Configuration);
+
+	/** Release only the scoped stance override represented by Handle. */
+	bool ReleaseDefenseStanceOverride(FDefenseConfigurationOverrideHandle Handle);
+
+	/** Last immutable threat selected for this defender, if still locked. */
+	const FAttackExecutionSnapshot& GetLockedDefenseThreat() const { return LockedDefenseThreat; }
+
+#if WITH_AUTOMATION_TESTS
+	void SetCombatantStableIdForTesting(FCombatantStableId StableId) { CombatantStableId = StableId; }
+	void SetDefenseManualYawInputForTesting(float NormalizedYawInput, double UnscaledNow);
+#endif
 
 	// ============================================================================
 	// CACHED REFERENCES
@@ -607,6 +650,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Debug")
 	FQueueStats GetQueueStats() const { return QueueStats; }
 
+	/** Bounded chronological ledger of captured combat-input edges. */
+	const TArray<FCombatInputRecord>& GetCombatInputHistory() const { return CombatInputHistory; }
+
 	/** Reset statistics */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Debug")
 	void ResetStats() { QueueStats.Reset(); }
@@ -757,11 +803,27 @@ public:
 	friend class FComboRace_ComboChainDataIntegrity;
 	friend class FComboRace_RevertOnFailure;
 	friend class FComboRace_SetPhaseNoneClearsState;
+	friend class FDefenseThreat_AttackSnapshotPublication;
+	friend class FDefenseThreat_HighConfidenceRequiresCompleteEvidence;
+	friend class FDefenseThreat_ComponentSelectionOwnership;
+	friend class FDefenseAlignment_GuardUsesOwnedSmoothRequest;
+	friend class FDefenseAlignment_GuardManualOverridePreservesBudget;
+	friend class FDefenseAlignment_GuardManualThresholdAndPriority;
+	friend class FDefenseAlignment_PlayerLookRoutesManualYaw;
 #endif // WITH_AUTOMATION_TESTS
 
 protected:
+	virtual void OnRegister() override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	void EnsureCombatantStableId();
+
+	/** Active scoped stance overrides, retained for GC until their owner releases the handle. */
+	UPROPERTY(Transient)
+	TMap<uint64, TObjectPtr<UDefenseConfiguration>> DefenseStanceOverrides;
+
+	uint64 NextDefenseStanceOverrideId = 1;
 
 	/**
 	 * Validates that default attacks are assigned (called in BeginPlay in editor builds)
@@ -807,6 +869,13 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	FQueueStats QueueStats;
 
+	/** Last 64 captured input edges, including terminal rejections. */
+	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
+	TArray<FCombatInputRecord> CombatInputHistory;
+
+	/** Process-monotonic identity for the next captured input edge. */
+	uint64 NextCombatInputSerial = 1;
+
 	/** Current attack phase (tracked independently) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	EAttackPhase CurrentPhase = EAttackPhase::None;
@@ -814,6 +883,43 @@ protected:
 	/** Currently executing attack (for combo progression tracking) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	TObjectPtr<UAttackData> CurrentAttackData = nullptr;
+
+	/** Process-local deterministic identity assigned when the component registers. */
+	FCombatantStableId CombatantStableId;
+
+	/** Explicit defender captured by attack selection, never inferred during defense query. */
+	UPROPERTY()
+	TWeakObjectPtr<AActor> AttackIntentTarget;
+
+	/** Latest prediction evidence, bound to PublishedPredictionAttackInstance. */
+	UPROPERTY()
+	FAttackThreatPrediction PublishedAttackThreatPrediction;
+
+	UPROPERTY()
+	FAttackInstanceId PublishedPredictionAttackInstance;
+
+	EThreatInvalidationReason LastThreatInvalidationReason = EThreatInvalidationReason::None;
+
+	/** Defender-owned immutable lock selected from one targeting enumeration. */
+	UPROPERTY()
+	FAttackExecutionSnapshot LockedDefenseThreat;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> LockedDefenseThreatActor;
+
+	FCombatantStableId LockedDefenseThreatId;
+	double DefenseThreatLockAcquiredSimulationTime = -1.0;
+	float RemainingDefenseAutomaticTurn = 0.0f;
+	FAlignmentRequestHandle GuardAlignmentRequestHandle;
+	int32 GuardAlignmentGeneration = 0;
+	bool bGuardThreatCandidatesExist = false;
+	bool bGuardThreatRefreshInProgress = false;
+	uint64 LastGuardThreatRefreshFrame = MAX_uint64;
+	FTimerHandle GuardThreatRefreshTimerHandle;
+	FTimerHandle CoalescedGuardThreatRefreshTimerHandle;
+	float DefenseManualYawInput = 0.0f;
+	double GuardManualInputBelowThresholdRealTime = -1.0;
+	bool bGuardManualOverrideActive = false;
 
 	/** Input type that triggered current attack (Light/Heavy) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
@@ -905,11 +1011,14 @@ protected:
 	 */
 	void SetupAttackWarp(UAttackData* AttackData);
 
-	/** Find the best nearby threat for normal block facing. */
-	AActor* FindBlockThreat() const;
+	/** Simulation-time timer callback used only while held guard has candidates. */
+	void HandleGuardThreatRefreshTimer();
+	void HandleCoalescedGuardThreatRefresh();
 
-	/** Rotate owner yaw toward a threat once when normal block begins. */
-	void FaceThreatForBlock(AActor* ThreatActor);
+	void RefreshGuardThreatInternal(EThreatRefreshReason Reason, bool bForceRevalidation);
+	void UpdateGuardAlignmentRequest();
+	void SetDefenseManualYawInputAtTime(float NormalizedYawInput, double UnscaledNow);
+	void ResetDefenseManualYawOverride();
 
 	/** Match press/release pairs */
 	void ProcessInputPair(const FQueuedInputAction& PressEvent, const FQueuedInputAction& ReleaseEvent);
@@ -939,5 +1048,20 @@ protected:
 
 	/** Check if can accept new input (prevents double-queueing same input) */
 	bool CanAcceptNewInput(EInputType InputType) const;
+
+	/** Capture an input edge before any routing or eligibility gate. */
+	uint64 CaptureCombatInput(
+		EInputType InputType,
+		EInputEventType EventType,
+		EInputDirection InputDirection);
+
+	/** Finalize a retained record by identity; safe if reentrant input evicted it. */
+	void FinalizeCombatInput(
+		uint64 Serial,
+		ECombatInputRoute Route,
+		ECombatInputDisposition Disposition);
+
+	/** Queue implementation that reports whether the normal route accepted the edge. */
+	bool TryQueueAction(const FQueuedInputAction& InputAction, UAttackData* AttackData = nullptr);
 
 };

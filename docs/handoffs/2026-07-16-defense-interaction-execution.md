@@ -164,3 +164,83 @@ No in-scope contract remains `Partial` or `Not Implemented`, and no high/medium 
 Explicit later-slice dependencies are not Slice 2 failures: Task 4 supplies authored hit-window identity and atomic perfect-parry consumption; Task 3 supplies full defense-configuration precedence plus specialized normal-block/attacker-response presentation and alignment; Gate A supplies live parent-skeleton, asset, Editor, and PIE proof. Slice 2 proves immutable first-contact precedence and pre-consumed contact handling, not the future real parry-window producer.
 
 The exact next action after the Slice 2 commit is the Task 3 context-refresh preflight, followed by failing input-capture tests. Do not begin asset edits or claim visible block/parry behavior yet.
+
+## Slice 3 Completion
+
+Task 3 preflight started from clean commit `adba9ffb`. Live source reinspection confirms that `OnInputEvent()` still returns before any common record for missing settings, paired-input rejection, Block routing, and successful Chain routing; failed Chain preflight still falls through to the normal queue. The accepted boundary remains: Task 3 owns unconditional capture and terminal route disposition, Task 4 owns authored parry-window identity and attack consumption, and Task 5 owns the marker-driven `ParryActive -> CounterWindow` transition.
+
+Input routing and threat-lock ownership are now complete within Slice 3. Input edges are captured before all gates in a bounded monotonic ledger; Block is stateful/terminal; failed `ChainOnly` preflight expires without queue fallthrough; the stale same-call Chain transition now stops at `ParryActive`. Attack execution snapshots use process-monotonic stable IDs, generation-bound intended targets, and evidence-gated predictions.
+
+Threat selection now performs one range-capped `UTargetingComponent` enumeration per opportunity, reuses its LOS/targetability policy, filters explicit hostile active snapshots, normalizes deadlines against simulation time, downgrades stale confidence and credible intent, and delegates deterministic ranking/hysteresis to `FDefenseResolver`. The component owns lock generation, acquisition time, remaining turn budget, same-frame publication coalescing, and the 0.05-second simulation-time guarded timer. Release, death, teardown, and paired takeover clear ownership; held guard revalidates after paired exit.
+
+Step 4 test-first evidence:
+
+- behavioral RED: `Saved/Logs/Defense-Slice3-ThreatLockRed-20260716-2255-tests.log`;
+- focused GREEN: `Saved/Logs/Defense-Slice3-ThreatLockGreen-20260716-2258-tests.log`;
+- hardened `KatanaCombat.Defense` root: `Saved/Logs/Defense-Slice3-ThreatHardened-20260716-2300-tests.log`, all tests passed;
+- final Step 4 build completed successfully at 23:00 local time.
+
+Step 5 is complete. `UTargetingComponent` now arbitrates opaque capability handles by immutable owner/generation/priority/executor identity, suspends lower-priority requests without destroying them, captures and exactly restores movement/controller rotation settings, and enables its `TG_PrePhysics` tick only while a smooth request exists. Smooth facing uses one swept `CharacterMovement::MoveUpdatedComponent` yaw executor per frame with rate and cumulative-budget clamps. Motion-warp requests reserve one unique named target, publish only while active, and remove only their own names. Broad alignment or motion-warp clearing is accepted only for death/component teardown; request-owned and unmanaged targets are protected from cross-owner cleanup.
+
+Guard now owns one `GuardFacing` request tied to the selected threat interaction. Threat refresh synchronizes the request's spent budget before resolution, genuine threat switches release the old handle and allocate a new generation, block release/paired takeover clear only guard ownership, and guard entry no longer calls `SetActorRotation`. The actual character dying path performs terminal release in addition to component teardown.
+
+Step 5 test-first and adversarial evidence:
+
+- compile-safe behavioral RED: `Saved/Logs/Defense-Slice3-AlignmentBehavioralRed-20260716-231032-tests.log`, four discovered tests failing on the neutral arbiter and 90-degree guard snap;
+- hardened focused GREEN: `Saved/Logs/Defense-Slice3-AlignmentHardened-20260716-232432-tests.log`, six tests passing for priority/tie ordering, owner-only and broad-clear policy, exact restoration, swept yaw/budget, warp-name ownership, stale target, real death cleanup, and guard integration;
+- post-alignment defense root: `Saved/Logs/Defense-Slice3-PostAlignment-Defense-20260716-232509-tests.log`, exit 0;
+- adjacent regressions: two counter-input tests in `Saved/Logs/Defense-Slice3-PostAlignment-CounterInput-20260716-232535-tests.log` and seven targeting tests in `Saved/Logs/Defense-Slice3-PostAlignment-Targeting-20260716-232558-tests.log`, all green;
+- final Step 5 editor build succeeded after adding the test module's explicit `MotionWarping` dependency; `git diff --check` is clean.
+
+Static audit found no remaining `FaceThreatForBlock`/`FindBlockThreat` path and no exposed alignment-handle value. The one remaining production `SetActorRotation` is the known enemy attack-start call owned by Step 8. Shared `AnimNotifyState_CombatWarp` template mutation and normalized runtime modifier rate remain Step 6; manual guard override remains Step 7; configuration precedence, normal-block presentation, and the AI direct-rotation removal remain Step 8.
+
+Step 6 is complete. `SetupAttackWarp` now owns one `ActiveAttackWarp` alignment request, caps attack-authored rotation at the resolved defense capability, replaces prior attack ownership without leaking handles, tracks moving targets through request updates, and releases its handle from canonical `SetPhase(None)` termination. The custom combat-warp notify creates the engine-owned clone before runtime configuration and never casts or mutates the shared template.
+
+`UTargetingComponent` binds each clone to the active request handle, enforces `ConstantRate`, recomputes the inverse engine cap from UE 5.6's live effective play rate, spends observed composed yaw from the cumulative request budget, and bounds the current frame by the remaining budget. Positive 0.5x/1.0x/2.0x rates remain equivalent in simulation time; world and actor dilation do not multiply the capability. Zero, near-frozen, reverse, unmanaged, duplicate-window, and exhausted-budget paths fail closed. Higher priorities disable but retain a still-valid lower clone; resume returns it to `Waiting`; natural deactivation and owner release unregister only the matching clone. One request cannot register overlapping runtime executors.
+
+Step 6 test-first and regression evidence:
+
+- duplicate-window behavioral RED: `Saved/Logs/Defense-Slice3-MotionWarping-DuplicateRed-20260716-2345-tests.log`;
+- final focused GREEN: `Saved/Logs/Defense-Slice3-MotionWarping-FinalFocused-20260716-2350-tests.log`, three tests passing for template isolation, rate/dilation normalization, suspension/resume, budget accounting, duplicate/unmanaged rejection, owner-only release, exact restoration, and attack termination;
+- full alignment root: `Saved/Logs/Defense-Slice3-MotionWarping-AlignmentGreen-20260716-2347-tests.log`, nine tests passing;
+- adjacent targeting root: `Saved/Logs/Defense-Slice3-MotionWarping-TargetingGreen-20260716-2347-tests.log`, seven tests passing;
+- full defense root: `Saved/Logs/Defense-Slice3-MotionWarping-20260716-2348-tests.log`, 63 tests passing with zero failures;
+- final `KatanaCombatEditor Win64 Development` build succeeded at 23:49 local time after the actor-dilation assertion was added.
+
+This step proves runtime modifier configuration and ownership, not the later visible final-yaw acceptance gate. Authored root rotation plus warp correction still requires Task 6 telemetry/PIE evidence. Step 7 owns sustained-guard manual steering and must preserve the same total actor-yaw cap.
+
+Step 7 is complete. `APlayerCharacter` forwards normalized yaw input and explicit look completion/cancellation into `UCombatComponent`. Sustained guard keeps one owned `GuardFacing` handle: at or above the configured threshold it swaps only that request from threat tracking to controller-independent manual direction, and below threshold it holds current facing until the 0.10-second `FPlatformTime` delay expires. Resume force-revalidates the locked threat, preserves the same handle and spent interaction budget when identity is unchanged, and returns to automatic target tracking. Manual and automatic actor yaw both execute through the same swept Character Movement cap; higher-priority committed requests remain active over the retained guard request.
+
+Step 7 test-first and adversarial evidence:
+
+- isolated compile RED: `Saved/Logs/Defense-Slice3-ManualOverride-IsolatedRed-20260716-235610-build.log`, missing only the planned manual-input API;
+- focused budget/resume GREEN: `Saved/Logs/Defense-Slice3-ManualOverride-Focused-20260717-000040-tests.log`;
+- zero-threshold behavioral RED: `Saved/Logs/Defense-Slice3-ManualThreshold-Red-20260717-000211-tests.log`;
+- hardened threshold/priority GREEN: `Saved/Logs/Defense-Slice3-ManualThreshold-Green-20260717-000313-tests.log`;
+- final alignment regression: `Saved/Logs/Defense-Slice3-ManualInputRoute-Retry-20260717-000522-tests.log`, 12 tests passed, including player-look routing and all motion-warp ownership cases;
+- final editor build: `Saved/Logs/Defense-Slice3-ManualInputRoute-Retry-20260717-000522-build.log`, succeeded with `-MaxParallelActions=6` after the uncapped attempt hit machine paging-file pressure (`C3859/C1076`).
+
+Static review remains clean for direct rotation in the player, combat, and targeting defense path. No assets changed. Step 8 now owns full configuration precedence, specialized normal-block/attacker-response presentation, and removal of the remaining enemy AI attack-start rotation snap.
+
+Step 8 is complete. Effective defense configuration now resolves newest active scoped stance override, component override, the owner's current `UCombatSettings`, then the C++ default object. Contact geometry, guard/threat policy, attack warp, and presentation consume that central result. Scoped override storage is GC-safe and releases by opaque owner handle.
+
+Normal block commits defender and attacker payloads before gameplay mutation. Defender montage/impact and attacker recoil use only the finalized resolution; actual contact point, normal, surface, and bone remain authoritative. Impact precedence is specialized defender row, attack profile, explicit generic defender row, defense defaults, pooled blocked effects, then weapon fallback. Recoil selects from the attacker's configuration, falls back to a usable generic recoil, then safely blends out. Presentation entry points reject the wrong actor owner, and retained/cached receipts cannot replay either side.
+
+The final adversarial pass found and closed three additional gaps:
+
+- a specialized row without impact assets skipped the explicit generic row;
+- an exact recoil row without a usable montage skipped generic recoil;
+- a late same-frame threat publication could be lost after the first coalesced scan.
+
+Late same-frame updates now schedule one next-tick refresh. Invalid montage sections fail closed. Enemy attack execution no longer calls `SetActorRotation`; explicit intent reaches `ExecuteAttackData`, and the owned active-attack warp is the only attack-facing path. Source gates cover all defense owners and prove combat-warp clone creation precedes runtime configuration without shared-template mutation.
+
+Final Slice 3 evidence:
+
+- configuration precedence RED/GREEN: `Saved/Logs/Defense-Slice3-ConfigPrecedence-Red-20260717-001115-build.log`, `Saved/Logs/Defense-Slice3-ConfigPrecedence-Green-20260717-001528-build.log`, and `Saved/Logs/Defense-Slice3-ConfigPrecedence-Green-20260717-001630-tests.log`;
+- fallback adversarial RED/GREEN: `Saved/Logs/Defense-Slice3-Fallbacks-Red-20260717-0042-tests.log` and `Saved/Logs/Defense-Slice3-Fallbacks-Green-20260717-0045-tests.log`;
+- enemy direct-facing source gate RED/GREEN: `Saved/Logs/Defense-Slice3-EnemyFacing-Red-20260717-0034-tests.log` and `Saved/Logs/Defense-Slice3-EnemyFacing-Green-20260717-0034-tests.log`;
+- final editor build: `Saved/Logs/Defense-Slice3-Final-20260717-0053-build.log`, succeeded;
+- final full defense root: `Saved/Logs/Defense-Slice3-FullDefense-Final-20260717-0051-tests.log`, 72 completed and 0 failed;
+- adjacent roots: `Saved/Logs/Defense-Slice3-CounterInput-20260717-0050-tests.log`, 2/2 passed, and `Saved/Logs/Defense-Slice3-Targeting-20260717-0050-tests.log`, 7/7 passed.
+
+No C++ high/medium Slice 3 finding is deferred. No asset, Blueprint, montage, map, input asset, or configuration package changed, so visible normal-block animation and final composed-yaw acceptance remain Task 6 Editor/PIE proof rather than a headless claim. Task 4 still owns authored parry-window identity, attack consumption, `ParryStagger`, and bridge preflight; Task 5 owns retained paired-stage migration and cleanup. `GO` for Task 4 after the Slice 3 commit.

@@ -14,18 +14,99 @@
 #include "Interfaces/DamageableInterface.h"
 #include "Interfaces/TeamMemberInterface.h"
 #include "Data/CombatSettings.h"
+#include "Data/DefenseConfiguration.h"
 #include "Data/TargetingSettings.h"
 #include "Data/MotionWarpingSettings.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Core/CombatComponent.h"
+#include "RootMotionModifier.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTargeting, Log, All);
 
 UTargetingComponent::UTargetingComponent()
 {
-    PrimaryComponentTick.bCanEverTick = false;
+    PrimaryComponentTick.bCanEverTick = true;
+    PrimaryComponentTick.bStartWithTickEnabled = false;
+    PrimaryComponentTick.TickGroup = TG_PrePhysics;
     // Configuration now comes from TargetingSettings data asset
     // Debug visualization controlled via Combat.Debug.Targeting CVar
+}
+
+void UTargetingComponent::TickComponent(
+    float DeltaTime,
+    ELevelTick TickType,
+    FActorComponentTickFunction* ThisTickFunction)
+{
+    Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+    FAlignmentRequestRecord* ActiveRecord = AlignmentRequests.Find(ActiveAlignmentRequest);
+    if (!ActiveRecord || ActiveRecord->Spec.Executor != EAlignmentExecutor::CharacterMovement)
+    {
+        return;
+    }
+
+    if (ActiveRecord->Spec.Target.IsStale(true))
+    {
+        const FAlignmentRequestHandle InvalidHandle = ActiveRecord->Handle;
+        ReleaseAlignmentRequest(InvalidHandle);
+        return;
+    }
+
+    if (LastAlignmentExecutionFrame == GFrameCounter || !EnsureAlignmentDependencies())
+    {
+        return;
+    }
+
+    UCharacterMovementComponent* Movement = OwnerCharacter->GetCharacterMovement();
+    if (!Movement || !Movement->UpdatedComponent
+        || DeltaTime <= 0.0f
+        || ActiveRecord->Spec.MaximumTurnRate <= 0.0f
+        || ActiveRecord->Spec.RemainingTurnBudget <= 0.0f)
+    {
+        return;
+    }
+
+    const FRotator CurrentRotation = OwnerCharacter->GetActorRotation();
+    const FRotator DesiredRotation = ResolveAlignmentRotation(ActiveRecord->Spec);
+    const float YawError = FMath::FindDeltaAngleDegrees(
+        static_cast<float>(CurrentRotation.Yaw),
+        static_cast<float>(DesiredRotation.Yaw));
+    const float MaximumStep = FMath::Min3(
+        ActiveRecord->Spec.MaximumTurnRate * DeltaTime,
+        ActiveRecord->Spec.RemainingTurnBudget,
+        FMath::Abs(YawError));
+    if (MaximumStep <= KINDA_SMALL_NUMBER)
+    {
+        return;
+    }
+
+    FRotator NewRotation = CurrentRotation;
+    NewRotation.Yaw += FMath::Sign(YawError) * MaximumStep;
+    NewRotation.Normalize();
+
+    LastAlignmentExecutionFrame = GFrameCounter;
+    LastAlignmentExecutor = EAlignmentExecutor::CharacterMovement;
+    FHitResult SweepHit;
+    Movement->MoveUpdatedComponent(
+        FVector::ZeroVector,
+        NewRotation.Quaternion(),
+        true,
+        &SweepHit);
+
+    const float AppliedYaw = FMath::Abs(FMath::FindDeltaAngleDegrees(
+        static_cast<float>(CurrentRotation.Yaw),
+        static_cast<float>(OwnerCharacter->GetActorRotation().Yaw)));
+    ActiveRecord = AlignmentRequests.Find(ActiveAlignmentRequest);
+    if (ActiveRecord)
+    {
+        ActiveRecord->Spec.RemainingTurnBudget = FMath::Max(
+            0.0f,
+            ActiveRecord->Spec.RemainingTurnBudget - AppliedYaw);
+    }
+
+#if WITH_AUTOMATION_TESTS
+    ++AlignmentExecutionCount;
+#endif
 }
 
 // ============================================================================
@@ -58,19 +139,26 @@ void UTargetingComponent::BeginPlay()
 {
     Super::BeginPlay();
 
-    OwnerCharacter = Cast<ACharacter>(GetOwner());
-    if (OwnerCharacter)
-    {
-        MotionWarpingComponent = OwnerCharacter->FindComponentByClass<UMotionWarpingComponent>();
-    }
+    EnsureAlignmentDependencies();
 }
 
 void UTargetingComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    ReleaseAllAlignmentRequests(EAlignmentReleaseReason::ComponentTeardown);
+
     // Clean up tracking to avoid dangling delegate bindings
     StopWarpTracking();
     StopAttackerPairedWarpTracking();
     StopVictimWarpTracking();
+
+    if (bAlignmentTickPrerequisiteRegistered && OwnerCharacter)
+    {
+        if (UCharacterMovementComponent* Movement = OwnerCharacter->GetCharacterMovement())
+        {
+            PrimaryComponentTick.RemovePrerequisite(Movement, Movement->PrimaryComponentTick);
+        }
+        bAlignmentTickPrerequisiteRegistered = false;
+    }
 
     Super::EndPlay(EndPlayReason);
 }
@@ -107,11 +195,14 @@ AActor* UTargetingComponent::FindTargetInDirection(const FVector& DirectionVecto
     return FindBestTarget(NormalizedDirection);
 }
 
-int32 UTargetingComponent::GetAllTargetsInRange(TArray<AActor*>& OutTargets)
+int32 UTargetingComponent::GetAllTargetsInRange(TArray<AActor*>& OutTargets, float MaxRange)
 {
+#if WITH_AUTOMATION_TESTS
+    ++AllTargetsInRangeCallCount;
+#endif
     OutTargets.Empty();
 
-    GetActorsInRange(OutTargets);
+    GetActorsInRange(OutTargets, MaxRange);
     FilterByTargetableClass(OutTargets);
 
     const UTargetingSettings* Settings = GetEffectiveSettings();
@@ -334,107 +425,100 @@ void UTargetingComponent::ReleaseCounterLock()
 
 bool UTargetingComponent::SetupAttackWarp(AActor* Target, const FRotator& TargetRotation, const FAttackWarpConfig& Config)
 {
-    // Lazy fetch owner for test compatibility
-    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
-    if (!MotionWarpingComponent || !Owner)
+    ReleaseActiveAttackWarp();
+    if (!EnsureAlignmentDependencies() || !Config.bEnableWarp)
     {
         return false;
     }
 
-    if (!Config.bEnableWarp)
+    ACharacter* Owner = OwnerCharacter.Get();
+    if (!Owner)
     {
         return false;
     }
-
-    // Stop any previous tracking
-    StopWarpTracking();
-
-    // Clear any previous warp targets to prevent stale data
-    MotionWarpingComponent->RemoveWarpTarget(Config.TargetWarpName);
-    MotionWarpingComponent->RemoveWarpTarget(Config.RotationWarpName);
 
     const FVector OwnerLocation = Owner->GetActorLocation();
+    const UDefenseConfiguration* DefenseConfig = GetDefault<UDefenseConfiguration>();
+    if (const UCombatComponent* Combat = Owner->FindComponentByClass<UCombatComponent>())
+    {
+        DefenseConfig = Combat->GetEffectiveDefenseConfiguration();
+    }
 
-    // CASE 1: Target exists - set up continuous tracking for translation+rotation
+    const float DefenseTurnRate = DefenseConfig && FMath::IsFinite(DefenseConfig->DefenseTurnRate)
+        ? FMath::Max(0.0f, DefenseConfig->DefenseTurnRate)
+        : 180.0f;
+    const float RequestedTurnRate = FMath::IsFinite(Config.RotationSpeed) && Config.RotationSpeed > 0.0f
+        ? Config.RotationSpeed
+        : DefenseTurnRate;
+    const float EffectiveTurnRate = FMath::Min(DefenseTurnRate, RequestedTurnRate);
+    const float TurnBudget = DefenseConfig && FMath::IsFinite(DefenseConfig->MaximumAutomaticTurn)
+        ? FMath::Max(0.0f, DefenseConfig->MaximumAutomaticTurn)
+        : 70.0f;
+    if (EffectiveTurnRate <= KINDA_SMALL_NUMBER || TurnBudget <= KINDA_SMALL_NUMBER)
+    {
+        return false;
+    }
+
+    FAlignmentRequestSpec Spec;
+    Spec.OwnerId = TEXT("ActiveAttackWarp");
+    Spec.OwnerGeneration = NextAttackAlignmentGeneration;
+    if (NextAttackAlignmentGeneration == MAX_int32)
+    {
+        NextAttackAlignmentGeneration = 1;
+    }
+    else
+    {
+        ++NextAttackAlignmentGeneration;
+    }
+    Spec.Priority = EDefenseAlignmentPriority::ActiveAttackWarp;
+    Spec.Executor = EAlignmentExecutor::MotionWarping;
+    Spec.Target = Target;
+    Spec.DesiredRotation = TargetRotation;
+    Spec.MaximumTurnRate = EffectiveTurnRate;
+    Spec.RemainingTurnBudget = TurnBudget;
+    Spec.bTrackTargetRotation = Target != nullptr;
+
     if (Target)
     {
         const FVector TargetLocation = Target->GetActorLocation();
         const float Distance = FVector::Dist(OwnerLocation, TargetLocation);
-
-        // Skip if too close (within min warp distance) - use rotation-only toward target
-        if (Distance < Config.MinWarpDistance)
-        {
-            const FRotator LookAtRotation = (TargetLocation - OwnerLocation).Rotation();
-            MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
-                Config.RotationWarpName,
-                OwnerLocation,
-                LookAtRotation
-            );
-
-            if (CombatDebug::IsTargetingDebugEnabled())
-            {
-                UE_LOG(LogTargeting, Log, TEXT("[ATTACK WARP] Target too close (%.1f < %.1f), using ROTATION-ONLY toward target"),
-                    Distance, Config.MinWarpDistance);
-            }
-            return true;
-        }
-
-        // Store tracking state for continuous updates
-        TrackedWarpTarget = Target;
-        ActiveWarpConfig = Config;
-        bIsTrackingWarpTarget = true;
-
-        // Bind to OnPreUpdate for continuous tracking
-        MotionWarpingComponent->OnPreUpdate.AddDynamic(this, &UTargetingComponent::OnMotionWarpingPreUpdate);
-
-        // Set initial warp target (will be updated each frame)
-        FVector WarpLocation = TargetLocation;
-        if (Distance > Config.MaxWarpDistance)
-        {
-            const FVector ToTarget = (TargetLocation - OwnerLocation).GetSafeNormal();
-            WarpLocation = OwnerLocation + (ToTarget * Config.MaxWarpDistance);
-        }
-
-        // SLOPE FIX: Adjust warp location Z to match terrain height
-        const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-        const FVector OriginalWarpLocation = WarpLocation;
-        WarpLocation = UDebugUtils::AdjustLocationToGround(
-            GetWorld(),
-            WarpLocation,
-            CapsuleHalfHeight,
-            Owner,
-            CombatDebug::IsEnvironmentDebugEnabled());
-
-        const FRotator LookAtRotation = (TargetLocation - OwnerLocation).Rotation();
-        MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
-            Config.TargetWarpName,
-            WarpLocation,
-            LookAtRotation
-        );
-
-        if (CombatDebug::IsTargetingDebugEnabled())
-        {
-            UE_LOG(LogTargeting, Log, TEXT("[ATTACK WARP] TARGET mode: Tracking %s (Distance: %.1f, Max: %.1f, Z Adj: %+.1f)"),
-                *Target->GetName(), Distance, Config.MaxWarpDistance, WarpLocation.Z - OriginalWarpLocation.Z);
-        }
-
-        return true;
+        const bool bUseTranslation = Distance >= FMath::Max(0.0f, Config.MinWarpDistance);
+        Spec.WarpTargetName = bUseTranslation ? Config.TargetWarpName : Config.RotationWarpName;
+        Spec.bWarpTranslation = bUseTranslation;
+        Spec.MaximumTranslation = bUseTranslation && FMath::IsFinite(Config.MaxWarpDistance)
+            ? FMath::Max(0.0f, Config.MaxWarpDistance)
+            : 0.0f;
+        Spec.DesiredRotation = (TargetLocation - OwnerLocation).Rotation();
+    }
+    else
+    {
+        Spec.WarpTargetName = Config.RotationWarpName;
+        Spec.bWarpTranslation = false;
+        Spec.MaximumTranslation = 0.0f;
     }
 
-    // CASE 2: No target - rotation-only warp toward TargetRotation (no continuous updates needed)
-    // Uses RotationWarpName which should have bWarpTranslation=false in montage
-    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
-        Config.RotationWarpName,
-        OwnerLocation,  // Same location - no translation
-        TargetRotation
-    );
+    ActiveAttackAlignmentRequest = AcquireAlignmentRequest(Spec);
+    if (!ActiveAttackAlignmentRequest.IsValid())
+    {
+        return false;
+    }
+
+    if (Target)
+    {
+        TrackedWarpTarget = Target;
+        bIsTrackingWarpTarget = true;
+        MotionWarpingComponent->OnPreUpdate.AddUniqueDynamic(
+            this,
+            &UTargetingComponent::OnMotionWarpingPreUpdate);
+    }
 
     if (CombatDebug::IsTargetingDebugEnabled())
     {
-        UE_LOG(LogTargeting, Log, TEXT("[ATTACK WARP] ROTATION-ONLY mode: Facing %.1f°"), TargetRotation.Yaw);
-
-        // Draw debug visualization - direction arrow
-        const FVector ForwardDir = TargetRotation.Vector() * 200.0f;
+        UE_LOG(LogTargeting, Log, TEXT("[ATTACK WARP] Acquired %s request '%s' at %.1f deg/s"),
+            Spec.bWarpTranslation ? TEXT("targeted") : TEXT("rotation-only"),
+            *Spec.WarpTargetName.ToString(),
+            Spec.MaximumTurnRate);
+        const FVector ForwardDir = Spec.DesiredRotation.Vector() * 200.0f;
         DrawDebugDirectionalArrow(GetWorld(), OwnerLocation, OwnerLocation + ForwardDir,
             50.0f, FColor::Yellow, false, 1.0f, 0, 3.0f);
     }
@@ -457,7 +541,7 @@ void UTargetingComponent::OnMotionWarpingPreUpdate(UMotionWarpingComponent* Moti
         {
             UE_LOG(LogTargeting, Warning, TEXT("[ATTACK WARP] Tracked target destroyed, stopping tracking"));
         }
-        StopWarpTracking();
+        ReleaseActiveAttackWarp();
         return;
     }
 
@@ -465,48 +549,34 @@ void UTargetingComponent::OnMotionWarpingPreUpdate(UMotionWarpingComponent* Moti
     ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
     if (!Owner)
     {
-        StopWarpTracking();
+        ReleaseActiveAttackWarp();
+        return;
+    }
+
+    FAlignmentRequestSpec Spec;
+    if (!GetAlignmentRequestSpec(ActiveAttackAlignmentRequest, Spec))
+    {
+        ReleaseActiveAttackWarp();
         return;
     }
 
     AActor* Target = TrackedWarpTarget.Get();
     const FVector OwnerLocation = Owner->GetActorLocation();
     const FVector TargetLocation = Target->GetActorLocation();
-    const float Distance = FVector::Dist(OwnerLocation, TargetLocation);
-
-    // Optional: Re-validate target is still in valid range/angle
-    // Could add checks here to stop tracking if target moves too far or behind player
-
-    // Calculate warp location (clamped to max distance)
-    FVector WarpLocation = TargetLocation;
-    if (Distance > ActiveWarpConfig.MaxWarpDistance)
-    {
-        const FVector ToTarget = (TargetLocation - OwnerLocation).GetSafeNormal();
-        WarpLocation = OwnerLocation + (ToTarget * ActiveWarpConfig.MaxWarpDistance);
-    }
-
-    // SLOPE FIX: Adjust warp location Z to match terrain height
-    const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-    WarpLocation = UDebugUtils::AdjustLocationToGround(
-        GetWorld(),
-        WarpLocation,
-        CapsuleHalfHeight,
-        Owner,
-        false); // Don't spam debug every frame during tracking
-
-    // Calculate look-at rotation (face toward target)
     const FRotator LookAtRotation = (TargetLocation - OwnerLocation).Rotation();
-
-    // Update warp target with current positions
-    MotionWarpingComp->AddOrUpdateWarpTargetFromLocationAndRotation(
-        ActiveWarpConfig.TargetWarpName,
-        WarpLocation,
-        LookAtRotation
-    );
+    Spec.Target = Target;
+    Spec.DesiredRotation = LookAtRotation;
+    if (!UpdateAlignmentRequest(ActiveAttackAlignmentRequest, Spec))
+    {
+        ReleaseActiveAttackWarp();
+        return;
+    }
 
     // Debug visualization
     if (CombatDebug::IsTargetingDebugEnabled())
     {
+        const FMotionWarpingTarget* PublishedTarget = MotionWarpingComp->FindWarpTarget(Spec.WarpTargetName);
+        const FVector WarpLocation = PublishedTarget ? PublishedTarget->GetLocation() : OwnerLocation;
         DrawDebugLine(GetWorld(), OwnerLocation, WarpLocation, FColor::Green, false, 0.0f, 0, 2.0f);
         DrawDebugSphere(GetWorld(), WarpLocation, 25.0f, 8, FColor::Green, false, 0.0f);
         DrawDebugDirectionalArrow(GetWorld(), OwnerLocation,
@@ -523,11 +593,44 @@ void UTargetingComponent::StopWarpTracking()
 
     TrackedWarpTarget.Reset();
     bIsTrackingWarpTarget = false;
-    ActiveWarpConfig = FAttackWarpConfig();
 }
 
-void UTargetingComponent::ClearMotionWarp(FName WarpTargetName)
+void UTargetingComponent::ReleaseActiveAttackWarp()
 {
+    StopWarpTracking();
+    if (ActiveAttackAlignmentRequest.IsValid())
+    {
+        ReleaseAlignmentRequest(ActiveAttackAlignmentRequest);
+        ActiveAttackAlignmentRequest = {};
+    }
+}
+
+void UTargetingComponent::ClearMotionWarp(
+    FName WarpTargetName,
+    EAlignmentReleaseReason Reason)
+{
+    if (WarpTargetName == NAME_None
+        && Reason != EAlignmentReleaseReason::Death
+        && Reason != EAlignmentReleaseReason::ComponentTeardown)
+    {
+        UE_LOG(LogTargeting, Warning,
+            TEXT("Broad motion-warp clear rejected for non-terminal reason %s"),
+            *UEnum::GetValueAsString(Reason));
+        return;
+    }
+    if (WarpTargetName != NAME_None && IsAlignmentWarpTargetOwned(WarpTargetName))
+    {
+        UE_LOG(LogTargeting, Warning,
+            TEXT("Motion-warp clear rejected: target '%s' belongs to an alignment request"),
+            *WarpTargetName.ToString());
+        return;
+    }
+
+    if (WarpTargetName == NAME_None)
+    {
+        ReleaseAllAlignmentRequests(Reason);
+    }
+
     // Stop continuous tracking (all modes)
     StopWarpTracking();
     StopAttackerPairedWarpTracking();
@@ -546,6 +649,676 @@ void UTargetingComponent::ClearMotionWarp(FName WarpTargetName)
     {
         MotionWarpingComponent->RemoveWarpTarget(WarpTargetName);
     }
+}
+
+FAlignmentRequestHandle UTargetingComponent::AcquireAlignmentRequest(const FAlignmentRequestSpec& Spec)
+{
+    if (!EnsureAlignmentDependencies() || !ValidateAlignmentSpec(Spec))
+    {
+        return {};
+    }
+
+    if (Spec.Executor == EAlignmentExecutor::MotionWarping)
+    {
+        for (const TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+        {
+            if (Pair.Value.Spec.Executor == EAlignmentExecutor::MotionWarping
+                && Pair.Value.Spec.WarpTargetName == Spec.WarpTargetName)
+            {
+                UE_LOG(LogTargeting, Warning,
+                    TEXT("Alignment request rejected: warp target '%s' already has an owner"),
+                    *Spec.WarpTargetName.ToString());
+                return {};
+            }
+        }
+
+        if (MotionWarpingComponent->FindWarpTarget(Spec.WarpTargetName))
+        {
+            UE_LOG(LogTargeting, Warning,
+                TEXT("Alignment request rejected: warp target '%s' is already registered outside the arbiter"),
+                *Spec.WarpTargetName.ToString());
+            return {};
+        }
+    }
+
+    if (AlignmentRequests.IsEmpty() && !CaptureAlignmentRotationSettings())
+    {
+        return {};
+    }
+
+    if (NextAlignmentRequestValue == 0)
+    {
+        NextAlignmentRequestValue = 1;
+    }
+    if (NextAlignmentAcquisitionOrder == 0)
+    {
+        NextAlignmentAcquisitionOrder = 1;
+    }
+
+    FAlignmentRequestRecord Record;
+    Record.Handle = FAlignmentRequestHandle(NextAlignmentRequestValue++);
+    Record.Spec = Spec;
+    Record.AcquisitionOrder = NextAlignmentAcquisitionOrder++;
+    AlignmentRequests.Add(Record.Handle, Record);
+    ReevaluateAlignmentRequests();
+    return Record.Handle;
+}
+
+bool UTargetingComponent::UpdateAlignmentRequest(
+    FAlignmentRequestHandle Handle,
+    const FAlignmentRequestSpec& Spec)
+{
+    FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle);
+    if (!Record || !ValidateAlignmentSpec(Spec))
+    {
+        return false;
+    }
+
+    if (Spec.OwnerId != Record->Spec.OwnerId
+        || Spec.OwnerGeneration != Record->Spec.OwnerGeneration
+        || Spec.Priority != Record->Spec.Priority
+        || Spec.Executor != Record->Spec.Executor
+        || Spec.WarpTargetName != Record->Spec.WarpTargetName)
+    {
+        UE_LOG(LogTargeting, Warning,
+            TEXT("Alignment request update rejected: owner identity, priority, executor, and target name are immutable"));
+        return false;
+    }
+
+    FAlignmentRequestSpec UpdatedSpec = Spec;
+    UpdatedSpec.RemainingTurnBudget = FMath::Min(
+        Record->Spec.RemainingTurnBudget,
+        Spec.RemainingTurnBudget);
+    Record->Spec = MoveTemp(UpdatedSpec);
+    ReevaluateAlignmentRequests();
+    return true;
+}
+
+void UTargetingComponent::ReleaseAlignmentRequest(FAlignmentRequestHandle Handle)
+{
+    const FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle);
+    if (!Record)
+    {
+        return;
+    }
+
+    const FAlignmentRequestRecord ReleasedRecord = *Record;
+    RemoveRegisteredAlignmentModifiersForHandle(Handle);
+    RemoveAlignmentWarpTarget(ReleasedRecord);
+    AlignmentRequests.Remove(Handle);
+    if (Handle == ActiveAttackAlignmentRequest)
+    {
+        StopWarpTracking();
+        ActiveAttackAlignmentRequest = {};
+    }
+    ReevaluateAlignmentRequests();
+}
+
+void UTargetingComponent::ReleaseAllAlignmentRequests(EAlignmentReleaseReason Reason)
+{
+    if (Reason != EAlignmentReleaseReason::Death
+        && Reason != EAlignmentReleaseReason::ComponentTeardown)
+    {
+        UE_LOG(LogTargeting, Warning,
+            TEXT("Broad alignment release rejected for non-terminal reason %s"),
+            *UEnum::GetValueAsString(Reason));
+        return;
+    }
+
+    TArray<FAlignmentRequestHandle> Handles;
+    AlignmentRequests.GetKeys(Handles);
+    for (const FAlignmentRequestHandle Handle : Handles)
+    {
+        RemoveRegisteredAlignmentModifiersForHandle(Handle);
+    }
+    for (const TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+    {
+        RemoveAlignmentWarpTarget(Pair.Value);
+    }
+    StopWarpTracking();
+    ActiveAttackAlignmentRequest = {};
+    AlignmentRequests.Reset();
+    ActiveAlignmentRequest = {};
+    SetComponentTickEnabled(false);
+    RestoreAlignmentRotationSettings();
+}
+
+bool UTargetingComponent::GetAlignmentRequestSpec(
+    FAlignmentRequestHandle Handle,
+    FAlignmentRequestSpec& OutSpec) const
+{
+    const FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle);
+    if (!Record)
+    {
+        OutSpec = {};
+        return false;
+    }
+
+    OutSpec = Record->Spec;
+    return true;
+}
+
+bool UTargetingComponent::RegisterAlignmentModifier(
+    FName WarpTargetName,
+    URootMotionModifier_Warp* RuntimeModifier,
+    bool bAllowTranslation)
+{
+    if (!RuntimeModifier || WarpTargetName.IsNone() || !EnsureAlignmentDependencies()
+        || RuntimeModifier->GetOwnerComponent() != MotionWarpingComponent)
+    {
+        return false;
+    }
+
+    SynchronizeAlignmentModifiers();
+    const FAlignmentRequestRecord* Request = FindAlignmentRequestByWarpTarget(WarpTargetName);
+    const bool bRequestAlreadyHasModifier = Request
+        && RegisteredAlignmentModifiers.ContainsByPredicate(
+            [Request](const FRegisteredAlignmentModifier& Registered)
+            {
+                const URootMotionModifier_Warp* ExistingModifier = Registered.Modifier.Get();
+                return Registered.Handle == Request->Handle
+                    && ExistingModifier
+                    && ExistingModifier->GetState() != ERootMotionModifierState::MarkedForRemoval;
+            });
+    if (!Request || Request->Handle != ActiveAlignmentRequest
+        || Request->Spec.Executor != EAlignmentExecutor::MotionWarping
+        || Request->Spec.MaximumTurnRate <= KINDA_SMALL_NUMBER
+        || Request->Spec.RemainingTurnBudget <= KINDA_SMALL_NUMBER
+        || bRequestAlreadyHasModifier
+        || FindRegisteredAlignmentModifier(RuntimeModifier))
+    {
+        return false;
+    }
+
+    RuntimeModifier->WarpTargetName = Request->Spec.WarpTargetName;
+    RuntimeModifier->bWarpTranslation = Request->Spec.bWarpTranslation && bAllowTranslation;
+    RuntimeModifier->bWarpRotation = true;
+    RuntimeModifier->RotationMethod = EMotionWarpRotationMethod::ConstantRate;
+    RuntimeModifier->WarpMaxRotationRate = Request->Spec.MaximumTurnRate;
+    RuntimeModifier->OnUpdateDelegate.Unbind();
+    RuntimeModifier->OnDeactivateDelegate.Unbind();
+    RuntimeModifier->OnUpdateDelegate.BindDynamic(
+        this,
+        &UTargetingComponent::OnAlignmentModifierUpdated);
+    RuntimeModifier->OnDeactivateDelegate.BindDynamic(
+        this,
+        &UTargetingComponent::OnAlignmentModifierDeactivated);
+
+    FRegisteredAlignmentModifier Record;
+    Record.Modifier = RuntimeModifier;
+    Record.Handle = Request->Handle;
+    Record.LastObservedYaw = OwnerCharacter->GetActorRotation().Yaw;
+    Record.bHasYawBaseline = true;
+    RegisteredAlignmentModifiers.Add(MoveTemp(Record));
+    SynchronizeAlignmentModifiers();
+    return true;
+}
+
+bool UTargetingComponent::EnsureAlignmentDependencies()
+{
+    if (!OwnerCharacter)
+    {
+        OwnerCharacter = Cast<ACharacter>(GetOwner());
+    }
+    if (!OwnerCharacter)
+    {
+        return false;
+    }
+
+    if (!MotionWarpingComponent)
+    {
+        MotionWarpingComponent = OwnerCharacter->FindComponentByClass<UMotionWarpingComponent>();
+    }
+
+    if (!bAlignmentTickPrerequisiteRegistered)
+    {
+        if (UCharacterMovementComponent* Movement = OwnerCharacter->GetCharacterMovement())
+        {
+            PrimaryComponentTick.AddPrerequisite(Movement, Movement->PrimaryComponentTick);
+            bAlignmentTickPrerequisiteRegistered = true;
+        }
+    }
+    return true;
+}
+
+bool UTargetingComponent::ValidateAlignmentSpec(const FAlignmentRequestSpec& Spec) const
+{
+    const bool bFiniteRotation = FMath::IsFinite(static_cast<float>(Spec.DesiredRotation.Pitch))
+        && FMath::IsFinite(static_cast<float>(Spec.DesiredRotation.Yaw))
+        && FMath::IsFinite(static_cast<float>(Spec.DesiredRotation.Roll));
+    const bool bFiniteLimits = FMath::IsFinite(Spec.MaximumTurnRate)
+        && FMath::IsFinite(Spec.RemainingTurnBudget)
+        && FMath::IsFinite(Spec.MaximumTranslation);
+    if (Spec.OwnerId.IsNone()
+        || Spec.OwnerGeneration <= 0
+        || Spec.Executor == EAlignmentExecutor::None
+        || !bFiniteRotation
+        || !bFiniteLimits
+        || Spec.MaximumTurnRate < 0.0f
+        || Spec.RemainingTurnBudget < 0.0f
+        || Spec.MaximumTranslation < 0.0f
+        || Spec.Target.IsStale(true))
+    {
+        return false;
+    }
+
+    if (!OwnerCharacter || !OwnerCharacter->GetCharacterMovement())
+    {
+        return false;
+    }
+
+    if (Spec.Executor == EAlignmentExecutor::CharacterMovement)
+    {
+        return Spec.MaximumTurnRate > 0.0f;
+    }
+
+    return Spec.Executor == EAlignmentExecutor::MotionWarping
+        && MotionWarpingComponent
+        && !Spec.WarpTargetName.IsNone();
+}
+
+bool UTargetingComponent::CaptureAlignmentRotationSettings()
+{
+    if (CapturedRotationSettings.bCaptured)
+    {
+        return true;
+    }
+    if (!EnsureAlignmentDependencies())
+    {
+        return false;
+    }
+
+    UCharacterMovementComponent* Movement = OwnerCharacter->GetCharacterMovement();
+    if (!Movement)
+    {
+        return false;
+    }
+
+    CapturedRotationSettings.bUseControllerRotationYaw = OwnerCharacter->bUseControllerRotationYaw;
+    CapturedRotationSettings.bOrientRotationToMovement = Movement->bOrientRotationToMovement;
+    CapturedRotationSettings.bUseControllerDesiredRotation = Movement->bUseControllerDesiredRotation;
+    CapturedRotationSettings.bCaptured = true;
+
+    OwnerCharacter->bUseControllerRotationYaw = false;
+    Movement->bOrientRotationToMovement = false;
+    Movement->bUseControllerDesiredRotation = false;
+    return true;
+}
+
+void UTargetingComponent::RestoreAlignmentRotationSettings()
+{
+    if (!CapturedRotationSettings.bCaptured)
+    {
+        return;
+    }
+
+    ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
+    if (Owner)
+    {
+        Owner->bUseControllerRotationYaw = CapturedRotationSettings.bUseControllerRotationYaw;
+        if (UCharacterMovementComponent* Movement = Owner->GetCharacterMovement())
+        {
+            Movement->bOrientRotationToMovement = CapturedRotationSettings.bOrientRotationToMovement;
+            Movement->bUseControllerDesiredRotation = CapturedRotationSettings.bUseControllerDesiredRotation;
+        }
+    }
+    CapturedRotationSettings = {};
+}
+
+FAlignmentRequestHandle UTargetingComponent::ChooseActiveAlignmentRequest() const
+{
+    const FAlignmentRequestRecord* BestRecord = nullptr;
+    for (const TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+    {
+        const FAlignmentRequestRecord& Candidate = Pair.Value;
+        if (!BestRecord
+            || static_cast<uint8>(Candidate.Spec.Priority) > static_cast<uint8>(BestRecord->Spec.Priority)
+            || (Candidate.Spec.Priority == BestRecord->Spec.Priority
+                && Candidate.AcquisitionOrder > BestRecord->AcquisitionOrder))
+        {
+            BestRecord = &Candidate;
+        }
+    }
+    return BestRecord ? BestRecord->Handle : FAlignmentRequestHandle();
+}
+
+bool UTargetingComponent::HasSmoothAlignmentRequest() const
+{
+    for (const TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+    {
+        if (Pair.Value.Spec.Executor == EAlignmentExecutor::CharacterMovement)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void UTargetingComponent::ReevaluateAlignmentRequests()
+{
+    TArray<FAlignmentRequestHandle> InvalidHandles;
+    for (const TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+    {
+        if (Pair.Value.Spec.Target.IsStale(true))
+        {
+            InvalidHandles.Add(Pair.Key);
+        }
+    }
+    for (const FAlignmentRequestHandle Handle : InvalidHandles)
+    {
+        if (const FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle))
+        {
+            RemoveRegisteredAlignmentModifiersForHandle(Handle);
+            RemoveAlignmentWarpTarget(*Record);
+        }
+        AlignmentRequests.Remove(Handle);
+        if (Handle == ActiveAttackAlignmentRequest)
+        {
+            StopWarpTracking();
+            ActiveAttackAlignmentRequest = {};
+        }
+    }
+
+    for (const TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+    {
+        RemoveAlignmentWarpTarget(Pair.Value);
+    }
+
+    ActiveAlignmentRequest = ChooseActiveAlignmentRequest();
+    if (const FAlignmentRequestRecord* ActiveRecord = AlignmentRequests.Find(ActiveAlignmentRequest))
+    {
+        if (ActiveRecord->Spec.Executor == EAlignmentExecutor::MotionWarping)
+        {
+            ConfigureAlignmentWarpTarget(*ActiveRecord);
+            LastAlignmentExecutionFrame = GFrameCounter;
+            LastAlignmentExecutor = EAlignmentExecutor::MotionWarping;
+        }
+    }
+
+    SynchronizeAlignmentModifiers();
+    SetComponentTickEnabled(HasSmoothAlignmentRequest());
+    if (AlignmentRequests.IsEmpty())
+    {
+        RestoreAlignmentRotationSettings();
+    }
+}
+
+void UTargetingComponent::SynchronizeAlignmentModifiers()
+{
+    TArray<URootMotionModifier_Warp*> ModifiersToRemove;
+    for (int32 Index = RegisteredAlignmentModifiers.Num() - 1; Index >= 0; --Index)
+    {
+        FRegisteredAlignmentModifier& Registered = RegisteredAlignmentModifiers[Index];
+        URootMotionModifier_Warp* Modifier = Registered.Modifier.Get();
+        const FAlignmentRequestRecord* Request = AlignmentRequests.Find(Registered.Handle);
+        if (!Modifier)
+        {
+            RegisteredAlignmentModifiers.RemoveAtSwap(Index);
+            continue;
+        }
+        if (!Request || Modifier->GetState() == ERootMotionModifierState::MarkedForRemoval)
+        {
+            ModifiersToRemove.Add(Modifier);
+            continue;
+        }
+
+        const bool bShouldBeActive = Registered.Handle == ActiveAlignmentRequest
+            && Request->Spec.Executor == EAlignmentExecutor::MotionWarping;
+        if (bShouldBeActive)
+        {
+            if (Modifier->GetState() == ERootMotionModifierState::Disabled)
+            {
+                Registered.LastObservedYaw = OwnerCharacter->GetActorRotation().Yaw;
+                Registered.bHasYawBaseline = true;
+                Modifier->SetState(ERootMotionModifierState::Waiting);
+            }
+        }
+        else
+        {
+            if (Modifier->GetState() == ERootMotionModifierState::Active)
+            {
+                SynchronizeModifierBudget(Registered);
+            }
+            Registered.bHasYawBaseline = false;
+            if (Modifier->GetState() == ERootMotionModifierState::Active
+                || Modifier->GetState() == ERootMotionModifierState::Waiting)
+            {
+                Modifier->SetState(ERootMotionModifierState::Disabled);
+            }
+        }
+    }
+
+    for (URootMotionModifier_Warp* Modifier : ModifiersToRemove)
+    {
+        UnregisterAlignmentModifier(Modifier, true);
+    }
+}
+
+void UTargetingComponent::SynchronizeModifierBudget(FRegisteredAlignmentModifier& Record)
+{
+    FAlignmentRequestRecord* Request = AlignmentRequests.Find(Record.Handle);
+    if (!Request || !OwnerCharacter)
+    {
+        return;
+    }
+
+    const float CurrentYaw = OwnerCharacter->GetActorRotation().Yaw;
+    if (Record.bHasYawBaseline)
+    {
+        const float AppliedYaw = FMath::Abs(FMath::FindDeltaAngleDegrees(
+            Record.LastObservedYaw,
+            CurrentYaw));
+        Request->Spec.RemainingTurnBudget = FMath::Max(
+            0.0f,
+            Request->Spec.RemainingTurnBudget - AppliedYaw);
+    }
+    Record.LastObservedYaw = CurrentYaw;
+    Record.bHasYawBaseline = true;
+}
+
+void UTargetingComponent::RemoveRegisteredAlignmentModifiersForHandle(
+    FAlignmentRequestHandle Handle)
+{
+    TArray<URootMotionModifier_Warp*> OwnedModifiers;
+    for (FRegisteredAlignmentModifier& Registered : RegisteredAlignmentModifiers)
+    {
+        if (Registered.Handle == Handle)
+        {
+            if (URootMotionModifier_Warp* Modifier = Registered.Modifier.Get())
+            {
+                SynchronizeModifierBudget(Registered);
+                OwnedModifiers.Add(Modifier);
+            }
+        }
+    }
+    for (URootMotionModifier_Warp* Modifier : OwnedModifiers)
+    {
+        UnregisterAlignmentModifier(Modifier, true);
+    }
+}
+
+void UTargetingComponent::UnregisterAlignmentModifier(
+    URootMotionModifier_Warp* Modifier,
+    bool bMarkForRemoval)
+{
+    if (!Modifier)
+    {
+        return;
+    }
+
+    Modifier->OnUpdateDelegate.Unbind();
+    Modifier->OnDeactivateDelegate.Unbind();
+    RegisteredAlignmentModifiers.RemoveAllSwap(
+        [Modifier](const FRegisteredAlignmentModifier& Registered)
+        {
+            return !Registered.Modifier.IsValid() || Registered.Modifier.Get() == Modifier;
+        });
+    if (bMarkForRemoval
+        && Modifier->GetState() != ERootMotionModifierState::MarkedForRemoval)
+    {
+        Modifier->SetState(ERootMotionModifierState::MarkedForRemoval);
+    }
+}
+
+UTargetingComponent::FRegisteredAlignmentModifier*
+UTargetingComponent::FindRegisteredAlignmentModifier(URootMotionModifier_Warp* Modifier)
+{
+    return RegisteredAlignmentModifiers.FindByPredicate(
+        [Modifier](const FRegisteredAlignmentModifier& Registered)
+        {
+            return Registered.Modifier.Get() == Modifier;
+        });
+}
+
+const UTargetingComponent::FAlignmentRequestRecord*
+UTargetingComponent::FindAlignmentRequestByWarpTarget(FName WarpTargetName) const
+{
+    for (const TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+    {
+        if (Pair.Value.Spec.Executor == EAlignmentExecutor::MotionWarping
+            && Pair.Value.Spec.WarpTargetName == WarpTargetName)
+        {
+            return &Pair.Value;
+        }
+    }
+    return nullptr;
+}
+
+void UTargetingComponent::OnAlignmentModifierUpdated(
+    UMotionWarpingComponent* InMotionWarpingComponent,
+    URootMotionModifier* RootMotionModifier)
+{
+    constexpr float SmallRate = 1.0e-4f;
+    URootMotionModifier_Warp* RuntimeModifier = Cast<URootMotionModifier_Warp>(RootMotionModifier);
+    FRegisteredAlignmentModifier* Registered = FindRegisteredAlignmentModifier(RuntimeModifier);
+    if (!RuntimeModifier || !Registered || InMotionWarpingComponent != MotionWarpingComponent)
+    {
+        return;
+    }
+
+    FAlignmentRequestRecord* Request = AlignmentRequests.Find(Registered->Handle);
+    if (!Request || Registered->Handle != ActiveAlignmentRequest)
+    {
+        RuntimeModifier->SetState(ERootMotionModifierState::Disabled);
+        return;
+    }
+
+    SynchronizeModifierBudget(*Registered);
+    const float EffectivePlayRate = RuntimeModifier->PlayRate;
+    if (!FMath::IsFinite(EffectivePlayRate)
+        || EffectivePlayRate <= SmallRate
+        || Request->Spec.MaximumTurnRate <= SmallRate
+        || Request->Spec.RemainingTurnBudget <= SmallRate)
+    {
+        UnregisterAlignmentModifier(RuntimeModifier, false);
+        RuntimeModifier->SetState(ERootMotionModifierState::Disabled);
+        return;
+    }
+
+    float EffectiveTurnRate = Request->Spec.MaximumTurnRate;
+    const float AnimationDelta = RuntimeModifier->CurrentPosition - RuntimeModifier->PreviousPosition;
+    const float SimulationDelta = FMath::Abs(AnimationDelta / EffectivePlayRate);
+    if (SimulationDelta > SmallRate)
+    {
+        EffectiveTurnRate = FMath::Min(
+            EffectiveTurnRate,
+            Request->Spec.RemainingTurnBudget / SimulationDelta);
+    }
+    RuntimeModifier->WarpMaxRotationRate = EffectiveTurnRate / EffectivePlayRate;
+}
+
+void UTargetingComponent::OnAlignmentModifierDeactivated(
+    UMotionWarpingComponent* InMotionWarpingComponent,
+    URootMotionModifier* RootMotionModifier)
+{
+    URootMotionModifier_Warp* RuntimeModifier = Cast<URootMotionModifier_Warp>(RootMotionModifier);
+    FRegisteredAlignmentModifier* Registered = FindRegisteredAlignmentModifier(RuntimeModifier);
+    if (!RuntimeModifier || !Registered || InMotionWarpingComponent != MotionWarpingComponent)
+    {
+        return;
+    }
+
+    if (RuntimeModifier->GetState() == ERootMotionModifierState::Disabled
+        && AlignmentRequests.Contains(Registered->Handle)
+        && Registered->Handle != ActiveAlignmentRequest)
+    {
+        Registered->bHasYawBaseline = false;
+        return;
+    }
+    UnregisterAlignmentModifier(RuntimeModifier, false);
+}
+
+void UTargetingComponent::RemoveAlignmentWarpTarget(const FAlignmentRequestRecord& Record)
+{
+    if (MotionWarpingComponent
+        && Record.Spec.Executor == EAlignmentExecutor::MotionWarping
+        && !Record.Spec.WarpTargetName.IsNone())
+    {
+        MotionWarpingComponent->RemoveWarpTarget(Record.Spec.WarpTargetName);
+    }
+}
+
+void UTargetingComponent::ConfigureAlignmentWarpTarget(const FAlignmentRequestRecord& Record)
+{
+    if (!MotionWarpingComponent || !OwnerCharacter
+        || Record.Spec.Executor != EAlignmentExecutor::MotionWarping
+        || Record.Spec.WarpTargetName.IsNone())
+    {
+        return;
+    }
+
+    const FVector OwnerLocation = OwnerCharacter->GetActorLocation();
+    FVector WarpLocation = OwnerLocation;
+    if (Record.Spec.bWarpTranslation && Record.Spec.Target.IsValid())
+    {
+        const FVector ToTarget = Record.Spec.Target->GetActorLocation() - OwnerLocation;
+        WarpLocation += ToTarget.GetClampedToMaxSize(Record.Spec.MaximumTranslation);
+        if (UCapsuleComponent* Capsule = OwnerCharacter->GetCapsuleComponent())
+        {
+            WarpLocation = UDebugUtils::AdjustLocationToGround(
+                GetWorld(),
+                WarpLocation,
+                Capsule->GetScaledCapsuleHalfHeight(),
+                OwnerCharacter,
+                false);
+        }
+    }
+
+    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocationAndRotation(
+        Record.Spec.WarpTargetName,
+        WarpLocation,
+        ResolveAlignmentRotation(Record.Spec));
+}
+
+FRotator UTargetingComponent::ResolveAlignmentRotation(const FAlignmentRequestSpec& Spec) const
+{
+    if (Spec.bTrackTargetRotation && OwnerCharacter && Spec.Target.IsValid())
+    {
+        FVector ToTarget = Spec.Target->GetActorLocation() - OwnerCharacter->GetActorLocation();
+        ToTarget.Z = 0.0f;
+        if (!ToTarget.IsNearlyZero())
+        {
+            return FRotator(0.0, ToTarget.Rotation().Yaw, 0.0);
+        }
+    }
+    return FRotator(0.0, Spec.DesiredRotation.Yaw, 0.0);
+}
+
+bool UTargetingComponent::IsAlignmentWarpTargetOwned(FName WarpTargetName) const
+{
+    if (WarpTargetName.IsNone())
+    {
+        return false;
+    }
+    for (const TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+    {
+        if (Pair.Value.Spec.Executor == EAlignmentExecutor::MotionWarping
+            && Pair.Value.Spec.WarpTargetName == WarpTargetName)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 // ============================================================================
@@ -1288,7 +2061,7 @@ bool UTargetingComponent::SetupDirectionalWarp(const FVector& InputDirection, co
 // INTERNAL HELPERS - TARGET FINDING
 // ============================================================================
 
-void UTargetingComponent::GetActorsInRange(TArray<AActor*>& OutActors) const
+void UTargetingComponent::GetActorsInRange(TArray<AActor*>& OutActors, float MaxRange) const
 {
     // Lazy fetch owner for test compatibility
     const ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
@@ -1300,7 +2073,10 @@ void UTargetingComponent::GetActorsInRange(TArray<AActor*>& OutActors) const
 
     const FVector OwnerLocation = Owner->GetActorLocation();
     const UTargetingSettings* Settings = GetEffectiveSettings();
-    const float SearchRadius = Settings ? Settings->MaxTargetDistance : 1000.0f;
+    const float ConfiguredRadius = Settings ? Settings->MaxTargetDistance : 1000.0f;
+    const float SearchRadius = FMath::IsFinite(MaxRange) && MaxRange >= 0.0f
+        ? FMath::Min(FMath::Max(0.0f, ConfiguredRadius), MaxRange)
+        : FMath::Max(0.0f, ConfiguredRadius);
 
     TArray<FOverlapResult> Overlaps;
     FCollisionQueryParams QueryParams;

@@ -347,6 +347,42 @@ enum class EAttackWindowKind : uint8
 };
 
 UENUM(BlueprintType)
+enum class EThreatInvalidationReason : uint8
+{
+	None,
+	TargetChanged,
+	PathChanged,
+	WindowChanged,
+	MontageRateChanged,
+	AttackGenerationChanged,
+	AttackEnded,
+	AttackConsumed,
+	OwnerInvalid
+};
+
+UENUM(BlueprintType)
+enum class EThreatRefreshReason : uint8
+{
+	BlockPressed,
+	PredictionPublished,
+	PredictionInvalidated,
+	TargetChanged,
+	WindowChanged,
+	GuardedTimer,
+	ManualRevalidation
+};
+
+UENUM(BlueprintType)
+enum class EThreatClearReason : uint8
+{
+	BlockReleased,
+	NoCandidates,
+	PairedTakeover,
+	OwnerDeath,
+	ComponentEndPlay
+};
+
+UENUM(BlueprintType)
 enum class EAttackConsumeReason : uint8
 {
 	PerfectParry,
@@ -362,6 +398,34 @@ enum class EDefenseAlignmentPolicy : uint8
 	GuardFacing,
 	BlockContact,
 	PerfectParryBridge
+};
+
+UENUM(BlueprintType)
+enum class EDefenseAlignmentPriority : uint8
+{
+	GuardFacing,
+	ActiveAttackWarp,
+	BlockContact,
+	PairedOrParryBridge,
+	Terminal
+};
+
+UENUM(BlueprintType)
+enum class EAlignmentExecutor : uint8
+{
+	None,
+	CharacterMovement,
+	MotionWarping
+};
+
+UENUM(BlueprintType)
+enum class EAlignmentReleaseReason : uint8
+{
+	OwnerCompleted,
+	OwnerCancelled,
+	TargetInvalid,
+	Death,
+	ComponentTeardown
 };
 
 UENUM(BlueprintType)
@@ -2627,6 +2691,103 @@ struct FDefenseAlignmentRequestSpec
 };
 
 USTRUCT(BlueprintType)
+struct FAlignmentRequestHandle
+{
+	GENERATED_BODY()
+
+	FAlignmentRequestHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FAlignmentRequestHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FAlignmentRequestHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FAlignmentRequestHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FAlignmentRequestHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UTargetingComponent;
+};
+
+/** Opaque token returned to the owner of a scoped defense-configuration override. */
+USTRUCT(BlueprintType)
+struct FDefenseConfigurationOverrideHandle
+{
+	GENERATED_BODY()
+
+	FDefenseConfigurationOverrideHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FDefenseConfigurationOverrideHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FDefenseConfigurationOverrideHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FDefenseConfigurationOverrideHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FDefenseConfigurationOverrideHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UCombatComponent;
+};
+
+USTRUCT(BlueprintType)
+struct FAlignmentRequestSpec
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FName OwnerId = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	int32 OwnerGeneration = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EDefenseAlignmentPriority Priority = EDefenseAlignmentPriority::GuardFacing;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EAlignmentExecutor Executor = EAlignmentExecutor::None;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> Target;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FRotator DesiredRotation = FRotator::ZeroRotator;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float MaximumTurnRate = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float RemainingTurnBudget = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float MaximumTranslation = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FName WarpTargetName = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	bool bTrackTargetRotation = true;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	bool bWarpTranslation = false;
+};
+
+USTRUCT(BlueprintType)
 struct FDefenseResolution
 {
 	GENERATED_BODY()
@@ -2656,7 +2817,19 @@ struct FDefenseResolution
 	FDefensePresentationPayload Presentation;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName PresentationRow = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	EDefensePresentationFallbackLevel PresentationFallback = EDefensePresentationFallbackLevel::NoPresentation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefensePresentationPayload AttackerPresentation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName AttackerPresentationRow = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefensePresentationFallbackLevel AttackerPresentationFallback = EDefensePresentationFallbackLevel::NoPresentation;
 };
 
 USTRUCT(BlueprintType)

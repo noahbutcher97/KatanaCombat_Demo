@@ -3,6 +3,8 @@
 
 #include "Core/HitReactionComponent.h"
 #include "Core/CombatComponent.h"
+#include "Core/TargetingComponent.h"
+#include "Core/WeaponComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Animation/AnimInstance.h"
@@ -11,9 +13,14 @@
 #include "Data/HitReactionData.h"
 #include "Data/CombatSettings.h"
 #include "Data/AttackData.h"
+#include "Data/DefenseConfiguration.h"
+#include "Data/WeaponData.h"
+#include "Data/CombatFXData.h"
 #include "Characters/BaseCombatCharacter.h"
+#include "Utilities/CinematicEffectsUtilityLibrary.h"
 #include "Interfaces/DamageableInterface.h"
 #include "GameplayTagContainer.h"
+#include "AlphaBlend.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 
@@ -51,6 +58,18 @@ void UHitReactionComponent::BeginPlay()
                 *OwnerCharacter->GetName());
         }
     }
+}
+
+void UHitReactionComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	ReleasePresentationAlignment(false);
+	ReleasePresentationAlignment(true);
+	if (AnimInstance)
+	{
+		AnimInstance->OnMontageBlendingOut.RemoveDynamic(
+			this, &UHitReactionComponent::OnAnyMontageBlendingOut);
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void UHitReactionComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
@@ -247,6 +266,126 @@ void UHitReactionComponent::BroadcastCommittedDamage(
 	{
 		OnDamageReceived.Broadcast(Commit.HitInfo);
 	}
+}
+
+bool UHitReactionComponent::PlayDefensePresentation(const FDefenseResolution& Resolution)
+{
+	if (!Resolution.InteractionId.IsValid()
+		|| Resolution.InteractionId.Key.Defender.Get() != GetOwner()
+		|| Resolution.Decision.Outcome != EDefenseOutcome::NormalBlock
+		|| !Resolution.bHasActualContact
+		|| !Resolution.ActualContact.bIsValid)
+	{
+		return false;
+	}
+#if WITH_AUTOMATION_TESTS
+	++DefensePresentationAttemptCountForTesting;
+#endif
+
+	bool bPresented = PlayCommittedDefenseMontage(
+		Resolution, Resolution.Presentation, false);
+	const FHitReactionInfo& HitInfo = Resolution.ActualContact.HitInfo;
+	ABaseCombatCharacter* Source = Cast<ABaseCombatCharacter>(HitInfo.Attacker);
+	const UWeaponComponent* SourceWeapon = Source ? Source->WeaponComponent.Get() : nullptr;
+	const UWeaponData* WeaponData = SourceWeapon ? SourceWeapon->WeaponData.Get() : nullptr;
+	const UCombatFXData* FXData = WeaponData ? WeaponData->CombatFXData.Get() : nullptr;
+	USoundBase* WeaponAudioFallback = WeaponData ? WeaponData->HitSound.Get() : nullptr;
+	UNiagaraSystem* WeaponVFXFallback = WeaponData ? WeaponData->HitVFX.Get() : nullptr;
+	const UAttackData* AttackData = Resolution.Decision.SelectedAttack
+		? Resolution.Decision.SelectedAttack.Get()
+		: HitInfo.AttackData.Get();
+	const EAttackType AttackType = AttackData ? AttackData->AttackType : EAttackType::None;
+
+	const FImpactAudioConfig AudioConfig = Resolution.Presentation.bOverrideImpactAudio
+		? Resolution.Presentation.ImpactAudio
+		: FImpactAudioConfig();
+	bPresented = UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
+		GetWorld(),
+		AudioConfig,
+		FXData,
+		AttackType,
+		WeaponAudioFallback,
+		HitInfo.ImpactPoint,
+		true,
+		Source) || bPresented;
+	if (!IsValid(this) || !IsValid(GetOwner()))
+	{
+		return bPresented;
+	}
+
+	const FImpactVFXConfig VFXConfig = Resolution.Presentation.bOverrideImpactVFX
+		? Resolution.Presentation.ImpactVFX
+		: FImpactVFXConfig();
+	bPresented = UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
+		GetWorld(),
+		VFXConfig,
+		FXData,
+		AttackType,
+		WeaponVFXFallback,
+		HitInfo.ImpactPoint,
+		HitInfo.ImpactNormal,
+		true,
+		HitInfo.BoneName) || bPresented;
+	if (!IsValid(this) || !IsValid(GetOwner()))
+	{
+		return bPresented;
+	}
+
+	if (Resolution.Presentation.bOverrideHitstop
+		&& Resolution.Presentation.Hitstop.IsActive()
+		&& IsValid(Source))
+	{
+		UCinematicEffectsUtilityLibrary::ApplyHitstop(
+			Source,
+			GetOwner(),
+			Resolution.Presentation.Hitstop,
+			true);
+		bPresented = true;
+	}
+	return bPresented;
+}
+
+bool UHitReactionComponent::PlayAttackerResponse(const FDefenseResolution& Resolution)
+{
+	AActor* CommittedAttacker = Resolution.Stage == EDefenseQueryStage::InputIntent
+		? Resolution.InteractionId.Key.AttackInstance.Attacker.Get()
+		: Resolution.ActualContact.HitInfo.Attacker.Get();
+	if (!Resolution.InteractionId.IsValid() || CommittedAttacker != GetOwner())
+	{
+		return false;
+	}
+	if (Resolution.Decision.AttackerResponse == EAttackerResponse::None
+		|| Resolution.Decision.AttackerResponse == EAttackerResponse::Continue)
+	{
+		return false;
+	}
+#if WITH_AUTOMATION_TESTS
+	++AttackerResponseAttemptCountForTesting;
+#endif
+
+	if (PlayCommittedDefenseMontage(
+		Resolution, Resolution.AttackerPresentation, true))
+	{
+		return true;
+	}
+
+	if (Resolution.Decision.AttackerResponse != EAttackerResponse::Recoil)
+	{
+		return false;
+	}
+
+	UAnimInstance* Instance = ResolveAnimInstance();
+	UAnimMontage* ActiveMontage = Instance ? Instance->GetCurrentActiveMontage() : nullptr;
+	if (!Instance || !ActiveMontage)
+	{
+		return false;
+	}
+
+	const float BlendOutSeconds = FMath::Max(
+		0.0f,
+		Resolution.AttackerPresentation.BlendOutSeconds);
+	Instance->Montage_StopWithBlendOut(FAlphaBlendArgs(BlendOutSeconds), ActiveMontage);
+	return true;
 }
 
 void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
@@ -503,6 +642,162 @@ ACharacter* UHitReactionComponent::GetOwnerCharacterCached() const
     }
     // Fallback for test environments where BeginPlay may not be called
     return Cast<ACharacter>(GetOwner());
+}
+
+UAnimInstance* UHitReactionComponent::ResolveAnimInstance()
+{
+	if (IsValid(AnimInstance))
+	{
+		return AnimInstance;
+	}
+	ACharacter* Character = GetOwnerCharacterCached();
+	AnimInstance = Character && Character->GetMesh()
+		? Character->GetMesh()->GetAnimInstance()
+		: nullptr;
+	return AnimInstance;
+}
+
+void UHitReactionComponent::ReleasePresentationAlignment(const bool bAttackerResponse)
+{
+	FAlignmentRequestHandle& Handle = bAttackerResponse
+		? AttackerResponseAlignmentHandle
+		: DefensePresentationAlignmentHandle;
+	if (Handle.IsValid())
+	{
+		if (const ABaseCombatCharacter* Character = Cast<ABaseCombatCharacter>(GetOwnerCharacterCached()))
+		{
+			if (UTargetingComponent* Targeting = Character->GetTargetingComponent())
+			{
+				Targeting->ReleaseAlignmentRequest(Handle);
+			}
+		}
+		Handle = {};
+	}
+	if (bAttackerResponse)
+	{
+		AttackerResponseMontage.Reset();
+	}
+	else
+	{
+		DefensePresentationMontage.Reset();
+	}
+}
+
+bool UHitReactionComponent::PlayCommittedDefenseMontage(
+	const FDefenseResolution& Resolution,
+	const FDefensePresentationPayload& Payload,
+	const bool bAttackerResponse)
+{
+	if (!IsValid(Payload.Montage) || bReactionsSuppressed)
+	{
+		return false;
+	}
+	if (!Payload.MontageSection.IsNone()
+		&& Payload.Montage->GetSectionIndex(Payload.MontageSection) == INDEX_NONE)
+	{
+		return false;
+	}
+
+	UAnimInstance* Instance = ResolveAnimInstance();
+	ABaseCombatCharacter* Character = Cast<ABaseCombatCharacter>(GetOwnerCharacterCached());
+	if (!Instance || !Character)
+	{
+		return false;
+	}
+
+	ReleasePresentationAlignment(bAttackerResponse);
+	if (Payload.bEnableRotationWarp)
+	{
+		AActor* AlignmentTarget = bAttackerResponse
+			? Resolution.InteractionId.Key.Defender.Get()
+			: Resolution.AlignmentRequest.Target.Get();
+		if (!IsValid(AlignmentTarget))
+		{
+			AlignmentTarget = Resolution.ActualContact.HitInfo.Attacker;
+		}
+		UTargetingComponent* Targeting = Character->GetTargetingComponent();
+		FVector ToTarget = AlignmentTarget
+			? AlignmentTarget->GetActorLocation() - Character->GetActorLocation()
+			: FVector::ZeroVector;
+		ToTarget.Z = 0.0f;
+		if (Targeting && IsValid(AlignmentTarget) && !ToTarget.IsNearlyZero())
+		{
+			const UDefenseConfiguration* Configuration = Character->CombatComponent
+				? Character->CombatComponent->GetEffectiveDefenseConfiguration()
+				: GetDefault<UDefenseConfiguration>();
+			const float MaximumTurnRate = bAttackerResponse
+				? (Configuration ? Configuration->DefenseTurnRate : 180.0f)
+				: Resolution.AlignmentRequest.MaximumTurnRate;
+			const float MaximumAutomaticTurn = Configuration
+				? FMath::Max(0.0f, Configuration->MaximumAutomaticTurn)
+				: 70.0f;
+			const float CurrentYawError = FMath::Abs(FMath::FindDeltaAngleDegrees(
+				Character->GetActorRotation().Yaw,
+				ToTarget.Rotation().Yaw));
+			const float RemainingTurnBudget = bAttackerResponse
+				? FMath::Min(MaximumAutomaticTurn, CurrentYawError)
+				: Resolution.AlignmentRequest.RemainingTurnBudget;
+			if (FMath::IsFinite(MaximumTurnRate)
+				&& FMath::IsFinite(RemainingTurnBudget)
+				&& MaximumTurnRate > UE_SMALL_NUMBER
+				&& RemainingTurnBudget > UE_SMALL_NUMBER)
+			{
+				int32& NextGeneration = bAttackerResponse
+					? NextAttackerResponseAlignmentGeneration
+					: NextDefensePresentationAlignmentGeneration;
+				const int32 Generation = FMath::Max(1, NextGeneration);
+				NextGeneration = NextGeneration == MAX_int32 ? 1 : NextGeneration + 1;
+
+				FAlignmentRequestSpec Spec;
+				Spec.OwnerId = bAttackerResponse
+					? TEXT("AttackerResponsePresentation")
+					: TEXT("DefenseContactPresentation");
+				Spec.OwnerGeneration = Generation;
+				Spec.Priority = EDefenseAlignmentPriority::BlockContact;
+				Spec.Executor = EAlignmentExecutor::MotionWarping;
+				Spec.Target = AlignmentTarget;
+				Spec.DesiredRotation = ToTarget.Rotation();
+				Spec.MaximumTurnRate = FMath::Max(0.0f, MaximumTurnRate);
+				Spec.RemainingTurnBudget = FMath::Max(0.0f, RemainingTurnBudget);
+				Spec.MaximumTranslation = bAttackerResponse
+					? 0.0f
+					: FMath::Max(0.0f, Resolution.AlignmentRequest.MaximumTranslation);
+				Spec.WarpTargetName = bAttackerResponse
+					? TEXT("AttackerResponseTarget")
+					: TEXT("DefenseContactTarget");
+				Spec.bTrackTargetRotation = true;
+				Spec.bWarpTranslation = Spec.MaximumTranslation > UE_SMALL_NUMBER;
+				FAlignmentRequestHandle& Handle = bAttackerResponse
+					? AttackerResponseAlignmentHandle
+					: DefensePresentationAlignmentHandle;
+				Handle = Targeting->AcquireAlignmentRequest(Spec);
+			}
+		}
+	}
+
+	const float PlayedLength = Instance->Montage_PlayWithBlendIn(
+		Payload.Montage,
+		FAlphaBlendArgs(FMath::Max(0.0f, Payload.BlendInSeconds)));
+	if (PlayedLength <= 0.0f)
+	{
+		ReleasePresentationAlignment(bAttackerResponse);
+		return false;
+	}
+	if (!Payload.MontageSection.IsNone()
+		&& Payload.Montage->GetSectionIndex(Payload.MontageSection) != INDEX_NONE)
+	{
+		Instance->Montage_JumpToSection(Payload.MontageSection, Payload.Montage);
+	}
+
+	if (bAttackerResponse)
+	{
+		AttackerResponseMontage = Payload.Montage;
+	}
+	else
+	{
+		DefensePresentationMontage = Payload.Montage;
+	}
+	return true;
 }
 
 // ============================================================================
@@ -830,6 +1125,15 @@ bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
 
 void UHitReactionComponent::OnAnyMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
 {
+	if (DefensePresentationMontage.Get() == Montage)
+	{
+		ReleasePresentationAlignment(false);
+	}
+	if (AttackerResponseMontage.Get() == Montage)
+	{
+		ReleasePresentationAlignment(true);
+	}
+
     // Filter: Only process if this is the death montage we're waiting for
     if (!bDeathOutcomePending || !PendingDeathMontage || Montage != PendingDeathMontage)
     {

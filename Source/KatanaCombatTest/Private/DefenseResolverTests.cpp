@@ -552,6 +552,14 @@ bool FDefenseThreatRankingOrderTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Stale high confidence is downgraded before ranking"),
 		SelectId(StaleHigh, FreshHigh), uint64{50});
 
+	FAttackExecutionSnapshot StaleCredible = MakeThreat(50, 0.25f, 10.0f, 100.0f);
+	StaleCredible.PredictedContact.PredictionSimulationTimestamp = 0.0;
+	FAttackExecutionSnapshot FreshGuardOnly = MakeThreat(
+		1, 0.25f, 10.0f, 100.0f, EDefensePredictionConfidence::Low);
+	FreshGuardOnly.bHasCredibleIntent = false;
+	TestEqual(TEXT("Stale confidence also removes credible-intent priority"),
+		SelectId(StaleCredible, FreshGuardOnly), uint64{1});
+
 	Context.CurrentSimulationTime = 0.0;
 	FAttackExecutionSnapshot Consumed = MakeThreat(1, 0.01f, 0.0f, 1.0f);
 	Consumed.bAttackConsumed = true;

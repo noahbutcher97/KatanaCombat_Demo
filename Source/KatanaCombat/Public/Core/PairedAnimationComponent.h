@@ -60,6 +60,9 @@ class KATANACOMBAT_API UPairedAnimationComponent : public UActorComponent
 	friend class FCounter_CounterAttackRequiresWindow;
 	friend class FCounter_ChainParryStaggersEnemy;
 	friend class FCounter_ChainNullAttackerFails;
+	friend class FCounter_ChainAttackInputAdvancesCounter;
+	friend class FCounter_ChainAdvanceRejectsNullAttackData;
+	friend class FDefenseInput_ChainPreflightFailureExpires;
 
 	// Paired animation tests
 	friend class FPairedAnim_PartnerTracking;

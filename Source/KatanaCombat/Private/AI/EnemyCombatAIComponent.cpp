@@ -187,22 +187,13 @@ bool UEnemyCombatAIComponent::ExecuteAttack()
 		return false;
 	}
 
-	if (AActor* Target = CombatTarget.Get())
-	{
-		FVector ToTarget = Target->GetActorLocation() - OwnerChar->GetActorLocation();
-		ToTarget.Z = 0.0f;
-		if (!ToTarget.IsNearlyZero())
-		{
-			OwnerChar->SetActorRotation(ToTarget.Rotation());
-		}
-	}
-
 	// Transition to attacking state
 	SetState(EEnemyAIState::Attacking);
 
 	const EInputType AttackInputType = SelectedAttack->AttackType == EAttackType::Heavy
 		? EInputType::HeavyAttack
 		: EInputType::LightAttack;
+	CombatComponent->SetAttackIntentTarget(CombatTarget.Get());
 	if (!CombatComponent->ExecuteAttackData(SelectedAttack, CombatTarget.Get(), AttackInputType))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: Failed to execute attack through CombatComponent"),
