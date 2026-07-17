@@ -191,6 +191,53 @@ FDefenseStageAlignmentLimits ResolveDefenseStageAlignmentLimits(
 	}
 	return Limits;
 }
+
+FName DefenseStageName(const EChainCounterState State)
+{
+	const UEnum* Enum = StaticEnum<EChainCounterState>();
+	return Enum
+		? FName(*Enum->GetNameStringByValue(static_cast<int64>(State)))
+		: NAME_None;
+}
+
+void AppendDefenseSequenceTelemetry(
+	UCombatComponent* Sink,
+	const FDefenseSequenceContext& Sequence,
+	const EDefenseTelemetryEvent Event,
+	const EChainCounterState Stage,
+	const FName CleanupReason = NAME_None)
+{
+	if (!Sink || !Sequence.OriginatingInteraction.IsValid())
+	{
+		return;
+	}
+	FDefenseTelemetryRecord Record = DefenseTelemetry::FromResolution(
+		Sequence.OriginatingResolution,
+		Event);
+	Record.AttackInstance = Sequence.OriginatingAttack.AttackInstance;
+	Record.AttackWindow = Sequence.OriginatingAttack.ActiveParryWindow;
+	Record.StageGeneration = Sequence.StageGeneration;
+	Record.StageName = DefenseStageName(Stage);
+	Record.Defender = Sequence.Defender;
+	Record.Attacker = Sequence.SourceAttacker;
+	Record.Candidate = Sequence.SourceAttacker;
+	Record.CandidateDisposition = TEXT("RetainedSequence");
+	Record.CleanupReason = CleanupReason;
+	Record.TimeToDeadline = Sequence.ResponseDeadlineUnscaled > 0.0
+		? static_cast<float>(FMath::Max(
+			0.0,
+			Sequence.ResponseDeadlineUnscaled - FPlatformTime::Seconds()))
+		: -1.0f;
+	if (Sequence.Defender.IsValid())
+	{
+		Record.OwnerTransform = Sequence.Defender->GetActorTransform();
+	}
+	if (Sequence.SourceAttacker.IsValid())
+	{
+		Record.CounterpartTransform = Sequence.SourceAttacker->GetActorTransform();
+	}
+	Sink->AppendDefenseTelemetry(MoveTemp(Record));
+}
 }
 
 // ============================================================================
@@ -1090,6 +1137,12 @@ void UPairedAnimationComponent::CleanupDefenseSequence(
 	UCombatComponent* DefenderCombat = CachedCombatComponent
 		? CachedCombatComponent.Get()
 		: Defender ? Defender->CombatComponent.Get() : nullptr;
+	AppendDefenseSequenceTelemetry(
+		DefenderCombat,
+		Sequence,
+		EDefenseTelemetryEvent::Cleanup,
+		Sequence.ChainState,
+		Reason);
 	if (Defender)
 	{
 		Defender->OnCharacterDying.RemoveDynamic(
@@ -1413,6 +1466,11 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 	ActiveChainTarget = SourceAttacker;
 	ActiveChainAttackData = nullptr;
 	ChainState = EChainCounterState::ParryActive;
+	AppendDefenseSequenceTelemetry(
+		DefenderCombat,
+		ActiveDefenseSequence,
+		EDefenseTelemetryEvent::StageStart,
+		EChainCounterState::ParryActive);
 
 	if (bUsePairedBridge)
 	{
@@ -1822,6 +1880,11 @@ bool UPairedAnimationComponent::EnterDefenseCounterWindow(
 	ActiveDefenseSequence.BridgeFallbackHandle = {};
 	ChainState = EChainCounterState::CounterWindow;
 	ActiveDefenseSequence.ChainState = EChainCounterState::CounterWindow;
+	AppendDefenseSequenceTelemetry(
+		CachedCombatComponent.Get(),
+		ActiveDefenseSequence,
+		EDefenseTelemetryEvent::StageTransition,
+		EChainCounterState::CounterWindow);
 	if (UPairedAnimationData* StageData = ActiveDefenseSequence.ActivePairedData.Get())
 	{
 		const FPairedChainTransitionPolicy& Policy = StageData->ChainTransitionPolicy;
@@ -1941,6 +2004,11 @@ bool UPairedAnimationComponent::HandleDefenseAutoContinueMarker(
 
 	ChainState = EChainCounterState::FinisherReady;
 	ActiveDefenseSequence.ChainState = EChainCounterState::FinisherReady;
+	AppendDefenseSequenceTelemetry(
+		CachedCombatComponent.Get(),
+		ActiveDefenseSequence,
+		EDefenseTelemetryEvent::StageTransition,
+		EChainCounterState::FinisherReady);
 	UCombatComponent* DefenderCombat = CachedCombatComponent.Get();
 	const UDefenseConfiguration* Configuration = DefenderCombat
 		? DefenderCombat->GetEffectiveDefenseConfiguration()
@@ -2051,6 +2119,11 @@ bool UPairedAnimationComponent::HandleOwnerPairedMontageEnded(
 
 		ChainState = EChainCounterState::FinisherReady;
 		ActiveDefenseSequence.ChainState = EChainCounterState::FinisherReady;
+		AppendDefenseSequenceTelemetry(
+			CachedCombatComponent.Get(),
+			ActiveDefenseSequence,
+			EDefenseTelemetryEvent::StageTransition,
+			EChainCounterState::FinisherReady);
 		ActiveDefenseSequence.AttackerMontageInstanceId = INDEX_NONE;
 		ActiveDefenseSequence.VictimMontageInstanceId = INDEX_NONE;
 		const UDefenseConfiguration* Configuration = CachedCombatComponent
@@ -2803,6 +2876,14 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 		&& NewDefenderAlignment.IsValid()
 		&& NewSourceAlignment.IsValid()
 		&& (!PairedAnimData->bApplySlowMotion || bAcquiredNewTimeLease);
+	if (bOwnershipReady)
+	{
+		AppendDefenseSequenceTelemetry(
+			DefenderCombat,
+			ActiveDefenseSequence,
+			EDefenseTelemetryEvent::StageStart,
+			SuccessState);
+	}
 	bool bDefenderStarted = false;
 	bool bSourceStarted = false;
 	bool bUsedPlaybackOverride = false;

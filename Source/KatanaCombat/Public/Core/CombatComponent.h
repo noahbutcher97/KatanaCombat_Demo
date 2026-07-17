@@ -10,6 +10,7 @@
 #include "CombatTypes.h"
 #include "Data/PairedAnimationTypes.h"
 #include "Data/ProceduralAnimationTypes.h"
+#include "Debug/DefenseTelemetry.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "CombatComponent.generated.h"
 
@@ -125,6 +126,12 @@ public:
 
 	/** Immutable process-local identity used as the deterministic threat tie-break. */
 	FCombatantStableId GetCombatantStableId() const { return CombatantStableId; }
+
+	/** Append one diagnostic observation to this combatant's bounded telemetry ring. */
+	void AppendDefenseTelemetry(FDefenseTelemetryRecord Record);
+	const TArray<FDefenseTelemetryRecord>& GetDefenseTelemetry() const { return DefenseTelemetryRecords; }
+	void ClearDefenseTelemetry();
+	static constexpr int32 GetDefenseTelemetryCapacity() { return DefenseTelemetryCapacity; }
 
 	/** Build a value snapshot of the currently published attack state. */
 	FAttackExecutionSnapshot BuildAttackExecutionSnapshot() const;
@@ -1043,6 +1050,9 @@ protected:
 	UPROPERTY(Transient)
 	TMap<FDefenseInteractionKey, FDefenseInteractionCacheRecord> DefenseInteractionCache;
 	uint64 NextDefenseInteractionEpoch = 0;
+	TArray<FDefenseTelemetryRecord> DefenseTelemetryRecords;
+	uint64 NextDefenseTelemetrySequence = 0;
+	static constexpr int32 DefenseTelemetryCapacity = 512;
 	uint64 NextDefenseTerminalSequence = 0;
 	static constexpr double DefenseInteractionTombstoneSeconds = 1.0;
 	static constexpr int32 DefenseTerminalInteractionCacheCap = 128;

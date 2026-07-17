@@ -14,6 +14,7 @@ public class KatanaCombatEditor : ModuleRules
             "CoreUObject",
             "Engine",
             "AnimationCore",  // Bone indices for montage analysis
+            "GameplayTags",   // Defense manifest and presentation validation
             "KatanaCombat"    // Our runtime module
         });
 
@@ -28,7 +29,10 @@ public class KatanaCombatEditor : ModuleRules
             "ContentBrowser",       // Asset browser integration
             "InputCore",            // Input handling
             "EnhancedInput",        // Proof input action/context wiring
+            "Niagara",              // Defense impact dependency inventory
+            "MotionWarping",        // Role-specific proof montage warp validation
             "AnimGraph",            // Optional: For anim notify access
+            "BlueprintGraph",       // Guard AnimBP state and bIsBlocking graph validation
             "Blutility",            // Editor Utility Objects for testing
             "LevelEditor",          // Menu extension for Montage Analyzer window
             "AdvancedPreviewScene", // Preview scene for montage analysis dashboards

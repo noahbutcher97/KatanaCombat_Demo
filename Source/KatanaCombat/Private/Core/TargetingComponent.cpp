@@ -11,6 +11,7 @@
 #include "DrawDebugHelpers.h"
 #include "Engine/OverlapResult.h"
 #include "Engine/World.h"
+#include "HAL/PlatformTime.h"
 #include "Interfaces/DamageableInterface.h"
 #include "Interfaces/TeamMemberInterface.h"
 #include "Data/CombatSettings.h"
@@ -19,9 +20,102 @@
 #include "Data/MotionWarpingSettings.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Core/CombatComponent.h"
+#include "Core/PairedAnimationComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "RootMotionModifier.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTargeting, Log, All);
+
+namespace
+{
+struct FAlignmentTelemetryContext
+{
+	UCombatComponent* Sink = nullptr;
+	const FDefenseSequenceContext* Sequence = nullptr;
+};
+
+const FDefenseSequenceContext* FindDefenseSequenceForParticipants(
+	AActor* Owner,
+	AActor* Target)
+{
+	for (AActor* Candidate : {Owner, Target})
+	{
+		const UPairedAnimationComponent* Paired = Candidate
+			? Candidate->FindComponentByClass<UPairedAnimationComponent>()
+			: nullptr;
+		if (!Paired)
+		{
+			continue;
+		}
+		const FDefenseSequenceContext& Sequence = Paired->GetActiveDefenseSequenceContext();
+		if (Sequence.OriginatingInteraction.IsValid()
+			&& (Sequence.Defender.Get() == Owner || Sequence.SourceAttacker.Get() == Owner)
+			&& (Sequence.Defender.Get() == Target || Sequence.SourceAttacker.Get() == Target))
+		{
+			return &Sequence;
+		}
+	}
+	return nullptr;
+}
+
+FAlignmentTelemetryContext ResolveAlignmentTelemetryContext(
+	ACharacter* Owner,
+	const FAlignmentRequestSpec& Spec)
+{
+	FAlignmentTelemetryContext Context;
+	Context.Sequence = FindDefenseSequenceForParticipants(Owner, Spec.Target.Get());
+	AActor* SinkActor = Context.Sequence && Context.Sequence->Defender.IsValid()
+		? Context.Sequence->Defender.Get()
+		: Owner;
+	Context.Sink = SinkActor ? SinkActor->FindComponentByClass<UCombatComponent>() : nullptr;
+	return Context;
+}
+
+FDefenseTelemetryRecord MakeAlignmentTelemetry(
+	ACharacter* Owner,
+	const FAlignmentRequestSpec& Spec,
+	const EDefenseTelemetryEvent Event,
+	const FAlignmentTelemetryContext& Context)
+{
+	FDefenseTelemetryRecord Record = Context.Sequence
+		? DefenseTelemetry::FromResolution(Context.Sequence->OriginatingResolution, Event)
+		: FDefenseTelemetryRecord();
+	Record.Event = Event;
+	Record.StageGeneration = Context.Sequence
+		? Context.Sequence->StageGeneration
+		: Spec.OwnerGeneration;
+	Record.StageName = Spec.OwnerId;
+	Record.AlignmentOwner = Spec.OwnerId;
+	Record.AlignmentExecutor = Spec.Executor;
+	Record.Candidate = Spec.Target;
+	Record.MaximumTurnRate = Spec.MaximumTurnRate;
+	Record.RemainingTurnBudget = Spec.RemainingTurnBudget;
+	Record.OwnerTransform = Owner ? Owner->GetActorTransform() : FTransform::Identity;
+	Record.CounterpartTransform = Spec.Target.IsValid()
+		? Spec.Target->GetActorTransform()
+		: FTransform::Identity;
+	if (Context.Sequence && Context.Sequence->ResponseDeadlineUnscaled > 0.0)
+	{
+		Record.TimeToDeadline = static_cast<float>(FMath::Max(
+			0.0,
+			Context.Sequence->ResponseDeadlineUnscaled - FPlatformTime::Seconds()));
+	}
+	return Record;
+}
+
+bool GetPelvisLocation(const ACharacter* Character, FVector& OutLocation)
+{
+	const USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	static const FName PelvisBone(TEXT("pelvis"));
+	if (!Mesh || !Mesh->DoesSocketExist(PelvisBone))
+	{
+		OutLocation = FVector::ZeroVector;
+		return false;
+	}
+	OutLocation = Mesh->GetSocketLocation(PelvisBone);
+	return true;
+}
+}
 
 UTargetingComponent::UTargetingComponent()
 {
@@ -66,6 +160,9 @@ void UTargetingComponent::TickComponent(
         return;
     }
 
+    const FVector BeforeLocation = OwnerCharacter->GetActorLocation();
+	FVector BeforePelvis = FVector::ZeroVector;
+	const bool bHadPelvis = GetPelvisLocation(OwnerCharacter, BeforePelvis);
     const FRotator CurrentRotation = OwnerCharacter->GetActorRotation();
     const FRotator DesiredRotation = ResolveAlignmentRotation(ActiveRecord->Spec);
     const float YawError = FMath::FindDeltaAngleDegrees(
@@ -102,6 +199,33 @@ void UTargetingComponent::TickComponent(
         ActiveRecord->Spec.RemainingTurnBudget = FMath::Max(
             0.0f,
             ActiveRecord->Spec.RemainingTurnBudget - AppliedYaw);
+
+		const FAlignmentTelemetryContext TelemetryContext =
+			ResolveAlignmentTelemetryContext(OwnerCharacter, ActiveRecord->Spec);
+		if (TelemetryContext.Sink)
+		{
+			FDefenseTelemetryRecord Telemetry = MakeAlignmentTelemetry(
+				OwnerCharacter,
+				ActiveRecord->Spec,
+				EDefenseTelemetryEvent::AlignmentFrame,
+				TelemetryContext);
+			Telemetry.FrameSimulationDelta = DeltaTime;
+			Telemetry.AppliedFrameYaw = AppliedYaw;
+			Telemetry.InitialYawError = FMath::Abs(YawError);
+			Telemetry.FinalFrameYawError = FMath::Abs(FMath::FindDeltaAngleDegrees(
+				OwnerCharacter->GetActorRotation().Yaw,
+				DesiredRotation.Yaw));
+			Telemetry.RemainingYawError = Telemetry.FinalFrameYawError;
+			Telemetry.FrameDisplacement = OwnerCharacter->GetActorLocation() - BeforeLocation;
+			Telemetry.UnexpectedDisplacement = Telemetry.FrameDisplacement;
+			FVector AfterPelvis = FVector::ZeroVector;
+			if (bHadPelvis && GetPelvisLocation(OwnerCharacter, AfterPelvis))
+			{
+				Telemetry.PelvisDelta =
+					(AfterPelvis - BeforePelvis - Telemetry.FrameDisplacement).Size();
+			}
+			TelemetryContext.Sink->AppendDefenseTelemetry(MoveTemp(Telemetry));
+		}
     }
 
 #if WITH_AUTOMATION_TESTS
@@ -709,6 +833,24 @@ FAlignmentRequestHandle UTargetingComponent::AcquireAlignmentRequest(const FAlig
     Record.AcquisitionOrder = NextAlignmentAcquisitionOrder++;
     AlignmentRequests.Add(Record.Handle, Record);
     ReevaluateAlignmentRequests();
+	const FAlignmentTelemetryContext TelemetryContext =
+		ResolveAlignmentTelemetryContext(OwnerCharacter, Spec);
+	if (TelemetryContext.Sink)
+	{
+		FDefenseTelemetryRecord Telemetry = MakeAlignmentTelemetry(
+			OwnerCharacter,
+			Spec,
+			EDefenseTelemetryEvent::AlignmentRequest,
+			TelemetryContext);
+		const FRotator DesiredRotation = ResolveAlignmentRotation(Spec);
+		Telemetry.InitialYawError = OwnerCharacter
+			? FMath::Abs(FMath::FindDeltaAngleDegrees(
+				OwnerCharacter->GetActorRotation().Yaw,
+				DesiredRotation.Yaw))
+			: 0.0f;
+		Telemetry.RemainingYawError = Telemetry.InitialYawError;
+		TelemetryContext.Sink->AppendDefenseTelemetry(MoveTemp(Telemetry));
+	}
     return Record.Handle;
 }
 
@@ -856,6 +998,11 @@ bool UTargetingComponent::RegisterAlignmentModifier(
     Record.Modifier = RuntimeModifier;
     Record.Handle = Request->Handle;
     Record.LastObservedYaw = OwnerCharacter->GetActorRotation().Yaw;
+	Record.LastObservedLocation = OwnerCharacter->GetActorLocation();
+	Record.bHasTransformBaseline = true;
+	Record.bHasPelvisBaseline = GetPelvisLocation(
+		OwnerCharacter,
+		Record.LastObservedPelvisLocation);
     Record.bHasYawBaseline = true;
     RegisteredAlignmentModifiers.Add(MoveTemp(Record));
     SynchronizeAlignmentModifiers();
@@ -1078,6 +1225,12 @@ void UTargetingComponent::SynchronizeAlignmentModifiers()
             if (Modifier->GetState() == ERootMotionModifierState::Disabled)
             {
                 Registered.LastObservedYaw = OwnerCharacter->GetActorRotation().Yaw;
+				Registered.LastObservedLocation = OwnerCharacter->GetActorLocation();
+				Registered.bHasTransformBaseline = true;
+				Registered.bHasPelvisBaseline = GetPelvisLocation(
+					OwnerCharacter,
+					Registered.LastObservedPelvisLocation);
+				Registered.bHasAnimationRange = false;
                 Registered.bHasYawBaseline = true;
                 Modifier->SetState(ERootMotionModifierState::Waiting);
             }
@@ -1089,6 +1242,9 @@ void UTargetingComponent::SynchronizeAlignmentModifiers()
                 SynchronizeModifierBudget(Registered);
             }
             Registered.bHasYawBaseline = false;
+			Registered.bHasTransformBaseline = false;
+			Registered.bHasPelvisBaseline = false;
+			Registered.bHasAnimationRange = false;
             if (Modifier->GetState() == ERootMotionModifierState::Active
                 || Modifier->GetState() == ERootMotionModifierState::Waiting)
             {
@@ -1212,6 +1368,31 @@ void UTargetingComponent::OnAlignmentModifierUpdated(
         return;
     }
 
+	const float PreviousObservedYaw = Registered->LastObservedYaw;
+	const FVector CurrentLocation = OwnerCharacter->GetActorLocation();
+	const FVector FrameDisplacement = Registered->bHasTransformBaseline
+		? CurrentLocation - Registered->LastObservedLocation
+		: FVector::ZeroVector;
+	FVector CurrentPelvisLocation = FVector::ZeroVector;
+	const bool bHasCurrentPelvis = GetPelvisLocation(OwnerCharacter, CurrentPelvisLocation);
+	FVector ExpectedAuthoredDisplacement = FVector::ZeroVector;
+	float ObservedSimulationDelta = 0.0f;
+	if (Registered->bHasAnimationRange && RuntimeModifier->Animation.IsValid())
+	{
+		const FTransform AuthoredRootMotion = UMotionWarpingUtilities::ExtractRootMotionFromAnimation(
+			RuntimeModifier->Animation.Get(),
+			Registered->LastAnimationStartPosition,
+			Registered->LastAnimationEndPosition);
+		ExpectedAuthoredDisplacement = OwnerCharacter->GetActorQuat().RotateVector(
+			AuthoredRootMotion.GetTranslation());
+		if (RuntimeModifier->PlayRate > SmallRate)
+		{
+			ObservedSimulationDelta = FMath::Abs(
+				(Registered->LastAnimationEndPosition - Registered->LastAnimationStartPosition)
+				/ RuntimeModifier->PlayRate);
+		}
+	}
+
     SynchronizeModifierBudget(*Registered);
     const float EffectivePlayRate = RuntimeModifier->PlayRate;
     if (!FMath::IsFinite(EffectivePlayRate)
@@ -1234,6 +1415,55 @@ void UTargetingComponent::OnAlignmentModifierUpdated(
             Request->Spec.RemainingTurnBudget / SimulationDelta);
     }
     RuntimeModifier->WarpMaxRotationRate = EffectiveTurnRate / EffectivePlayRate;
+
+	const FAlignmentTelemetryContext TelemetryContext =
+		ResolveAlignmentTelemetryContext(OwnerCharacter, Request->Spec);
+	if (TelemetryContext.Sink)
+	{
+		FDefenseTelemetryRecord Telemetry = MakeAlignmentTelemetry(
+			OwnerCharacter,
+			Request->Spec,
+			EDefenseTelemetryEvent::AlignmentFrame,
+			TelemetryContext);
+		const FRotator DesiredRotation = ResolveAlignmentRotation(Request->Spec);
+		Telemetry.FrameSimulationDelta = ObservedSimulationDelta;
+		Telemetry.AppliedFrameYaw = Registered->bHasYawBaseline
+			? FMath::Abs(FMath::FindDeltaAngleDegrees(
+				PreviousObservedYaw,
+				OwnerCharacter->GetActorRotation().Yaw))
+			: 0.0f;
+		Telemetry.InitialYawError = Telemetry.AppliedFrameYaw + FMath::Abs(
+			FMath::FindDeltaAngleDegrees(
+				OwnerCharacter->GetActorRotation().Yaw,
+				DesiredRotation.Yaw));
+		Telemetry.FinalFrameYawError = FMath::Abs(FMath::FindDeltaAngleDegrees(
+			OwnerCharacter->GetActorRotation().Yaw,
+			DesiredRotation.Yaw));
+		Telemetry.RemainingYawError = Telemetry.FinalFrameYawError;
+		Telemetry.ConfiguredEngineWarpRate = RuntimeModifier->WarpMaxRotationRate;
+		Telemetry.FrameDisplacement = FrameDisplacement;
+		Telemetry.ExpectedAuthoredDisplacement = ExpectedAuthoredDisplacement;
+		Telemetry.ExpectedWarpDisplacement = RuntimeModifier->bWarpTranslation
+			? FrameDisplacement - ExpectedAuthoredDisplacement
+			: FVector::ZeroVector;
+		Telemetry.UnexpectedDisplacement = RuntimeModifier->bWarpTranslation
+			? FVector::ZeroVector
+			: FrameDisplacement - ExpectedAuthoredDisplacement;
+		if (Registered->bHasPelvisBaseline && bHasCurrentPelvis)
+		{
+			Telemetry.PelvisDelta =
+				(CurrentPelvisLocation - Registered->LastObservedPelvisLocation - FrameDisplacement).Size();
+		}
+		TelemetryContext.Sink->AppendDefenseTelemetry(MoveTemp(Telemetry));
+	}
+
+	Registered->LastObservedLocation = CurrentLocation;
+	Registered->LastObservedPelvisLocation = CurrentPelvisLocation;
+	Registered->bHasTransformBaseline = true;
+	Registered->bHasPelvisBaseline = bHasCurrentPelvis;
+	Registered->LastAnimationStartPosition = RuntimeModifier->PreviousPosition;
+	Registered->LastAnimationEndPosition = RuntimeModifier->CurrentPosition;
+	Registered->bHasAnimationRange = true;
 }
 
 void UTargetingComponent::OnAlignmentModifierDeactivated(

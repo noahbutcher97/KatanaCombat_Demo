@@ -172,6 +172,66 @@ void UCombatComponent::EnsureCombatantStableId()
 	}
 }
 
+void UCombatComponent::AppendDefenseTelemetry(FDefenseTelemetryRecord Record)
+{
+	if (!DefenseTelemetry::IsEnabled())
+	{
+		return;
+	}
+
+	EnsureCombatantStableId();
+	if (!Record.Defender.IsValid())
+	{
+		Record.Defender = GetOwner();
+	}
+	if (!Record.DefenderStableId.IsValid())
+	{
+		Record.DefenderStableId = CombatantStableId;
+	}
+	if (Record.Defender.IsValid() && Record.OwnerTransform.Equals(FTransform::Identity))
+	{
+		Record.OwnerTransform = Record.Defender->GetActorTransform();
+	}
+	if (Record.Attacker.IsValid())
+	{
+		if (!Record.AttackerStableId.IsValid())
+		{
+			if (const UCombatComponent* AttackerCombat =
+				Record.Attacker->FindComponentByClass<UCombatComponent>())
+			{
+				Record.AttackerStableId = AttackerCombat->GetCombatantStableId();
+			}
+		}
+		if (Record.CounterpartTransform.Equals(FTransform::Identity))
+		{
+			Record.CounterpartTransform = Record.Attacker->GetActorTransform();
+		}
+	}
+	if (Record.SimulationTimestamp == 0.0)
+	{
+		Record.SimulationTimestamp = GetWorld()
+			? static_cast<double>(GetWorld()->GetTimeSeconds())
+			: 0.0;
+	}
+	if (Record.UnscaledTimestamp == 0.0)
+	{
+		Record.UnscaledTimestamp = FPlatformTime::Seconds();
+	}
+	Record.Sequence = ++NextDefenseTelemetrySequence;
+	DefenseTelemetryRecords.Add(MoveTemp(Record));
+	const int32 Overflow = DefenseTelemetryRecords.Num() - DefenseTelemetryCapacity;
+	if (Overflow > 0)
+	{
+		DefenseTelemetryRecords.RemoveAt(0, Overflow, EAllowShrinking::No);
+	}
+}
+
+void UCombatComponent::ClearDefenseTelemetry()
+{
+	DefenseTelemetryRecords.Reset();
+	NextDefenseTelemetrySequence = 0;
+}
+
 void UCombatComponent::BeginPlay()
 {
 	Super::BeginPlay();
@@ -538,6 +598,27 @@ void UCombatComponent::FinalizeDefenseInteraction(
 	Record->Receipt.Resolution.InteractionId = Id;
 	Record->Receipt.CommitStatus = EDefenseCommitStatus::NewCommit;
 	Record->bFinalized = true;
+
+	FDefenseTelemetryRecord Telemetry = DefenseTelemetry::FromResolution(
+		Record->Receipt.Resolution,
+		EDefenseTelemetryEvent::Resolution);
+	Telemetry.CacheDisposition = TEXT("Finalized");
+	if (Record->Receipt.bAcceptsWeaponHit)
+	{
+		Telemetry.WeaponDisposition = Record->Receipt.bConsumesHitBudget
+			? TEXT("AcceptAndConsume")
+			: TEXT("AcceptWithoutConsume");
+	}
+	else
+	{
+		Telemetry.WeaponDisposition = TEXT("Reject");
+	}
+	if (!Telemetry.AttackWindow.IsValid()
+		&& LockedDefenseThreat.AttackInstance == Telemetry.AttackInstance)
+	{
+		Telemetry.AttackWindow = LockedDefenseThreat.ActiveParryWindow;
+	}
+	AppendDefenseTelemetry(MoveTemp(Telemetry));
 }
 
 bool UCombatComponent::IsDefenseInteractionFinalized(const FDefenseInteractionId& Id) const
@@ -1520,6 +1601,7 @@ void UCombatComponent::SetAttackIntentTarget(AActor* IntendedTarget)
 FDefenseThreatSelectionResult UCombatComponent::SelectDefenseThreat(double SimulationNow)
 {
 	FDefenseThreatSelectionResult Result;
+	const FCombatantStableId PreviousLockedThreatId = LockedDefenseThreatId;
 	ABaseCombatCharacter* Defender = GetOwnerCharacter();
 	UTargetingComponent* Targeting = Defender ? Defender->GetTargetingComponent() : nullptr;
 	if (Targeting && GuardAlignmentRequestHandle.IsValid())
@@ -1675,6 +1757,17 @@ FDefenseThreatSelectionResult UCombatComponent::SelectDefenseThreat(double Simul
 	bGuardThreatCandidatesExist = Result.bFound;
 	if (!Result.bFound)
 	{
+		FDefenseTelemetryRecord Telemetry;
+		Telemetry.Event = EDefenseTelemetryEvent::ThreatSelection;
+		Telemetry.SimulationTimestamp = SimulationNow;
+		Telemetry.LockedThreatStableId = PreviousLockedThreatId;
+		Telemetry.CandidateDisposition = TEXT("None");
+		Telemetry.ThreatSwitchReason = PreviousLockedThreatId.IsValid()
+			? TEXT("NoValidCandidate")
+			: TEXT("NoCandidate");
+		Telemetry.MaximumTurnRate = Context.DefenseTurnRate;
+		Telemetry.RemainingTurnBudget = Context.RemainingAutomaticTurn;
+		AppendDefenseTelemetry(MoveTemp(Telemetry));
 		LockedDefenseThreat = {};
 		LockedDefenseThreatActor.Reset();
 		LockedDefenseThreatId = {};
@@ -1702,6 +1795,38 @@ FDefenseThreatSelectionResult UCombatComponent::SelectDefenseThreat(double Simul
 	LockedDefenseThreat = Result.SelectedThreat;
 	LockedDefenseThreatId = Result.SelectedThreat.StableId;
 	LockedDefenseThreatActor = Result.SelectedThreat.AttackInstance.Attacker;
+
+	FDefenseTelemetryRecord Telemetry;
+	Telemetry.Event = EDefenseTelemetryEvent::ThreatSelection;
+	Telemetry.SimulationTimestamp = SimulationNow;
+	Telemetry.AttackInstance = Result.SelectedThreat.AttackInstance;
+	Telemetry.AttackWindow = Result.SelectedThreat.ActiveParryWindow;
+	Telemetry.Attacker = Result.SelectedThreat.AttackInstance.Attacker;
+	Telemetry.Candidate = Result.SelectedThreat.AttackInstance.Attacker;
+	Telemetry.AttackerStableId = Result.SelectedThreat.StableId;
+	Telemetry.CandidateStableId = Result.SelectedThreat.StableId;
+	Telemetry.LockedThreatStableId = Result.SelectedThreat.StableId;
+	Telemetry.CandidateDisposition = bNewThreatInteraction ? TEXT("Selected") : TEXT("Retained");
+	Telemetry.ThreatSwitchReason = !PreviousLockedThreatId.IsValid()
+		? TEXT("InitialLock")
+		: PreviousLockedThreatId == Result.SelectedThreat.StableId
+			? TEXT("LockRetained")
+			: TEXT("EarlierDeadline");
+	Telemetry.PredictedHeight = Result.SelectedThreat.PredictedContact.Height;
+	Telemetry.PredictedLane = Result.SelectedThreat.PredictedContact.Lane;
+	Telemetry.PredictedSwing = Result.SelectedThreat.SwingShape;
+	Telemetry.PredictedAxis = Result.SelectedThreat.PredictedContact.PathDirection;
+	Telemetry.InitialYawError = Result.SelectedThreat.RelativeYawDegrees;
+	Telemetry.RemainingYawError = Result.SelectedThreat.RelativeYawDegrees;
+	Telemetry.TimeToDeadline = Result.SelectedThreat.TimeToAlignmentDeadline;
+	Telemetry.MaximumTurnRate = Context.DefenseTurnRate;
+	Telemetry.RemainingTurnBudget = RemainingDefenseAutomaticTurn;
+	if (Result.SelectedThreat.AttackData)
+	{
+		Telemetry.AttackDataPath = FSoftObjectPath(
+			Result.SelectedThreat.AttackData->GetPathName());
+	}
+	AppendDefenseTelemetry(MoveTemp(Telemetry));
 	return Result;
 }
 

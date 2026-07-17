@@ -405,10 +405,17 @@ private:
     struct FRegisteredAlignmentModifier
     {
         TWeakObjectPtr<URootMotionModifier_Warp> Modifier;
-        FAlignmentRequestHandle Handle;
-        float LastObservedYaw = 0.0f;
-        bool bHasYawBaseline = false;
-    };
+		FAlignmentRequestHandle Handle;
+		float LastObservedYaw = 0.0f;
+		FVector LastObservedLocation = FVector::ZeroVector;
+		FVector LastObservedPelvisLocation = FVector::ZeroVector;
+		float LastAnimationStartPosition = 0.0f;
+		float LastAnimationEndPosition = 0.0f;
+		bool bHasYawBaseline = false;
+		bool bHasTransformBaseline = false;
+		bool bHasPelvisBaseline = false;
+		bool bHasAnimationRange = false;
+	};
 
     // ============================================================================
     // STATE

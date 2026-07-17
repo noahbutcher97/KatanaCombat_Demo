@@ -1022,7 +1022,7 @@ Apply this ledger during Tasks 3-5. Do not preserve a stale expected state merel
 
 **Produces:** Reusable structured defense manifests, audit/plan/apply/save gates, root-motion/marker/config validation, structured runtime telemetry, exact Gate A content edits, and visible one-attack proof.
 
-- [ ] **Step 1: Add structured telemetry before touching content**
+- [x] **Step 1: Add structured telemetry before touching content**
 
 Define `FDefenseTelemetryRecord` with interaction/attack/window/stage IDs, both timestamps, actors/stable IDs, candidate/lock/switch reason, outcome/reason, predicted/actual axes, yaw/deadline/rates, alignment owner/executor, configured engine warp rate, final frame yaw, displacement, pelvis delta, cache/weapon disposition, selected row/fallback, and cleanup reason.
 
@@ -1036,7 +1036,7 @@ Combat.Defense.ClearTelemetry
 
 CSV output must be stable and machine-readable. Sample transforms immediately before presentation/stage and after each evaluated frame. Record expected authored/warp contribution rather than treating all movement as error.
 
-- [ ] **Step 2: Define the checked-in JSON manifest schema**
+- [x] **Step 2: Define the checked-in JSON manifest schema**
 
 `DefenseProofMigration` consumes only explicit JSON paths listed in `DefenseGateATargets.txt`/`DefenseGateBTargets.txt`; global scan is rejected. Use UE JSON APIs, not string parsing. Schema version 1 includes:
 
@@ -1065,7 +1065,7 @@ CSV output must be stable and machine-readable. Sample transforms immediately be
 
 The snippet defines shape, not accepted Gate A timing. Validation must reject `reviewed=false`, zero/negative windows, empty required paths/arrays, duplicate case names, assets outside `/Game`, and any field not consistent with loaded assets. Do not check in the concrete manifest until inventory replaces every required value and a human/agent visual review supplies real section-relative times.
 
-- [ ] **Step 3: Build read-only inventory and validation first**
+- [x] **Step 3: Build read-only inventory and validation first**
 
 `FDefenseAssetValidationService` must inventory:
 

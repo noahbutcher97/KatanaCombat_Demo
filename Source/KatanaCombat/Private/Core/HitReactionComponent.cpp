@@ -284,6 +284,16 @@ bool UHitReactionComponent::PlayDefensePresentation(const FDefenseResolution& Re
 #if WITH_AUTOMATION_TESTS
 	++DefensePresentationAttemptCountForTesting;
 #endif
+	if (UCombatComponent* DefenderCombat = GetOwner()
+		? GetOwner()->FindComponentByClass<UCombatComponent>()
+		: nullptr)
+	{
+		FDefenseTelemetryRecord Telemetry = DefenseTelemetry::FromResolution(
+			Resolution,
+			EDefenseTelemetryEvent::PresentationStart);
+		Telemetry.CacheDisposition = TEXT("CommittedPresentation");
+		DefenderCombat->AppendDefenseTelemetry(MoveTemp(Telemetry));
+	}
 
 	bool bPresented = PlayCommittedDefenseMontage(
 		Resolution, Resolution.Presentation, false);
