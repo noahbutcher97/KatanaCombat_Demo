@@ -16,16 +16,21 @@
 #include "Defense/DefensePresentationSelector.h"
 #include "Debug/DebugConfig.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
+#include "Utilities/CombatGameplayTags.h"
 #include "Utilities/PairedAnimationUtilityLibrary.h"
+#include "Subsystems/CombatEffectsWorldSubsystem.h"
 #include "Animation/AnimNotifyState_PairedAnimationSync.h"
+#include "Animation/AnimNotify_ChainStageTransition.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "NiagaraSystem.h"
 #include "Engine/OverlapResult.h"
 #include "TimerManager.h"
+#include "HAL/PlatformTime.h"
 
 // ============================================================================
 // LOG CATEGORY DEFINITION
@@ -52,26 +57,76 @@ FDefensePresentationSelectionContext BuildDefenseBridgeSelectionContext(
 	return Context;
 }
 
-bool MontageContainsReviewedParryMarker(const UAnimMontage* Montage, const FName MarkerName)
+bool MontageContainsExactlyOneReviewedParryMarker(
+	const UAnimMontage* Montage,
+	const FName MarkerName)
 {
 	if (!Montage || MarkerName.IsNone())
 	{
 		return false;
 	}
 
+	int32 MatchingMarkerCount = 0;
 	for (const FAnimNotifyEvent& NotifyEvent : Montage->Notifies)
 	{
-		const UAnimNotifyState_PairedAnimationSync* SyncNotify =
-			Cast<UAnimNotifyState_PairedAnimationSync>(NotifyEvent.NotifyStateClass);
-		if (SyncNotify
-			&& SyncNotify->bIsPrimarySyncPoint
-			&& SyncNotify->ReactionType == EPairedReactionType::Parry
-			&& SyncNotify->SyncPointName == MarkerName)
+		const UAnimNotify_ChainStageTransition* ChainNotify =
+			Cast<UAnimNotify_ChainStageTransition>(NotifyEvent.Notify);
+		if (ChainNotify
+			&& ChainNotify->Transition == EChainStageTransitionType::OpenCounterWindow
+			&& ChainNotify->MarkerName == MarkerName)
 		{
-			return true;
+			++MatchingMarkerCount;
 		}
 	}
-	return false;
+	return MatchingMarkerCount == 1;
+}
+
+bool HasValidPairedRuntimeNumerics(const UPairedAnimationData& Data)
+{
+	const bool bFinitePlayback = FMath::IsFinite(Data.SyncPointTime)
+		&& Data.SyncPointTime >= 0.0f
+		&& FMath::IsFinite(Data.VictimStartOffset)
+		&& FMath::IsFinite(Data.AttackerBlendIn)
+		&& Data.AttackerBlendIn >= 0.0f
+		&& FMath::IsFinite(Data.AttackerBlendOut)
+		&& Data.AttackerBlendOut >= 0.0f
+		&& FMath::IsFinite(Data.VictimBlendIn)
+		&& Data.VictimBlendIn >= 0.0f
+		&& FMath::IsFinite(Data.VictimBlendOut)
+		&& Data.VictimBlendOut >= 0.0f
+		&& FMath::IsFinite(Data.RagdollBlendTime)
+		&& Data.RagdollBlendTime >= 0.0f;
+	const bool bFiniteDamage = FMath::IsFinite(Data.BaseDamage)
+		&& Data.BaseDamage >= 0.0f
+		&& FMath::IsFinite(Data.DamageMultiplier)
+		&& Data.DamageMultiplier >= 0.0f
+		&& static_cast<double>(Data.BaseDamage) * static_cast<double>(Data.DamageMultiplier)
+			<= static_cast<double>(TNumericLimits<float>::Max());
+	const bool bFinitePositioning = !Data.VictimRelativePosition.ContainsNaN()
+		&& !Data.VictimRelativeRotation.ContainsNaN()
+		&& Data.VictimFacingMode >= -1
+		&& Data.VictimFacingMode <= 1
+		&& FMath::IsFinite(Data.MaxWarpDistance)
+		&& Data.MaxWarpDistance >= 0.0f
+		&& FMath::IsFinite(Data.MinTriggerDistance)
+		&& Data.MinTriggerDistance >= 0.0f
+		&& FMath::IsFinite(Data.MaxTriggerDistance)
+		&& Data.MaxTriggerDistance > Data.MinTriggerDistance
+		&& FMath::IsFinite(Data.AttackerWarpConfig.MaxWarpDistance)
+		&& Data.AttackerWarpConfig.MaxWarpDistance >= 0.0f
+		&& !Data.AttackerWarpConfig.RelativeOffset.ContainsNaN()
+		&& FMath::IsFinite(Data.VictimWarpConfig.MaxWarpDistance)
+		&& Data.VictimWarpConfig.MaxWarpDistance >= 0.0f
+		&& !Data.VictimWarpConfig.RelativeOffset.ContainsNaN()
+		&& FMath::IsFinite(Data.ChainTransitionPolicy.ResponseWindowOverride)
+		&& Data.ChainTransitionPolicy.ResponseWindowOverride >= 0.0f;
+	const bool bFiniteEffects = !Data.bApplySlowMotion
+		|| (FMath::IsFinite(Data.SlowMotionScale)
+			&& Data.SlowMotionScale >= 0.0f
+			&& Data.SlowMotionScale <= 1.0f
+			&& FMath::IsFinite(Data.SlowMotionDuration)
+			&& Data.SlowMotionDuration >= 0.0f);
+	return bFinitePlayback && bFiniteDamage && bFinitePositioning && bFiniteEffects;
 }
 
 float GetAbsoluteYawToTarget(const AActor* Actor, const AActor* Target)
@@ -88,6 +143,53 @@ float GetAbsoluteYawToTarget(const AActor* Actor, const AActor* Target)
 	}
 	const float DesiredYaw = ToTarget.Rotation().Yaw;
 	return FMath::Abs(FMath::FindDeltaAngleDegrees(Actor->GetActorRotation().Yaw, DesiredYaw));
+}
+
+struct FDefenseStageAlignmentLimits
+{
+	float MaximumTurnRate = 0.0f;
+	float RemainingTurnBudget = 0.0f;
+};
+
+FDefenseStageAlignmentLimits ResolveDefenseStageAlignmentLimits(
+	const UCombatComponent* Combat,
+	const UTargetingComponent* Targeting,
+	const FAlignmentRequestHandle ExistingHandle,
+	const float InitialBudgetCap)
+{
+	const UDefenseConfiguration* Configuration = Combat
+		? Combat->GetEffectiveDefenseConfiguration()
+		: GetDefault<UDefenseConfiguration>();
+	const float ConfiguredRate = Configuration
+		&& FMath::IsFinite(Configuration->DefenseTurnRate)
+		? FMath::Max(0.0f, Configuration->DefenseTurnRate)
+		: 180.0f;
+	const float ConfiguredBudget = Configuration
+		&& FMath::IsFinite(Configuration->MaximumAutomaticTurn)
+		? FMath::Max(0.0f, Configuration->MaximumAutomaticTurn)
+		: 70.0f;
+
+	FDefenseStageAlignmentLimits Limits;
+	Limits.MaximumTurnRate = ConfiguredRate;
+	Limits.RemainingTurnBudget = FMath::Min(
+		ConfiguredBudget,
+		FMath::IsFinite(InitialBudgetCap)
+			? FMath::Max(0.0f, InitialBudgetCap)
+			: ConfiguredBudget);
+
+	FAlignmentRequestSpec ExistingSpec;
+	if (ExistingHandle.IsValid()
+		&& Targeting
+		&& Targeting->GetAlignmentRequestSpec(ExistingHandle, ExistingSpec))
+	{
+		Limits.MaximumTurnRate = FMath::Min(
+			Limits.MaximumTurnRate,
+			ExistingSpec.MaximumTurnRate);
+		Limits.RemainingTurnBudget = FMath::Min(
+			Limits.RemainingTurnBudget,
+			ExistingSpec.RemainingTurnBudget);
+	}
+	return Limits;
 }
 }
 
@@ -118,27 +220,38 @@ void UPairedAnimationComponent::BeginPlay()
 
 void UPairedAnimationComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	// Cancel any active paired animation (clears partners, restores time dilation, stops warp tracking)
-	if (IsPairedAnimationActive())
+	// A no-montage defense bridge still owns tags, input, and an async deadline.
+	if (ChainState != EChainCounterState::None || IsPairedAnimationActive())
 	{
-		CancelPairedAnimation(0.0f);  // Immediate cancel, no blend
+		CancelPairedAnimation(0.0f);
 	}
 
-	// Clear any remaining paired partners
 	ClearPairedPartners();
 
-	// Clear timer handles
-	if (GetWorld())
+	if (UWorld* World = GetWorld())
 	{
-		GetWorld()->GetTimerManager().ClearTimer(SlowMotionRestoreHandle);
-		GetWorld()->GetTimerManager().ClearTimer(ChainTimeoutHandle);
-		GetWorld()->GetTimerManager().ClearTimer(DefenseBridgeFallbackHandle);
+		World->GetTimerManager().ClearTimer(SlowMotionRestoreHandle);
+		for (TPair<FDefenseAsyncHandle, FTimerHandle>& Pair : DefenseSimulationTimers)
+		{
+			World->GetTimerManager().ClearTimer(Pair.Value);
+		}
 	}
+	ReleaseLegacyPairedTimeDilation();
+	for (const TPair<FDefenseAsyncHandle, FTSTicker::FDelegateHandle>& Pair : DefenseResponseTickers)
+	{
+		if (Pair.Value.IsValid())
+		{
+			FTSTicker::RemoveTicker(Pair.Value);
+		}
+	}
+	DefenseSimulationTimers.Reset();
+	DefenseResponseTickers.Reset();
+	RetiredOwnerMontageCallbacks.Reset();
+	ReleaseAllPairedStateLeases();
+	ReleaseAllInputOwnership();
 
-	// Reset state
 	ActivePairedAnimData = nullptr;
 	CurrentFinisherVictim.Reset();
-	bBlockCombatInput = false;
 	bCompletingPairedAnimation = false;
 	bCounterWindowActive = false;
 	bParryWindowActive = false;
@@ -180,6 +293,952 @@ bool UPairedAnimationComponent::IsValidPairedTarget(AActor* TargetActor) const
 	return true;
 }
 
+UPairedAnimationComponent* UPairedAnimationComponent::FindDefenseSequenceOwner() const
+{
+	if (ActiveDefenseSequence.OriginatingInteraction.IsValid()
+		&& ChainState != EChainCounterState::None)
+	{
+		return const_cast<UPairedAnimationComponent*>(this);
+	}
+
+	AActor* OwnerActor = GetOwner();
+	UPairedAnimationComponent* ResolvedOwner = nullptr;
+	for (const TWeakObjectPtr<AActor>& PartnerRef : PairedAnimationPartners)
+	{
+		AActor* Partner = PartnerRef.Get();
+		UPairedAnimationComponent* Candidate = Partner
+			? Partner->FindComponentByClass<UPairedAnimationComponent>()
+			: nullptr;
+		if (Candidate
+			&& Candidate->ChainState != EChainCounterState::None
+			&& Candidate->ActiveDefenseSequence.OriginatingInteraction.IsValid()
+			&& (Candidate->ActiveDefenseSequence.Defender.Get() == OwnerActor
+				|| Candidate->ActiveDefenseSequence.SourceAttacker.Get() == OwnerActor))
+		{
+			if (ResolvedOwner && ResolvedOwner != Candidate)
+			{
+				return nullptr;
+			}
+			ResolvedOwner = Candidate;
+		}
+	}
+	return ResolvedOwner;
+}
+
+void UPairedAnimationComponent::HandleChainStageTransition(
+	const EChainStageTransitionType Transition,
+	const int32 MontageInstanceId,
+	const FAnimNotifyRuntimeSourceId NotifySourceId)
+{
+	if (UPairedAnimationComponent* SequenceOwner = FindDefenseSequenceOwner())
+	{
+		SequenceOwner->HandleChainStageTransitionFromActor(
+			GetOwner(),
+			Transition,
+			MontageInstanceId,
+			NotifySourceId);
+	}
+}
+
+void UPairedAnimationComponent::HandleChainStageTransitionFromActor(
+	AActor* ReportingActor,
+	const EChainStageTransitionType Transition,
+	const int32 MontageInstanceId,
+	const FAnimNotifyRuntimeSourceId& NotifySourceId)
+{
+	ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(ActiveDefenseSequence.Defender.Get());
+	ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(ActiveDefenseSequence.SourceAttacker.Get());
+	UPairedAnimationData* StageData = ActiveDefenseSequence.ActivePairedData.Get();
+	if (!ReportingActor
+		|| !StageData
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid()
+		|| ActiveDefenseSequence.StageGeneration <= 0
+		|| !NotifySourceId.IsValid()
+		|| MontageInstanceId < 0)
+	{
+		return;
+	}
+	if (!Defender
+		|| !SourceAttacker
+		|| Defender->IsDeadOrDying()
+		|| SourceAttacker->IsDeadOrDying())
+	{
+		CleanupDefenseSequence(
+			ActiveDefenseSequence.StageGeneration,
+			0.1f,
+			TEXT("MarkerParticipantInvalid"));
+		return;
+	}
+
+	EPairedAnimationRole ReportingRole;
+	UAnimMontage* ExpectedMontage = nullptr;
+	int32 ExpectedMontageInstanceId = INDEX_NONE;
+	if (ReportingActor == Defender)
+	{
+		ReportingRole = EPairedAnimationRole::Attacker;
+		ExpectedMontage = StageData->AttackerMontage;
+		ExpectedMontageInstanceId = ActiveDefenseSequence.AttackerMontageInstanceId;
+	}
+	else if (ReportingActor == SourceAttacker)
+	{
+		ReportingRole = EPairedAnimationRole::Victim;
+		ExpectedMontage = StageData->VictimMontage;
+		ExpectedMontageInstanceId = ActiveDefenseSequence.VictimMontageInstanceId;
+	}
+	else
+	{
+		return;
+	}
+
+	const FPairedChainTransitionPolicy& Policy = StageData->ChainTransitionPolicy;
+	if (ReportingRole != Policy.DriverRole
+		|| MontageInstanceId != ExpectedMontageInstanceId
+		|| !ExpectedMontage
+		|| NotifySourceId.SourceAnimation != FSoftObjectPath(ExpectedMontage)
+		|| !ExpectedMontage->Notifies.IsValidIndex(NotifySourceId.NotifyEventIndex))
+	{
+		UE_LOG(LogPairedAnim, Verbose,
+			TEXT("[COUNTER-CHAIN] Ignored stale or partner stage marker (generation %d)"),
+			ActiveDefenseSequence.StageGeneration);
+		return;
+	}
+
+	const UAnimNotify_ChainStageTransition* AuthoredNotify = Cast<UAnimNotify_ChainStageTransition>(
+		ExpectedMontage->Notifies[NotifySourceId.NotifyEventIndex].Notify);
+	if (!AuthoredNotify
+		|| AuthoredNotify->Transition != Transition
+		|| Policy.RequiredMarker.IsNone()
+		|| AuthoredNotify->MarkerName != Policy.RequiredMarker)
+	{
+		return;
+	}
+
+	const int32 ExpectedGeneration = ActiveDefenseSequence.StageGeneration;
+	if (Transition == EChainStageTransitionType::OpenCounterWindow)
+	{
+		EnterDefenseCounterWindow(ExpectedGeneration);
+	}
+	else
+	{
+		HandleDefenseAutoContinueMarker(ExpectedGeneration);
+	}
+}
+
+FPairedSequenceLeaseHandle UPairedAnimationComponent::AcquirePairedStateLease(
+	const FName Owner,
+	const int32 StageGeneration,
+	const bool bUseTrackedPartnersOnly,
+	const bool bDisablePawnCollision,
+	const bool bDisableCapsulePhysics,
+	const bool bDisableMovement,
+	const bool bScanForDynamicObstructions,
+	const float DynamicObstructionRadius)
+{
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
+	UCharacterMovementComponent* Movement = Character ? Character->GetCharacterMovement() : nullptr;
+	if (!Character
+		|| !Capsule
+		|| Owner.IsNone()
+		|| !FMath::IsFinite(DynamicObstructionRadius)
+		|| DynamicObstructionRadius < 0.0f)
+	{
+		return {};
+	}
+
+	do
+	{
+		++NextPairedStateLeaseId;
+	}
+	while (NextPairedStateLeaseId == 0
+		|| PairedStateLeases.Contains(FPairedSequenceLeaseHandle(NextPairedStateLeaseId)));
+	const FPairedSequenceLeaseHandle Handle(NextPairedStateLeaseId);
+	FPairedStateLeaseRecord& Record = PairedStateLeases.Add(Handle);
+	Record.Owner = Owner;
+	Record.StageGeneration = StageGeneration;
+	Record.bUseTrackedPartnersOnly = bUseTrackedPartnersOnly;
+	Record.bDisablePawnCollision = bDisablePawnCollision;
+	Record.bDisableCapsulePhysics = bDisableCapsulePhysics;
+	Record.bDisableMovement = bDisableMovement && Movement != nullptr;
+	Record.bScanForDynamicObstructions = bScanForDynamicObstructions;
+	Record.DynamicObstructionRadius = DynamicObstructionRadius;
+	if (bDisablePawnCollision && bUseTrackedPartnersOnly)
+	{
+		for (const TWeakObjectPtr<AActor>& Partner : PairedAnimationPartners)
+		{
+			if (Partner.IsValid())
+			{
+				Record.IgnoredActors.Add(Partner);
+			}
+		}
+	}
+	RecomputePairedState();
+	return Handle;
+}
+
+void UPairedAnimationComponent::ReleasePairedStateLease(
+	const FPairedSequenceLeaseHandle Handle)
+{
+	if (!Handle.IsValid() || PairedStateLeases.Remove(Handle) == 0)
+	{
+		return;
+	}
+	RecomputePairedState();
+}
+
+void UPairedAnimationComponent::ReleasePairedStateLeasesForGeneration(
+	const int32 StageGeneration)
+{
+	if (StageGeneration <= 0)
+	{
+		return;
+	}
+
+	TSet<FPairedSequenceLeaseHandle> ReleasedHandles;
+	for (auto It = PairedStateLeases.CreateIterator(); It; ++It)
+	{
+		if (It.Value().StageGeneration == StageGeneration)
+		{
+			ReleasedHandles.Add(It.Key());
+			It.RemoveCurrent();
+		}
+	}
+	if (ReleasedHandles.IsEmpty())
+	{
+		return;
+	}
+
+	for (auto It = PairedNotifyLeases.CreateIterator(); It; ++It)
+	{
+		if (ReleasedHandles.Contains(It.Value()))
+		{
+			It.RemoveCurrent();
+		}
+	}
+	RecomputePairedState();
+}
+
+void UPairedAnimationComponent::RekeyPairedStateLeasesGeneration(
+	const int32 PreviousGeneration,
+	const int32 SuccessorGeneration)
+{
+	if (PreviousGeneration <= 0 || SuccessorGeneration <= 0
+		|| PreviousGeneration == SuccessorGeneration)
+	{
+		return;
+	}
+	for (TPair<FPairedSequenceLeaseHandle, FPairedStateLeaseRecord>& Pair : PairedStateLeases)
+	{
+		if (Pair.Value.StageGeneration == PreviousGeneration)
+		{
+			Pair.Value.StageGeneration = SuccessorGeneration;
+		}
+	}
+}
+
+void UPairedAnimationComponent::ReleaseAllPairedStateLeases()
+{
+	PairedNotifyLeases.Reset();
+	PairedStateLeases.Reset();
+	RecomputePairedState();
+}
+
+void UPairedAnimationComponent::RecomputePairedState()
+{
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
+	UCharacterMovementComponent* Movement = Character ? Character->GetCharacterMovement() : nullptr;
+	if (!Character || !Capsule)
+	{
+		return;
+	}
+
+	TSet<TWeakObjectPtr<AActor>> DesiredIgnoredActors;
+	bool bIgnoreAllPawns = false;
+	bool bDisableCapsule = false;
+	bool bDisableCharacterMovement = false;
+	for (const TPair<FPairedSequenceLeaseHandle, FPairedStateLeaseRecord>& Pair : PairedStateLeases)
+	{
+		const FPairedStateLeaseRecord& Record = Pair.Value;
+		if (Record.bDisablePawnCollision)
+		{
+			if (Record.bUseTrackedPartnersOnly)
+			{
+				DesiredIgnoredActors.Append(Record.IgnoredActors);
+			}
+			else
+			{
+				bIgnoreAllPawns = true;
+			}
+		}
+		bDisableCapsule |= Record.bDisableCapsulePhysics;
+		bDisableCharacterMovement |= Record.bDisableMovement;
+	}
+
+	if (!DesiredIgnoredActors.IsEmpty() && !bMoveIgnoreBaselineCaptured)
+	{
+		BaselineMoveIgnoredActors.Reset();
+		for (AActor* IgnoredActor : Capsule->GetMoveIgnoreActors())
+		{
+			if (IgnoredActor)
+			{
+				BaselineMoveIgnoredActors.Add(IgnoredActor);
+			}
+		}
+		bMoveIgnoreBaselineCaptured = true;
+	}
+
+	for (auto It = AppliedIgnoredActors.CreateIterator(); It; ++It)
+	{
+		const TWeakObjectPtr<AActor> Existing = *It;
+		if (!DesiredIgnoredActors.Contains(Existing))
+		{
+			if (AActor* Actor = Existing.Get())
+			{
+				Capsule->IgnoreActorWhenMoving(Actor, false);
+			}
+			It.RemoveCurrent();
+		}
+	}
+	for (const TWeakObjectPtr<AActor>& Desired : DesiredIgnoredActors)
+	{
+		if (!BaselineMoveIgnoredActors.Contains(Desired)
+			&& !AppliedIgnoredActors.Contains(Desired))
+		{
+			if (AActor* Actor = Desired.Get())
+			{
+				Capsule->IgnoreActorWhenMoving(Actor, true);
+				AppliedIgnoredActors.Add(Desired);
+			}
+		}
+	}
+	if (DesiredIgnoredActors.IsEmpty() && bMoveIgnoreBaselineCaptured)
+	{
+		BaselineMoveIgnoredActors.Reset();
+		bMoveIgnoreBaselineCaptured = false;
+	}
+
+	if (bIgnoreAllPawns)
+	{
+		if (!bPawnCollisionBaselineCaptured)
+		{
+			BaselinePawnCollisionResponse = Capsule->GetCollisionResponseToChannel(ECC_Pawn);
+			bPawnCollisionBaselineCaptured = true;
+		}
+		Capsule->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+	}
+	else if (bPawnCollisionBaselineCaptured)
+	{
+		Capsule->SetCollisionResponseToChannel(ECC_Pawn, BaselinePawnCollisionResponse.GetValue());
+		bPawnCollisionBaselineCaptured = false;
+	}
+
+	if (bDisableCapsule)
+	{
+		if (!bCapsuleCollisionBaselineCaptured)
+		{
+			BaselineCollisionEnabled = Capsule->GetCollisionEnabled();
+			bCapsuleCollisionBaselineCaptured = true;
+		}
+		Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+	else if (bCapsuleCollisionBaselineCaptured)
+	{
+		Capsule->SetCollisionEnabled(BaselineCollisionEnabled.GetValue());
+		bCapsuleCollisionBaselineCaptured = false;
+	}
+
+	if (Movement)
+	{
+		if (bDisableCharacterMovement)
+		{
+			if (!bMovementBaselineCaptured)
+			{
+				BaselineMovementMode = Movement->MovementMode.GetValue();
+				bMovementBaselineCaptured = true;
+			}
+			Movement->Velocity = FVector::ZeroVector;
+			Movement->DisableMovement();
+		}
+		else if (bMovementBaselineCaptured)
+		{
+			Movement->SetMovementMode(BaselineMovementMode.GetValue());
+			bMovementBaselineCaptured = false;
+		}
+	}
+
+	if (PairedStateLeases.IsEmpty())
+	{
+		AppliedIgnoredActors.Reset();
+		BaselineMoveIgnoredActors.Reset();
+		bMoveIgnoreBaselineCaptured = false;
+	}
+}
+
+void UPairedAnimationComponent::ScanPairedStateLease(
+	const FPairedSequenceLeaseHandle Handle)
+{
+	FPairedStateLeaseRecord* Record = PairedStateLeases.Find(Handle);
+	ACharacter* Character = Cast<ACharacter>(GetOwner());
+	if (!Record
+		|| !Character
+		|| !Record->bScanForDynamicObstructions
+		|| !Record->bUseTrackedPartnersOnly
+		|| !Record->bDisablePawnCollision)
+	{
+		return;
+	}
+
+	TArray<AActor*> IgnoreActors;
+	IgnoreActors.Add(Character);
+	for (const TWeakObjectPtr<AActor>& Ignored : Record->IgnoredActors)
+	{
+		if (AActor* Actor = Ignored.Get())
+		{
+			IgnoreActors.Add(Actor);
+		}
+	}
+	const TArray<AActor*> Obstructions =
+		UPairedAnimationUtilityLibrary::FindObstructingActorsInRadius(
+			GetWorld(),
+			Character->GetActorLocation(),
+			Record->DynamicObstructionRadius,
+			IgnoreActors);
+	for (AActor* Obstruction : Obstructions)
+	{
+		if (Obstruction && Obstruction != Character)
+		{
+			Record->IgnoredActors.Add(Obstruction);
+		}
+	}
+	RecomputePairedState();
+}
+
+bool UPairedAnimationComponent::BeginPairedCollisionNotify(
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId,
+	const bool bUseTrackedPartnersOnly,
+	const bool bDisablePawnCollision,
+	const bool bDisableCapsulePhysics,
+	const bool bDisableMovement,
+	const bool bScanForDynamicObstructions,
+	const float DynamicObstructionRadius)
+{
+	const FPairedNotifyLeaseKey Key{NotifySource, MontageInstanceId};
+	if (!NotifySource.IsValid() || MontageInstanceId < 0 || PairedNotifyLeases.Contains(Key))
+	{
+		return false;
+	}
+	const UPairedAnimationComponent* SequenceOwner = FindDefenseSequenceOwner();
+	const int32 StageGeneration = SequenceOwner
+		? SequenceOwner->ActiveDefenseSequence.StageGeneration
+		: 0;
+	const FPairedSequenceLeaseHandle Handle = AcquirePairedStateLease(
+		TEXT("PairedCollisionNotify"),
+		StageGeneration,
+		bUseTrackedPartnersOnly,
+		bDisablePawnCollision,
+		bDisableCapsulePhysics,
+		bDisableMovement,
+		bScanForDynamicObstructions,
+		DynamicObstructionRadius);
+	if (!Handle.IsValid())
+	{
+		return false;
+	}
+	PairedNotifyLeases.Add(Key, Handle);
+	return true;
+}
+
+void UPairedAnimationComponent::TickPairedCollisionNotify(
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId)
+{
+	if (const FPairedSequenceLeaseHandle* Handle = PairedNotifyLeases.Find({NotifySource, MontageInstanceId}))
+	{
+		ScanPairedStateLease(*Handle);
+	}
+}
+
+void UPairedAnimationComponent::EndPairedCollisionNotify(
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId)
+{
+	FPairedSequenceLeaseHandle Handle;
+	if (PairedNotifyLeases.RemoveAndCopyValue({NotifySource, MontageInstanceId}, Handle))
+	{
+		ReleasePairedStateLease(Handle);
+	}
+}
+
+FPairedSequenceLeaseHandle UPairedAnimationComponent::AcquireInputOwnership(
+	const FName Owner,
+	const int32 StageGeneration)
+{
+	if (Owner.IsNone())
+	{
+		return {};
+	}
+	do
+	{
+		++NextPairedInputLeaseId;
+	}
+	while (NextPairedInputLeaseId == 0
+		|| PairedInputLeases.Contains(FPairedSequenceLeaseHandle(NextPairedInputLeaseId)));
+	const FPairedSequenceLeaseHandle Handle(NextPairedInputLeaseId);
+	FPairedInputLeaseRecord& Record = PairedInputLeases.Add(Handle);
+	Record.Owner = Owner;
+	Record.StageGeneration = StageGeneration;
+	RecomputeInputOwnership();
+	return Handle;
+}
+
+void UPairedAnimationComponent::ReleaseInputOwnership(
+	const FPairedSequenceLeaseHandle Handle)
+{
+	if (Handle.IsValid())
+	{
+		PairedInputLeases.Remove(Handle);
+	}
+	RecomputeInputOwnership();
+}
+
+void UPairedAnimationComponent::ReleaseAllInputOwnership()
+{
+	PairedInputLeases.Reset();
+	LegacyPairedInputLease = {};
+	RecomputeInputOwnership();
+}
+
+void UPairedAnimationComponent::RecomputeInputOwnership()
+{
+	bBlockCombatInput = !PairedInputLeases.IsEmpty();
+}
+
+void UPairedAnimationComponent::RetireOwnerMontageCallback(UAnimMontage* Montage)
+{
+	if (Montage)
+	{
+		++RetiredOwnerMontageCallbacks.FindOrAdd(Montage);
+	}
+}
+
+void UPairedAnimationComponent::CancelRetiredOwnerMontageCallback(UAnimMontage* Montage)
+{
+	if (int32* Count = Montage ? RetiredOwnerMontageCallbacks.Find(Montage) : nullptr)
+	{
+		if (--(*Count) <= 0)
+		{
+			RetiredOwnerMontageCallbacks.Remove(Montage);
+		}
+	}
+}
+
+bool UPairedAnimationComponent::ConsumeRetiredOwnerMontageCallback(UAnimMontage* Montage)
+{
+	if (!Montage || !RetiredOwnerMontageCallbacks.Contains(Montage))
+	{
+		return false;
+	}
+	CancelRetiredOwnerMontageCallback(Montage);
+	return true;
+}
+
+FDefenseAsyncHandle UPairedAnimationComponent::AllocateDefenseAsyncHandle()
+{
+	do
+	{
+		++NextDefenseAsyncId;
+	}
+	while (NextDefenseAsyncId == 0
+		|| DefenseResponseTickers.Contains(FDefenseAsyncHandle(NextDefenseAsyncId))
+		|| DefenseSimulationTimers.Contains(FDefenseAsyncHandle(NextDefenseAsyncId)));
+	return FDefenseAsyncHandle(NextDefenseAsyncId);
+}
+
+void UPairedAnimationComponent::CancelDefenseAsyncHandle(
+	const FDefenseAsyncHandle Handle)
+{
+	if (!Handle.IsValid())
+	{
+		return;
+	}
+	FTSTicker::FDelegateHandle TickerHandle;
+	if (DefenseResponseTickers.RemoveAndCopyValue(Handle, TickerHandle)
+		&& TickerHandle.IsValid())
+	{
+		FTSTicker::RemoveTicker(TickerHandle);
+	}
+	FTimerHandle TimerHandle;
+	if (DefenseSimulationTimers.RemoveAndCopyValue(Handle, TimerHandle))
+	{
+		if (UWorld* World = GetWorld())
+		{
+			World->GetTimerManager().ClearTimer(TimerHandle);
+		}
+	}
+}
+
+void UPairedAnimationComponent::ScheduleChainResponseDeadline(
+	const EChainCounterState ResponseState,
+	const float Duration,
+	const int32 ExpectedStageGeneration,
+	const double PreservedDeadline)
+{
+	CancelDefenseAsyncHandle(ActiveDefenseSequence.ResponseTimeoutHandle);
+	ActiveDefenseSequence.ResponseTimeoutHandle = {};
+	if ((ResponseState != EChainCounterState::CounterWindow
+			&& ResponseState != EChainCounterState::FinisherReady)
+		|| !FMath::IsFinite(Duration)
+		|| Duration < 0.0f
+		|| ActiveDefenseSequence.StageGeneration != ExpectedStageGeneration
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		return;
+	}
+
+	const double Now = FPlatformTime::Seconds();
+	const double Deadline = PreservedDeadline > Now
+		? PreservedDeadline
+		: Now + static_cast<double>(Duration);
+	const float Delay = static_cast<float>(FMath::Max(0.0, Deadline - Now));
+	const FDefenseAsyncHandle AsyncHandle = AllocateDefenseAsyncHandle();
+	const FDefenseInteractionId Interaction = ActiveDefenseSequence.OriginatingInteraction;
+	const TWeakObjectPtr<UPairedAnimationComponent> WeakThis(this);
+	const TWeakObjectPtr<UWorld> WeakWorld(GetWorld());
+	const FTSTicker::FDelegateHandle TickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateLambda(
+			[WeakThis, WeakWorld, Interaction, ResponseState, ExpectedStageGeneration, AsyncHandle](const float DeltaTime)
+			{
+				UPairedAnimationComponent* Component = WeakThis.Get();
+				UWorld* World = WeakWorld.Get();
+				return Component && World && Component->GetWorld() == World
+					? Component->HandleChainResponseDeadline(
+						Interaction,
+						ResponseState,
+						ExpectedStageGeneration,
+						AsyncHandle,
+						DeltaTime)
+					: false;
+			}),
+		Delay);
+	DefenseResponseTickers.Add(AsyncHandle, TickerHandle);
+	ActiveDefenseSequence.ResponseTimeoutHandle = AsyncHandle;
+	ActiveDefenseSequence.ResponseDeadlineUnscaled = Deadline;
+}
+
+bool UPairedAnimationComponent::HandleChainResponseDeadline(
+	const FDefenseInteractionId Interaction,
+	const EChainCounterState ExpectedState,
+	const int32 ExpectedStageGeneration,
+	const FDefenseAsyncHandle AsyncHandle,
+	const float DeltaTime)
+{
+	DefenseResponseTickers.Remove(AsyncHandle);
+	if (ActiveDefenseSequence.ResponseTimeoutHandle == AsyncHandle)
+	{
+		ActiveDefenseSequence.ResponseTimeoutHandle = {};
+	}
+	if (ActiveDefenseSequence.OriginatingInteraction != Interaction
+		|| ActiveDefenseSequence.StageGeneration != ExpectedStageGeneration
+		|| ActiveDefenseSequence.ChainState != ExpectedState
+		|| ChainState != ExpectedState)
+	{
+		return false;
+	}
+	if (!ActiveDefenseSequence.Defender.IsValid()
+		|| !ActiveDefenseSequence.SourceAttacker.IsValid())
+	{
+		CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("DeadlineParticipantInvalid"));
+		return false;
+	}
+	const ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(
+		ActiveDefenseSequence.Defender.Get());
+	const ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(
+		ActiveDefenseSequence.SourceAttacker.Get());
+	if (!Defender
+		|| !SourceAttacker
+		|| Defender->IsDeadOrDying()
+		|| SourceAttacker->IsDeadOrDying())
+	{
+		CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("DeadlineParticipantUnavailable"));
+		return false;
+	}
+	CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("ResponseTimeout"));
+	return false;
+}
+
+bool UPairedAnimationComponent::ApplyActivePairedDamageOnce()
+{
+	const int32 StageGeneration = ActiveDefenseSequence.StageGeneration;
+	if (StageGeneration <= 0
+		|| ActiveDefenseSequence.LastDamageAppliedStageGeneration == StageGeneration
+		|| ActivePairedReactionType == EPairedReactionType::Parry)
+	{
+		return false;
+	}
+
+	// Install the marker before calling external damage code so reentry is harmless.
+	ActiveDefenseSequence.LastDamageAppliedStageGeneration = StageGeneration;
+	AActor* Victim = ActiveDefenseSequence.SourceAttacker.Get();
+	UPairedAnimationData* Data = ActiveDefenseSequence.ActivePairedData.Get();
+	AActor* DamageSource = ActiveDefenseSequence.Defender.Get();
+	if (!Victim || !DamageSource || !Data || !Victim->Implements<UDamageableInterface>())
+	{
+		return false;
+	}
+
+	const double RequestedDamageDouble =
+		static_cast<double>(Data->BaseDamage) * static_cast<double>(Data->DamageMultiplier);
+	if (!FMath::IsFinite(Data->BaseDamage)
+		|| Data->BaseDamage < 0.0f
+		|| !FMath::IsFinite(Data->DamageMultiplier)
+		|| Data->DamageMultiplier < 0.0f
+		|| RequestedDamageDouble > static_cast<double>(TNumericLimits<float>::Max()))
+	{
+		return false;
+	}
+	float RequestedDamage = static_cast<float>(RequestedDamageDouble);
+	const float CurrentHealth = IDamageableInterface::Execute_GetCurrentHealth(Victim);
+	if (!FMath::IsFinite(CurrentHealth) || CurrentHealth < 0.0f)
+	{
+		return false;
+	}
+	const bool bTreatAsLethal = ShouldTreatPairedAnimationAsLethal(
+		ActivePairedReactionType,
+		Data);
+	if (ActivePairedReactionType == EPairedReactionType::Counter && !bTreatAsLethal)
+	{
+		RequestedDamage = FMath::Min(RequestedDamage, FMath::Max(0.0f, CurrentHealth - 1.0f));
+	}
+	FHitReactionInfo HitInfo;
+	HitInfo.Attacker = DamageSource;
+	HitInfo.HitDirection = (Victim->GetActorLocation() - DamageSource->GetActorLocation()).GetSafeNormal();
+	HitInfo.ImpactPoint = Victim->GetActorLocation();
+	HitInfo.bWasCounter = ActivePairedReactionType == EPairedReactionType::Counter;
+	HitInfo.PhaseWhenHit = EAttackPhase::Active;
+	HitInfo.Damage = RequestedDamage;
+	if (bTreatAsLethal)
+	{
+		HitInfo.Damage = FMath::Max(
+			RequestedDamage,
+			CurrentHealth + 1.0f);
+	}
+	IDamageableInterface::Execute_ApplyDamage(Victim, HitInfo);
+	return true;
+}
+
+void UPairedAnimationComponent::HandleDefenseOwnerDying(AActor* Killer)
+{
+	(void)Killer;
+	CleanupDefenseSequence(
+		ActiveDefenseSequence.StageGeneration,
+		0.0f,
+		TEXT("DefenseOwnerDeath"));
+}
+
+void UPairedAnimationComponent::HandleDefenseSourceDying(AActor* Killer)
+{
+	(void)Killer;
+	CleanupDefenseSequence(
+		ActiveDefenseSequence.StageGeneration,
+		0.0f,
+		TEXT("DefenseSourceDeath"));
+}
+
+void UPairedAnimationComponent::HandleDefenseOwnerDestroyed(AActor* DestroyedActor)
+{
+	(void)DestroyedActor;
+	CleanupDefenseSequence(
+		ActiveDefenseSequence.StageGeneration,
+		0.0f,
+		TEXT("DefenseOwnerDestroyed"));
+}
+
+void UPairedAnimationComponent::HandleDefenseSourceDestroyed(AActor* DestroyedActor)
+{
+	(void)DestroyedActor;
+	CleanupDefenseSequence(
+		ActiveDefenseSequence.StageGeneration,
+		0.0f,
+		TEXT("DefenseSourceDestroyed"));
+}
+
+void UPairedAnimationComponent::CleanupDefenseSequence(
+	const int32 ExpectedStageGeneration,
+	const float BlendOutTime,
+	const FName Reason)
+{
+	if (bDefenseSequenceCleanupInProgress
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid()
+		|| (ExpectedStageGeneration > 0
+			&& ActiveDefenseSequence.StageGeneration != ExpectedStageGeneration))
+	{
+		return;
+	}
+	bDefenseSequenceCleanupInProgress = true;
+
+	const FDefenseSequenceContext Sequence = ActiveDefenseSequence;
+	const EPairedReactionType EndedReaction = ActivePairedReactionType;
+	ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(Sequence.Defender.Get());
+	ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(Sequence.SourceAttacker.Get());
+	UPairedAnimationComponent* SourcePaired = SourceAttacker
+		? SourceAttacker->PairedAnimationComponent.Get()
+		: nullptr;
+	UTargetingComponent* DefenderTargeting = Defender ? Defender->TargetingComponent.Get() : nullptr;
+	UTargetingComponent* SourceTargeting = SourceAttacker ? SourceAttacker->TargetingComponent.Get() : nullptr;
+	UCombatComponent* DefenderCombat = CachedCombatComponent
+		? CachedCombatComponent.Get()
+		: Defender ? Defender->CombatComponent.Get() : nullptr;
+	if (Defender)
+	{
+		Defender->OnCharacterDying.RemoveDynamic(
+			this,
+			&UPairedAnimationComponent::HandleDefenseOwnerDying);
+		Defender->OnCharacterDeath.RemoveDynamic(
+			this,
+			&UPairedAnimationComponent::HandleDefenseOwnerDying);
+		Defender->OnDestroyed.RemoveDynamic(
+			this,
+			&UPairedAnimationComponent::HandleDefenseOwnerDestroyed);
+	}
+	if (SourceAttacker)
+	{
+		SourceAttacker->OnCharacterDying.RemoveDynamic(
+			this,
+			&UPairedAnimationComponent::HandleDefenseSourceDying);
+		SourceAttacker->OnCharacterDeath.RemoveDynamic(
+			this,
+			&UPairedAnimationComponent::HandleDefenseSourceDying);
+		SourceAttacker->OnDestroyed.RemoveDynamic(
+			this,
+			&UPairedAnimationComponent::HandleDefenseSourceDestroyed);
+	}
+
+	CancelDefenseAsyncHandle(Sequence.ResponseTimeoutHandle);
+	CancelDefenseAsyncHandle(Sequence.BridgeFallbackHandle);
+	for (const TPair<FDefenseAsyncHandle, FTSTicker::FDelegateHandle>& Pair : DefenseResponseTickers)
+	{
+		if (Pair.Value.IsValid())
+		{
+			FTSTicker::RemoveTicker(Pair.Value);
+		}
+	}
+	DefenseResponseTickers.Reset();
+	if (UWorld* World = GetWorld())
+	{
+		for (TPair<FDefenseAsyncHandle, FTimerHandle>& Pair : DefenseSimulationTimers)
+		{
+			World->GetTimerManager().ClearTimer(Pair.Value);
+		}
+	}
+	DefenseSimulationTimers.Reset();
+
+	// Retire gameplay identity before stopping montages; synchronous end callbacks are stale.
+	ChainState = EChainCounterState::None;
+	ActiveChainContext.Reset();
+	ActiveChainTarget.Reset();
+	ActiveChainAttackData = nullptr;
+	ActiveDefenseSequence = {};
+	ActivePairedAnimData = nullptr;
+	ActivePairedReactionType = EPairedReactionType::None;
+	CurrentFinisherVictim.Reset();
+	bCompletingPairedAnimation = false;
+
+	if (DefenderCombat)
+	{
+		DefenderCombat->ReleaseContextTagLease(Sequence.ContextTagLease);
+	}
+	ReleaseInputOwnership(Sequence.InputOwnershipLease);
+	ReleasePairedStateLeasesForGeneration(Sequence.StageGeneration);
+	if (SourcePaired)
+	{
+		SourcePaired->ReleasePairedStateLeasesForGeneration(Sequence.StageGeneration);
+	}
+	if (DefenderTargeting)
+	{
+		DefenderTargeting->ReleaseAlignmentRequest(Sequence.AttackerAlignmentLease);
+	}
+	if (SourceTargeting)
+	{
+		SourceTargeting->ReleaseAlignmentRequest(Sequence.VictimAlignmentLease);
+	}
+	if (Sequence.TimeDilationLease.IsValid())
+	{
+		if (UCombatEffectsWorldSubsystem* Effects = GetWorld()
+			? GetWorld()->GetSubsystem<UCombatEffectsWorldSubsystem>()
+			: nullptr)
+		{
+			Effects->ReleaseLease(Sequence.TimeDilationLease);
+		}
+	}
+
+	if (Sequence.ActivePairedData)
+	{
+		if (Defender && Defender->GetMesh())
+		{
+			if (UAnimInstance* Anim = Defender->GetMesh()->GetAnimInstance())
+			{
+				if (Anim->Montage_IsPlaying(Sequence.ActivePairedData->AttackerMontage))
+				{
+					RetireOwnerMontageCallback(Sequence.ActivePairedData->AttackerMontage);
+				}
+				Anim->Montage_Stop(
+					FMath::Max(0.0f, BlendOutTime),
+					Sequence.ActivePairedData->AttackerMontage);
+			}
+		}
+		if (SourceAttacker && SourceAttacker->GetMesh())
+		{
+			if (UAnimInstance* Anim = SourceAttacker->GetMesh()->GetAnimInstance())
+			{
+				if (SourcePaired
+					&& Anim->Montage_IsPlaying(Sequence.ActivePairedData->VictimMontage))
+				{
+					SourcePaired->RetireOwnerMontageCallback(
+						Sequence.ActivePairedData->VictimMontage);
+				}
+				Anim->Montage_Stop(
+					FMath::Max(0.0f, BlendOutTime),
+					Sequence.ActivePairedData->VictimMontage);
+			}
+		}
+	}
+	if (SourceAttacker && SourceAttacker->HitReactionComponent)
+	{
+		SourceAttacker->HitReactionComponent->ExitPairedAnimationState();
+	}
+	if (SourcePaired)
+	{
+		SourcePaired->RemovePairedPartner(Defender);
+		SourcePaired->PairedAnimationPartners.RemoveAll(
+			[](const TWeakObjectPtr<AActor>& Partner)
+			{
+				return !Partner.IsValid();
+			});
+	}
+	RemovePairedPartner(SourceAttacker);
+	PairedAnimationPartners.RemoveAll(
+		[](const TWeakObjectPtr<AActor>& Partner)
+		{
+			return !Partner.IsValid();
+		});
+
+	if (DefenderCombat)
+	{
+		DefenderCombat->SetPhase(EAttackPhase::None);
+		DefenderCombat->ClearQueue(false);
+		DefenderCombat->RefreshGuardThreat(EThreatRefreshReason::ManualRevalidation);
+	}
+
+	UE_LOG(LogPairedAnim, Log,
+		TEXT("[COUNTER-CHAIN] Terminal cleanup generation %d (%s)"),
+		Sequence.StageGeneration,
+		*Reason.ToString());
+	bDefenseSequenceCleanupInProgress = false;
+	OnPairedAnimationEnded.Broadcast(EndedReaction);
+}
+
 bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& Resolution)
 {
 	ABaseCombatCharacter* Defender = GetOwnerCharacter();
@@ -187,6 +1246,9 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 	ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(AttackInstance.Attacker.Get());
 	UCombatComponent* SourceCombat = SourceAttacker
 		? SourceAttacker->CombatComponent.Get()
+		: nullptr;
+	UPairedAnimationComponent* SourcePaired = SourceAttacker
+		? SourceAttacker->PairedAnimationComponent.Get()
 		: nullptr;
 	if (!Defender
 		|| !SourceAttacker
@@ -200,7 +1262,10 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 		|| Resolution.Decision.AttackInstance != AttackInstance
 		|| !SourceCombat->IsAttackConsumed(AttackInstance)
 		|| ChainState != EChainCounterState::None
-		|| IsPairedAnimationActive())
+		|| IsPairedAnimationActive()
+		|| (SourcePaired
+			&& (SourcePaired->IsPairedAnimationActive()
+				|| SourcePaired->GetChainState() != EChainCounterState::None)))
 	{
 		UE_LOG(LogPairedAnim, Warning,
 			TEXT("[DEFENSE BRIDGE] Rejected committed-sequence entry: Defender=%s Source=%s Stage=%d Outcome=%d Interaction=%s DefenderMatch=%s IdentityMatch=%s Consumed=%s Chain=%d Paired=%s"),
@@ -278,20 +1343,63 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 		? 1
 		: NextDefenseStageGeneration + 1;
 	ActiveDefenseSequence = {};
+	ActiveDefenseSequence.OriginatingResolution = Resolution;
 	ActiveDefenseSequence.OriginatingInteraction = Resolution.InteractionId;
 	ActiveDefenseSequence.OriginatingAttack = SourceCombat->BuildAttackExecutionSnapshot();
 	ActiveDefenseSequence.OriginatingAttack.AttackInstance = AttackInstance;
 	ActiveDefenseSequence.Defender = Defender;
 	ActiveDefenseSequence.SourceAttacker = SourceAttacker;
-	ActiveDefenseSequence.CounterData = Resolution.Decision.SelectedAttack
-		? Resolution.Decision.SelectedAttack->CounterData
-		: nullptr;
-	ActiveDefenseSequence.FinisherData = Resolution.Decision.SelectedAttack
-		? Resolution.Decision.SelectedAttack->FinisherData
-		: nullptr;
+	ActiveDefenseSequence.SelectedCounterAttack = nullptr;
+	ActiveDefenseSequence.CounterData = nullptr;
+	ActiveDefenseSequence.FinisherData = nullptr;
 	ActiveDefenseSequence.ChainState = EChainCounterState::ParryActive;
 	ActiveDefenseSequence.StageGeneration = NextDefenseStageGeneration;
 	ActiveDefenseSequence.ActivePresentation = SelectedPresentation;
+	UCombatComponent* DefenderCombat = CachedCombatComponent
+		? CachedCombatComponent.Get()
+		: Defender->CombatComponent.Get();
+	ActiveDefenseSequence.ContextTagLease = DefenderCombat
+		? DefenderCombat->AcquireContextTagLease(
+			KatanaCombatGameplayTags::ContextParryCounter(),
+			TEXT("DefenseSequence"))
+		: FCombatContextLeaseHandle{};
+	ActiveDefenseSequence.InputOwnershipLease = AcquireInputOwnership(
+		TEXT("DefenseSequence"),
+		ActiveDefenseSequence.StageGeneration);
+	if (!ActiveDefenseSequence.ContextTagLease.IsValid()
+		|| !ActiveDefenseSequence.InputOwnershipLease.IsValid())
+	{
+		if (DefenderCombat)
+		{
+			DefenderCombat->ReleaseContextTagLease(ActiveDefenseSequence.ContextTagLease);
+		}
+		ReleaseInputOwnership(ActiveDefenseSequence.InputOwnershipLease);
+		ActiveDefenseSequence = {};
+		return false;
+	}
+	Defender->OnCharacterDying.AddUniqueDynamic(
+		this,
+		&UPairedAnimationComponent::HandleDefenseOwnerDying);
+	Defender->OnCharacterDeath.AddUniqueDynamic(
+		this,
+		&UPairedAnimationComponent::HandleDefenseOwnerDying);
+	Defender->OnDestroyed.AddUniqueDynamic(
+		this,
+		&UPairedAnimationComponent::HandleDefenseOwnerDestroyed);
+	SourceAttacker->OnCharacterDying.AddUniqueDynamic(
+		this,
+		&UPairedAnimationComponent::HandleDefenseSourceDying);
+	SourceAttacker->OnCharacterDeath.AddUniqueDynamic(
+		this,
+		&UPairedAnimationComponent::HandleDefenseSourceDying);
+	SourceAttacker->OnDestroyed.AddUniqueDynamic(
+		this,
+		&UPairedAnimationComponent::HandleDefenseSourceDestroyed);
+	AddPairedPartner(SourceAttacker);
+	if (SourcePaired)
+	{
+		SourcePaired->AddPairedPartner(Defender);
+	}
 
 	ActiveChainContext.Reset();
 	ActiveChainContext.Attacker = SourceAttacker;
@@ -319,7 +1427,10 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 		UE_LOG(LogPairedAnim, Warning,
 			TEXT("[DEFENSE BRIDGE] Two-role start failed after preflight for interaction epoch %llu; closing Chain presentation only"),
 			Resolution.InteractionId.Epoch);
-		ClearChainContext();
+		CleanupDefenseSequence(
+			ActiveDefenseSequence.StageGeneration,
+			0.1f,
+			TEXT("BridgeStartFailed"));
 		return false;
 	}
 
@@ -331,7 +1442,10 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 	}
 	if (!ScheduleNoMontageDefenseBridge(ActiveDefenseSequence.StageGeneration))
 	{
-		ClearChainContext();
+		CleanupDefenseSequence(
+			ActiveDefenseSequence.StageGeneration,
+			0.0f,
+			TEXT("BridgeFallbackScheduleFailed"));
 		return false;
 	}
 	return true;
@@ -353,9 +1467,23 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 	UPairedAnimationComponent* SourcePaired = SourceAttacker
 		? SourceAttacker->PairedAnimationComponent.Get()
 		: nullptr;
-	if (!BridgeData || !Defender || !SourceAttacker || !SourceCombat)
+	UCombatComponent* DefenderCombat = CachedCombatComponent
+		? CachedCombatComponent.Get()
+		: Defender ? Defender->CombatComponent.Get() : nullptr;
+	UTargetingComponent* DefenderTargeting = Defender
+		? Defender->TargetingComponent.Get()
+		: nullptr;
+	UTargetingComponent* SourceTargeting = SourceAttacker
+		? SourceAttacker->TargetingComponent.Get()
+		: nullptr;
+	UHitReactionComponent* SourceHitReaction = SourceAttacker
+		? SourceAttacker->HitReactionComponent.Get()
+		: nullptr;
+	if (!BridgeData || !Defender || !SourceAttacker || !SourceCombat
+		|| !SourcePaired || !DefenderCombat || !DefenderTargeting
+		|| !SourceTargeting || !SourceHitReaction)
 	{
-		OutFailureReason = TEXT("missing bridge data or participant");
+		OutFailureReason = TEXT("missing bridge data or required participant component");
 		return false;
 	}
 	if (Defender->IsDeadOrDying()
@@ -393,34 +1521,62 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 		OutFailureReason = TEXT("bridge montage, section, or reaction role is invalid");
 		return false;
 	}
-	if (Presentation.ReviewedDeflectionMarker.IsNone()
-		|| Presentation.ReviewedDeflectionMarker != BridgeData->SyncPointName
-		|| !MontageContainsReviewedParryMarker(
-			BridgeData->AttackerMontage,
-			Presentation.ReviewedDeflectionMarker))
+	if (RetiredOwnerMontageCallbacks.Contains(BridgeData->AttackerMontage)
+		|| SourcePaired->RetiredOwnerMontageCallbacks.Contains(BridgeData->VictimMontage))
 	{
-		OutFailureReason = TEXT("driver montage lacks the reviewed parry marker");
+		OutFailureReason = TEXT("a bridge role montage still has an unresolved prior callback");
 		return false;
 	}
-	if (((BridgeData->AttackerWarpConfig.bWarpTranslation
-			|| BridgeData->AttackerWarpConfig.bWarpRotation)
-			&& BridgeData->AttackerWarpConfig.WarpTargetName.IsNone())
-		|| ((BridgeData->VictimWarpConfig.bWarpTranslation
-			|| BridgeData->VictimWarpConfig.bWarpRotation)
-			&& BridgeData->VictimWarpConfig.WarpTargetName.IsNone()))
+	if (!HasValidPairedRuntimeNumerics(*BridgeData))
 	{
-		OutFailureReason = TEXT("a required role warp target is unnamed");
+		OutFailureReason = TEXT("bridge playback, damage, or effects numeric configuration is invalid");
+		return false;
+	}
+	const FPairedChainTransitionPolicy& BridgePolicy = BridgeData->ChainTransitionPolicy;
+	const UAnimMontage* DriverMontage =
+		BridgePolicy.DriverRole == EPairedAnimationRole::Attacker
+		? BridgeData->AttackerMontage.Get()
+		: BridgeData->VictimMontage.Get();
+	if (Presentation.ReviewedDeflectionMarker.IsNone()
+		|| BridgePolicy.bAutoContinue
+		|| !BridgePolicy.HasRetainableReadyPose()
+		|| (!BridgePolicy.AttackerReadySection.IsNone()
+			&& !BridgeData->AttackerMontage->IsValidSectionName(
+				BridgePolicy.AttackerReadySection))
+		|| (!BridgePolicy.VictimReadySection.IsNone()
+			&& !BridgeData->VictimMontage->IsValidSectionName(
+				BridgePolicy.VictimReadySection))
+		|| Presentation.ReviewedDeflectionMarker
+			!= BridgePolicy.RequiredMarker
+		|| !MontageContainsExactlyOneReviewedParryMarker(
+			DriverMontage,
+			Presentation.ReviewedDeflectionMarker))
+	{
+		OutFailureReason = TEXT("driver montage lacks one reviewed Chain marker or retainable ready pose");
+		return false;
+	}
+	if (!BridgeData->AttackerWarpConfig.bWarpRotation
+		|| !BridgeData->VictimWarpConfig.bWarpRotation
+		|| BridgeData->AttackerWarpConfig.WarpTargetName.IsNone()
+		|| BridgeData->VictimWarpConfig.WarpTargetName.IsNone())
+	{
+		OutFailureReason = TEXT("canonical defense roles require named rotation warp targets");
 		return false;
 	}
 
 	ACharacter* DefenderCharacter = Cast<ACharacter>(Defender);
 	ACharacter* SourceCharacter = Cast<ACharacter>(SourceAttacker);
+	bool bCanUsePlaybackOverride = false;
+#if WITH_AUTOMATION_TESTS
+	bCanUsePlaybackOverride = static_cast<bool>(DefenseStagePlaybackOverrideForTesting);
+#endif
 	if (!DefenderCharacter
 		|| !SourceCharacter
 		|| !DefenderCharacter->GetMesh()
 		|| !SourceCharacter->GetMesh()
-		|| !DefenderCharacter->GetMesh()->GetAnimInstance()
-		|| !SourceCharacter->GetMesh()->GetAnimInstance())
+		|| ((!DefenderCharacter->GetMesh()->GetAnimInstance()
+				|| !SourceCharacter->GetMesh()->GetAnimInstance())
+			&& !bCanUsePlaybackOverride))
 	{
 		OutFailureReason = TEXT("one or both animation instances are unavailable");
 		return false;
@@ -433,7 +1589,7 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 		|| !FMath::IsFinite(BridgeData->MinTriggerDistance)
 		|| !FMath::IsFinite(BridgeData->MaxTriggerDistance)
 		|| BridgeData->MinTriggerDistance < 0.0f
-		|| BridgeData->MaxTriggerDistance < BridgeData->MinTriggerDistance
+		|| BridgeData->MaxTriggerDistance <= BridgeData->MinTriggerDistance
 		|| PairDistance < BridgeData->MinTriggerDistance
 		|| PairDistance > BridgeData->MaxTriggerDistance)
 	{
@@ -441,9 +1597,6 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 		return false;
 	}
 
-	UCombatComponent* DefenderCombat = CachedCombatComponent
-		? CachedCombatComponent.Get()
-		: Defender->CombatComponent.Get();
 	const UDefenseConfiguration* DefenderConfiguration = DefenderCombat
 		? DefenderCombat->GetEffectiveDefenseConfiguration()
 		: GetDefault<UDefenseConfiguration>();
@@ -597,29 +1750,34 @@ bool UPairedAnimationComponent::ScheduleNoMontageDefenseBridge(
 	const float Delay = FMath::IsFinite(ConfiguredDelay) && ConfiguredDelay >= 0.0f
 		? ConfiguredDelay
 		: 0.15f;
+	CancelDefenseAsyncHandle(ActiveDefenseSequence.BridgeFallbackHandle);
+	const FDefenseAsyncHandle AsyncHandle = AllocateDefenseAsyncHandle();
 	FTimerDelegate Delegate = FTimerDelegate::CreateUObject(
 		this,
 		&UPairedAnimationComponent::HandleNoMontageDefenseBridgeElapsed,
-		ExpectedStageGeneration);
-	World->GetTimerManager().ClearTimer(DefenseBridgeFallbackHandle);
-	if (Delay <= 0.0f)
-	{
-		World->GetTimerManager().SetTimerForNextTick(Delegate);
-	}
-	else
-	{
-		World->GetTimerManager().SetTimer(
-			DefenseBridgeFallbackHandle,
-			Delegate,
-			Delay,
-			false);
-	}
+		ExpectedStageGeneration,
+		AsyncHandle);
+	FTimerHandle TimerHandle;
+	World->GetTimerManager().SetTimer(
+		TimerHandle,
+		Delegate,
+		FMath::Max(UE_SMALL_NUMBER, Delay),
+		false);
+	DefenseSimulationTimers.Add(AsyncHandle, TimerHandle);
+	ActiveDefenseSequence.BridgeFallbackHandle = AsyncHandle;
 	return true;
 }
 
 void UPairedAnimationComponent::HandleNoMontageDefenseBridgeElapsed(
-	const int32 ExpectedStageGeneration)
+	const int32 ExpectedStageGeneration,
+	const FDefenseAsyncHandle AsyncHandle)
 {
+	DefenseSimulationTimers.Remove(AsyncHandle);
+	if (ActiveDefenseSequence.BridgeFallbackHandle != AsyncHandle)
+	{
+		return;
+	}
+	ActiveDefenseSequence.BridgeFallbackHandle = {};
 	EnterDefenseCounterWindow(ExpectedStageGeneration);
 }
 
@@ -629,10 +1787,14 @@ bool UPairedAnimationComponent::EnterDefenseCounterWindow(
 	if (ChainState != EChainCounterState::ParryActive
 		|| ActiveDefenseSequence.ChainState != EChainCounterState::ParryActive
 		|| ActiveDefenseSequence.StageGeneration != ExpectedStageGeneration
-		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid()
-		|| !ActiveDefenseSequence.Defender.IsValid()
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		return false;
+	}
+	if (!ActiveDefenseSequence.Defender.IsValid()
 		|| !ActiveDefenseSequence.SourceAttacker.IsValid())
 	{
+		CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("BridgeParticipantInvalid"));
 		return false;
 	}
 
@@ -652,17 +1814,44 @@ bool UPairedAnimationComponent::EnterDefenseCounterWindow(
 		|| !SourceCombat
 		|| !SourceCombat->IsAttackConsumed(AttackInstance))
 	{
-		ClearChainContext();
+		CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("BridgeOwnershipInvalid"));
 		return false;
 	}
 
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(DefenseBridgeFallbackHandle);
-		World->GetTimerManager().ClearTimer(ChainTimeoutHandle);
-	}
+	CancelDefenseAsyncHandle(ActiveDefenseSequence.BridgeFallbackHandle);
+	ActiveDefenseSequence.BridgeFallbackHandle = {};
 	ChainState = EChainCounterState::CounterWindow;
 	ActiveDefenseSequence.ChainState = EChainCounterState::CounterWindow;
+	if (UPairedAnimationData* StageData = ActiveDefenseSequence.ActivePairedData.Get())
+	{
+		const FPairedChainTransitionPolicy& Policy = StageData->ChainTransitionPolicy;
+		if (!Policy.AttackerReadySection.IsNone())
+		{
+			if (UAnimInstance* Anim = Defender->GetMesh()
+				? Defender->GetMesh()->GetAnimInstance()
+				: nullptr)
+			{
+				Anim->Montage_JumpToSection(Policy.AttackerReadySection, StageData->AttackerMontage);
+				Anim->Montage_SetNextSection(
+					Policy.AttackerReadySection,
+					Policy.AttackerReadySection,
+					StageData->AttackerMontage);
+			}
+		}
+		if (!Policy.VictimReadySection.IsNone())
+		{
+			if (UAnimInstance* Anim = SourceAttacker->GetMesh()
+				? SourceAttacker->GetMesh()->GetAnimInstance()
+				: nullptr)
+			{
+				Anim->Montage_JumpToSection(Policy.VictimReadySection, StageData->VictimMontage);
+				Anim->Montage_SetNextSection(
+					Policy.VictimReadySection,
+					Policy.VictimReadySection,
+					StageData->VictimMontage);
+			}
+		}
+	}
 
 	UCombatComponent* DefenderCombat = CachedCombatComponent
 		? CachedCombatComponent.Get()
@@ -670,7 +1859,13 @@ bool UPairedAnimationComponent::EnterDefenseCounterWindow(
 	const UDefenseConfiguration* Configuration = DefenderCombat
 		? DefenderCombat->GetEffectiveDefenseConfiguration()
 		: GetDefault<UDefenseConfiguration>();
-	const float ConfiguredWindowDuration = Configuration
+	const float PolicyOverride = ActiveDefenseSequence.ActivePairedData
+		? ActiveDefenseSequence.ActivePairedData->ChainTransitionPolicy.ResponseWindowOverride
+		: 0.0f;
+	const float ConfiguredWindowDuration = FMath::IsFinite(PolicyOverride)
+		&& PolicyOverride > 0.0f
+		? PolicyOverride
+		: Configuration
 		? Configuration->CounterWindowSeconds
 		: 2.0f;
 	const float WindowDuration = FMath::IsFinite(ConfiguredWindowDuration)
@@ -679,24 +1874,300 @@ bool UPairedAnimationComponent::EnterDefenseCounterWindow(
 		: 2.0f;
 	ActiveChainContext.TimeInWindow = 0.0f;
 	ActiveChainContext.WindowDuration = WindowDuration;
-	if (UWorld* World = GetWorld())
+	ScheduleChainResponseDeadline(
+		EChainCounterState::CounterWindow,
+		WindowDuration,
+		ExpectedStageGeneration);
+	return true;
+}
+
+bool UPairedAnimationComponent::HandleDefenseAutoContinueMarker(
+	const int32 ExpectedStageGeneration)
+{
+	if (ChainState != EChainCounterState::CounterActive
+		|| ActiveDefenseSequence.ChainState != EChainCounterState::CounterActive
+		|| ActiveDefenseSequence.StageGeneration != ExpectedStageGeneration)
 	{
-		if (WindowDuration <= 0.0f)
+		return false;
+	}
+	UPairedAnimationData* CounterData = ActiveDefenseSequence.ActivePairedData.Get();
+	if (!CounterData || !CounterData->ChainTransitionPolicy.bAutoContinue)
+	{
+		return false;
+	}
+
+	ApplyActivePairedDamageOnce();
+	if (ActiveDefenseSequence.StageGeneration != ExpectedStageGeneration
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		return false;
+	}
+	ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(
+		ActiveDefenseSequence.Defender.Get());
+	ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(
+		ActiveDefenseSequence.SourceAttacker.Get());
+	if (!Defender || !SourceAttacker
+		|| Defender->IsDeadOrDying()
+		|| SourceAttacker->IsDeadOrDying())
+	{
+		CleanupDefenseSequence(
+			ExpectedStageGeneration,
+			0.0f,
+			TEXT("AutoContinueParticipantInvalid"));
+		return false;
+	}
+	UPairedAnimationData* FinisherData = ActiveDefenseSequence.FinisherData.Get();
+	if (FinisherData
+		&& TryStartDefenseChainStage(
+			FinisherData,
+			EPairedReactionType::Finisher,
+			EChainCounterState::FinisherActive))
+	{
+		return true;
+	}
+
+	const bool bRetryable = CounterData->ChainTransitionPolicy.bFinisherRetryable
+		&& FinisherData
+		&& ActiveDefenseSequence.Defender.IsValid()
+		&& ActiveDefenseSequence.SourceAttacker.IsValid();
+	if (!bRetryable)
+	{
+		CleanupDefenseSequence(
+			ActiveDefenseSequence.StageGeneration,
+			0.1f,
+			TEXT("AutoFinisherStartFailed"));
+		return false;
+	}
+
+	ChainState = EChainCounterState::FinisherReady;
+	ActiveDefenseSequence.ChainState = EChainCounterState::FinisherReady;
+	UCombatComponent* DefenderCombat = CachedCombatComponent.Get();
+	const UDefenseConfiguration* Configuration = DefenderCombat
+		? DefenderCombat->GetEffectiveDefenseConfiguration()
+		: GetDefault<UDefenseConfiguration>();
+	const float ConfiguredDuration = Configuration
+		? Configuration->FinisherReadySeconds
+		: 2.0f;
+	const float Duration = FMath::IsFinite(ConfiguredDuration) && ConfiguredDuration >= 0.0f
+		? ConfiguredDuration
+		: 2.0f;
+	ScheduleChainResponseDeadline(
+		EChainCounterState::FinisherReady,
+		Duration,
+		ActiveDefenseSequence.StageGeneration);
+	return false;
+}
+
+bool UPairedAnimationComponent::HandleOwnerPairedMontageEnded(
+	UAnimMontage* Montage,
+	const bool bInterrupted)
+{
+	if (ConsumeRetiredOwnerMontageCallback(Montage))
+	{
+		return true;
+	}
+	if (ChainState == EChainCounterState::None
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		if (UPairedAnimationComponent* SequenceOwner = FindDefenseSequenceOwner())
 		{
-			World->GetTimerManager().SetTimerForNextTick(
-				FTimerDelegate::CreateUObject(this, &UPairedAnimationComponent::OnChainTimeout));
+			if (SequenceOwner->HandleSourcePairedMontageEnded(
+				GetOwner(), Montage, bInterrupted))
+			{
+				return true;
+			}
+		}
+		if (!ActivePairedAnimData || Montage != ActivePairedAnimData->AttackerMontage)
+		{
+			return false;
+		}
+		if (bInterrupted)
+		{
+			CancelPairedAnimation(0.0f);
 		}
 		else
 		{
-			World->GetTimerManager().SetTimer(
-				ChainTimeoutHandle,
-				this,
-				&UPairedAnimationComponent::OnChainTimeout,
-				WindowDuration,
-				false);
+			CompletePairedAnimation();
 		}
+		return true;
+	}
+
+	// Any outgoing paired callback during a successor start is stale but still consumed.
+	if (!ActiveDefenseSequence.ActivePairedData
+		|| Montage != ActiveDefenseSequence.ActivePairedData->AttackerMontage)
+	{
+		return true;
+	}
+	const int32 Generation = ActiveDefenseSequence.StageGeneration;
+	if (ActiveDefenseSequence.LastOwnerMontageEndHandledStageGeneration == Generation)
+	{
+		return true;
+	}
+	ActiveDefenseSequence.LastOwnerMontageEndHandledStageGeneration = Generation;
+	if (bInterrupted)
+	{
+		CleanupDefenseSequence(Generation, 0.0f, TEXT("ActiveMontageInterrupted"));
+		return true;
+	}
+
+	if (ChainState == EChainCounterState::FinisherActive)
+	{
+		ApplyActivePairedDamageOnce();
+		CleanupDefenseSequence(Generation, 0.0f, TEXT("FinisherCompleted"));
+		return true;
+	}
+	if (ChainState == EChainCounterState::CounterActive)
+	{
+		ApplyActivePairedDamageOnce();
+		if (ActiveDefenseSequence.StageGeneration != Generation
+			|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+		{
+			return true;
+		}
+		ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(
+			ActiveDefenseSequence.Defender.Get());
+		ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(
+			ActiveDefenseSequence.SourceAttacker.Get());
+		if (!Defender || !SourceAttacker
+			|| Defender->IsDeadOrDying()
+			|| SourceAttacker->IsDeadOrDying())
+		{
+			CleanupDefenseSequence(
+				Generation,
+				0.0f,
+				TEXT("CounterCompletionParticipantInvalid"));
+			return true;
+		}
+		UPairedAnimationData* CounterData = ActiveDefenseSequence.ActivePairedData.Get();
+		const bool bCanWaitForFinisher = ActiveDefenseSequence.FinisherData
+			&& (!CounterData
+				|| !CounterData->ChainTransitionPolicy.bAutoContinue
+				|| CounterData->ChainTransitionPolicy.bFinisherRetryable);
+		if (!bCanWaitForFinisher)
+		{
+			CleanupDefenseSequence(Generation, 0.0f, TEXT("CounterEndedWithoutSuccessor"));
+			return true;
+		}
+
+		ChainState = EChainCounterState::FinisherReady;
+		ActiveDefenseSequence.ChainState = EChainCounterState::FinisherReady;
+		ActiveDefenseSequence.AttackerMontageInstanceId = INDEX_NONE;
+		ActiveDefenseSequence.VictimMontageInstanceId = INDEX_NONE;
+		const UDefenseConfiguration* Configuration = CachedCombatComponent
+			? CachedCombatComponent->GetEffectiveDefenseConfiguration()
+			: GetDefault<UDefenseConfiguration>();
+		const float ConfiguredDuration = Configuration
+			? Configuration->FinisherReadySeconds
+			: 2.0f;
+		ScheduleChainResponseDeadline(
+			EChainCounterState::FinisherReady,
+			FMath::IsFinite(ConfiguredDuration) && ConfiguredDuration >= 0.0f
+				? ConfiguredDuration
+				: 2.0f,
+			Generation);
+		return true;
+	}
+
+	CleanupDefenseSequence(Generation, 0.0f, TEXT("BridgeEndedBeforeCounter"));
+	return true;
+}
+
+bool UPairedAnimationComponent::HandleSourcePairedMontageEnded(
+	AActor* ReportingSource,
+	UAnimMontage* Montage,
+	const bool bInterrupted)
+{
+	if (!ReportingSource
+		|| ChainState == EChainCounterState::None
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid()
+		|| ActiveDefenseSequence.SourceAttacker.Get() != ReportingSource
+		|| !ActiveDefenseSequence.ActivePairedData
+		|| Montage != ActiveDefenseSequence.ActivePairedData->VictimMontage)
+	{
+		return false;
+	}
+
+	if (bInterrupted)
+	{
+		CleanupDefenseSequence(
+			ActiveDefenseSequence.StageGeneration,
+			0.0f,
+			TEXT("SourceMontageInterrupted"));
+	}
+	else
+	{
+		ScheduleSourceMontageEndVerification(
+			Montage,
+			ChainState,
+			ActiveDefenseSequence.StageGeneration);
 	}
 	return true;
+}
+
+void UPairedAnimationComponent::ScheduleSourceMontageEndVerification(
+	UAnimMontage* Montage,
+	const EChainCounterState ExpectedState,
+	const int32 ExpectedStageGeneration)
+{
+	if (!Montage
+		|| ExpectedState == EChainCounterState::None
+		|| ExpectedStageGeneration <= 0
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		return;
+	}
+
+	const FDefenseAsyncHandle AsyncHandle = AllocateDefenseAsyncHandle();
+	const FDefenseInteractionId Interaction = ActiveDefenseSequence.OriginatingInteraction;
+	const TWeakObjectPtr<UPairedAnimationComponent> WeakThis(this);
+	const TWeakObjectPtr<UWorld> WeakWorld(GetWorld());
+	const TWeakObjectPtr<UAnimMontage> WeakMontage(Montage);
+	const FTSTicker::FDelegateHandle TickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateLambda(
+			[WeakThis, WeakWorld, Interaction, WeakMontage, ExpectedState,
+				ExpectedStageGeneration, AsyncHandle](const float DeltaTime)
+			{
+				UPairedAnimationComponent* Component = WeakThis.Get();
+				UWorld* World = WeakWorld.Get();
+				return Component && World && Component->GetWorld() == World
+					? Component->HandleSourceMontageEndVerification(
+						Interaction,
+						WeakMontage,
+						ExpectedState,
+						ExpectedStageGeneration,
+						AsyncHandle,
+						DeltaTime)
+					: false;
+			}),
+		0.0f);
+	DefenseResponseTickers.Add(AsyncHandle, TickerHandle);
+}
+
+bool UPairedAnimationComponent::HandleSourceMontageEndVerification(
+	const FDefenseInteractionId Interaction,
+	const TWeakObjectPtr<UAnimMontage> Montage,
+	const EChainCounterState ExpectedState,
+	const int32 ExpectedStageGeneration,
+	const FDefenseAsyncHandle AsyncHandle,
+	const float DeltaTime)
+{
+	(void)DeltaTime;
+	DefenseResponseTickers.Remove(AsyncHandle);
+	if (ActiveDefenseSequence.OriginatingInteraction != Interaction
+		|| ActiveDefenseSequence.StageGeneration != ExpectedStageGeneration
+		|| ActiveDefenseSequence.ChainState != ExpectedState
+		|| ChainState != ExpectedState
+		|| !ActiveDefenseSequence.ActivePairedData
+		|| ActiveDefenseSequence.ActivePairedData->VictimMontage != Montage.Get())
+	{
+		return false;
+	}
+
+	CleanupDefenseSequence(
+		ExpectedStageGeneration,
+		0.0f,
+		TEXT("SourceMontageEndedFirst"));
+	return false;
 }
 
 // ============================================================================
@@ -845,15 +2316,796 @@ bool UPairedAnimationComponent::TryExecuteFinisher(UAttackData* AttackData)
 	return TryStartPairedAnimationWithTarget(TargetActor, AttackData->FinisherData, EPairedReactionType::Finisher);
 }
 
+int32 UPairedAnimationComponent::AllocateDefenseStageGeneration()
+{
+	NextDefenseStageGeneration = NextDefenseStageGeneration == MAX_int32
+		? 1
+		: NextDefenseStageGeneration + 1;
+	return NextDefenseStageGeneration;
+}
+
+bool UPairedAnimationComponent::PreflightDefenseChainStage(
+	UPairedAnimationData* PairedAnimData,
+	const EPairedReactionType ReactionType,
+	FString& OutFailureReason) const
+{
+	OutFailureReason.Reset();
+	ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(ActiveDefenseSequence.Defender.Get());
+	ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(ActiveDefenseSequence.SourceAttacker.Get());
+	UPairedAnimationComponent* SourcePaired = SourceAttacker
+		? SourceAttacker->PairedAnimationComponent.Get()
+		: nullptr;
+	UCombatComponent* DefenderCombat = CachedCombatComponent
+		? CachedCombatComponent.Get()
+		: Defender
+			? Defender->CombatComponent.Get()
+			: nullptr;
+	UCombatComponent* SourceCombat = SourceAttacker
+		? SourceAttacker->CombatComponent.Get()
+		: nullptr;
+	UTargetingComponent* DefenderTargeting = Defender
+		? Defender->TargetingComponent.Get()
+		: nullptr;
+	UTargetingComponent* SourceTargeting = SourceAttacker
+		? SourceAttacker->TargetingComponent.Get()
+		: nullptr;
+	ACharacter* DefenderCharacter = Cast<ACharacter>(Defender);
+	ACharacter* SourceCharacter = Cast<ACharacter>(SourceAttacker);
+	UAnimInstance* DefenderAnim = DefenderCharacter && DefenderCharacter->GetMesh()
+		? DefenderCharacter->GetMesh()->GetAnimInstance()
+		: nullptr;
+	UAnimInstance* SourceAnim = SourceCharacter && SourceCharacter->GetMesh()
+		? SourceCharacter->GetMesh()->GetAnimInstance()
+		: nullptr;
+	bool bCanUsePlaybackOverride = false;
+#if WITH_AUTOMATION_TESTS
+	bCanUsePlaybackOverride = static_cast<bool>(DefenseStagePlaybackOverrideForTesting);
+#endif
+	if (!PairedAnimData
+		|| !Defender
+		|| !SourceAttacker
+		|| !SourcePaired
+		|| !DefenderCombat
+		|| !SourceCombat
+		|| !DefenderTargeting
+		|| !SourceTargeting
+		|| !SourceAttacker->HitReactionComponent
+		|| ((!DefenderAnim || !SourceAnim) && !bCanUsePlaybackOverride)
+		|| Defender->IsDeadOrDying()
+		|| SourceAttacker->IsDeadOrDying()
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		OutFailureReason = TEXT("missing or invalid retained participant");
+		return false;
+	}
+	if (PairedAnimData->ReactionType != ReactionType
+		|| !PairedAnimData->AttackerMontage
+		|| !PairedAnimData->VictimMontage
+		|| (!PairedAnimData->AttackerMontageSection.IsNone()
+			&& !PairedAnimData->AttackerMontage->IsValidSectionName(PairedAnimData->AttackerMontageSection))
+		|| (!PairedAnimData->VictimMontageSection.IsNone()
+			&& !PairedAnimData->VictimMontage->IsValidSectionName(PairedAnimData->VictimMontageSection)))
+	{
+		OutFailureReason = TEXT("paired role montage, section, or reaction is invalid");
+		return false;
+	}
+	if (!HasValidPairedRuntimeNumerics(*PairedAnimData))
+	{
+		OutFailureReason = TEXT("retained stage playback, damage, or effects numeric configuration is invalid");
+		return false;
+	}
+	if (const UPairedAnimationData* PreviousStage =
+		ActiveDefenseSequence.ActivePairedData.Get())
+	{
+		if (PreviousStage->AttackerMontage == PairedAnimData->AttackerMontage
+			|| PreviousStage->VictimMontage == PairedAnimData->VictimMontage)
+		{
+			OutFailureReason = TEXT("adjacent retained stages require distinct role montages for callback identity");
+			return false;
+		}
+	}
+	if (RetiredOwnerMontageCallbacks.Contains(PairedAnimData->AttackerMontage)
+		|| SourcePaired->RetiredOwnerMontageCallbacks.Contains(PairedAnimData->VictimMontage))
+	{
+		OutFailureReason = TEXT("a retained role montage still has an unresolved prior callback");
+		return false;
+	}
+	if (!PairedAnimData->AttackerWarpConfig.bWarpRotation
+		|| !PairedAnimData->VictimWarpConfig.bWarpRotation
+		|| PairedAnimData->AttackerWarpConfig.WarpTargetName.IsNone()
+		|| PairedAnimData->VictimWarpConfig.WarpTargetName.IsNone())
+	{
+		OutFailureReason = TEXT("canonical defense roles require named rotation warp targets");
+		return false;
+	}
+
+	const FVector DefenderLocation = Defender->GetActorLocation();
+	const FVector SourceLocation = SourceAttacker->GetActorLocation();
+	const float PairDistance = FVector::Dist(DefenderLocation, SourceLocation);
+	if (!IsValidPairedTarget(SourceAttacker)
+		|| !FMath::IsFinite(PairDistance)
+		|| !FMath::IsFinite(PairedAnimData->MinTriggerDistance)
+		|| !FMath::IsFinite(PairedAnimData->MaxTriggerDistance)
+		|| PairedAnimData->MinTriggerDistance < 0.0f
+		|| PairedAnimData->MaxTriggerDistance <= PairedAnimData->MinTriggerDistance
+		|| PairDistance > PairedAnimData->MaxTriggerDistance)
+	{
+		OutFailureReason = TEXT("retained participants are invalid or outside the stage trigger range");
+		return false;
+	}
+
+	const FPairedWarpConfig& DefenderWarp = PairedAnimData->AttackerWarpConfig;
+	const FPairedWarpConfig& SourceWarp = PairedAnimData->VictimWarpConfig;
+	if (!FMath::IsFinite(PairedAnimData->MaxWarpDistance)
+		|| PairedAnimData->MaxWarpDistance < 0.0f
+		|| !FMath::IsFinite(DefenderWarp.MaxWarpDistance)
+		|| DefenderWarp.MaxWarpDistance < 0.0f
+		|| !FMath::IsFinite(SourceWarp.MaxWarpDistance)
+		|| SourceWarp.MaxWarpDistance < 0.0f
+		|| DefenderWarp.RelativeOffset.ContainsNaN()
+		|| SourceWarp.RelativeOffset.ContainsNaN())
+	{
+		OutFailureReason = TEXT("retained stage has an invalid role translation budget");
+		return false;
+	}
+
+	const FVector DefenderDestination = SourceLocation
+		+ SourceAttacker->GetActorRotation().RotateVector(DefenderWarp.RelativeOffset);
+	const FVector SourceDestination = DefenderLocation
+		+ Defender->GetActorRotation().RotateVector(SourceWarp.RelativeOffset);
+	auto IsRoleTranslationValid = [PairedAnimData](
+		const AActor* Role,
+		const FVector& Destination,
+		const FPairedWarpConfig& WarpConfig)
+	{
+		if (!WarpConfig.bWarpTranslation)
+		{
+			return true;
+		}
+		const float Allowed = FMath::Min(
+			PairedAnimData->MaxWarpDistance,
+			WarpConfig.MaxWarpDistance);
+		const float Required = FVector::Dist(Role->GetActorLocation(), Destination);
+		return FMath::IsFinite(Required) && Required <= Allowed + KINDA_SMALL_NUMBER;
+	};
+	if (!IsRoleTranslationValid(Defender, DefenderDestination, DefenderWarp)
+		|| !IsRoleTranslationValid(SourceAttacker, SourceDestination, SourceWarp))
+	{
+		OutFailureReason = TEXT("a retained role exceeds its stage translation budget");
+		return false;
+	}
+
+	const UDefenseConfiguration* SourceConfiguration =
+		SourceCombat->GetEffectiveDefenseConfiguration();
+	const float SourceInitialBudget = SourceConfiguration
+		? SourceConfiguration->MaximumAutomaticTurn
+		: 70.0f;
+	const float DefenderInitialBudget =
+		ActiveDefenseSequence.OriginatingResolution.Decision.AvailableTurnDegrees;
+	const FDefenseStageAlignmentLimits DefenderAlignmentLimits =
+		ResolveDefenseStageAlignmentLimits(
+			DefenderCombat,
+			DefenderTargeting,
+			ActiveDefenseSequence.AttackerAlignmentLease,
+			DefenderInitialBudget);
+	const FDefenseStageAlignmentLimits SourceAlignmentLimits =
+		ResolveDefenseStageAlignmentLimits(
+			SourceCombat,
+			SourceTargeting,
+			ActiveDefenseSequence.VictimAlignmentLease,
+			SourceInitialBudget);
+	const float RequiredTolerance =
+		ActiveDefenseSequence.OriginatingResolution.Decision.RequiredFinalTolerance;
+	auto IsRoleRotationValid = [RequiredTolerance](
+		const AActor* Role,
+		const AActor* Target,
+		const FDefenseStageAlignmentLimits& Limits)
+	{
+		const float RequiredYaw = GetAbsoluteYawToTarget(Role, Target);
+		if (!FMath::IsFinite(RequiredYaw)
+			|| !FMath::IsFinite(RequiredTolerance)
+			|| RequiredTolerance < 0.0f
+			|| !FMath::IsFinite(Limits.MaximumTurnRate)
+			|| !FMath::IsFinite(Limits.RemainingTurnBudget))
+		{
+			return false;
+		}
+		const float RequiredCorrection = FMath::Max(0.0f, RequiredYaw - RequiredTolerance);
+		return RequiredCorrection <= Limits.RemainingTurnBudget + KINDA_SMALL_NUMBER
+			&& (RequiredCorrection <= KINDA_SMALL_NUMBER
+				|| Limits.MaximumTurnRate > KINDA_SMALL_NUMBER);
+	};
+	if (!IsRoleRotationValid(Defender, SourceAttacker, DefenderAlignmentLimits)
+		|| !IsRoleRotationValid(SourceAttacker, Defender, SourceAlignmentLimits))
+	{
+		OutFailureReason = TEXT("a retained role exceeds its remaining rotation budget");
+		return false;
+	}
+
+	TArray<AActor*> ActorsToIgnore;
+	ActorsToIgnore.Add(Defender);
+	ActorsToIgnore.Add(SourceAttacker);
+	constexpr float PathClearanceRadius = 30.0f;
+	const bool bPairPathClear = UPairedAnimationUtilityLibrary::IsPathClear(
+		GetWorld(), DefenderLocation, SourceLocation, PathClearanceRadius, ActorsToIgnore);
+	const bool bDefenderWarpClear = !DefenderWarp.bWarpTranslation
+		|| UPairedAnimationUtilityLibrary::IsPathClear(
+			GetWorld(), DefenderLocation, DefenderDestination, PathClearanceRadius, ActorsToIgnore);
+	const bool bSourceWarpClear = !SourceWarp.bWarpTranslation
+		|| UPairedAnimationUtilityLibrary::IsPathClear(
+			GetWorld(), SourceLocation, SourceDestination, PathClearanceRadius, ActorsToIgnore);
+	if (!bPairPathClear || !bDefenderWarpClear || !bSourceWarpClear)
+	{
+		OutFailureReason = TEXT("retained stage path or role warp sweep is blocked");
+		return false;
+	}
+
+	const FPairedChainTransitionPolicy& Policy = PairedAnimData->ChainTransitionPolicy;
+	if ((!Policy.AttackerReadySection.IsNone()
+			&& !PairedAnimData->AttackerMontage->IsValidSectionName(
+				Policy.AttackerReadySection))
+		|| (!Policy.VictimReadySection.IsNone()
+			&& !PairedAnimData->VictimMontage->IsValidSectionName(
+				Policy.VictimReadySection)))
+	{
+		OutFailureReason = TEXT("retained stage references a missing role ready section");
+		return false;
+	}
+	if (ReactionType == EPairedReactionType::Parry
+		&& (Policy.bAutoContinue
+			|| Policy.RequiredMarker.IsNone()
+			|| !Policy.HasRetainableReadyPose()
+			|| !MontageContainsExactlyOneReviewedParryMarker(
+				Policy.DriverRole == EPairedAnimationRole::Attacker
+					? PairedAnimData->AttackerMontage
+					: PairedAnimData->VictimMontage,
+				Policy.RequiredMarker)))
+	{
+		OutFailureReason = TEXT("parry bridge lacks an unambiguous retained-pose marker policy");
+		return false;
+	}
+	if (ReactionType == EPairedReactionType::Counter && Policy.bAutoContinue)
+	{
+		const UAnimMontage* DriverMontage = Policy.DriverRole == EPairedAnimationRole::Attacker
+			? PairedAnimData->AttackerMontage.Get()
+			: PairedAnimData->VictimMontage.Get();
+		int32 MarkerCount = 0;
+		for (const FAnimNotifyEvent& Event : DriverMontage->Notifies)
+		{
+			const UAnimNotify_ChainStageTransition* Notify =
+				Cast<UAnimNotify_ChainStageTransition>(Event.Notify);
+			if (Notify
+				&& Notify->Transition == EChainStageTransitionType::AutoContinue
+				&& Notify->MarkerName == Policy.RequiredMarker)
+			{
+				++MarkerCount;
+			}
+		}
+		if (Policy.RequiredMarker.IsNone() || MarkerCount != 1)
+		{
+			OutFailureReason = TEXT("auto-continuing counter lacks one driver marker");
+			return false;
+		}
+	}
+	return true;
+}
+
+bool UPairedAnimationComponent::TryStartDefenseChainStage(
+	UPairedAnimationData* PairedAnimData,
+	const EPairedReactionType ReactionType,
+	const EChainCounterState SuccessState)
+{
+	FString FailureReason;
+	if (!PreflightDefenseChainStage(PairedAnimData, ReactionType, FailureReason))
+	{
+		UE_LOG(LogPairedAnim, Warning,
+			TEXT("[COUNTER-CHAIN] Stage preflight failed: %s"),
+			*FailureReason);
+		return false;
+	}
+
+	ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(ActiveDefenseSequence.Defender.Get());
+	ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(ActiveDefenseSequence.SourceAttacker.Get());
+	UPairedAnimationComponent* SourcePaired = SourceAttacker->PairedAnimationComponent.Get();
+	UTargetingComponent* DefenderTargeting = Defender->TargetingComponent.Get();
+	UTargetingComponent* SourceTargeting = SourceAttacker->TargetingComponent.Get();
+	UHitReactionComponent* SourceHitReaction = SourceAttacker->HitReactionComponent.Get();
+	UCombatComponent* DefenderCombat = Defender->CombatComponent.Get();
+	UCombatComponent* SourceCombat = SourceAttacker->CombatComponent.Get();
+	UAnimInstance* DefenderAnim = Defender->GetMesh()->GetAnimInstance();
+	UAnimInstance* SourceAnim = SourceAttacker->GetMesh()->GetAnimInstance();
+	if (!SourcePaired || !DefenderTargeting || !SourceTargeting || !SourceHitReaction
+		|| !DefenderCombat || !SourceCombat)
+	{
+		return false;
+	}
+
+	const FDefenseSequenceContext Previous = ActiveDefenseSequence;
+	UPairedAnimationData* PreviousData = ActivePairedAnimData.Get();
+	const EPairedReactionType PreviousReaction = ActivePairedReactionType;
+	const TWeakObjectPtr<AActor> PreviousVictim = CurrentFinisherVictim;
+	const EChainCounterState PreviousChainState = ChainState;
+	const double PreservedDeadline = Previous.ResponseDeadlineUnscaled;
+	const int32 SuccessorGeneration = AllocateDefenseStageGeneration();
+
+	ActiveDefenseSequence.StageGeneration = SuccessorGeneration;
+	ActiveDefenseSequence.ActivePairedData = PairedAnimData;
+	ActiveDefenseSequence.AttackerMontageInstanceId = INDEX_NONE;
+	ActiveDefenseSequence.VictimMontageInstanceId = INDEX_NONE;
+	ActivePairedAnimData = PairedAnimData;
+	ActivePairedReactionType = ReactionType;
+	CurrentFinisherVictim = SourceAttacker;
+
+	AddPairedPartner(SourceAttacker);
+	SourcePaired->AddPairedPartner(Defender);
+
+	const FPairedSequenceLeaseHandle NewDefenderCollision = AcquirePairedStateLease(
+		TEXT("DefenseChainStage"), SuccessorGeneration,
+		true, true, false, true, false, 150.0f);
+	const FPairedSequenceLeaseHandle NewSourceCollision = SourcePaired->AcquirePairedStateLease(
+		TEXT("DefenseChainStage"), SuccessorGeneration,
+		true, true, false, true, false, 150.0f);
+
+	const UDefenseConfiguration* SourceConfiguration =
+		SourceCombat->GetEffectiveDefenseConfiguration();
+	const float SourceInitialBudget = SourceConfiguration
+		? SourceConfiguration->MaximumAutomaticTurn
+		: 70.0f;
+	const FDefenseStageAlignmentLimits DefenderAlignmentLimits =
+		ResolveDefenseStageAlignmentLimits(
+			DefenderCombat,
+			DefenderTargeting,
+			Previous.AttackerAlignmentLease,
+			Previous.OriginatingResolution.Decision.AvailableTurnDegrees);
+	const FDefenseStageAlignmentLimits SourceAlignmentLimits =
+		ResolveDefenseStageAlignmentLimits(
+			SourceCombat,
+			SourceTargeting,
+			Previous.VictimAlignmentLease,
+			SourceInitialBudget);
+	const UDefenseConfiguration* DefenderConfiguration =
+		DefenderCombat->GetEffectiveDefenseConfiguration();
+	auto ResolveTranslationBudget = [PairedAnimData, ReactionType, DefenderConfiguration, &Previous](
+		const FPairedWarpConfig& Warp)
+	{
+		if (!Warp.bWarpTranslation)
+		{
+			return 0.0f;
+		}
+		float Allowed = FMath::Min(
+			FMath::Max(0.0f, PairedAnimData->MaxWarpDistance),
+			FMath::Max(0.0f, Warp.MaxWarpDistance));
+		if (ReactionType == EPairedReactionType::Parry)
+		{
+			const float ConfiguredAllowance = DefenderConfiguration
+				? FMath::Max(
+					0.0f,
+					DefenderConfiguration->PerfectParryTranslationAllowancePerRole)
+				: 0.0f;
+			Allowed = FMath::Min(Allowed, ConfiguredAllowance);
+			if (Previous.ActivePresentation.MaximumTranslation > 0.0f)
+			{
+				Allowed = FMath::Min(
+					Allowed,
+					Previous.ActivePresentation.MaximumTranslation);
+			}
+		}
+		return Allowed;
+	};
+
+	auto BuildAlignmentSpec = [SuccessorGeneration](
+		AActor* Owner,
+		AActor* Target,
+		const FPairedWarpConfig& Warp,
+		const FName OwnerId,
+		const FDefenseStageAlignmentLimits& Limits,
+		const float MaximumTranslation)
+	{
+		FAlignmentRequestSpec Spec;
+		Spec.OwnerId = OwnerId;
+		Spec.OwnerGeneration = SuccessorGeneration;
+		Spec.Priority = EDefenseAlignmentPriority::PairedOrParryBridge;
+		Spec.Executor = EAlignmentExecutor::MotionWarping;
+		Spec.Target = Target;
+		Spec.TargetRelativeOffset = Warp.RelativeOffset;
+		Spec.DesiredRotation = Target
+			? (Target->GetActorLocation() - Owner->GetActorLocation()).Rotation()
+			: Owner->GetActorRotation();
+		Spec.MaximumTurnRate = Limits.MaximumTurnRate;
+		Spec.RemainingTurnBudget = Limits.RemainingTurnBudget;
+		Spec.MaximumTranslation = MaximumTranslation;
+		Spec.WarpTargetName = Warp.WarpTargetName;
+		Spec.bTrackTargetRotation = Warp.bWarpRotation;
+		Spec.bWarpTranslation = Warp.bWarpTranslation;
+		return Spec;
+	};
+
+	FAlignmentRequestHandle NewDefenderAlignment;
+	FAlignmentRequestHandle NewSourceAlignment;
+	FAlignmentRequestSpec PreviousDefenderAlignmentSpec;
+	FAlignmentRequestSpec PreviousSourceAlignmentSpec;
+	bool bUpdatedDefenderAlignment = false;
+	bool bUpdatedSourceAlignment = false;
+	auto AcquireOrUpdateAlignment = [](
+		UTargetingComponent* Targeting,
+		const FAlignmentRequestHandle Existing,
+		const FAlignmentRequestSpec& Desired,
+		FAlignmentRequestSpec& OutPrevious,
+		bool& bOutUpdated)
+	{
+		if (Existing.IsValid()
+			&& Targeting->GetAlignmentRequestSpec(Existing, OutPrevious)
+			&& OutPrevious.WarpTargetName == Desired.WarpTargetName)
+		{
+			FAlignmentRequestSpec Updated = Desired;
+			Updated.OwnerId = OutPrevious.OwnerId;
+			Updated.OwnerGeneration = OutPrevious.OwnerGeneration;
+			Updated.Priority = OutPrevious.Priority;
+			Updated.Executor = OutPrevious.Executor;
+			Updated.WarpTargetName = OutPrevious.WarpTargetName;
+			bOutUpdated = Targeting->UpdateAlignmentRequest(Existing, Updated);
+			return bOutUpdated ? Existing : FAlignmentRequestHandle{};
+		}
+		return Targeting->AcquireAlignmentRequest(Desired);
+	};
+
+	const FAlignmentRequestSpec DefenderAlignmentSpec = BuildAlignmentSpec(
+		Defender,
+		SourceAttacker,
+		PairedAnimData->AttackerWarpConfig,
+		TEXT("DefenseChainAttacker"),
+		DefenderAlignmentLimits,
+		ResolveTranslationBudget(PairedAnimData->AttackerWarpConfig));
+	const FAlignmentRequestSpec SourceAlignmentSpec = BuildAlignmentSpec(
+		SourceAttacker,
+		Defender,
+		PairedAnimData->VictimWarpConfig,
+		TEXT("DefenseChainVictim"),
+		SourceAlignmentLimits,
+		ResolveTranslationBudget(PairedAnimData->VictimWarpConfig));
+	NewDefenderAlignment = AcquireOrUpdateAlignment(
+		DefenderTargeting,
+		Previous.AttackerAlignmentLease,
+		DefenderAlignmentSpec,
+		PreviousDefenderAlignmentSpec,
+		bUpdatedDefenderAlignment);
+	NewSourceAlignment = AcquireOrUpdateAlignment(
+		SourceTargeting,
+		Previous.VictimAlignmentLease,
+		SourceAlignmentSpec,
+		PreviousSourceAlignmentSpec,
+		bUpdatedSourceAlignment);
+
+	FTimeDilationLeaseHandle NewTimeLease = Previous.TimeDilationLease;
+	bool bAcquiredNewTimeLease = false;
+	if (PairedAnimData->bApplySlowMotion)
+	{
+		const UDefenseConfiguration* Configuration = CachedCombatComponent
+			? CachedCombatComponent->GetEffectiveDefenseConfiguration()
+			: GetDefault<UDefenseConfiguration>();
+		const double Watchdog = Configuration
+			? static_cast<double>(Configuration->TimeDilationLeaseWatchdogSeconds)
+			: 10.0;
+		if (UCombatEffectsWorldSubsystem* Effects = GetWorld()
+			? GetWorld()->GetSubsystem<UCombatEffectsWorldSubsystem>()
+			: nullptr)
+		{
+			NewTimeLease = Effects->AcquireWorldLease(
+				TEXT("DefenseChainStage"),
+				FMath::Clamp(PairedAnimData->SlowMotionScale, 0.0001f, 1.0f),
+				FMath::IsFinite(Watchdog) && Watchdog > 0.0 ? Watchdog : 10.0);
+			bAcquiredNewTimeLease = NewTimeLease.IsValid();
+		}
+	}
+
+	const bool bOwnershipReady = NewDefenderCollision.IsValid()
+		&& NewSourceCollision.IsValid()
+		&& NewDefenderAlignment.IsValid()
+		&& NewSourceAlignment.IsValid()
+		&& (!PairedAnimData->bApplySlowMotion || bAcquiredNewTimeLease);
+	bool bDefenderStarted = false;
+	bool bSourceStarted = false;
+	bool bUsedPlaybackOverride = false;
+	int32 DefenderMontageInstanceId = INDEX_NONE;
+	int32 SourceMontageInstanceId = INDEX_NONE;
+	if (bOwnershipReady)
+	{
+		const bool bHadOutgoingOwnerMontage = PreviousData
+			&& DefenderAnim
+			&& DefenderAnim->Montage_IsPlaying(PreviousData->AttackerMontage);
+		const bool bHadOutgoingSourceMontage = PreviousData
+			&& SourceAnim
+			&& SourceAnim->Montage_IsPlaying(PreviousData->VictimMontage);
+		if (bHadOutgoingOwnerMontage)
+		{
+			RetireOwnerMontageCallback(PreviousData->AttackerMontage);
+		}
+		if (bHadOutgoingSourceMontage)
+		{
+			SourcePaired->RetireOwnerMontageCallback(PreviousData->VictimMontage);
+		}
+		SourceHitReaction->EnterPairedAnimationState(
+			PairedAnimData->VictimMontage,
+			PairedAnimData->VictimDeathOutcome,
+			PairedAnimData->RagdollBlendTime,
+			ShouldTreatPairedAnimationAsLethal(ReactionType, PairedAnimData),
+			Defender);
+
+#if WITH_AUTOMATION_TESTS
+		if (DefenseStagePlaybackOverrideForTesting)
+		{
+			bUsedPlaybackOverride = true;
+			bDefenderStarted = DefenseStagePlaybackOverrideForTesting(
+				EPairedAnimationRole::Attacker,
+				PairedAnimData,
+				DefenderMontageInstanceId);
+		}
+		else
+#endif
+		{
+			const float DefenderLength = DefenderAnim->Montage_PlayWithBlendIn(
+				PairedAnimData->AttackerMontage,
+				FAlphaBlendArgs(FMath::Max(0.0f, PairedAnimData->AttackerBlendIn)),
+				1.0f,
+				EMontagePlayReturnType::MontageLength,
+				0.0f,
+				true);
+			bDefenderStarted = DefenderLength > 0.0f;
+		}
+		if (!bDefenderStarted && bHadOutgoingOwnerMontage
+			&& DefenderAnim->Montage_IsPlaying(PreviousData->AttackerMontage))
+		{
+			CancelRetiredOwnerMontageCallback(PreviousData->AttackerMontage);
+		}
+		if (!bDefenderStarted && bHadOutgoingSourceMontage
+			&& SourceAnim->Montage_IsPlaying(PreviousData->VictimMontage))
+		{
+			SourcePaired->CancelRetiredOwnerMontageCallback(PreviousData->VictimMontage);
+		}
+		if (bDefenderStarted && !bUsedPlaybackOverride)
+		{
+			if (!PairedAnimData->AttackerMontageSection.IsNone())
+			{
+				DefenderAnim->Montage_JumpToSection(
+					PairedAnimData->AttackerMontageSection,
+					PairedAnimData->AttackerMontage);
+			}
+			if (FAnimMontageInstance* Instance =
+				DefenderAnim->GetActiveInstanceForMontage(PairedAnimData->AttackerMontage))
+			{
+				DefenderMontageInstanceId = Instance->GetInstanceID();
+			}
+		}
+
+		if (bDefenderStarted && DefenderMontageInstanceId >= 0)
+		{
+#if WITH_AUTOMATION_TESTS
+			if (bUsedPlaybackOverride)
+			{
+				bSourceStarted = DefenseStagePlaybackOverrideForTesting(
+					EPairedAnimationRole::Victim,
+					PairedAnimData,
+					SourceMontageInstanceId);
+			}
+			else
+#endif
+			{
+				const float SourceLength = SourceAnim->Montage_PlayWithBlendIn(
+					PairedAnimData->VictimMontage,
+					FAlphaBlendArgs(FMath::Max(0.0f, PairedAnimData->VictimBlendIn)),
+					1.0f,
+					EMontagePlayReturnType::MontageLength,
+					FMath::Max(0.0f, -PairedAnimData->VictimStartOffset),
+					true);
+				bSourceStarted = SourceLength > 0.0f;
+			}
+			if (bSourceStarted && !bUsedPlaybackOverride)
+			{
+				if (!PairedAnimData->VictimMontageSection.IsNone())
+				{
+					SourceAnim->Montage_JumpToSection(
+						PairedAnimData->VictimMontageSection,
+						PairedAnimData->VictimMontage);
+				}
+				if (FAnimMontageInstance* Instance =
+					SourceAnim->GetActiveInstanceForMontage(PairedAnimData->VictimMontage))
+				{
+					SourceMontageInstanceId = Instance->GetInstanceID();
+				}
+			}
+		}
+	}
+
+	const bool bStarted = bOwnershipReady
+		&& bDefenderStarted
+		&& bSourceStarted
+		&& DefenderMontageInstanceId >= 0
+		&& SourceMontageInstanceId >= 0;
+	if (!bStarted)
+	{
+		ActiveDefenseSequence = Previous;
+		ActiveDefenseSequence.StageGeneration = SuccessorGeneration;
+		if (Previous.LastDamageAppliedStageGeneration == Previous.StageGeneration)
+		{
+			ActiveDefenseSequence.LastDamageAppliedStageGeneration = SuccessorGeneration;
+		}
+		if (Previous.LastOwnerMontageEndHandledStageGeneration == Previous.StageGeneration)
+		{
+			ActiveDefenseSequence.LastOwnerMontageEndHandledStageGeneration =
+				SuccessorGeneration;
+		}
+		ActiveDefenseSequence.AttackerMontageInstanceId = INDEX_NONE;
+		ActiveDefenseSequence.VictimMontageInstanceId = INDEX_NONE;
+		ActivePairedAnimData = PreviousData;
+		ActivePairedReactionType = PreviousReaction;
+		CurrentFinisherVictim = PreviousVictim;
+		ChainState = PreviousChainState;
+		RekeyPairedStateLeasesGeneration(Previous.StageGeneration, SuccessorGeneration);
+		SourcePaired->RekeyPairedStateLeasesGeneration(
+			Previous.StageGeneration,
+			SuccessorGeneration);
+		if (bDefenderStarted && !bUsedPlaybackOverride && DefenderAnim)
+		{
+			if (DefenderAnim->Montage_IsPlaying(PairedAnimData->AttackerMontage))
+			{
+				RetireOwnerMontageCallback(PairedAnimData->AttackerMontage);
+			}
+			DefenderAnim->Montage_Stop(
+				FMath::Max(0.0f, PairedAnimData->AttackerBlendOut),
+				PairedAnimData->AttackerMontage);
+		}
+		if (bSourceStarted && !bUsedPlaybackOverride && SourceAnim)
+		{
+			if (SourceAnim->Montage_IsPlaying(PairedAnimData->VictimMontage))
+			{
+				SourcePaired->RetireOwnerMontageCallback(PairedAnimData->VictimMontage);
+			}
+			SourceAnim->Montage_Stop(
+				FMath::Max(0.0f, PairedAnimData->VictimBlendOut),
+				PairedAnimData->VictimMontage);
+		}
+		ReleasePairedStateLease(NewDefenderCollision);
+		SourcePaired->ReleasePairedStateLease(NewSourceCollision);
+		if (bUpdatedDefenderAlignment)
+		{
+			DefenderTargeting->UpdateAlignmentRequest(NewDefenderAlignment, PreviousDefenderAlignmentSpec);
+		}
+		else if (NewDefenderAlignment != Previous.AttackerAlignmentLease)
+		{
+			DefenderTargeting->ReleaseAlignmentRequest(NewDefenderAlignment);
+		}
+		if (bUpdatedSourceAlignment)
+		{
+			SourceTargeting->UpdateAlignmentRequest(NewSourceAlignment, PreviousSourceAlignmentSpec);
+		}
+		else if (NewSourceAlignment != Previous.VictimAlignmentLease)
+		{
+			SourceTargeting->ReleaseAlignmentRequest(NewSourceAlignment);
+		}
+		if (bAcquiredNewTimeLease)
+		{
+			if (UCombatEffectsWorldSubsystem* Effects = GetWorld()
+				? GetWorld()->GetSubsystem<UCombatEffectsWorldSubsystem>()
+				: nullptr)
+			{
+				Effects->ReleaseLease(NewTimeLease);
+			}
+		}
+		if (!PreviousData)
+		{
+			SourceHitReaction->ExitPairedAnimationState();
+		}
+		else
+		{
+			SourceHitReaction->EnterPairedAnimationState(
+				PreviousData->VictimMontage,
+				PreviousData->VictimDeathOutcome,
+				PreviousData->RagdollBlendTime,
+				ShouldTreatPairedAnimationAsLethal(PreviousReaction, PreviousData),
+				Defender);
+		}
+		if (PreviousChainState == EChainCounterState::CounterWindow
+			|| PreviousChainState == EChainCounterState::FinisherReady)
+		{
+			const double Now = FPlatformTime::Seconds();
+			ScheduleChainResponseDeadline(
+				PreviousChainState,
+				static_cast<float>(FMath::Max(0.0, PreservedDeadline - Now)),
+				SuccessorGeneration,
+				PreservedDeadline);
+		}
+		return false;
+	}
+
+	CancelDefenseAsyncHandle(Previous.ResponseTimeoutHandle);
+	ActiveDefenseSequence.ResponseTimeoutHandle = {};
+	ActiveDefenseSequence.ResponseDeadlineUnscaled = 0.0;
+	ActiveDefenseSequence.AttackerMontageInstanceId = DefenderMontageInstanceId;
+	ActiveDefenseSequence.VictimMontageInstanceId = SourceMontageInstanceId;
+	ActiveDefenseSequence.AttackerCollisionLease = NewDefenderCollision;
+	ActiveDefenseSequence.VictimCollisionLease = NewSourceCollision;
+	ActiveDefenseSequence.AttackerAlignmentLease = NewDefenderAlignment;
+	ActiveDefenseSequence.VictimAlignmentLease = NewSourceAlignment;
+	ActiveDefenseSequence.TimeDilationLease = NewTimeLease;
+	ActiveDefenseSequence.ChainState = SuccessState;
+	ChainState = SuccessState;
+
+	ReleasePairedStateLeasesForGeneration(Previous.StageGeneration);
+	SourcePaired->ReleasePairedStateLeasesForGeneration(Previous.StageGeneration);
+	if (!bUpdatedDefenderAlignment
+		&& Previous.AttackerAlignmentLease.IsValid()
+		&& Previous.AttackerAlignmentLease != NewDefenderAlignment)
+	{
+		DefenderTargeting->ReleaseAlignmentRequest(Previous.AttackerAlignmentLease);
+	}
+	if (!bUpdatedSourceAlignment
+		&& Previous.VictimAlignmentLease.IsValid()
+		&& Previous.VictimAlignmentLease != NewSourceAlignment)
+	{
+		SourceTargeting->ReleaseAlignmentRequest(Previous.VictimAlignmentLease);
+	}
+	if (bAcquiredNewTimeLease && Previous.TimeDilationLease.IsValid())
+	{
+		if (UCombatEffectsWorldSubsystem* Effects = GetWorld()
+			? GetWorld()->GetSubsystem<UCombatEffectsWorldSubsystem>()
+			: nullptr)
+		{
+			Effects->ReleaseLease(Previous.TimeDilationLease);
+		}
+	}
+
+	if (CachedCombatComponent && ReactionType != EPairedReactionType::Parry)
+	{
+		CachedCombatComponent->SetPhase(EAttackPhase::Active);
+	}
+	OnPairedAnimationStarted.Broadcast(ReactionType, true);
+	return true;
+}
+
 bool UPairedAnimationComponent::TryStartPairedAnimationWithTarget(AActor* TargetActor, UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType)
 {
 	if (!TargetActor || !PairedAnimData)
 	{
 		return false;
 	}
+	if (!HasValidPairedRuntimeNumerics(*PairedAnimData))
+	{
+		UE_LOG(LogPairedAnim, Warning,
+			TEXT("[PAIRED START] Rejecting paired data with invalid runtime numeric configuration: %s"),
+			*GetNameSafe(PairedAnimData));
+		return false;
+	}
+
+	const bool bHasDefenseSequence =
+		ActiveDefenseSequence.OriginatingInteraction.IsValid()
+		|| ChainState != EChainCounterState::None;
+	if (bHasDefenseSequence)
+	{
+		if (ActiveDefenseSequence.OriginatingInteraction.IsValid()
+			&& ChainState != EChainCounterState::None
+			&& ActiveDefenseSequence.SourceAttacker.Get() == TargetActor)
+		{
+			const EChainCounterState SuccessState = ReactionType == EPairedReactionType::Parry
+				? EChainCounterState::ParryActive
+				: ReactionType == EPairedReactionType::Counter
+					? EChainCounterState::CounterActive
+					: EChainCounterState::FinisherActive;
+			return TryStartDefenseChainStage(PairedAnimData, ReactionType, SuccessState);
+		}
+
+		UE_LOG(LogPairedAnim, Verbose,
+			TEXT("[PAIRED START] Rejected competing start while a defense sequence owns the component"));
+		return false;
+	}
+	if (IsPairedAnimationActive())
+	{
+		return false;
+	}
 
 	ABaseCombatCharacter* AttackerCharacter = GetOwnerCharacter();
-	if (!AttackerCharacter)
+	if (!AttackerCharacter
+		|| (AttackerCharacter->HitReactionComponent
+			&& AttackerCharacter->HitReactionComponent->IsInPairedAnimationState()))
 	{
 		return false;
 	}
@@ -895,7 +3147,13 @@ bool UPairedAnimationComponent::TryStartPairedAnimationWithTarget(AActor* Target
 	}
 
 	UHitReactionComponent* TargetHitReaction = TargetActor->FindComponentByClass<UHitReactionComponent>();
-	if (!TargetHitReaction)
+	UPairedAnimationComponent* TargetPairedComp =
+		TargetActor->FindComponentByClass<UPairedAnimationComponent>();
+	if (!TargetHitReaction
+		|| TargetHitReaction->IsInPairedAnimationState()
+		|| (TargetPairedComp
+			&& (TargetPairedComp->IsPairedAnimationActive()
+				|| TargetPairedComp->GetChainState() != EChainCounterState::None)))
 	{
 		return false;
 	}
@@ -903,7 +3161,6 @@ bool UPairedAnimationComponent::TryStartPairedAnimationWithTarget(AActor* Target
 	bool bAttackerMontageSuccess = false;
 	bool bVictimMontageSuccess = false;
 
-	UPairedAnimationComponent* TargetPairedComp = TargetActor->FindComponentByClass<UPairedAnimationComponent>();
 	const bool bTreatAsLethal = ShouldTreatPairedAnimationAsLethal(ReactionType, PairedAnimData);
 	if (ReactionType == EPairedReactionType::Counter && PairedAnimData->bIsLethal && !bTreatAsLethal)
 	{
@@ -1153,23 +3410,25 @@ void UPairedAnimationComponent::SetParryWindowActive(bool bActive)
 
 bool UPairedAnimationComponent::TryCounter()
 {
+	if (CounterMode == ECounterSystemMode::Chain)
+	{
+		UE_LOG(LogPairedAnim, Verbose,
+			TEXT("[COUNTER] Direct Chain initiation is retired; Block must commit through the defense resolver"));
+		return false;
+	}
 	if (!CanCounter())
 	{
 		return false;
 	}
 
-	const bool bUseChainParryTarget = CounterMode == ECounterSystemMode::Chain;
-	AActor* Target = bUseChainParryTarget ? FindParryableEnemy() : FindCounterableEnemy();
+	AActor* Target = FindCounterableEnemy();
 	if (!Target)
 	{
-		UE_LOG(LogPairedAnim, Verbose, TEXT("[COUNTER] TryCounter failed: No %s enemy found"),
-			bUseChainParryTarget ? TEXT("parryable") : TEXT("counterable"));
+		UE_LOG(LogPairedAnim, Verbose, TEXT("[COUNTER] TryCounter failed: No counterable enemy found"));
 		return false;
 	}
 
-	FCounterContext Context = bUseChainParryTarget
-		? GetEnemyParryContext(Target)
-		: GetEnemyCounterContext(Target);
+	FCounterContext Context = GetEnemyCounterContext(Target);
 	if (!Context.Attacker)
 	{
 		UE_LOG(LogPairedAnim, Warning, TEXT("[COUNTER] TryCounter failed: Invalid counter context"));
@@ -1183,8 +3442,7 @@ bool UPairedAnimationComponent::TryCounter()
 		return TryCounter_AC3Mode(Context);
 
 	case ECounterSystemMode::Chain:
-		UE_LOG(LogPairedAnim, Log, TEXT("[COUNTER] Executing Chain parry against %s"), *Target->GetName());
-		return TryCounter_ChainMode(Context);
+		return false;
 
 	default:
 		return false;
@@ -1209,11 +3467,7 @@ bool UPairedAnimationComponent::CanCounter() const
 	// Chain mode: Check chain state allows countering
 	if (CounterMode == ECounterSystemMode::Chain)
 	{
-		if (ChainState != EChainCounterState::None)
-		{
-			return false;
-		}
-		return FindParryableEnemy() != nullptr;
+		return false;
 	}
 
 	// AC3 mode: Must have a counterable enemy nearby
@@ -1501,57 +3755,18 @@ bool UPairedAnimationComponent::TryCounter_AC3Mode(const FCounterContext& Contex
 
 bool UPairedAnimationComponent::TryCounter_ChainMode(const FCounterContext& Context)
 {
-	AActor* Owner = GetOwner();
-	if (!Owner || !Context.Attacker)
-	{
-		return false;
-	}
-
-	ActiveChainContext = Context;
-	ActiveChainTarget = Context.Attacker;
-	ActiveChainAttackData = nullptr;
-	bContinueChainAfterCounterPairedAnimation = false;
-
-	// Chain Mode Step 1 remains active until the authored bridge marker opens input.
-	ChainState = EChainCounterState::ParryActive;
-
-	// Notify the enemy that their attack was parried
-	if (Context.Attacker->Implements<UDamageableInterface>())
-	{
-		IDamageableInterface::Execute_OnAttackParried(Context.Attacker.Get(), Owner);
-	}
-
-	// Stagger the enemy briefly
-	if (ABaseCombatCharacter* EnemyChar = Cast<ABaseCombatCharacter>(Context.Attacker.Get()))
-	{
-		if (UHitReactionComponent* EnemyHitReact = EnemyChar->FindComponentByClass<UHitReactionComponent>())
-		{
-			const UDefenseConfiguration* EnemyConfiguration = EnemyChar->CombatComponent
-				? EnemyChar->CombatComponent->GetEffectiveDefenseConfiguration()
-				: GetDefault<UDefenseConfiguration>();
-			const float ConfiguredStaggerDuration = EnemyConfiguration
-				? EnemyConfiguration->ParryStaggerDuration
-				: 1.5f;
-			const float StaggerDuration = FMath::IsFinite(ConfiguredStaggerDuration)
-				&& ConfiguredStaggerDuration > 0.0f
-				? ConfiguredStaggerDuration
-				: 1.5f;
-			EnemyHitReact->ApplyStagger(StaggerDuration);
-		}
-	}
-
-	// Apply slow-mo for cinematic feel
-	if (UWorld* World = GetWorld())
-	{
-		UCinematicEffectsUtilityLibrary::ApplySlowMotion(World, 0.3f);
-	}
-
-	UE_LOG(LogPairedAnim, Log, TEXT("[COUNTER-CHAIN] Parry started; awaiting the authored bridge transition."));
-	return true;
+	(void)Context;
+	UE_LOG(LogPairedAnim, Verbose,
+		TEXT("[COUNTER-CHAIN] Direct Chain initiation is retired; use a committed defense resolution"));
+	return false;
 }
 
 bool UPairedAnimationComponent::TryAdvanceChainCounter(UAttackData* SelectedAttackData)
 {
+	if (ChainState == EChainCounterState::FinisherReady)
+	{
+		return ExecuteChainFinisher();
+	}
 	if (ChainState != EChainCounterState::CounterWindow)
 	{
 		return false;
@@ -1579,38 +3794,41 @@ bool UPairedAnimationComponent::ExecuteChainCounterAttack(UAttackData* ChainAtta
 		return false;
 	}
 
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(ChainTimeoutHandle);
-	}
-
-	ActiveChainAttackData = ChainAttackData;
-	ChainState = EChainCounterState::CounterActive;
-
 	UPairedAnimationData* CounterPairedData = ChainAttackData->CounterData;
 	if (!CounterPairedData && bAllowNotifyCounterDataFallback)
 	{
 		CounterPairedData = ActiveChainContext.SpecificCounterData;
 	}
 
-	if (CounterPairedData && ActiveChainTarget.IsValid())
+	if (!CounterPairedData || !ActiveChainTarget.IsValid())
 	{
-		bContinueChainAfterCounterPairedAnimation = true;
-		if (TryStartPairedAnimationWithTarget(ActiveChainTarget.Get(), CounterPairedData, EPairedReactionType::Counter))
-		{
-			return true;
-		}
-
-		bContinueChainAfterCounterPairedAnimation = false;
-		UE_LOG(LogPairedAnim, Warning, TEXT("[COUNTER-CHAIN] Authored counter paired animation failed to start; continuing to finisher readiness"));
+		UE_LOG(LogPairedAnim, Warning,
+			TEXT("[COUNTER-CHAIN] Selected attack lacks usable paired counter data"));
+		return false;
 	}
 
-	ChainState = EChainCounterState::FinisherReady;
+	UAttackData* PreviousAttack = ActiveChainAttackData.Get();
+	UAttackData* PreviousSelected = ActiveDefenseSequence.SelectedCounterAttack.Get();
+	UPairedAnimationData* PreviousCounter = ActiveDefenseSequence.CounterData.Get();
+	UPairedAnimationData* PreviousFinisher = ActiveDefenseSequence.FinisherData.Get();
+	ActiveChainAttackData = ChainAttackData;
+	ActiveDefenseSequence.SelectedCounterAttack = ChainAttackData;
+	ActiveDefenseSequence.CounterData = CounterPairedData;
+	ActiveDefenseSequence.FinisherData = ChainAttackData->FinisherData;
+	if (TryStartDefenseChainStage(
+		CounterPairedData,
+		EPairedReactionType::Counter,
+		EChainCounterState::CounterActive))
+	{
+		UE_LOG(LogPairedAnim, Log, TEXT("[COUNTER-CHAIN] Counter stage started."));
+		return true;
+	}
 
-	UE_LOG(LogPairedAnim, Log, TEXT("[COUNTER-CHAIN] Counter attack executed. Finisher is ready."));
-
-	ExecuteChainFinisher();
-	return true;
+	ActiveChainAttackData = PreviousAttack;
+	ActiveDefenseSequence.SelectedCounterAttack = PreviousSelected;
+	ActiveDefenseSequence.CounterData = PreviousCounter;
+	ActiveDefenseSequence.FinisherData = PreviousFinisher;
+	return false;
 }
 
 bool UPairedAnimationComponent::ExecuteChainFinisher()
@@ -1620,20 +3838,16 @@ bool UPairedAnimationComponent::ExecuteChainFinisher()
 		return false;
 	}
 
-	UAttackData* ChainAttack = ActiveChainAttackData ? ActiveChainAttackData.Get() : nullptr;
-
-	bool bSuccess = false;
-	if (ChainAttack && ChainAttack->FinisherData && ActiveChainTarget.IsValid())
+	UPairedAnimationData* FinisherData = ActiveDefenseSequence.FinisherData.Get();
+	if (!FinisherData || !ActiveChainTarget.IsValid())
 	{
-		bSuccess = TryStartPairedAnimationWithTarget(ActiveChainTarget.Get(), ChainAttack->FinisherData, EPairedReactionType::Finisher);
-	}
-	else
-	{
-		bSuccess = TryExecuteFinisher(ChainAttack);
+		return false;
 	}
 
-	ClearChainContext();
-
+	const bool bSuccess = TryStartDefenseChainStage(
+		FinisherData,
+		EPairedReactionType::Finisher,
+		EChainCounterState::FinisherActive);
 	if (bSuccess)
 	{
 		UE_LOG(LogPairedAnim, Log, TEXT("[COUNTER-CHAIN] Chain finisher executed successfully!"));
@@ -1653,17 +3867,17 @@ void UPairedAnimationComponent::CancelChainCounter()
 		return;
 	}
 
-	EChainCounterState PrevState = ChainState;
-	ClearChainContext();
-
-	if (UWorld* World = GetWorld())
+	const EChainCounterState PrevState = ChainState;
+	if (ActiveDefenseSequence.OriginatingInteraction.IsValid())
 	{
-		World->GetTimerManager().ClearTimer(ChainTimeoutHandle);
+		CleanupDefenseSequence(
+			ActiveDefenseSequence.StageGeneration,
+			0.1f,
+			TEXT("Cancelled"));
 	}
-
-	if (UWorld* World = GetWorld())
+	else
 	{
-		UCinematicEffectsUtilityLibrary::RestoreTimeDilation(World);
+		ClearChainContext();
 	}
 
 	UE_LOG(LogPairedAnim, Log, TEXT("[COUNTER-CHAIN] Chain cancelled from state %s"),
@@ -1672,23 +3886,19 @@ void UPairedAnimationComponent::CancelChainCounter()
 
 void UPairedAnimationComponent::ClearChainContext()
 {
-	if (UWorld* World = GetWorld())
+	if (ActiveDefenseSequence.OriginatingInteraction.IsValid())
 	{
-		World->GetTimerManager().ClearTimer(DefenseBridgeFallbackHandle);
-		World->GetTimerManager().ClearTimer(ChainTimeoutHandle);
+		CleanupDefenseSequence(
+			ActiveDefenseSequence.StageGeneration,
+			0.0f,
+			TEXT("ClearChainContext"));
+		return;
 	}
 	ChainState = EChainCounterState::None;
 	ActiveChainContext.Reset();
 	ActiveChainTarget.Reset();
 	ActiveChainAttackData = nullptr;
-	bContinueChainAfterCounterPairedAnimation = false;
 	ActiveDefenseSequence = {};
-}
-
-void UPairedAnimationComponent::OnChainTimeout()
-{
-	UE_LOG(LogPairedAnim, Log, TEXT("[COUNTER-CHAIN] Chain timed out!"));
-	CancelChainCounter();
 }
 
 // ============================================================================
@@ -1777,6 +3987,13 @@ bool UPairedAnimationComponent::IsPairedPartner(AActor* Actor) const
 
 void UPairedAnimationComponent::BeginPairedAnimation(UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType, bool bIsCriticalMoment)
 {
+	if (ChainState != EChainCounterState::None
+		&& ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		UE_LOG(LogPairedAnim, Verbose,
+			TEXT("[PAIRED EFFECTS] Legacy BeginPairedAnimation cannot replace an owned defense sequence"));
+		return;
+	}
 	if (!PairedAnimData)
 	{
 		UE_LOG(LogPairedAnim, Warning, TEXT("[PAIRED EFFECTS] BeginPairedAnimation called with null PairedAnimData"));
@@ -1785,23 +4002,51 @@ void UPairedAnimationComponent::BeginPairedAnimation(UPairedAnimationData* Paire
 
 	ActivePairedAnimData = PairedAnimData;
 	ActivePairedReactionType = ReactionType;
-	bBlockCombatInput = true;
+	if (!LegacyPairedInputLease.IsValid())
+	{
+		LegacyPairedInputLease = AcquireInputOwnership(TEXT("LegacyPairedAnimation"), 0);
+	}
 	if (UCombatComponent* Combat = GetOwner() ? GetOwner()->FindComponentByClass<UCombatComponent>() : nullptr)
 	{
 		Combat->ClearGuardThreat(EThreatClearReason::PairedTakeover);
 	}
 
-	if (bIsCriticalMoment && PairedAnimData->bApplySlowMotion)
+	if (UWorld* World = GetWorld())
 	{
-		UCinematicEffectsUtilityLibrary::ApplySlowMotion(GetWorld(), PairedAnimData->SlowMotionScale);
+		World->GetTimerManager().ClearTimer(SlowMotionRestoreHandle);
+	}
 
-		if (UWorld* World = GetWorld())
+	if (bIsCriticalMoment
+		&& PairedAnimData->bApplySlowMotion
+		&& FMath::IsFinite(PairedAnimData->SlowMotionScale)
+		&& FMath::IsFinite(PairedAnimData->SlowMotionDuration)
+		&& PairedAnimData->SlowMotionDuration > 0.0f)
+	{
+		UWorld* World = GetWorld();
+		UCombatEffectsWorldSubsystem* Effects = World
+			? World->GetSubsystem<UCombatEffectsWorldSubsystem>()
+			: nullptr;
+		const UDefenseConfiguration* Configuration = CachedCombatComponent
+			? CachedCombatComponent->GetEffectiveDefenseConfiguration()
+			: GetDefault<UDefenseConfiguration>();
+		const double ConfiguredWatchdog = Configuration
+			? static_cast<double>(Configuration->TimeDilationLeaseWatchdogSeconds)
+			: 10.0;
+		const double Watchdog = FMath::Max(
+			static_cast<double>(PairedAnimData->SlowMotionDuration),
+			FMath::IsFinite(ConfiguredWatchdog) && ConfiguredWatchdog > 0.0
+				? ConfiguredWatchdog
+				: 10.0);
+		const FTimeDilationLeaseHandle Successor = Effects
+			? Effects->AcquireWorldLease(
+				TEXT("PairedAnimation.Legacy"),
+				FMath::Clamp(PairedAnimData->SlowMotionScale, 0.0001f, 1.0f),
+				Watchdog)
+			: FTimeDilationLeaseHandle{};
+		if (Successor.IsValid())
 		{
-			if (SlowMotionRestoreHandle.IsValid())
-			{
-				World->GetTimerManager().ClearTimer(SlowMotionRestoreHandle);
-			}
-
+			ReleaseLegacyPairedTimeDilation();
+			LegacyPairedTimeDilationLease = Successor;
 			World->GetTimerManager().SetTimer(
 				SlowMotionRestoreHandle,
 				this,
@@ -1816,6 +4061,14 @@ void UPairedAnimationComponent::BeginPairedAnimation(UPairedAnimationData* Paire
 					PairedAnimData->SlowMotionScale, PairedAnimData->SlowMotionDuration);
 			}
 		}
+		else
+		{
+			ReleaseLegacyPairedTimeDilation();
+		}
+	}
+	else
+	{
+		ReleaseLegacyPairedTimeDilation();
 	}
 
 	OnPairedAnimationStarted.Broadcast(ReactionType, bIsCriticalMoment);
@@ -1832,6 +4085,15 @@ void UPairedAnimationComponent::BeginPairedAnimation(UPairedAnimationData* Paire
 
 void UPairedAnimationComponent::EndPairedAnimation()
 {
+	if (ChainState != EChainCounterState::None
+		&& ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		CleanupDefenseSequence(
+			ActiveDefenseSequence.StageGeneration,
+			0.0f,
+			TEXT("LegacyPairedEnd"));
+		return;
+	}
 	const EPairedReactionType ReactionType = ActivePairedReactionType;
 
 	if (SlowMotionRestoreHandle.IsValid())
@@ -1842,18 +4104,22 @@ void UPairedAnimationComponent::EndPairedAnimation()
 		}
 	}
 
-	UCinematicEffectsUtilityLibrary::RestoreTimeDilation(GetWorld());
+	ReleaseLegacyPairedTimeDilation();
 
 	ActivePairedAnimData = nullptr;
 	ActivePairedReactionType = EPairedReactionType::None;
-	bBlockCombatInput = false;
+	ReleaseInputOwnership(LegacyPairedInputLease);
+	LegacyPairedInputLease = {};
 	if (UCombatComponent* Combat = GetOwner() ? GetOwner()->FindComponentByClass<UCombatComponent>() : nullptr)
 	{
 		Combat->RefreshGuardThreat(EThreatRefreshReason::ManualRevalidation);
 	}
 
-	// BUG-1 FIX: Explicit movement restoration
-	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	if (!PairedStateLeases.IsEmpty())
+	{
+		RecomputePairedState();
+	}
+	else if (ABaseCombatCharacter* Character = GetOwnerCharacter())
 	{
 		if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
 		{
@@ -1881,14 +4147,6 @@ void UPairedAnimationComponent::EndPairedAnimation()
 
 void UPairedAnimationComponent::TriggerSyncPointEffects(FName SyncPointName)
 {
-	if (ChainState == EChainCounterState::ParryActive
-		&& ActiveDefenseSequence.ChainState == EChainCounterState::ParryActive
-		&& !ActiveDefenseSequence.ActivePresentation.ReviewedDeflectionMarker.IsNone()
-		&& SyncPointName == ActiveDefenseSequence.ActivePresentation.ReviewedDeflectionMarker)
-	{
-		EnterDefenseCounterWindow(ActiveDefenseSequence.StageGeneration);
-	}
-
 	// Play camera shake if configured
 	if (ActivePairedAnimData && ActivePairedAnimData->ImpactCameraShake)
 	{
@@ -2000,12 +4258,27 @@ void UPairedAnimationComponent::TriggerSyncPointEffects(FName SyncPointName)
 
 void UPairedAnimationComponent::OnSlowMotionTimerExpired()
 {
-	UCinematicEffectsUtilityLibrary::RestoreTimeDilation(GetWorld());
+	ReleaseLegacyPairedTimeDilation();
 
 	if (GetDebugDraw())
 	{
 		UE_LOG(LogPairedAnim, Log, TEXT("[PAIRED EFFECTS] Slow motion timer expired - time dilation restored"));
 	}
+}
+
+void UPairedAnimationComponent::ReleaseLegacyPairedTimeDilation()
+{
+	if (!LegacyPairedTimeDilationLease.IsValid())
+	{
+		return;
+	}
+	if (UCombatEffectsWorldSubsystem* Effects = GetWorld()
+		? GetWorld()->GetSubsystem<UCombatEffectsWorldSubsystem>()
+		: nullptr)
+	{
+		Effects->ReleaseLease(LegacyPairedTimeDilationLease);
+	}
+	LegacyPairedTimeDilationLease = {};
 }
 
 // ============================================================================
@@ -2035,8 +4308,17 @@ void UPairedAnimationComponent::OnPairedPartnerDeath(AActor* DeadPartner)
 		return;
 	}
 
-	RemovePairedPartner(DeadPartner);
+	// Resolve before removing the link: the non-owning participant uses it to
+	// find the component that owns the retained defense sequence.
+	if (UPairedAnimationComponent* SequenceOwner = FindDefenseSequenceOwner();
+		SequenceOwner
+		&& SequenceOwner->ChainState != EChainCounterState::None)
+	{
+		SequenceOwner->CancelPairedAnimation();
+		return;
+	}
 
+	RemovePairedPartner(DeadPartner);
 	if (IsPairedAnimationActive())
 	{
 		CancelPairedAnimation();
@@ -2045,6 +4327,16 @@ void UPairedAnimationComponent::OnPairedPartnerDeath(AActor* DeadPartner)
 
 void UPairedAnimationComponent::CancelPairedAnimation(float BlendOutTime)
 {
+	if (ChainState != EChainCounterState::None
+		&& ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		CleanupDefenseSequence(
+			ActiveDefenseSequence.StageGeneration,
+			BlendOutTime,
+			TEXT("PairedCancelled"));
+		return;
+	}
+
 	if (GetDebugDraw())
 	{
 		UE_LOG(LogPairedAnim, Warning, TEXT("[PAIRED INTERRUPT] Cancelling paired animation (BlendOutTime: %.2fs)"),
@@ -2090,6 +4382,11 @@ void UPairedAnimationComponent::CancelPairedAnimation(float BlendOutTime)
 			if (Character->GetMesh())
 			if (UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance())
 			{
+				if (ActivePairedAnimData
+					&& AnimInstance->Montage_IsPlaying(ActivePairedAnimData->AttackerMontage))
+				{
+					RetireOwnerMontageCallback(ActivePairedAnimData->AttackerMontage);
+				}
 				AnimInstance->Montage_Stop(BlendOutTime);
 
 				if (GetDebugDraw())
@@ -2115,11 +4412,6 @@ void UPairedAnimationComponent::CancelPairedAnimation(float BlendOutTime)
 
 	if (ChainState != EChainCounterState::None)
 	{
-		if (UWorld* World = GetWorld())
-		{
-			World->GetTimerManager().ClearTimer(ChainTimeoutHandle);
-			UCinematicEffectsUtilityLibrary::RestoreTimeDilation(World);
-		}
 		ClearChainContext();
 	}
 
@@ -2131,6 +4423,26 @@ void UPairedAnimationComponent::CancelPairedAnimation(float BlendOutTime)
 
 void UPairedAnimationComponent::CompletePairedAnimation()
 {
+	if (ChainState != EChainCounterState::None
+		&& ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		UAnimMontage* ActiveMontage = ActiveDefenseSequence.ActivePairedData
+			? ActiveDefenseSequence.ActivePairedData->AttackerMontage.Get()
+			: nullptr;
+		if (ActiveMontage)
+		{
+			HandleOwnerPairedMontageEnded(ActiveMontage, false);
+		}
+		else
+		{
+			CleanupDefenseSequence(
+				ActiveDefenseSequence.StageGeneration,
+				0.0f,
+				TEXT("CompletionWithoutActiveMontage"));
+		}
+		return;
+	}
+
 	// GUARD: PREVENT DOUBLE EXECUTION (Gap 20.4)
 	if (bCompletingPairedAnimation)
 	{
@@ -2141,10 +4453,6 @@ void UPairedAnimationComponent::CompletePairedAnimation()
 		return;
 	}
 	bCompletingPairedAnimation = true;
-	const bool bShouldContinueChainAfterCounter =
-		bContinueChainAfterCounterPairedAnimation &&
-		ChainState == EChainCounterState::CounterActive &&
-		ActivePairedReactionType == EPairedReactionType::Counter;
 	const bool bTreatAsLethal = ShouldTreatPairedAnimationAsLethal(ActivePairedReactionType, ActivePairedAnimData);
 
 	if (GetDebugDraw())
@@ -2281,14 +4589,6 @@ void UPairedAnimationComponent::CompletePairedAnimation()
 
 	// Clear guard flag now that completion is finished
 	bCompletingPairedAnimation = false;
-
-	if (bShouldContinueChainAfterCounter)
-	{
-		bContinueChainAfterCounterPairedAnimation = false;
-		ChainState = EChainCounterState::FinisherReady;
-		ExecuteChainFinisher();
-		return;
-	}
 
 	if (GetDebugDraw())
 	{

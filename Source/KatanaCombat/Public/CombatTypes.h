@@ -239,7 +239,26 @@ enum class EChainCounterState : uint8
     CounterActive   UMETA(DisplayName = "Counter Active"),
 
     /** Enemy vulnerable, finisher available */
-    FinisherReady   UMETA(DisplayName = "Finisher Ready")
+    FinisherReady   UMETA(DisplayName = "Finisher Ready"),
+
+    /** Playing the terminal paired finisher stage */
+    FinisherActive  UMETA(DisplayName = "Finisher Active")
+};
+
+/** Runtime role occupied by an actor in paired animation data. */
+UENUM(BlueprintType)
+enum class EPairedAnimationRole : uint8
+{
+	Attacker,
+	Victim
+};
+
+/** Gameplay transitions authored into the driver montage for a retained Chain. */
+UENUM(BlueprintType)
+enum class EChainStageTransitionType : uint8
+{
+	OpenCounterWindow,
+	AutoContinue
 };
 
 /**
@@ -2745,6 +2764,118 @@ private:
 	friend class UCombatComponent;
 };
 
+/** Opaque owner token for one contribution to a runtime combat-context tag. */
+USTRUCT(BlueprintType)
+struct FCombatContextLeaseHandle
+{
+	GENERATED_BODY()
+
+	FCombatContextLeaseHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FCombatContextLeaseHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FCombatContextLeaseHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FCombatContextLeaseHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FCombatContextLeaseHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UCombatComponent;
+};
+
+/** Opaque token for one world- or actor-time-dilation request. */
+USTRUCT(BlueprintType)
+struct FTimeDilationLeaseHandle
+{
+	GENERATED_BODY()
+
+	FTimeDilationLeaseHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FTimeDilationLeaseHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FTimeDilationLeaseHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FTimeDilationLeaseHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FTimeDilationLeaseHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UCombatEffectsWorldSubsystem;
+};
+
+/** Opaque token for component-owned paired input, collision, or movement state. */
+USTRUCT(BlueprintType)
+struct FPairedSequenceLeaseHandle
+{
+	GENERATED_BODY()
+
+	FPairedSequenceLeaseHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FPairedSequenceLeaseHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FPairedSequenceLeaseHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FPairedSequenceLeaseHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FPairedSequenceLeaseHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UPairedAnimationComponent;
+};
+
+/** Opaque token for a generation-owned asynchronous Chain callback. */
+USTRUCT(BlueprintType)
+struct FDefenseAsyncHandle
+{
+	GENERATED_BODY()
+
+	FDefenseAsyncHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FDefenseAsyncHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FDefenseAsyncHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FDefenseAsyncHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FDefenseAsyncHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UPairedAnimationComponent;
+};
+
 USTRUCT(BlueprintType)
 struct FAlignmentRequestSpec
 {
@@ -2764,6 +2895,10 @@ struct FAlignmentRequestSpec
 
 	UPROPERTY()
 	TWeakObjectPtr<AActor> Target;
+
+	/** Target-local offset used by paired role alignment. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FVector TargetRelativeOffset = FVector::ZeroVector;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
 	FRotator DesiredRotation = FRotator::ZeroRotator;
@@ -2882,6 +3017,10 @@ struct FDefenseSequenceContext
 {
 	GENERATED_BODY()
 
+	/** Immutable committed result that created this presentation sequence. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseResolution OriginatingResolution;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	FDefenseInteractionId OriginatingInteraction;
 
@@ -2910,7 +3049,53 @@ struct FDefenseSequenceContext
 	int32 StageGeneration = 0;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 AttackerMontageInstanceId = INDEX_NONE;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 VictimMontageInstanceId = INDEX_NONE;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	FDefensePresentationPayload ActivePresentation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	TObjectPtr<UPairedAnimationData> ActivePairedData = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double ResponseDeadlineUnscaled = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseAsyncHandle ResponseTimeoutHandle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseAsyncHandle BridgeFallbackHandle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FCombatContextLeaseHandle ContextTagLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAlignmentRequestHandle AttackerAlignmentLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAlignmentRequestHandle VictimAlignmentLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FTimeDilationLeaseHandle TimeDilationLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FPairedSequenceLeaseHandle AttackerCollisionLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FPairedSequenceLeaseHandle VictimCollisionLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FPairedSequenceLeaseHandle InputOwnershipLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 LastDamageAppliedStageGeneration = 0;
+
+	/** Exact stage whose owner montage-end callback has already been processed. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 LastOwnerMontageEndHandledStageGeneration = 0;
 };
 
 USTRUCT(BlueprintType)

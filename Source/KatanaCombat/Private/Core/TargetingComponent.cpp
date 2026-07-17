@@ -690,6 +690,14 @@ FAlignmentRequestHandle UTargetingComponent::AcquireAlignmentRequest(const FAlig
     {
         NextAlignmentRequestValue = 1;
     }
+    while (AlignmentRequests.Contains(FAlignmentRequestHandle(NextAlignmentRequestValue)))
+    {
+        ++NextAlignmentRequestValue;
+        if (NextAlignmentRequestValue == 0)
+        {
+            NextAlignmentRequestValue = 1;
+        }
+    }
     if (NextAlignmentAcquisitionOrder == 0)
     {
         NextAlignmentAcquisitionOrder = 1;
@@ -894,6 +902,7 @@ bool UTargetingComponent::ValidateAlignmentSpec(const FAlignmentRequestSpec& Spe
         || Spec.Executor == EAlignmentExecutor::None
         || !bFiniteRotation
         || !bFiniteLimits
+		|| Spec.TargetRelativeOffset.ContainsNaN()
         || Spec.MaximumTurnRate < 0.0f
         || Spec.RemainingTurnBudget < 0.0f
         || Spec.MaximumTranslation < 0.0f
@@ -1271,7 +1280,10 @@ void UTargetingComponent::ConfigureAlignmentWarpTarget(const FAlignmentRequestRe
     FVector WarpLocation = OwnerLocation;
     if (Record.Spec.bWarpTranslation && Record.Spec.Target.IsValid())
     {
-        const FVector ToTarget = Record.Spec.Target->GetActorLocation() - OwnerLocation;
+		const AActor* TargetActor = Record.Spec.Target.Get();
+		const FVector TargetLocation = TargetActor->GetActorLocation()
+			+ TargetActor->GetActorRotation().RotateVector(Record.Spec.TargetRelativeOffset);
+		const FVector ToTarget = TargetLocation - OwnerLocation;
         WarpLocation += ToTarget.GetClampedToMaxSize(Record.Spec.MaximumTranslation);
         if (UCapsuleComponent* Capsule = OwnerCharacter->GetCapsuleComponent())
         {

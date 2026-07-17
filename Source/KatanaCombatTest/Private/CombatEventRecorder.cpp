@@ -91,3 +91,24 @@ void UCombatEventRecorder::HandleAttackHit(AActor* HitActor, const FHitReactionI
 {
 	++AttackHitCount;
 }
+
+void UCombatEventRecorder::HandlePairedAnimationEnded(const EPairedReactionType Type)
+{
+	++PairedAnimationEndedCount;
+	LastPairedReaction = Type;
+	if (bBeginBlockOnPairedEnded)
+	{
+		if (ABaseCombatCharacter* Target = PairedActionTarget.Get())
+		{
+			bBeginBlockOnPairedEndedResult = Target->CombatComponent
+				&& Target->CombatComponent->BeginBlock();
+		}
+	}
+	if (bDestroyOnPairedEnded)
+	{
+		if (AActor* Actor = ActorToDestroy.Get())
+		{
+			Actor->Destroy();
+		}
+	}
+}

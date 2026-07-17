@@ -3,7 +3,7 @@
 Date: 2026-07-16
 Branch: `codex/defense-interaction-design`
 Pre-checkpoint HEAD: `108abf49` (`Harden defense interaction execution plan`)
-Status: `SLICE 2 COMPLETE - GO TO TASK 3`
+Status: `SLICE 5 COMPLETE - GO TO TASK 6`
 
 ## Authority And Scope
 
@@ -264,3 +264,18 @@ Final evidence:
 - `git diff --check` reports no whitespace errors (line-ending conversion warnings only).
 
 Slice 4 does not claim the retained multi-stage sequence. Task 5 must replace the name-only bridge marker, world timers, broad paired cleanup, and shared collision/time restoration with generation-keyed stage transitions and scoped leases. In particular, authored bridge completion must not expose `None` or restore input, collision, warp, context, or time ownership between successful stages. No asset package changed in Slice 4, and the branch is not merge-ready until those Task 5 contracts and later live proof gates are complete. `GO` for Task 5 after the Slice 4 commit.
+
+## Slice 5 Completion
+
+Task 5 replaces the immediate Chain handoff and shared restoration state with retained, identity-bearing ownership. The runtime now supports `ParryActive -> CounterWindow -> CounterActive -> FinisherReady -> FinisherActive -> None`; exactly one driver marker advances a paired stage; failed two-role starts roll back without consuming the original response deadline; and terminal cleanup releases context, input, alignment, collision/movement, time, partner, and callback ownership once.
+
+`UAnimNotifyState_PairedAnimationCollision` is now stateless. Per-actor records use runtime notify source plus montage-instance identity, while canonical stages acquire generation-owned collision/movement leases before playback. Context tags, paired input, world time, actor time, and legacy paired slow motion are independently leased. Counter damage clamps at one health unless both the paired data and component explicitly authorize lethality.
+
+The final adversarial pass found and fixed two ownership defects not exposed by the initial green suite:
+
+1. A tracked-partner collision lease recomputed unowned movement, capsule, and pawn-channel state. Per-property baselines now capture and restore only while that property is owned. Red/green evidence: `Saved/Logs/Defense-Slice5-UnownedState-Red.log` and `Saved/Logs/Defense-Slice5-UnownedState-Green.log`.
+2. A generic paired start against another target could mutate partners and tear down an active defense sequence before the lower-level guard ran. The paired-start boundary now rejects competing sequences before any mutation. Red/green evidence: `Saved/Logs/Defense-Slice5-CompetingStart-Red.log` and `Saved/Logs/Defense-Slice5-CompetingStart-Green.log`.
+
+Final focused evidence is under `Saved/Logs/Defense-Slice5-PostAudit-20260717-060120-*`: Chain 17, CombatEffects 9, CounterSystem 13, and PairedAnimation 39, all green. The standard baseline at `Saved/Logs/Codex-Agent-Baseline-20260717-060225-*` built the editor and completed 543 tests with zero failures/errors. Static inspection confirms `bBlockCombatInput` is written only by lease recomputation, runtime time-dilation writes are confined to `UCombatEffectsWorldSubsystem`, stale Chain feature-test names are absent from canonical docs/tests, and `git diff --check` reports no whitespace errors.
+
+No asset, Blueprint, montage, map, input, or configuration package changed in Slice 5. Source automation does not prove authored timing, marker placement, ready-pose quality, root motion, final yaw, VFX/audio, or playable continuity. Task 6 must build the validation/manifest workflow and prove those Gate A obligations before the branch can claim visible defense behavior or merge readiness. `GO` for Task 6 after the Slice 5 commit.

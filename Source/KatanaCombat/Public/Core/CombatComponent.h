@@ -205,6 +205,10 @@ public:
 	{
 		return PendingAttackConsumedEvents.Num();
 	}
+	int32 GetClearQueueCallCountForTesting() const
+	{
+		return ClearQueueCallCountForTesting;
+	}
 #endif
 
 	// ============================================================================
@@ -344,6 +348,12 @@ public:
 
 	/** Clear all active runtime context tags. */
 	void ClearActiveContextTags();
+
+	/** Acquire one independently releasable contribution to a runtime context tag. */
+	FCombatContextLeaseHandle AcquireContextTagLease(FGameplayTag ContextTag, FName Owner);
+
+	/** Release only the contribution represented by Handle. Duplicate release is a no-op. */
+	void ReleaseContextTagLease(FCombatContextLeaseHandle Handle);
 
 	/** True when this component currently has the supplied runtime context tag. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Context")
@@ -720,6 +730,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	TArray<FActionQueueEntry> ActionQueue;
 
+#if WITH_AUTOMATION_TESTS
+	int32 ClearQueueCallCountForTesting = 0;
+#endif
+
 	/** Timer checkpoints for current montage */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	TArray<FTimerCheckpoint> Checkpoints;
@@ -791,6 +805,17 @@ public:
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Context")
 	FGameplayTagContainer ActiveContextTags;
+
+	struct FCombatContextLeaseRecord
+	{
+		FGameplayTag Tag;
+		FName Owner = NAME_None;
+	};
+
+	TMap<FCombatContextLeaseHandle, FCombatContextLeaseRecord> ActiveContextTagLeases;
+	TMap<FGameplayTag, int32> ActiveContextTagLeaseCounts;
+	TMap<FGameplayTag, TArray<FCombatContextLeaseHandle>> LegacyContextTagLeases;
+	uint64 NextContextTagLeaseId = 0;
 
 	/**
 	 * Visited attacks during current resolution (cycle detection)
@@ -893,7 +918,7 @@ protected:
 	 * Bind this to character's OnDeath event delegate
 	 */
 	UFUNCTION()
-	void OnCharacterDeath();
+	void OnCharacterDeath(AActor* Killer);
 
 	/**
 	 * Set current input interpretation context

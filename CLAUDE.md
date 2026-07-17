@@ -442,18 +442,18 @@ Track ongoing work across sessions. This section provides detailed status of all
 | Finisher Execution Flow | PairedAnimationComponent.cpp | `TryExecuteFinisher()` → `CompletePairedAnimation()` |
 | Finisher Vulnerability | HitReactionComponent.h/.cpp | `IsVulnerableToFinisher()`, `GetFinisherTriggerReason()` |
 | Symmetric Warp Tracking | TargetingComponent.h/.cpp | `SetupVictimWarp()`, `SetupAttackerPairedWarp()` with continuous tracking |
-| Partner Collision Management | PairedAnimationComponent.h/.cpp | `PairedAnimationPartners` array + `IgnoreActorWhenMoving()` |
-| Input Blocking | PairedAnimationComponent.cpp | `bBlockCombatInput` flag, queried by `CombatComponent::CanProcessInput()` |
+| Partner Collision Management | PairedAnimationComponent.h/.cpp | Component-owned partner and collision/movement leases keyed by stage/notify identity |
+| Input Blocking | PairedAnimationComponent.cpp | Opaque paired-input leases recompute `bBlockCombatInput`; Chain input routes remain explicit |
 | State Transition Safety | PairedAnimationComponent.cpp | `OnPairedPartnerDeath()`, `CancelPairedAnimation()`, EndPlay cleanup |
 | Death Animation Handling | HitReactionComponent.h/.cpp | `bDeathHandledByPairedAnimation` flag prevents double death |
-| Damage Application | PairedAnimationComponent.cpp | Intelligent calc: `Max(damage, currentHealth + 1)` for lethal |
+| Damage Application | PairedAnimationComponent.cpp | Finishers enforce authored lethal damage; counters clamp to one health unless both data and component explicitly opt into lethal behavior |
 | Guard Flags | PairedAnimationComponent.cpp | `bCompletingPairedAnimation` prevents double execution |
 | Distance Validation | PairedAnimationComponent.cpp | Uses SoftAimRange (intentional - see design decisions) |
 | Sync Point Validation | AnimNotifyState_PairedAnimationSync.cpp | Alignment check with auto-nudge |
-| Cinematic Effects | CinematicEffectsUtilityLibrary.h/.cpp | `ApplySlowMotion()`, `TriggerCameraShake()`, `RestoreTimeDilation()` |
+| Cinematic Effects | CombatEffectsWorldSubsystem.h/.cpp, CinematicEffectsUtilityLibrary.h/.cpp | Overlap-safe world/actor time leases with compatibility adapters and watchdog cleanup |
 | Obstacle Validation | PairedAnimationUtilityLibrary.cpp | `ValidatePairedAnimation()`, `IsPathClear()` |
 | Debug Visualization | CombatDebugHUD.cpp, DebugUtils.cpp | CVars for warp targets, partner connections, sync points |
-| Test Suite | PairedAnimationTests.cpp | 34 tests covering core functionality |
+| Test Suite | PairedAnimationTests.cpp, DefenseChainTests.cpp, CombatEffectsLeaseTests.cpp | 39 paired-animation tests plus retained-Chain and effects-ownership suites |
 
 #### Wired FX Systems (Commit f27a068, 3038b21, 0e6ae4e, 150cd3a)
 | Component | Files | Status |
@@ -477,24 +477,23 @@ Track ongoing work across sessions. This section provides detailed status of all
 | Component | Files | Status |
 |-----------|-------|--------|
 | Counter AC3 Mode | PairedAnimationComponent.cpp | `TryCounter_AC3Mode()` — instant counter-kill via slow-mo + lethal damage |
-| Counter Chain Mode | PairedAnimationComponent.cpp | `TryCounter_ChainMode()` — Parry→Counter→Finisher state machine |
-| Chain State Machine | PairedAnimationComponent.h | Current baseline ends at `FinisherReady`; revised target adds explicit `FinisherActive` and retained stage generations |
-| Parry Window | PairedAnimationComponent.h | `bParryWindowActive` + `AnimNotifyState_ParryWindow` wired |
+| Counter Chain Mode | PairedAnimationComponent.cpp | Public Block/attack input drives retained Parry→Counter→Finisher ownership; protected helpers are compatibility primitives only |
+| Chain State Machine | PairedAnimationComponent.h | `ParryActive -> CounterWindow -> CounterActive -> FinisherReady -> FinisherActive -> None`, keyed by interaction and stage generation |
+| Parry Window | CombatComponent.h/.cpp | Canonical attacker-side window records use attack generation, montage instance, and runtime notify-source identity |
 | Contextual Stagger | HitReactionComponent.h | `ApplyStagger()`, `IsStaggered()`, `EndStagger()` — replaces posture |
 | Procedural Blending | CombatComponent.cpp | 6 easing strategies wired in `PlayAttackMontage()` |
 
 #### Branch Acceptance Caveats
 | Area | Status | Requirement |
 |------|--------|-------------|
-| Defense interaction | Accepted target; not implemented | Use `docs/superpowers/specs/2026-07-16-defense-interaction-design.md` as the implementation authority for rich-contact, alignment, block, parry, and Chain integration; do not claim runtime behavior until its slices land and pass proof gates. |
-| Counter Chain Mode | Canonical but incomplete | Must be proven through public Block/attack input flow, active Chain context, paired completion handoff, and asset readiness. Protected helper tests are not enough. |
-| SpecificCounterData Wiring | In scope | Resolve selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only as an explicit fallback, then non-paired fallback. |
+| Defense interaction | Source slices implemented; Gate A pending | The accepted design is still authoritative. Source automation covers rich contact, alignment ownership, block/parry resolution, attack consumption, retained Chain stages, and scoped cleanup; assets and visible PIE behavior remain unproven until Task 6. |
+| Counter Chain Mode | Source contract implemented; content proof pending | Public Block/attack input, retained context, generation-safe handoff, `FinisherActive`, retry/cancel/death paths, and scoped ownership have automation coverage. Protected helper tests are not feature proof. |
+| SpecificCounterData Wiring | Implemented with explicit fallback gate | Resolve selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only when `bAllowNotifyCounterDataFallback` is enabled, then non-paired fallback. |
 
 #### Planned (Not Yet Started)
 | Component | Priority | Blocker |
 |-----------|----------|---------|
-| Counter Animations | P1 | Parry, counter attack, chain finisher montages needed |
-| SpecificCounterData Wiring | P1 | In scope for Chain branch: selected `AttackData::CounterData` first; `SpecificCounterData` is an explicit fallback only. |
+| Defense Gate A content | P1 | Select or create reviewed bridge/counter/finisher montages, exact markers/sections/warp targets, VFX/audio, and prove them in `Lvl_ThirdPerson1`. |
 | Production Enemy AI | P2 | Minimal StateTree + `UCombatTokenSubsystem` combat proof is wired; perception, patrol, tactics, and production tuning remain future work. |
 
 #### Editor/Runtime Unification Gap (Needs Further Inquiry)

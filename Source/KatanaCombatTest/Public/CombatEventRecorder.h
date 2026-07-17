@@ -33,9 +33,11 @@ public:
 	int32 HealthChangedCount = 0;
 	int32 CharacterDyingCount = 0;
 	int32 AttackHitCount = 0;
+	int32 PairedAnimationEndedCount = 0;
 	int32 AcceptedHitCountObservedDuringDamage = INDEX_NONE;
 	float LastHealth = 0.0f;
 	float LastMaxHealth = 0.0f;
+	EPairedReactionType LastPairedReaction = EPairedReactionType::None;
 
 	bool bReenterOnDamage = false;
 	bool bReenterOnHealth = false;
@@ -45,7 +47,11 @@ public:
 	bool bDestroyOnDamage = false;
 	bool bDestroyOnHealth = false;
 	bool bDestroyOnDying = false;
+	bool bDestroyOnPairedEnded = false;
+	bool bBeginBlockOnPairedEnded = false;
+	bool bBeginBlockOnPairedEndedResult = false;
 	TWeakObjectPtr<ABaseCombatCharacter> ReentryTarget;
+	TWeakObjectPtr<ABaseCombatCharacter> PairedActionTarget;
 	TWeakObjectPtr<AActor> ActorToDestroy;
 	TWeakObjectPtr<UWeaponComponent> ObservedWeapon;
 	FDefenseContactRequest ReentryRequest;
@@ -64,4 +70,7 @@ public:
 
 	UFUNCTION()
 	void HandleAttackHit(AActor* HitActor, const FHitReactionInfo& HitInfo);
+
+	UFUNCTION()
+	void HandlePairedAnimationEnded(EPairedReactionType Type);
 };

@@ -185,6 +185,13 @@ void UCombatComponent::BeginPlay()
 	OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner());
 	if (OwnerCharacter)
 	{
+		OwnerCharacter->OnCharacterDying.AddUniqueDynamic(
+			this,
+			&UCombatComponent::OnCharacterDeath);
+		OwnerCharacter->OnCharacterDeath.AddUniqueDynamic(
+			this,
+			&UCombatComponent::OnCharacterDeath);
+
 		// Cache combat settings from character
 		CombatSettings = OwnerCharacter->CombatSettings;
 
@@ -221,6 +228,7 @@ void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	ClearGuardThreat(EThreatClearReason::ComponentEndPlay);
 	DefenseStanceOverrides.Reset();
+	ClearActiveContextTags();
 	if (DeferredAttackConsumedTickerHandle.IsValid())
 	{
 		FTSTicker::GetCoreTicker().RemoveTicker(DeferredAttackConsumedTickerHandle);
@@ -242,6 +250,16 @@ void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 			AnimInstance->OnMontageBlendingOut.RemoveDynamic(this, &UCombatComponent::OnMontageBlendingOut);
 			AnimInstance->OnMontageEnded.RemoveDynamic(this, &UCombatComponent::OnMontageEnded);
 		}
+	}
+
+	if (OwnerCharacter)
+	{
+		OwnerCharacter->OnCharacterDying.RemoveDynamic(
+			this,
+			&UCombatComponent::OnCharacterDeath);
+		OwnerCharacter->OnCharacterDeath.RemoveDynamic(
+			this,
+			&UCombatComponent::OnCharacterDeath);
 	}
 
 	// Reset combat state to prevent any lingering effects
@@ -324,8 +342,9 @@ void UCombatComponent::ValidateDefaultAttacks()
 	}
 }
 
-void UCombatComponent::OnCharacterDeath()
+void UCombatComponent::OnCharacterDeath(AActor* Killer)
 {
+	(void)Killer;
 	// CRITICAL: Full combat state reset on death
 	// Prevents state leaks across respawns (hold state, queued actions, input context)
 
@@ -368,15 +387,15 @@ void UCombatComponent::OnCharacterDeath()
 			}
 		}
 
-		CachedPairedAnimComp->ClearPairedPartners();
-
-		if (CachedPairedAnimComp->IsPairedAnimationActive())
+		if (CachedPairedAnimComp->GetChainState() != EChainCounterState::None
+			|| CachedPairedAnimComp->IsPairedAnimationActive())
 		{
-			CachedPairedAnimComp->EndPairedAnimation();
+			CachedPairedAnimComp->CancelPairedAnimation(0.0f);
 		}
-
-		// Safety: Always restore combat input on death (prevent stuck state)
-		CachedPairedAnimComp->bBlockCombatInput = false;
+		else
+		{
+			CachedPairedAnimComp->ClearPairedPartners();
+		}
 	}
 
 	// Clear action queue and statistics
@@ -401,8 +420,8 @@ void UCombatComponent::OnCharacterDeath()
 	// Reset input context to Movement (default)
 	SetInputContext(EInputContext::Movement);
 
-	// Clear context tracking
-	ActiveContextTags.Reset();
+	// Death is a terminal teardown boundary for every runtime context owner.
+	ClearActiveContextTags();
 	VisitedAttacks.Empty();
 
 	if (GetDebugDraw())
@@ -869,7 +888,7 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 	if (PairedAnimComp &&
 		EventType == EInputEventType::Press &&
 		(InputType == EInputType::LightAttack || InputType == EInputType::HeavyAttack) &&
-		PairedAnimComp->IsChainCounterWaitingForAttack())
+		PairedAnimComp->IsChainWaitingForResponse())
 	{
 		UAttackData* ChainAttackData = GetAttackForInput(InputType);
 		const bool bAdvanced = PairedAnimComp->TryAdvanceChainCounter(ChainAttackData);
@@ -1063,6 +1082,13 @@ bool UCombatComponent::CanProcessInput(EInputType InputType) const
 	// This prevents accidental input buffering during cinematics
 	if (CachedPairedAnimComp && CachedPairedAnimComp->IsInputBlocked())
 	{
+		const bool bIsChainResponse =
+			(InputType == EInputType::LightAttack || InputType == EInputType::HeavyAttack)
+			&& CachedPairedAnimComp->IsChainWaitingForResponse();
+		if (bIsChainResponse)
+		{
+			return true;
+		}
 		if (GetDebugDraw())
 		{
 			UE_LOG(LogCombat, Verbose, TEXT("[INPUT] Input blocked - paired animation in progress"));
@@ -2212,7 +2238,7 @@ bool UCombatComponent::BeginBlock(AActor* ThreatActor)
 
 	ResetDefenseManualYawOverride();
 	bIsBlocking = true;
-	RefreshGuardThreat(EThreatRefreshReason::BlockPressed);
+	RefreshGuardThreatInternal(EThreatRefreshReason::BlockPressed, true);
 	AActor* BlockThreat = LockedDefenseThreatActor.IsValid()
 		? LockedDefenseThreatActor.Get()
 		: nullptr;
@@ -2292,23 +2318,81 @@ bool UCombatComponent::CanBlockHit(const FHitReactionInfo& HitInfo) const
 
 void UCombatComponent::AddActiveContextTag(FGameplayTag ContextTag)
 {
-	if (ContextTag.IsValid())
+	const FCombatContextLeaseHandle Handle = AcquireContextTagLease(ContextTag, TEXT("LegacyAdapter"));
+	if (Handle.IsValid())
 	{
-		ActiveContextTags.AddTag(ContextTag);
+		LegacyContextTagLeases.FindOrAdd(ContextTag).Add(Handle);
 	}
 }
 
 void UCombatComponent::RemoveActiveContextTag(FGameplayTag ContextTag)
 {
-	if (ContextTag.IsValid())
+	if (TArray<FCombatContextLeaseHandle>* Handles = LegacyContextTagLeases.Find(ContextTag))
 	{
-		ActiveContextTags.RemoveTag(ContextTag);
+		if (!Handles->IsEmpty())
+		{
+			const FCombatContextLeaseHandle Handle = Handles->Pop(EAllowShrinking::No);
+			ReleaseContextTagLease(Handle);
+		}
+		if (Handles->IsEmpty())
+		{
+			LegacyContextTagLeases.Remove(ContextTag);
+		}
 	}
 }
 
 void UCombatComponent::ClearActiveContextTags()
 {
+	ActiveContextTagLeases.Reset();
+	ActiveContextTagLeaseCounts.Reset();
+	LegacyContextTagLeases.Reset();
 	ActiveContextTags.Reset();
+}
+
+FCombatContextLeaseHandle UCombatComponent::AcquireContextTagLease(
+	FGameplayTag ContextTag,
+	FName Owner)
+{
+	if (!ContextTag.IsValid() || Owner.IsNone())
+	{
+		return {};
+	}
+
+	do
+	{
+		++NextContextTagLeaseId;
+	}
+	while (NextContextTagLeaseId == 0
+		|| ActiveContextTagLeases.Contains(
+			FCombatContextLeaseHandle(NextContextTagLeaseId)));
+
+	const FCombatContextLeaseHandle Handle(NextContextTagLeaseId);
+	FCombatContextLeaseRecord& Record = ActiveContextTagLeases.Add(Handle);
+	Record.Tag = ContextTag;
+	Record.Owner = Owner;
+	int32& Count = ActiveContextTagLeaseCounts.FindOrAdd(ContextTag);
+	++Count;
+	ActiveContextTags.AddTag(ContextTag);
+	return Handle;
+}
+
+void UCombatComponent::ReleaseContextTagLease(FCombatContextLeaseHandle Handle)
+{
+	FCombatContextLeaseRecord Record;
+	if (!Handle.IsValid() || !ActiveContextTagLeases.RemoveAndCopyValue(Handle, Record))
+	{
+		return;
+	}
+
+	if (int32* Count = ActiveContextTagLeaseCounts.Find(Record.Tag))
+	{
+		--(*Count);
+		if (*Count <= 0)
+		{
+			ActiveContextTagLeaseCounts.Remove(Record.Tag);
+			ActiveContextTags.RemoveTag(Record.Tag);
+		}
+	}
 }
 
 bool UCombatComponent::HasActiveContextTag(FGameplayTag ContextTag) const
@@ -3088,6 +3172,9 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 
 void UCombatComponent::ClearQueue(bool bCancelCurrent)
 {
+#if WITH_AUTOMATION_TESTS
+	++ClearQueueCallCountForTesting;
+#endif
 	if (bCancelCurrent)
 	{
 		// Cancel all including executing
@@ -4042,33 +4129,11 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 	// The attack state machine filter below would reject finisher montage callbacks
 	// because they don't match ActiveMontage. Process paired animation completion
 	// BEFORE filtering to ensure finishers complete properly.
-	UPairedAnimationData* PairedAnimData = CachedPairedAnimComp ? CachedPairedAnimComp->ActivePairedAnimData : nullptr;
-	if (IsPairedAnimationActive() && PairedAnimData && Montage)
+	if (CachedPairedAnimComp
+		&& Montage
+		&& CachedPairedAnimComp->HandleOwnerPairedMontageEnded(Montage, bInterrupted))
 	{
-		// Check if this is the attacker's finisher/counter montage
-		if (Montage == PairedAnimData->AttackerMontage)
-		{
-			if (!bInterrupted)
-			{
-				// Normal completion - apply damage and cleanup
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Paired animation attacker montage completed normally - calling CompletePairedAnimation"));
-				}
-				CompletePairedAnimation();
-				return;  // CompletePairedAnimation handles phase reset
-			}
-			else
-			{
-				// Interrupted - cancel without damage
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Paired animation attacker montage interrupted - calling CancelPairedAnimation"));
-				}
-				CancelPairedAnimation(0.0f);
-				return;  // CancelPairedAnimation handles phase reset
-			}
-		}
+		return;
 	}
 
 	// ========================================================================

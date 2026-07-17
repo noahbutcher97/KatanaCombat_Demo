@@ -10,6 +10,8 @@
 #include "InputActionValue.h"
 #include "MotionWarpingComponent.h"
 
+#include <limits>
+
 namespace
 {
 FAlignmentRequestSpec MakeSmoothSpec(AActor* Target, float TurnRate, float TurnBudget)
@@ -95,6 +97,14 @@ bool FDefenseAlignment_PriorityAndRestoration::RunTest(const FString& Parameters
 	EscalatedGuard.Priority = EDefenseAlignmentPriority::Terminal;
 	TestFalse(TEXT("An update cannot escalate an existing owner's priority"),
 		Targeting->UpdateAlignmentRequest(Guard, EscalatedGuard));
+	FAlignmentRequestSpec InvalidOffset = MakeWarpSpec(
+		Enemy,
+		TEXT("InvalidOffset"),
+		TEXT("InvalidOffsetTarget"),
+		EDefenseAlignmentPriority::PairedOrParryBridge);
+	InvalidOffset.TargetRelativeOffset.X = std::numeric_limits<double>::quiet_NaN();
+	TestFalse(TEXT("The alignment boundary rejects a nonfinite target-relative offset"),
+		Targeting->AcquireAlignmentRequest(InvalidOffset).IsValid());
 
 	const FAlignmentRequestHandle Bridge = Targeting->AcquireAlignmentRequest(MakeWarpSpec(
 		Enemy,

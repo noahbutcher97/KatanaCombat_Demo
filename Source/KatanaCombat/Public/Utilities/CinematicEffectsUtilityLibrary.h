@@ -44,8 +44,8 @@ public:
     static bool ApplySlowMotion(UWorld* World, float Scale);
 
     /**
-     * Restore world time dilation to normal (1.0).
-     * Safe to call multiple times - idempotent operation.
+     * Release this compatibility caller's world-dilation lease.
+     * The last active owner restores the captured pre-lease baseline.
      *
      * @param World - World context
      */
@@ -279,7 +279,7 @@ public:
     static void SetActorTimeDilation(AActor* Actor, float TimeDilation);
 
     /**
-     * Restore actor time dilation to normal (1.0).
+     * Release this compatibility caller's actor-dilation lease.
      *
      * @param Actor - Actor to restore
      */
@@ -296,8 +296,7 @@ public:
     static void FreezeActors(const TArray<AActor*>& Actors);
 
     /**
-     * Restore multiple actors simultaneously (hardcodes to 1.0f).
-     * Prefer RestoreActorsFromSaved() for overlapping slow-mo scenarios.
+     * Release one compatibility freeze lease for each actor.
      *
      * @param Actors - Array of actors to restore
      */

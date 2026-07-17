@@ -59,6 +59,68 @@ const FCombatInputRecord* LastRecord(const UCombatComponent* Combat)
 	const TArray<FCombatInputRecord>& History = Combat->GetCombatInputHistory();
 	return History.IsEmpty() ? nullptr : &History.Last();
 }
+
+bool PublishCanonicalParryThreat(
+	APlayerCharacter* Defender,
+	UCombatComponent* DefenderCombat,
+	AEnemyCharacter* Attacker,
+	FAttackInstanceId& OutAttackInstance)
+{
+	UCombatComponent* AttackerCombat = Attacker ? Attacker->CombatComponent.Get() : nullptr;
+	if (!Defender || !DefenderCombat || !Attacker || !AttackerCombat)
+	{
+		return false;
+	}
+
+	UTargetingSettings* TargetingSettings = NewObject<UTargetingSettings>();
+	TargetingSettings->MaxTargetDistance = 1500.0f;
+	TargetingSettings->bRequireLineOfSight = false;
+	Defender->TargetingComponent->TargetingSettingsOverride = TargetingSettings;
+	UDefenseConfiguration* DefenseConfig = NewObject<UDefenseConfiguration>();
+	DefenseConfig->DefenseThreatRange = 1000.0f;
+	DefenseConfig->MaximumHighConfidencePredictionAge = 1.0f;
+	DefenseConfig->HardGuardConeHalfAngle = 70.0f;
+	DefenseConfig->MaximumAutomaticTurn = 70.0f;
+	DefenseConfig->DefenseTurnRate = 360.0f;
+	DefenseConfig->PerfectParryFinalTolerance = 10.0f;
+	DefenseConfig->NoMontageParryBridgeSeconds = 0.15f;
+	DefenderCombat->DefenseConfigurationOverride = DefenseConfig;
+
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack(EAttackType::Heavy);
+	Attack->AttackTags.AddTag(KatanaCombatGameplayTags::AttackDefenseParryable());
+	AttackerCombat->SeedAttackWindowStateForTesting(Attack, EAttackPhase::Windup, 41);
+	AttackerCombat->SetAttackIntentTarget(Defender);
+
+	const double Now = Defender->GetWorld()->GetTimeSeconds();
+	FAttackThreatPrediction Prediction;
+	Prediction.IntendedTarget = Defender;
+	Prediction.PathOrigin = Attacker->GetActorLocation();
+	Prediction.PathDirection =
+		(Defender->GetActorLocation() - Attacker->GetActorLocation()).GetSafeNormal();
+	Prediction.PredictedContactPoint = Defender->GetActorLocation();
+	Prediction.SourceSocket = TEXT("weapon_tip");
+	Prediction.DefenderTargetBone = TEXT("spine_03");
+	Prediction.PredictionSimulationTimestamp = Now;
+	Prediction.PredictedContactSimulationTime = Now + 0.20;
+	Prediction.Lane = EIncomingAttackLane::Center;
+	Prediction.Height = EAttackHeight::Middle;
+	Prediction.Confidence = EDefensePredictionConfidence::High;
+	Prediction.bPathIntersectsThreatVolume = true;
+	AttackerCombat->PublishAttackThreatPrediction(Prediction);
+
+	FAnimNotifyRuntimeSourceId HitSource;
+	HitSource.SourceAnimation = FSoftObjectPath(TEXT("/Game/Test/Defense/InputHitWindow"));
+	HitSource.NotifyEventIndex = 2;
+	FAnimNotifyRuntimeSourceId ParrySource;
+	ParrySource.SourceAnimation = FSoftObjectPath(TEXT("/Game/Test/Defense/InputParryWindow"));
+	ParrySource.NotifyEventIndex = 3;
+	const FAttackWindowInstanceId HitWindow = AttackerCombat->OpenAttackWindow(
+		EAttackWindowKind::Hit, HitSource, 401, 0.40f);
+	const FAttackWindowInstanceId ParryWindow = AttackerCombat->OpenAttackWindow(
+		EAttackWindowKind::Parry, ParrySource, 401, 0.40f);
+	OutAttackInstance = ParryWindow.AttackInstance;
+	return HitWindow.IsValid() && ParryWindow.IsValid();
+}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -197,15 +259,22 @@ bool FDefenseInput_NewBlockPressRetriesParry::RunTest(const FString& Parameters)
 	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, Combat);
 	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(100.0f, 0.0f, 0.0f));
 	ConfigureDefenseInput(Player, Combat);
-	EnableCounterOverlap(Player);
-	EnableCounterOverlap(Enemy);
 
 	Combat->OnInputEvent(EInputType::Block, EInputEventType::Press);
-	Enemy->PairedAnimationComponent->SetParryWindowActive(true);
+	FAttackInstanceId AttackInstance;
+	if (!PublishCanonicalParryThreat(Player, Combat, Enemy, AttackInstance))
+	{
+		AddError(TEXT("Failed to publish canonical retry threat"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
 	Combat->OnInputEvent(EInputType::Block, EInputEventType::Press);
 
 	TestEqual(TEXT("A second physical press is captured"), Combat->GetCombatInputHistory().Num(), 2);
-	TestTrue(TEXT("Second press starts the current parry path"), Player->PairedAnimationComponent->GetChainState() != EChainCounterState::None);
+	TestEqual(TEXT("Second press starts committed ParryActive"),
+		Player->PairedAnimationComponent->GetChainState(), EChainCounterState::ParryActive);
+	TestTrue(TEXT("Retry consumes the selected attack generation"),
+		Enemy->CombatComponent->IsAttackConsumed(AttackInstance));
 	const FCombatInputRecord* Record = LastRecord(Combat);
 	if (Record)
 	{
@@ -214,7 +283,6 @@ bool FDefenseInput_NewBlockPressRetriesParry::RunTest(const FString& Parameters)
 	}
 
 	Player->PairedAnimationComponent->CancelPairedAnimation();
-	Enemy->PairedAnimationComponent->SetParryWindowActive(false);
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }
@@ -231,11 +299,23 @@ bool FDefenseInput_ChainPreflightFailureExpires::RunTest(const FString& Paramete
 	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, Combat);
 	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(100.0f, 0.0f, 0.0f));
 	ConfigureDefenseInput(Player, Combat);
-	EnableCounterOverlap(Player);
-	EnableCounterOverlap(Enemy);
-	Enemy->PairedAnimationComponent->SetParryWindowActive(true);
+	FAttackInstanceId AttackInstance;
+	if (!PublishCanonicalParryThreat(Player, Combat, Enemy, AttackInstance))
+	{
+		AddError(TEXT("Failed to publish canonical Chain threat"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
 	Combat->OnInputEvent(EInputType::Block, EInputEventType::Press);
-	Player->PairedAnimationComponent->ChainState = EChainCounterState::CounterWindow;
+	TestEqual(TEXT("Committed parry begins before the response window"),
+		Player->PairedAnimationComponent->GetChainState(), EChainCounterState::ParryActive);
+	UPairedAnimationComponent* Paired = Player->PairedAnimationComponent.Get();
+	const int32 BridgeGeneration = Paired->ActiveDefenseSequence.StageGeneration;
+	const FDefenseAsyncHandle BridgeHandle =
+		Paired->ActiveDefenseSequence.BridgeFallbackHandle;
+	Paired->HandleNoMontageDefenseBridgeElapsed(BridgeGeneration, BridgeHandle);
+	TestEqual(TEXT("Simulation-time bridge opens the real response window"),
+		Player->PairedAnimationComponent->GetChainState(), EChainCounterState::CounterWindow);
 	ConfigureDefenseInput(Player, Combat, false);
 
 	const int32 QueueSizeBefore = Combat->GetPendingActionCount();
@@ -254,7 +334,6 @@ bool FDefenseInput_ChainPreflightFailureExpires::RunTest(const FString& Paramete
 	}
 
 	Player->PairedAnimationComponent->CancelPairedAnimation();
-	Enemy->PairedAnimationComponent->SetParryWindowActive(false);
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

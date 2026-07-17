@@ -882,13 +882,13 @@ git commit -m "Consume attacks on committed perfect parry"
 
 **Produces:** `ParryActive -> CounterWindow -> CounterActive -> FinisherReady -> FinisherActive -> None`, retained pose/ownership between stages, scoped context/time leases, generation-safe markers/callbacks, and rollback-safe two-actor starts.
 
-- [ ] **Step 1: Extend the state and paired authoring contracts**
+- [x] **Step 1: Extend the state and paired authoring contracts**
 
 Add `FinisherActive` to `EChainCounterState`. Add `EPairedAnimationRole`, `EChainStageTransitionType` (`OpenCounterWindow`, `AutoContinue`), and a compact `FPairedChainTransitionPolicy` to `UPairedAnimationData` containing driver role, required marker, compatible ready sections/terminal-pose flags, positive window override, auto-continue policy, and finisher retryability.
 
 Add `FDefenseSequenceContext` fields from the accepted spec: originating resolution/snapshot, weak actors, reflected strong counter/finisher references, current state, stage generation, per-role montage-instance IDs, active presentation, timeout handles, and opaque context/alignment/time/collision/input ownership handles. Revalidate weak actors on every transition.
 
-- [ ] **Step 2: Replace direct context tag mutation with leases**
+- [x] **Step 2: Replace direct context tag mutation with leases**
 
 Add:
 
@@ -899,7 +899,7 @@ void ReleaseContextTagLease(FCombatContextLeaseHandle Handle);
 
 Reference-count tags by valid handle. Keep old add/remove calls as legacy ref-counted adapters; `ClearActiveContextTags()` is teardown-only. `UPairedAnimationComponent` alone acquires `Context.ParryCounter` for the sequence and releases it once on terminal cleanup.
 
-- [ ] **Step 3: Add generation-keyed stage markers**
+- [x] **Step 3: Add generation-keyed stage markers**
 
 `UAnimNotify_ChainStageTransition` extracts montage-instance context exactly as Task 4 and calls:
 
@@ -912,7 +912,7 @@ void HandleChainStageTransition(
 
 Only the authored driver role with the active interaction, stage generation, montage instance, and valid runtime source event may advance. Partner markers and duplicates record telemetry only. Bridge marker enters `CounterWindow`; it never drops montage/pose ownership. Counter auto-continue allocates and retires generations before starting the successor, so synchronous outgoing interruption cannot clean the new stage.
 
-- [ ] **Step 4: Implement rollback-safe two-actor start**
+- [x] **Step 4: Implement rollback-safe two-actor start**
 
 Use an explicit transaction local to `UPairedAnimationComponent`:
 
@@ -926,7 +926,7 @@ Never claim the interrupted outgoing pose can be restored. Unexpected bridge mon
 
 Canonical stages acquire collision and movement leases before either role starts. `UAnimNotifyState_PairedAnimationCollision` becomes a compatibility adapter that delegates Begin/End to per-actor, per-montage-instance component records keyed by runtime notify source ID; it stores no cached owner, saved response/movement mode, partner array, or mutable active flag on the asset-shared notify object. Stale End can release only its matching record, and terminal sequence cleanup releases any surviving stage-owned lease.
 
-- [ ] **Step 5: Preserve ownership across successful stages**
+- [x] **Step 5: Preserve ownership across successful stages**
 
 Counter completion that auto-continues must not call broad paired cleanup, clear the action queue, expose `ChainState::None`, restore collision/movement/input, remove `Context.ParryCounter`, clear warp targets owned by the successor, or release time leases. Terminal cleanup is idempotent and keyed by interaction plus active generation.
 
@@ -936,7 +936,7 @@ Drive unscaled response deadlines from `FPlatformTime::Seconds()` through genera
 
 Rewrite public-flow counter tests named in the spec. Retire `KatanaCombat.CounterSystem.Internal.ChainParryTransition`. Rewrite `Internal.ChainParryStaggersEnemy` as data-driven `ParryStagger`. Keep narrow null/no-op primitives but do not count them as feature proof.
 
-- [ ] **Step 6: Add overlap-safe world and actor time leases**
+- [x] **Step 6: Add overlap-safe world and actor time leases**
 
 Implement `UCombatEffectsWorldSubsystem` APIs:
 
@@ -950,13 +950,13 @@ The first lease captures the prior value. Effective value is the minimum of base
 
 Migrate `UCinematicEffectsUtilityLibrary` and hitstop to the subsystem. New paired code stores handles. Legacy Apply/Restore calls delegate through named compatibility leases and diagnose direct external dilation changes while leases are active. Remove static global actor hitstop restoration state after actor-lease tests replace it.
 
-- [ ] **Step 7: Add adversarial lifecycle tests**
+- [x] **Step 7: Add adversarial lifecycle tests**
 
 Test bridge marker delay, hold pose ownership, counter retry, auto-finisher success/failure, timeout, cancel, owner death, partner death, missing montage, one-role start failure, stale marker, stale montage end, duplicate callback, listener destruction, listener starting another action, two actors sharing one notify asset, overlapping collision/movement windows, stale collision End, overlapping world leases, overlapping actor freezes, baseline restoration, duplicate release, watchdog, and world teardown.
 
 Every successful multi-stage test asserts no intermediate `None`, queue clear, input restore, collision restore, tag release, or warp clear. Every terminal path asserts each owner is restored exactly once.
 
-- [ ] **Step 8: Verify and commit Slice 5**
+- [x] **Step 8: Verify and commit Slice 5**
 
 Build first, run `KatanaCombat.Defense.Chain`, `.CombatEffects`, `.CounterSystem`, and `.PairedAnimation`, then run the full `KatanaCombat` automation root. Complete the slice adversarial/spec-coverage gate before committing:
 
