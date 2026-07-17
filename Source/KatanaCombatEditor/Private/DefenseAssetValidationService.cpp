@@ -590,20 +590,31 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 	{
 		const TSharedPtr<FJsonObject> Fixture = (*FixtureValue)->AsObject();
 		RejectUnknownFields(Fixture,
-			{TEXT("playerBlueprint"), TEXT("enemyBlueprints"), TEXT("inputAction"),
+			{TEXT("playerBlueprint"), TEXT("playerCombatSettings"),
+			 TEXT("enemyBlueprints"), TEXT("enemyCombatSettings"), TEXT("inputAction"),
 			 TEXT("inputMappingContext"), TEXT("blockKey"), TEXT("guardAnimBlueprint"),
 			 TEXT("reviewed")},
 			TEXT("manifest.fixture"), OutErrors);
 		ReadRequiredString(Fixture, TEXT("playerBlueprint"), TEXT("manifest.fixture"),
 			OutManifest.Fixture.PlayerBlueprint, OutErrors);
+		ReadRequiredString(Fixture, TEXT("playerCombatSettings"), TEXT("manifest.fixture"),
+			OutManifest.Fixture.PlayerCombatSettings, OutErrors);
 		ReadStringArray(Fixture, TEXT("enemyBlueprints"), TEXT("manifest.fixture"),
 			OutManifest.Fixture.EnemyBlueprints, OutErrors);
+		ReadStringArray(Fixture, TEXT("enemyCombatSettings"), TEXT("manifest.fixture"),
+			OutManifest.Fixture.EnemyCombatSettings, OutErrors);
 		ReadRequiredString(Fixture, TEXT("inputAction"), TEXT("manifest.fixture"),
 			OutManifest.Fixture.InputAction, OutErrors);
 		ReadRequiredString(Fixture, TEXT("inputMappingContext"), TEXT("manifest.fixture"),
 			OutManifest.Fixture.InputMappingContext, OutErrors);
 		ReadRequiredString(Fixture, TEXT("blockKey"), TEXT("manifest.fixture"),
 			OutManifest.Fixture.BlockKey, OutErrors);
+		if (OutManifest.Fixture.BlockKey != TEXT("ThumbMouseButton")
+			&& OutManifest.Fixture.BlockKey != TEXT("ThumbMouseButton2"))
+		{
+			AddError(OutErrors, TEXT("manifest.fixture.blockKey"),
+				TEXT("blockKey must be a thumb mouse button (ThumbMouseButton or ThumbMouseButton2)"));
+		}
 		ReadRequiredString(Fixture, TEXT("guardAnimBlueprint"), TEXT("manifest.fixture"),
 			OutManifest.Fixture.GuardAnimBlueprint, OutErrors);
 		ReadRequiredBool(Fixture, TEXT("reviewed"), TEXT("manifest.fixture"),
@@ -614,9 +625,21 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 		}
 		RequireGameObjectPath(OutManifest.Fixture.PlayerBlueprint, TEXT("manifest.fixture"),
 			TEXT("playerBlueprint"), OutErrors);
+		RequireGameObjectPath(OutManifest.Fixture.PlayerCombatSettings, TEXT("manifest.fixture"),
+			TEXT("playerCombatSettings"), OutErrors);
 		for (const FString& Path : OutManifest.Fixture.EnemyBlueprints)
 		{
 			RequireGameObjectPath(Path, TEXT("manifest.fixture.enemyBlueprints"), TEXT("entry"), OutErrors);
+		}
+		for (const FString& Path : OutManifest.Fixture.EnemyCombatSettings)
+		{
+			RequireGameObjectPath(Path, TEXT("manifest.fixture.enemyCombatSettings"), TEXT("entry"), OutErrors);
+		}
+		if (OutManifest.Fixture.EnemyBlueprints.Num()
+			!= OutManifest.Fixture.EnemyCombatSettings.Num())
+		{
+			AddError(OutErrors, TEXT("manifest.fixture"),
+				TEXT("enemyBlueprints and enemyCombatSettings must have equal cardinality"));
 		}
 		RequireGameObjectPath(OutManifest.Fixture.InputAction, TEXT("manifest.fixture"),
 			TEXT("inputAction"), OutErrors);
@@ -631,11 +654,26 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 	{
 		RequireGameObjectPath(Path, TEXT("manifest.combatSettings"), TEXT("entry"), OutErrors);
 	}
+	if (!OutManifest.CombatSettings.Contains(OutManifest.Fixture.PlayerCombatSettings))
+	{
+		AddError(OutErrors, TEXT("manifest.fixture.playerCombatSettings"),
+			TEXT("path must also appear in combatSettings"));
+	}
+	for (const FString& Path : OutManifest.Fixture.EnemyCombatSettings)
+	{
+		if (!OutManifest.CombatSettings.Contains(Path))
+		{
+			AddError(OutErrors, TEXT("manifest.fixture.enemyCombatSettings"),
+				FString::Printf(TEXT("%s must also appear in combatSettings"), *Path));
+		}
+	}
 
 	const TArray<TSharedPtr<FJsonValue>>* AttackValues = nullptr;
 	if (ReadObjectArray(Root, TEXT("attacks"), AttackValues, OutErrors))
 	{
 		TSet<FString> Names;
+		TSet<FString> AttackDataPaths;
+		TSet<FString> MontageSections;
 		for (int32 Index = 0; Index < AttackValues->Num(); ++Index)
 		{
 			const FString Context = FString::Printf(TEXT("attacks[%d]"), Index);
@@ -670,6 +708,21 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 			ReadRequiredBool(Object, TEXT("requiresBlockedImpactVFX"), Context,
 				Entry.bRequiresBlockedImpactVFX, OutErrors);
 			ReadStringArray(Object, TEXT("expectedTags"), Context, Entry.ExpectedTags, OutErrors);
+			TSet<FString> UniqueExpectedTags;
+			for (const FString& TagName : Entry.ExpectedTags)
+			{
+				if (UniqueExpectedTags.Contains(TagName))
+				{
+					AddError(OutErrors, Context,
+						FString::Printf(TEXT("expectedTags contains duplicate '%s'"), *TagName));
+				}
+				UniqueExpectedTags.Add(TagName);
+				if (!FGameplayTag::RequestGameplayTag(FName(*TagName), false).IsValid())
+				{
+					AddError(OutErrors, Context,
+						FString::Printf(TEXT("expected tag is not registered: %s"), *TagName));
+				}
+			}
 			RequireGameObjectPath(Entry.AttackData, Context, TEXT("attackData"), OutErrors);
 			RequireGameObjectPath(Entry.Montage, Context, TEXT("montage"), OutErrors);
 			if (!IsNamedEnumValue(StaticEnum<EAttackHeight>(), Entry.ExpectedHeight))
@@ -734,6 +787,21 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 				AddError(OutErrors, Context,
 					TEXT("Attack.Defense.Parryable and parryWindow presence must agree"));
 			}
+			if (AttackDataPaths.Contains(Entry.AttackData))
+			{
+				AddError(OutErrors, Context,
+					FString::Printf(TEXT("attackData path '%s' is targeted more than once"),
+						*Entry.AttackData));
+			}
+			AttackDataPaths.Add(Entry.AttackData);
+			const FString MontageSectionKey = Entry.Montage + TEXT("|") + Entry.Section;
+			if (MontageSections.Contains(MontageSectionKey))
+			{
+				AddError(OutErrors, Context,
+					FString::Printf(TEXT("montage/section target '%s|%s' is targeted more than once"),
+						*Entry.Montage, *Entry.Section));
+			}
+			MontageSections.Add(MontageSectionKey);
 			RejectDuplicateName(Entry, Names, Context, OutErrors);
 			OutManifest.Attacks.Add(MoveTemp(Entry));
 		}
@@ -813,6 +881,7 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 	if (ReadObjectArray(Root, TEXT("pairedDependencies"), PairedValues, OutErrors))
 	{
 		TSet<FString> Names;
+		TSet<FString> PairedDataPaths;
 		for (int32 Index = 0; Index < PairedValues->Num(); ++Index)
 		{
 			const FString Context = FString::Printf(TEXT("pairedDependencies[%d]"), Index);
@@ -899,6 +968,13 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 			{
 				AddError(OutErrors, Context, TEXT("reviewed must be true"));
 			}
+			if (PairedDataPaths.Contains(Entry.PairedData))
+			{
+				AddError(OutErrors, Context,
+					FString::Printf(TEXT("pairedData path '%s' is targeted more than once"),
+						*Entry.PairedData));
+			}
+			PairedDataPaths.Add(Entry.PairedData);
 			RejectDuplicateName(Entry, Names, Context, OutErrors);
 			OutManifest.PairedDependencies.Add(MoveTemp(Entry));
 		}
@@ -980,8 +1056,12 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 	{
 		PresentationsByName.Add(Entry.Name, &Entry);
 	}
-	TSet<FString> PairedNames;
-	for (const FDefenseProofPairedDependencyEntry& Entry : OutManifest.PairedDependencies) PairedNames.Add(Entry.Name);
+	TMap<FString, const FDefenseProofPairedDependencyEntry*> PairedByName;
+	for (const FDefenseProofPairedDependencyEntry& Entry : OutManifest.PairedDependencies)
+	{
+		PairedByName.Add(Entry.Name, &Entry);
+	}
+	TMap<FString, FString> PairedRoleAuthorityByAttack;
 	for (const FDefenseProofExpectedCaseEntry& Entry : OutManifest.ExpectedCases)
 	{
 		const FString Context = FString::Printf(TEXT("expectedCases.%s"), *Entry.Name);
@@ -1011,10 +1091,29 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 		}
 		for (const FString& Dependency : Entry.PairedDependencies)
 		{
-			if (!PairedNames.Contains(Dependency))
+			const FDefenseProofPairedDependencyEntry* const* PairedEntry =
+				PairedByName.Find(Dependency);
+			if (!PairedEntry)
 			{
 				AddError(OutErrors, Context,
 					FString::Printf(TEXT("paired dependency '%s' does not exist"), *Dependency));
+				continue;
+			}
+			if ((*PairedEntry)->Role == TEXT("Counter")
+				|| (*PairedEntry)->Role == TEXT("Finisher"))
+			{
+				const FString AuthorityKey = Entry.Attack + TEXT("|") + (*PairedEntry)->Role;
+				const FString* ExistingAuthority = PairedRoleAuthorityByAttack.Find(AuthorityKey);
+				if (ExistingAuthority && *ExistingAuthority != Dependency)
+				{
+					AddError(OutErrors, Context, FString::Printf(
+						TEXT("ambiguous %s authority for attack '%s': '%s' and '%s'"),
+						*(*PairedEntry)->Role, *Entry.Attack, **ExistingAuthority, *Dependency));
+				}
+				else
+				{
+					PairedRoleAuthorityByAttack.Add(AuthorityKey, Dependency);
+				}
 			}
 		}
 	}
@@ -1055,7 +1154,12 @@ TArray<FString> FDefenseAssetValidationService::CollectExplicitObjectPaths(
 	AddPath(Manifest.Map);
 	AddPath(Manifest.DefenseConfiguration);
 	AddPath(Manifest.Fixture.PlayerBlueprint);
+	AddPath(Manifest.Fixture.PlayerCombatSettings);
 	for (const FString& Path : Manifest.Fixture.EnemyBlueprints)
+	{
+		AddPath(Path);
+	}
+	for (const FString& Path : Manifest.Fixture.EnemyCombatSettings)
 	{
 		AddPath(Path);
 	}
@@ -1085,16 +1189,13 @@ TArray<FString> FDefenseAssetValidationService::CollectExplicitObjectPaths(
 
 void FDefenseAssetValidationService::LoadExplicitObjects(
 	const FDefenseProofManifest& Manifest,
-	FDefenseProofAssetSet& OutAssets,
-	FDefenseAssetValidationResult& OutResult)
+	FDefenseProofAssetSet& OutAssets)
 {
 	OutAssets.Objects.Reset();
 	for (const FString& Path : CollectExplicitObjectPaths(Manifest))
 	{
 		OutAssets.Add(Path, StaticLoadObject(UObject::StaticClass(), nullptr, *Path));
-		OutResult.Dependencies.AddUnique(Path);
 	}
-	OutResult.Dependencies.Sort();
 }
 
 void FDefenseAssetValidationService::ValidateManifestObjects(
@@ -1125,14 +1226,89 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 
 	const UDefenseConfiguration* Configuration = FindTypedObject<UDefenseConfiguration>(
 		Assets, Manifest.DefenseConfiguration, TEXT("manifest.defenseConfiguration"), OutResult);
-	TArray<const UCombatSettings*> LoadedSettings;
+	FDefenseAssetValidationRow ConfigurationRow;
+	ConfigurationRow.Kind = TEXT("Configuration");
+	ConfigurationRow.Name = TEXT("DefenseConfiguration");
+	ConfigurationRow.AssetPath = Manifest.DefenseConfiguration;
+	ConfigurationRow.Facts.Add(TEXT("loaded"), LexToString(Configuration != nullptr));
+	if (Configuration)
+	{
+		ConfigurationRow.Facts.Add(TEXT("hard_guard_cone_half_angle"),
+			LexToString(Configuration->HardGuardConeHalfAngle));
+		ConfigurationRow.Facts.Add(TEXT("maximum_automatic_turn"),
+			LexToString(Configuration->MaximumAutomaticTurn));
+		ConfigurationRow.Facts.Add(TEXT("defense_turn_rate"),
+			LexToString(Configuration->DefenseTurnRate));
+		ConfigurationRow.Facts.Add(TEXT("normal_block_final_tolerance"),
+			LexToString(Configuration->NormalBlockFinalTolerance));
+		ConfigurationRow.Facts.Add(TEXT("perfect_parry_final_tolerance"),
+			LexToString(Configuration->PerfectParryFinalTolerance));
+		ConfigurationRow.Facts.Add(TEXT("center_lane_half_angle"),
+			LexToString(Configuration->CenterLaneHalfAngle));
+		ConfigurationRow.Facts.Add(TEXT("threat_lock_min_seconds"),
+			LexToString(Configuration->ThreatLockMinSeconds));
+		ConfigurationRow.Facts.Add(TEXT("threat_switch_lead_seconds"),
+			LexToString(Configuration->ThreatSwitchLeadSeconds));
+		ConfigurationRow.Facts.Add(TEXT("guarded_threat_refresh_seconds"),
+			LexToString(Configuration->GuardedThreatRefreshSeconds));
+		ConfigurationRow.Facts.Add(TEXT("maximum_prediction_age"),
+			LexToString(Configuration->MaximumHighConfidencePredictionAge));
+		ConfigurationRow.Facts.Add(TEXT("defense_threat_range"),
+			LexToString(Configuration->DefenseThreatRange));
+		ConfigurationRow.Facts.Add(TEXT("guard_manual_override_threshold"),
+			LexToString(Configuration->GuardManualOverrideThreshold));
+		ConfigurationRow.Facts.Add(TEXT("guard_auto_facing_resume_seconds"),
+			LexToString(Configuration->GuardAutoFacingResumeSeconds));
+		ConfigurationRow.Facts.Add(TEXT("interaction_tombstone_seconds"),
+			LexToString(Configuration->InteractionTombstoneSeconds));
+		ConfigurationRow.Facts.Add(TEXT("terminal_interaction_cache_cap"),
+			LexToString(Configuration->TerminalInteractionCacheCap));
+		ConfigurationRow.Facts.Add(TEXT("no_montage_parry_bridge_seconds"),
+			LexToString(Configuration->NoMontageParryBridgeSeconds));
+		ConfigurationRow.Facts.Add(TEXT("parry_stagger_duration"),
+			LexToString(Configuration->ParryStaggerDuration));
+		ConfigurationRow.Facts.Add(TEXT("counter_window_seconds"),
+			LexToString(Configuration->CounterWindowSeconds));
+		ConfigurationRow.Facts.Add(TEXT("finisher_ready_seconds"),
+			LexToString(Configuration->FinisherReadySeconds));
+		ConfigurationRow.Facts.Add(TEXT("time_dilation_watchdog_seconds"),
+			LexToString(Configuration->TimeDilationLeaseWatchdogSeconds));
+		ConfigurationRow.Facts.Add(TEXT("normal_block_translation_allowance"),
+			LexToString(Configuration->NormalBlockTranslationAllowance));
+		ConfigurationRow.Facts.Add(TEXT("normal_block_translation_drift_tolerance"),
+			LexToString(Configuration->NormalBlockTranslationDriftTolerance));
+		ConfigurationRow.Facts.Add(TEXT("perfect_parry_translation_allowance_per_role"),
+			LexToString(Configuration->PerfectParryTranslationAllowancePerRole));
+		ConfigurationRow.Facts.Add(TEXT("guard_enter_montage"), Configuration->GuardEnterMontage
+			? Configuration->GuardEnterMontage->GetPathName() : TEXT("None"));
+		ConfigurationRow.Facts.Add(TEXT("guard_exit_montage"), Configuration->GuardExitMontage
+			? Configuration->GuardExitMontage->GetPathName() : TEXT("None"));
+		ConfigurationRow.Facts.Add(TEXT("default_block_audio"),
+			Configuration->DefaultBlockImpactAudio.ImpactSound
+				? Configuration->DefaultBlockImpactAudio.ImpactSound->GetPathName() : TEXT("None"));
+		ConfigurationRow.Facts.Add(TEXT("default_block_vfx"),
+			Configuration->DefaultBlockImpactVFX.ImpactVFX
+				? Configuration->DefaultBlockImpactVFX.ImpactVFX->GetPathName() : TEXT("None"));
+		ConfigurationRow.Facts.Add(TEXT("default_parry_audio"),
+			Configuration->DefaultParryImpactAudio.ImpactSound
+				? Configuration->DefaultParryImpactAudio.ImpactSound->GetPathName() : TEXT("None"));
+		ConfigurationRow.Facts.Add(TEXT("default_parry_vfx"),
+			Configuration->DefaultParryImpactVFX.ImpactVFX
+				? Configuration->DefaultParryImpactVFX.ImpactVFX->GetPathName() : TEXT("None"));
+		ConfigurationRow.Facts.Add(TEXT("defender_presentation_rows"),
+			LexToString(Configuration->DefenderPresentationRows.Num()));
+		ConfigurationRow.Facts.Add(TEXT("attacker_presentation_rows"),
+			LexToString(Configuration->AttackerResponseRows.Num()));
+		ConfigurationRow.Facts.Add(TEXT("bone_height_rows"),
+			LexToString(Configuration->BoneHeightRows.Num()));
+	}
+	OutResult.Rows.Add(MoveTemp(ConfigurationRow));
 	for (const FString& SettingsPath : Manifest.CombatSettings)
 	{
 		const UCombatSettings* Settings = FindTypedObject<UCombatSettings>(
 			Assets, SettingsPath, FString::Printf(TEXT("combatSettings.%s"), *SettingsPath), OutResult);
 		if (Settings)
 		{
-			LoadedSettings.Add(Settings);
 			AddObjectDependency(Settings->DefenseConfiguration, OutResult);
 			if (Configuration && Settings->DefenseConfiguration != Configuration)
 			{
@@ -1170,17 +1346,35 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 			TEXT("block input action must use a Boolean value type"));
 	}
 	bool bHasExpectedMapping = false;
+	bool bHasDeprecatedRightMouseMapping = false;
+	bool bHasExpectedKeyConflict = false;
 	if (BlockAction && MappingContext && ExpectedBlockKey.IsValid())
 	{
 		for (const FEnhancedActionKeyMapping& Mapping : MappingContext->GetMappings())
 		{
 			bHasExpectedMapping |= Mapping.Action == BlockAction && Mapping.Key == ExpectedBlockKey;
+			bHasDeprecatedRightMouseMapping |=
+				Mapping.Action == BlockAction && Mapping.Key == EKeys::RightMouseButton;
+			bHasExpectedKeyConflict |= Mapping.Key == ExpectedBlockKey
+				&& Mapping.Action.Get() && Mapping.Action != BlockAction;
 		}
 		if (!bHasExpectedMapping)
 		{
 			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 				TEXT("BlockInputMappingMissing"), TEXT("fixture.inputMappingContext"),
 				TEXT("mapping context does not bind IA_Block to the reviewed thumb-mouse key"));
+		}
+		if (bHasDeprecatedRightMouseMapping)
+		{
+			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+				TEXT("DeprecatedBlockInputMapping"), TEXT("fixture.inputMappingContext"),
+				TEXT("IA_Block must not consume RightMouseButton reserved for heavy attack"));
+		}
+		if (bHasExpectedKeyConflict)
+		{
+			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+				TEXT("BlockInputKeyConflict"), TEXT("fixture.inputMappingContext"),
+				TEXT("the reviewed thumb-mouse key is also bound to another action"));
 		}
 	}
 	FDefenseAssetValidationRow InputRow;
@@ -1190,6 +1384,9 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 	InputRow.Facts.Add(TEXT("action"), Manifest.Fixture.InputAction);
 	InputRow.Facts.Add(TEXT("key"), Manifest.Fixture.BlockKey);
 	InputRow.Facts.Add(TEXT("mapping_present"), LexToString(bHasExpectedMapping));
+	InputRow.Facts.Add(TEXT("deprecated_right_mouse_mapping"),
+		LexToString(bHasDeprecatedRightMouseMapping));
+	InputRow.Facts.Add(TEXT("expected_key_conflict"), LexToString(bHasExpectedKeyConflict));
 	OutResult.Rows.Add(MoveTemp(InputRow));
 
 	UObject* GuardObject = Assets.Find(Manifest.Fixture.GuardAnimBlueprint);
@@ -1220,7 +1417,9 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 				TEXT("PlayerBlockInputAssignmentMismatch"), TEXT("fixture.playerBlueprint"),
 				TEXT("player defaults do not assign the manifest block action and mapping context"));
 		}
-		if (!PlayerDefault || !LoadedSettings.Contains(PlayerDefault->CombatSettings))
+		const UCombatSettings* ExpectedPlayerSettings = Cast<UCombatSettings>(
+			Assets.Find(Manifest.Fixture.PlayerCombatSettings));
+		if (!PlayerDefault || PlayerDefault->CombatSettings != ExpectedPlayerSettings)
 		{
 			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 				TEXT("PlayerCombatSettingsAssignmentMismatch"), TEXT("fixture.playerBlueprint"),
@@ -1235,8 +1434,9 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 		}
 	}
 
-	for (const FString& EnemyPath : Manifest.Fixture.EnemyBlueprints)
+	for (int32 EnemyIndex = 0; EnemyIndex < Manifest.Fixture.EnemyBlueprints.Num(); ++EnemyIndex)
 	{
+		const FString& EnemyPath = Manifest.Fixture.EnemyBlueprints[EnemyIndex];
 		UClass* EnemyClass = ResolveDeclaredClass(Assets.Find(EnemyPath));
 		if (!EnemyClass || !EnemyClass->IsChildOf(ABaseCombatCharacter::StaticClass()))
 		{
@@ -1250,7 +1450,12 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 		}
 		const ABaseCombatCharacter* EnemyDefault =
 			Cast<ABaseCombatCharacter>(EnemyClass->GetDefaultObject());
-		if (!EnemyDefault || !LoadedSettings.Contains(EnemyDefault->CombatSettings))
+		const UCombatSettings* ExpectedEnemySettings =
+			Manifest.Fixture.EnemyCombatSettings.IsValidIndex(EnemyIndex)
+				? Cast<UCombatSettings>(Assets.Find(
+					Manifest.Fixture.EnemyCombatSettings[EnemyIndex]))
+				: nullptr;
+		if (!EnemyDefault || EnemyDefault->CombatSettings != ExpectedEnemySettings)
 		{
 			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 				TEXT("EnemyCombatSettingsAssignmentMismatch"), EnemyPath,
@@ -1301,6 +1506,21 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 			AddObjectDependency(AttackData->DefenseProfile.BlockedImpactAudio.ImpactSound, OutResult);
 			AddObjectDependency(AttackData->DefenseProfile.BlockedImpactVFX.ImpactVFX, OutResult);
 		}
+		else
+		{
+			FDefenseAssetValidationRow Row;
+			Row.Kind = TEXT("Attack");
+			Row.Name = Entry.Name;
+			Row.AssetPath = Entry.AttackData;
+			Row.Facts.Add(TEXT("attack_data"), Entry.AttackData);
+			Row.Facts.Add(TEXT("montage"), Entry.Montage);
+			Row.Facts.Add(TEXT("section"), Entry.Section);
+			Row.Facts.Add(TEXT("height"), Entry.ExpectedHeight);
+			Row.Facts.Add(TEXT("lane"), Entry.ExpectedLane);
+			Row.Facts.Add(TEXT("swing"), Entry.ExpectedSwing);
+			Row.Facts.Add(TEXT("loaded"), TEXT("false"));
+			OutResult.Rows.Add(MoveTemp(Row));
+		}
 	}
 
 	TMap<FString, const FDefenseProofPairedDependencyEntry*> PairedEntries;
@@ -1311,15 +1531,18 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 		PairedEntries.Add(Entry.Name, &Entry);
 		const UPairedAnimationData* PairedData = FindTypedObject<UPairedAnimationData>(
 			Assets, Entry.PairedData, FString::Printf(TEXT("paired.%s"), *Entry.Name), OutResult);
-		FindTypedObject<UAnimMontage>(Assets, Entry.AttackerMontage,
+		const UAnimMontage* ManifestAttackerMontage = FindTypedObject<UAnimMontage>(
+			Assets, Entry.AttackerMontage,
 			FString::Printf(TEXT("paired.%s.attackerMontage"), *Entry.Name), OutResult);
-		FindTypedObject<UAnimMontage>(Assets, Entry.VictimMontage,
+		const UAnimMontage* ManifestVictimMontage = FindTypedObject<UAnimMontage>(
+			Assets, Entry.VictimMontage,
 			FString::Printf(TEXT("paired.%s.victimMontage"), *Entry.Name), OutResult);
 		PairedByName.Add(Entry.Name, PairedData);
 		PairedAssets.Add(PairedData);
+		ValidatePairedDependency(Entry, PairedData, Configuration, OutResult,
+			ManifestAttackerMontage, ManifestVictimMontage);
 		if (PairedData)
 		{
-			ValidatePairedDependency(Entry, PairedData, Configuration, OutResult);
 			AddObjectDependency(PairedData->AttackerMontage, OutResult);
 			AddObjectDependency(PairedData->VictimMontage, OutResult);
 		}
@@ -1805,6 +2028,16 @@ void FDefenseAssetValidationService::ValidatePresentationEntry(
 
 	Row.Facts.Add(TEXT("defender_row"), Defender.RowName.ToString());
 	Row.Facts.Add(TEXT("attacker_row"), Attacker.RowName.ToString());
+	Row.Facts.Add(TEXT("defender_montage"), Defender.Payload.Montage
+		? Defender.Payload.Montage->GetPathName() : TEXT("None"));
+	Row.Facts.Add(TEXT("attacker_montage"), Attacker.Payload.Montage
+		? Attacker.Payload.Montage->GetPathName() : TEXT("None"));
+	Row.Facts.Add(TEXT("paired_bridge"), Defender.Payload.PairedBridgeData
+		? Defender.Payload.PairedBridgeData->GetPathName() : TEXT("None"));
+	Row.Facts.Add(TEXT("impact_audio"), Defender.Payload.ImpactAudio.ImpactSound
+		? Defender.Payload.ImpactAudio.ImpactSound->GetPathName() : TEXT("None"));
+	Row.Facts.Add(TEXT("impact_vfx"), Defender.Payload.ImpactVFX.ImpactVFX
+		? Defender.Payload.ImpactVFX.ImpactVFX->GetPathName() : TEXT("None"));
 	Row.Facts.Add(TEXT("source_socket"), ResolvedSocket.ToString());
 	Row.Facts.Add(TEXT("target_bone"), ResolvedBone.ToString());
 	Row.Facts.Add(TEXT("concrete_audio"), LexToString(bHasConcreteAudio));
@@ -1816,7 +2049,9 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 	const FDefenseProofPairedDependencyEntry& Entry,
 	const UPairedAnimationData* PairedData,
 	const UDefenseConfiguration* Configuration,
-	FDefenseAssetValidationResult& OutResult)
+	FDefenseAssetValidationResult& OutResult,
+	const UAnimMontage* ManifestAttackerMontage,
+	const UAnimMontage* ManifestVictimMontage)
 {
 	const FString Context = FString::Printf(TEXT("paired.%s"), *Entry.Name);
 	FDefenseAssetValidationRow Row;
@@ -1831,6 +2066,10 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 		OutResult.Rows.Add(MoveTemp(Row));
 		return;
 	}
+	const UAnimMontage* AttackerMontage = ManifestAttackerMontage
+		? ManifestAttackerMontage : PairedData->AttackerMontage.Get();
+	const UAnimMontage* VictimMontage = ManifestVictimMontage
+		? ManifestVictimMontage : PairedData->VictimMontage.Get();
 
 	const EPairedReactionType ExpectedReaction = Entry.Role == TEXT("Bridge")
 		? EPairedReactionType::Parry
@@ -1847,13 +2086,19 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 		|| PairedData->AttackerMontage->GetPathName() != Entry.AttackerMontage
 		|| PairedData->VictimMontage->GetPathName() != Entry.VictimMontage
 		|| PairedData->AttackerMontageSection != FName(*Entry.AttackerSection)
-		|| PairedData->VictimMontageSection != FName(*Entry.VictimSection)
-		|| !PairedData->AttackerMontage->IsValidSectionName(PairedData->AttackerMontageSection)
-		|| !PairedData->VictimMontage->IsValidSectionName(PairedData->VictimMontageSection))
+		|| PairedData->VictimMontageSection != FName(*Entry.VictimSection))
 	{
 		OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 			TEXT("PairedMontageSectionMismatch"), Context,
-			TEXT("both role montages and exact sections must match the manifest"));
+			TEXT("both PairedData montage references and section properties must match the manifest"));
+	}
+	if (!AttackerMontage || !VictimMontage
+		|| !AttackerMontage->IsValidSectionName(FName(*Entry.AttackerSection))
+		|| !VictimMontage->IsValidSectionName(FName(*Entry.VictimSection)))
+	{
+		OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+			TEXT("PairedManifestSectionMissing"), Context,
+			TEXT("the manifest-target montages must contain both exact paired sections"));
 	}
 
 	const FPairedChainTransitionPolicy& Policy = PairedData->ChainTransitionPolicy;
@@ -1874,11 +2119,9 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 			? EChainStageTransitionType::OpenCounterWindow
 			: EChainStageTransitionType::AutoContinue;
 		const UAnimMontage* DriverMontage = ExpectedDriver == EPairedAnimationRole::Attacker
-			? PairedData->AttackerMontage.Get()
-			: PairedData->VictimMontage.Get();
+			? AttackerMontage : VictimMontage;
 		const UAnimMontage* PartnerMontage = ExpectedDriver == EPairedAnimationRole::Attacker
-			? PairedData->VictimMontage.Get()
-			: PairedData->AttackerMontage.Get();
+			? VictimMontage : AttackerMontage;
 		bool bUnexpectedDriverMarker = false;
 		bool bUnexpectedPartnerMarker = false;
 		const int32 DriverMarkers = CountChainMarkers(
@@ -1897,6 +2140,12 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 				TEXT("CounterAutoContinueMissing"), Context,
 				TEXT("a reviewed counter-to-finisher proof requires bAutoContinue"));
+		}
+		if (Entry.Role == TEXT("Bridge") && Policy.bAutoContinue)
+		{
+			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+				TEXT("BridgeAutoContinueUnexpected"), Context,
+				TEXT("a bridge must wait for its explicit counter-window marker"));
 		}
 		if (!Policy.HasRetainableReadyPose())
 		{
@@ -1917,12 +2166,24 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 				TEXT("PairedReadyPoseMismatch"), Context,
 				TEXT("loaded ready sections or terminal-pose review flags differ from the manifest"));
 		}
+		if ((Entry.bHasAttackerReadySection
+				&& (!AttackerMontage
+					|| !AttackerMontage->IsValidSectionName(FName(*Entry.AttackerReadySection))))
+			|| (Entry.bHasVictimReadySection
+				&& (!VictimMontage
+					|| !VictimMontage->IsValidSectionName(FName(*Entry.VictimReadySection)))))
+		{
+			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+				TEXT("PairedReadySectionMissing"), Context,
+				TEXT("manifest ready sections must exist on their semantic role montages"));
+		}
 	}
-	else if (!Policy.RequiredMarker.IsNone() || Entry.bHasDriverMarker || Entry.bHasDriverRole)
+	else if (!Policy.RequiredMarker.IsNone() || Policy.bAutoContinue
+		|| Entry.bHasDriverMarker || Entry.bHasDriverRole)
 	{
 		OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 			TEXT("FinisherMarkerUnexpected"), Context,
-			TEXT("the terminal finisher stage must not advertise another Chain marker"));
+			TEXT("the terminal finisher stage must not advertise or auto-continue another Chain stage"));
 	}
 
 	if (PairedData->AttackerWarpConfig.WarpTargetName != FName(*Entry.AttackerWarpTarget)
@@ -1933,24 +2194,27 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 			TEXT("role warp-target names differ from the manifest"));
 	}
 	if (!PairedData->AttackerWarpConfig.bWarpRotation
-		|| !PairedData->VictimWarpConfig.bWarpRotation
-		|| !HasNamedRotationWarp(PairedData->AttackerMontage,
-			PairedData->AttackerWarpConfig.WarpTargetName)
-		|| !HasNamedRotationWarp(PairedData->VictimMontage,
-			PairedData->VictimWarpConfig.WarpTargetName))
+		|| !PairedData->VictimWarpConfig.bWarpRotation)
+	{
+		OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+			TEXT("PairedRotationWarpConfigMismatch"), Context,
+			TEXT("both role warp configs must enable rotation"));
+	}
+	if (!HasNamedRotationWarp(AttackerMontage, FName(*Entry.AttackerWarpTarget))
+		|| !HasNamedRotationWarp(VictimMontage, FName(*Entry.VictimWarpTarget)))
 	{
 		OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 			TEXT("PairedRotationWarpMissing"), Context,
 			TEXT("both role configs and montages require a matching named rotation-warp window"));
 	}
-	if (CountStateNotifies<UAnimNotifyState_PairedAnimationSync>(PairedData->AttackerMontage) < 1)
+	if (CountStateNotifies<UAnimNotifyState_PairedAnimationSync>(AttackerMontage) < 1)
 	{
 		OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 			TEXT("PairedSyncNotifyMissing"), Context,
 			TEXT("the semantic attacker montage lacks a paired sync notify"));
 	}
-	if (CountStateNotifies<UAnimNotifyState_PairedAnimationCollision>(PairedData->AttackerMontage) < 1
-		|| CountStateNotifies<UAnimNotifyState_PairedAnimationCollision>(PairedData->VictimMontage) < 1)
+	if (CountStateNotifies<UAnimNotifyState_PairedAnimationCollision>(AttackerMontage) < 1
+		|| CountStateNotifies<UAnimNotifyState_PairedAnimationCollision>(VictimMontage) < 1)
 	{
 		OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 			TEXT("PairedCollisionNotifyMissing"), Context,
@@ -1960,7 +2224,7 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 	FDefenseRootMotionMeasurement AttackerRoot;
 	FDefenseRootMotionMeasurement VictimRoot;
 	FString RootError;
-	if (MeasureRootMotion(PairedData->AttackerMontage, PairedData->AttackerMontageSection,
+	if (MeasureRootMotion(AttackerMontage, FName(*Entry.AttackerSection),
 		AttackerRoot, RootError))
 	{
 		ValidateRootMotionBudget(Context + TEXT(".attacker"), AttackerRoot,
@@ -1972,7 +2236,7 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 		OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 			TEXT("RootMotionMeasurementFailed"), Context + TEXT(".attacker"), RootError);
 	}
-	if (MeasureRootMotion(PairedData->VictimMontage, PairedData->VictimMontageSection,
+	if (MeasureRootMotion(VictimMontage, FName(*Entry.VictimSection),
 		VictimRoot, RootError))
 	{
 		ValidateRootMotionBudget(Context + TEXT(".victim"), VictimRoot,
@@ -1990,6 +2254,19 @@ void FDefenseAssetValidationService::ValidatePairedDependency(
 	Row.Facts.Add(TEXT("driver_marker"), Entry.DriverMarker);
 	Row.Facts.Add(TEXT("attacker_section"), Entry.AttackerSection);
 	Row.Facts.Add(TEXT("victim_section"), Entry.VictimSection);
+	Row.Facts.Add(TEXT("manifest_attacker_montage"), Entry.AttackerMontage);
+	Row.Facts.Add(TEXT("manifest_victim_montage"), Entry.VictimMontage);
+	Row.Facts.Add(TEXT("actual_attacker_montage"), PairedData->AttackerMontage
+		? PairedData->AttackerMontage->GetPathName() : TEXT("None"));
+	Row.Facts.Add(TEXT("actual_victim_montage"), PairedData->VictimMontage
+		? PairedData->VictimMontage->GetPathName() : TEXT("None"));
+	Row.Facts.Add(TEXT("attacker_ready_section"), Policy.AttackerReadySection.ToString());
+	Row.Facts.Add(TEXT("victim_ready_section"), Policy.VictimReadySection.ToString());
+	Row.Facts.Add(TEXT("attacker_terminal_pose_compatible"),
+		LexToString(Policy.bAttackerTerminalPoseCompatible));
+	Row.Facts.Add(TEXT("victim_terminal_pose_compatible"),
+		LexToString(Policy.bVictimTerminalPoseCompatible));
+	Row.Facts.Add(TEXT("auto_continue"), LexToString(Policy.bAutoContinue));
 	Row.Facts.Add(TEXT("attacker_root_horizontal_cm"), LexToString(AttackerRoot.HorizontalTranslation));
 	Row.Facts.Add(TEXT("victim_root_horizontal_cm"), LexToString(VictimRoot.HorizontalTranslation));
 	OutResult.Rows.Add(MoveTemp(Row));
@@ -2009,14 +2286,8 @@ void FDefenseAssetValidationService::ValidatePairedSequence(
 	}
 	for (int32 Index = 1; Index < PairedAssets.Num(); ++Index)
 	{
-		const UPairedAnimationData* Previous = PairedAssets[Index - 1];
-		const UPairedAnimationData* Current = PairedAssets[Index];
-		if (!Previous || !Current)
-		{
-			continue;
-		}
-		if (Previous->AttackerMontage == Current->AttackerMontage
-			|| Previous->VictimMontage == Current->VictimMontage)
+		if (Entries[Index - 1].AttackerMontage == Entries[Index].AttackerMontage
+			|| Entries[Index - 1].VictimMontage == Entries[Index].VictimMontage)
 		{
 			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 				TEXT("AdjacentMontageReuse"),

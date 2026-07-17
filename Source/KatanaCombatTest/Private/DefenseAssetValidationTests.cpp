@@ -29,7 +29,9 @@ FString ValidManifest()
   "defenseConfiguration": "/Game/ProjectFiles/Data/Defense/DA_Defense.DA_Defense",
   "fixture": {
     "playerBlueprint": "/Game/ProjectFiles/Blueprints/BP_Player.BP_Player",
+    "playerCombatSettings": "/Game/ProjectFiles/Data/Combat/DA_PlayerCombat.DA_PlayerCombat",
     "enemyBlueprints": ["/Game/ProjectFiles/Blueprints/BP_Enemy.BP_Enemy"],
+    "enemyCombatSettings": ["/Game/ProjectFiles/Data/Combat/DA_EnemyCombat.DA_EnemyCombat"],
     "inputAction": "/Game/ProjectFiles/Input/Actions/IA_Block.IA_Block",
     "inputMappingContext": "/Game/ProjectFiles/Input/IMC_Combat.IMC_Combat",
     "blockKey": "ThumbMouseButton",
@@ -103,6 +105,66 @@ FString ValidManifest()
     "reviewed": true
   }]
 })json");
+}
+
+FString ManifestWithAmbiguousCounterAuthority()
+{
+	FString Json = ValidManifest();
+	Json.ReplaceInline(
+		TEXT("\"reviewed\": true\n  }],\n  \"expectedCases\": [{"),
+		TEXT(R"json("reviewed": true
+  }, {
+    "name": "CounterA",
+    "role": "Counter",
+    "pairedData": "/Game/ProjectFiles/Data/Paired/DA_CounterA.DA_CounterA",
+    "attackerMontage": "/Game/ProjectFiles/Animation/Paired/AM_CounterA_Defender.AM_CounterA_Defender",
+    "attackerSection": "Counter",
+    "victimMontage": "/Game/ProjectFiles/Animation/Paired/AM_CounterA_Attacker.AM_CounterA_Attacker",
+    "victimSection": "Counter",
+    "driverRole": "Attacker",
+    "driverMarker": "CounterComplete",
+    "attackerWarpTarget": "PairedTarget",
+    "victimWarpTarget": "PairedTarget",
+    "attackerReadySection": null,
+    "victimReadySection": null,
+    "attackerTerminalPoseCompatible": true,
+    "victimTerminalPoseCompatible": true,
+    "reviewed": true
+  }, {
+    "name": "CounterB",
+    "role": "Counter",
+    "pairedData": "/Game/ProjectFiles/Data/Paired/DA_CounterB.DA_CounterB",
+    "attackerMontage": "/Game/ProjectFiles/Animation/Paired/AM_CounterB_Defender.AM_CounterB_Defender",
+    "attackerSection": "Counter",
+    "victimMontage": "/Game/ProjectFiles/Animation/Paired/AM_CounterB_Attacker.AM_CounterB_Attacker",
+    "victimSection": "Counter",
+    "driverRole": "Attacker",
+    "driverMarker": "CounterComplete",
+    "attackerWarpTarget": "PairedTarget",
+    "victimWarpTarget": "PairedTarget",
+    "attackerReadySection": null,
+    "victimReadySection": null,
+    "attackerTerminalPoseCompatible": true,
+    "victimTerminalPoseCompatible": true,
+    "reviewed": true
+  }],
+  "expectedCases": [{)json"));
+	Json.ReplaceInline(
+		TEXT("\"pairedDependencies\": [\"ParryBridge\"]"),
+		TEXT("\"pairedDependencies\": [\"ParryBridge\", \"CounterA\"]"));
+	Json.ReplaceInline(
+		TEXT("\"expectedCases\": [{"),
+		TEXT(R"json("expectedCases": [{
+    "name": "PerfectParryAlternateCounter",
+    "attack": "LightAttack_1",
+    "outcome": "PerfectParry",
+    "reason": "None",
+    "attackerResponse": "ParryStagger",
+    "presentation": "ParryMiddleCenter",
+    "pairedDependencies": ["ParryBridge", "CounterB"],
+    "reviewed": true
+  }, {)json"));
+	return Json;
 }
 
 bool ErrorsContain(const TArray<FString>& Errors, const FString& Needle)
@@ -364,6 +426,38 @@ bool FDefenseManifestValidSchemaTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseManifestInputAndTagAuthorityTest,
+	"KatanaCombat.Editor.DefenseValidation.Manifest.InputAndTagAuthorityRequired",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseManifestInputAndTagAuthorityTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FDefenseProofManifest Manifest;
+	TArray<FString> Errors;
+
+	FString InvalidKeyJson = DefenseAssetValidationTests::ValidManifest();
+	InvalidKeyJson.ReplaceInline(TEXT("\"blockKey\": \"ThumbMouseButton\""),
+		TEXT("\"blockKey\": \"RightMouseButton\""));
+	TestFalse(TEXT("Defense proof must not reuse an attack mouse button"),
+		FDefenseAssetValidationService::ParseManifestJson(
+			InvalidKeyJson, Manifest, Errors));
+	TestTrue(TEXT("Rejected block key should identify the thumb-button contract"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("thumb mouse")));
+
+	FString InvalidTagJson = DefenseAssetValidationTests::ValidManifest();
+	InvalidTagJson.ReplaceInline(TEXT("Attack.Defense.Parryable"),
+		TEXT("Attack.Defense.UnregisteredProofTag"));
+	Errors.Reset();
+	TestFalse(TEXT("Defense proof must reject unregistered gameplay tags"),
+		FDefenseAssetValidationService::ParseManifestJson(
+			InvalidTagJson, Manifest, Errors));
+	TestTrue(TEXT("Rejected tag should identify registration"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("registered")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FDefenseManifestMalformedJsonTest,
 	"KatanaCombat.Editor.DefenseValidation.Manifest.MalformedJsonRejected",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
@@ -453,6 +547,60 @@ bool FDefenseManifestReferencesAndDuplicatesTest::RunTest(const FString& Paramet
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseManifestMutationTargetUniquenessTest,
+	"KatanaCombat.Editor.DefenseValidation.Manifest.MutationTargetsMustBeUnique",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseManifestMutationTargetUniquenessTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FString Json = DefenseAssetValidationTests::ValidManifest();
+	Json.ReplaceInline(
+		TEXT("\"attacks\": [{"),
+		TEXT(R"json("attacks": [{
+    "name": "DuplicateLightAttack_1",
+    "attackData": "/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1.LightAttack_1",
+    "montage": "/Game/ProjectFiles/Animation/Montages/Katana/Light/AM_Light_Combo_1.AM_Light_Combo_1",
+    "section": "Attack_1",
+    "expectedHeight": "Middle",
+    "expectedLane": "Center",
+    "expectedSwing": "Horizontal",
+    "expectedSourceSocket": "weapon_top",
+    "expectedTargetBone": "spine_03",
+    "requiresBlockedImpactAudio": true,
+    "requiresBlockedImpactVFX": true,
+    "expectedTags": ["Attack.Defense.Parryable"],
+    "parryWindow": {
+      "basis": "SectionRelative",
+      "startSeconds": 0.20,
+      "endSeconds": 0.35,
+      "reviewed": true
+    }
+  }, {)json"));
+	FDefenseProofManifest Manifest;
+	TArray<FString> Errors;
+	TestFalse(TEXT("Mutation targets must not be order-dependent"),
+		FDefenseAssetValidationService::ParseManifestJson(Json, Manifest, Errors));
+	TestTrue(TEXT("Duplicate AttackData target should be explicit"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("attackData path")));
+	TestTrue(TEXT("Duplicate montage section target should be explicit"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("montage/section target")));
+
+	FString DuplicatePairedDataJson =
+		DefenseAssetValidationTests::ManifestWithAmbiguousCounterAuthority();
+	DuplicatePairedDataJson.ReplaceInline(
+		TEXT("/Game/ProjectFiles/Data/Paired/DA_CounterB.DA_CounterB"),
+		TEXT("/Game/ProjectFiles/Data/Paired/DA_CounterA.DA_CounterA"));
+	Errors.Reset();
+	TestFalse(TEXT("One paired asset must have one manifest definition"),
+		FDefenseAssetValidationService::ParseManifestJson(
+			DuplicatePairedDataJson, Manifest, Errors));
+	TestTrue(TEXT("Duplicate PairedData target should be explicit"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("pairedData path")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FDefenseManifestNonChainCaseTest,
 	"KatanaCombat.Editor.DefenseValidation.Manifest.NonChainCaseAllowsExplicitEmptyDependencies",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
@@ -499,6 +647,36 @@ bool FDefenseManifestPerfectParryDependenciesTest::RunTest(const FString& Parame
 		FDefenseAssetValidationService::ParseManifestJson(Json, Manifest, Errors));
 	TestTrue(TEXT("Dependency requirement should be explicit"),
 		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("PerfectParry")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseManifestPairedDependencyAuthorityTest,
+	"KatanaCombat.Editor.DefenseValidation.Manifest.PairedDependencyAuthority",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseManifestPairedDependencyAuthorityTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FDefenseProofManifest Manifest;
+	TArray<FString> Errors;
+
+	FString DuplicateJson = DefenseAssetValidationTests::ValidManifest();
+	DuplicateJson.ReplaceInline(
+		TEXT("\"pairedDependencies\": [\"ParryBridge\"]"),
+		TEXT("\"pairedDependencies\": [\"ParryBridge\", \"ParryBridge\"]"));
+	TestFalse(TEXT("One expected case must not repeat a paired dependency"),
+		FDefenseAssetValidationService::ParseManifestJson(DuplicateJson, Manifest, Errors));
+	TestTrue(TEXT("Duplicate dependency failure should be explicit"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("duplicate")));
+
+	Errors.Reset();
+	TestFalse(TEXT("One attack must not resolve to competing Counter dependencies"),
+		FDefenseAssetValidationService::ParseManifestJson(
+			DefenseAssetValidationTests::ManifestWithAmbiguousCounterAuthority(),
+			Manifest, Errors));
+	TestTrue(TEXT("Competing role ownership should be explicit"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("ambiguous Counter")));
 	return true;
 }
 
@@ -808,6 +986,41 @@ bool FDefenseAssetPairedMarkerAmbiguityTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseAssetManifestMontageAuthorityTest,
+	"KatanaCombat.Editor.DefenseValidation.Assets.ManifestMontageAuthority",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseAssetManifestMontageAuthorityTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UPairedAnimationData* Data = DefenseAssetValidationTests::CreateBridgeData();
+	UAnimMontage* ExpectedAttackerMontage = Data->AttackerMontage;
+	UAnimMontage* ExpectedVictimMontage = Data->VictimMontage;
+	FDefenseProofPairedDependencyEntry Entry = DefenseAssetValidationTests::MakeBridgeEntry();
+	Entry.PairedData = Data->GetPathName();
+	Entry.AttackerMontage = ExpectedAttackerMontage->GetPathName();
+	Entry.VictimMontage = ExpectedVictimMontage->GetPathName();
+	Data->AttackerMontage = DefenseAssetValidationTests::CreateSectionMontage(TEXT("Bridge"));
+	Data->VictimMontage = DefenseAssetValidationTests::CreateSectionMontage(TEXT("Bridge"));
+
+	FDefenseAssetValidationResult Result;
+	FDefenseAssetValidationService::ValidatePairedDependency(
+		Entry, Data, NewObject<UDefenseConfiguration>(GetTransientPackage()), Result,
+		ExpectedAttackerMontage, ExpectedVictimMontage);
+	TestTrue(TEXT("A stale PairedData montage reference should be correctable"),
+		Result.HasFinding(TEXT("PairedMontageSectionMismatch")));
+	TestFalse(TEXT("Marker proof must inspect the manifest-target montage"),
+		Result.HasFinding(TEXT("DriverMarkerAmbiguous")));
+	TestFalse(TEXT("Warp proof must inspect the manifest-target montage"),
+		Result.HasFinding(TEXT("PairedRotationWarpMissing")));
+	TestFalse(TEXT("Sync proof must inspect the manifest-target montage"),
+		Result.HasFinding(TEXT("PairedSyncNotifyMissing")));
+	TestFalse(TEXT("Collision proof must inspect the manifest-target montages"),
+		Result.HasFinding(TEXT("PairedCollisionNotifyMissing")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FDefenseAssetPairedWarpTest,
 	"KatanaCombat.Editor.DefenseValidation.Assets.PairedRotationWarpRequired",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
@@ -825,7 +1038,7 @@ bool FDefenseAssetPairedWarpTest::RunTest(const FString& Parameters)
 	FDefenseAssetValidationService::ValidatePairedDependency(
 		Entry, Data, NewObject<UDefenseConfiguration>(GetTransientPackage()), Result);
 	TestTrue(TEXT("Both roles must opt into rotation warp"),
-		Result.HasFinding(TEXT("PairedRotationWarpMissing")));
+		Result.HasFinding(TEXT("PairedRotationWarpConfigMismatch")));
 	return true;
 }
 
@@ -867,8 +1080,12 @@ bool FDefenseAssetAdjacentMontageReuseTest::RunTest(const FString& Parameters)
 	FDefenseProofPairedDependencyEntry CounterEntry = DefenseAssetValidationTests::MakeBridgeEntry();
 	BridgeEntry.Name = TEXT("Bridge");
 	BridgeEntry.Role = TEXT("Bridge");
+	BridgeEntry.AttackerMontage = Bridge->AttackerMontage->GetPathName();
+	BridgeEntry.VictimMontage = Bridge->VictimMontage->GetPathName();
 	CounterEntry.Name = TEXT("Counter");
 	CounterEntry.Role = TEXT("Counter");
+	CounterEntry.AttackerMontage = Counter->AttackerMontage->GetPathName();
+	CounterEntry.VictimMontage = Counter->VictimMontage->GetPathName();
 	const TArray<FDefenseProofPairedDependencyEntry> Entries = {BridgeEntry, CounterEntry};
 	const TArray<const UPairedAnimationData*> Assets = {Bridge, Counter};
 	FDefenseAssetValidationResult Result;
@@ -925,6 +1142,12 @@ bool FDefenseManifestMissingObjectClosureTest::RunTest(const FString& Parameters
 	FDefenseAssetValidationService::ValidateManifestObjects(Manifest, EmptyAssets, Result);
 	TestTrue(TEXT("An incomplete explicit object graph must fail closed"),
 		Result.HasFinding(TEXT("MissingManifestAsset")));
+	TestEqual(TEXT("Every attack still receives a report row"),
+		Result.FindRows(TEXT("Attack")).Num(), Manifest.Attacks.Num());
+	TestEqual(TEXT("Every presentation still receives a report row"),
+		Result.FindRows(TEXT("Presentation")).Num(), Manifest.Presentations.Num());
+	TestEqual(TEXT("Every paired dependency still receives a report row"),
+		Result.FindRows(TEXT("Paired")).Num(), Manifest.PairedDependencies.Num());
 	TestEqual(TEXT("Every expected case still receives a report row"),
 		Result.FindRows(TEXT("ExpectedCase")).Num(), Manifest.ExpectedCases.Num());
 	return true;

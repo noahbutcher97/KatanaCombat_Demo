@@ -1084,7 +1084,7 @@ The snippet defines shape, not accepted Gate A timing. Validation must reject `r
 
 Use the UE 5.6 three-argument `UAnimMontage::ExtractRootMotionFromTrackRange(StartTime, EndTime, ExtractContext)` overload over the exact section/ranges, with an explicitly initialized `FAnimExtractContext` that enables root-motion extraction. Do not use the deprecated two-argument overload. A normal-block montage above 1 cm horizontal numerical drift or with authored yaw that can violate the cap is invalid. A perfect-parry role above 75 cm horizontal displacement is invalid.
 
-- [ ] **Step 4: Extend the commandlet without weakening save gates**
+- [x] **Step 4: Extend the commandlet without weakening save gates**
 
 Register `DefenseProofMigration` in `FKatanaAssetMigrationRunner`. Extend report rows/schema with manifest/gate/case, profile fields, tag/window agreement, selected rows/fallbacks, marker/role checks, root-motion measurements, bone fallback provenance, dependency paths, coverage cells, and save packages.
 
@@ -1099,9 +1099,11 @@ Modes:
 
 Use a stable engine hash API over canonical UTF-8 bytes; this fingerprint is a drift/approval binding, not an authentication mechanism. No mode invents parry timing, presentation assets, sockets, bones, or fallback rows. Apply is idempotent. World Partition actor/object packages are listed individually, saved through a verified editor/package path, and reloaded before success is reported. Post-save Audit must return `Unchanged` with zero errors.
 
-- [ ] **Step 5: Add commandlet and validation tests**
+- [x] **Step 5: Add commandlet and validation tests**
 
 Use transient AttackData/montages/configurations plus small checked-in test fixtures. Prove malformed JSON, unknown schema/fields, missing assets, false review flag, timing outside section, duplicate parry window, tag/window mismatch, ambiguous rows, missing generic fallback, root-motion budget failure, marker-role ambiguity, incomplete dependency closure, per-case row cardinality, canonical fingerprint stability, edited manifest/asset/plan drift refusal, missing or mismatched approval arguments, plan/apply idempotence, changed-package-set mismatch, dirty-package refusal, save-gate refusal, external-actor package reporting/reload, and JSON report serialization.
+
+Evidence (2026-07-17 UTC): `KatanaCombatEditor` built with `-NoUBA -MaxParallelActions=1`; all 36 `KatanaCombat.Editor.AssetMigration` tests passed in `Saved/Logs/Asset-Migration-Commandlet-Final.log`; all 30 `KatanaCombat.Editor.DefenseValidation` tests passed in `Saved/Logs/Defense-Validation-Commandlet-Final.log`. Adversarial regressions cover approval-schema drift, exact package scope, save preflight, paired target-montage authority, bridge continuation policy, relevant asset-fact drift, missing-section atomicity, input conflicts, and deprecated right-mouse block removal.
 
 - [ ] **Step 6: Run Gate A inventory and make the manifest concrete**
 

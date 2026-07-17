@@ -13,17 +13,28 @@
 #include "Animation/AnimNotifyState_ParryWindow.h"
 #include "Data/PairedAnimationData.h"
 #include "Data/AttackData.h"
+#include "Data/CombatSettings.h"
+#include "Data/DefenseConfiguration.h"
+#include "Characters/PlayerCharacter.h"
 #include "Commandlets/KatanaAssetMigrationRunner.h"
 #include "Commandlets/Operations/AttackDataNotifyMigrationOperation.h"
 #include "Commandlets/Operations/AttackDataTimingMigrationOperation.h"
 #include "Commandlets/Operations/ContentReadinessAuditOperation.h"
 #include "Commandlets/Operations/CounterChainProofMigrationOperation.h"
+#include "Commandlets/Operations/DefenseProofMigrationOperation.h"
 #include "Commandlets/KatanaAssetMigrationTypes.h"
 #include "Dom/JsonObject.h"
+#include "Engine/Blueprint.h"
+#include "InputAction.h"
+#include "InputMappingContext.h"
 #include "HAL/PlatformProcess.h"
 #include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "Misc/PackageName.h"
+#include "Misc/Guid.h"
+#include "PackageTools.h"
+#include "Kismet2/KismetEditorUtilities.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Utilities/CombatGameplayTags.h"
@@ -945,6 +956,713 @@ bool FKatanaAssetMigrationRunnerInvalidTargetWritesReportTest::RunTest(const FSt
 	FString ReportJson;
 	TestTrue(TEXT("Failure report should be written"), FFileHelper::LoadFileToString(ReportJson, *ReportPath));
 	TestTrue(TEXT("Report should name missing target"), ReportJson.Contains(TEXT("/Game/KatanaCombat/Missing/DA_Missing")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofMigrationOptionsGateTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseProof.OptionsGate",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofMigrationOptionsGateTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FKatanaAssetMigrationOptions Options;
+	Options.Operation = FDefenseProofMigrationOperation::OperationName;
+	Options.Mode = EKatanaAssetMigrationMode::Plan;
+	Options.TargetsFile = TEXT("Config/AssetMigrations/DefenseGateATargets.txt");
+	TArray<FString> Errors;
+	TestTrue(TEXT("Defense proof Plan with explicit manifests should validate"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+
+	Options.bAllowGlobalScan = true;
+	Errors.Reset();
+	TestFalse(TEXT("Defense proof must reject global scans"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+
+	Options.bAllowGlobalScan = false;
+	Options.Mode = EKatanaAssetMigrationMode::Apply;
+	Errors.Reset();
+	TestFalse(TEXT("Apply must require a reviewed report and fingerprint"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+	Options.ApprovedPlanReport = TEXT("Saved/Logs/defense-plan.json");
+	Options.ApprovedPlanFingerprint = TEXT("abc123");
+	Errors.Reset();
+	TestTrue(TEXT("Apply should accept both approval bindings"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofCanonicalFingerprintTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseProof.CanonicalFingerprintStable",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofCanonicalFingerprintTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FString CanonicalA;
+	FString CanonicalB;
+	FString Error;
+	TestTrue(TEXT("First JSON form should canonicalize"),
+		FDefenseProofMigrationOperation::CanonicalizeJson(
+			TEXT("{\"b\":2,\"a\":{\"y\":true,\"x\":1}}"), CanonicalA, Error));
+	TestTrue(TEXT("Reordered JSON form should canonicalize"),
+		FDefenseProofMigrationOperation::CanonicalizeJson(
+			TEXT("{ \"a\" : { \"x\" : 1, \"y\" : true }, \"b\" : 2 }"), CanonicalB, Error));
+	TestEqual(TEXT("Canonical JSON should ignore formatting and object-key order"), CanonicalA, CanonicalB);
+
+	TArray<FString> Changes = {TEXT("Set:A"), TEXT("Set:B")};
+	TArray<FKatanaAssetMigrationPackageLedgerEntry> Ledger;
+	Ledger.Add({TEXT("/Game/A"), TEXT("Attack"), false, TEXT("Modify"), TEXT("None"), TEXT("NotRun"), TEXT("NotRun")});
+	const FString FingerprintA = FDefenseProofMigrationOperation::ComputePlanFingerprint(
+		CanonicalA, TEXT("facts"), Changes, Ledger);
+	const FString FingerprintB = FDefenseProofMigrationOperation::ComputePlanFingerprint(
+		CanonicalB, TEXT("facts"), Changes, Ledger);
+	TestEqual(TEXT("Equivalent plans should hash identically"), FingerprintA, FingerprintB);
+	Changes.Add(TEXT("Set:C"));
+	TestNotEqual(TEXT("An edited plan should change the approval fingerprint"), FingerprintA,
+		FDefenseProofMigrationOperation::ComputePlanFingerprint(
+			CanonicalB, TEXT("facts"), Changes, Ledger));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofReportLedgerSerializationTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseProof.ReportLedgerSerialization",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofReportLedgerSerializationTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FKatanaAssetMigrationReport Report;
+	Report.SchemaVersion = 2;
+	Report.Operation = FDefenseProofMigrationOperation::OperationName;
+	Report.Mode = EKatanaAssetMigrationMode::Plan;
+	Report.ManifestPath = TEXT("Tools/Codex/manifests/defense-gate-a.json");
+	Report.Gate = TEXT("A");
+	Report.PlanFingerprint = TEXT("fingerprint");
+	Report.PackageLedger.Add({TEXT("/Game/Test/DA_Attack"), TEXT("Attack"), false,
+		TEXT("Modify"), TEXT("None"), TEXT("NotRun"), TEXT("NotRun")});
+	Report.PackageLedger.Add({TEXT("/Game/Test/Maps/ProofMap/_ExternalActors_/A/B/Actor"),
+		TEXT("ExternalActor"), false, TEXT("Modify"), TEXT("None"), TEXT("NotRun"),
+		TEXT("NotRun")});
+	FKatanaAssetMigrationRow Row;
+	Row.Status = EKatanaAssetMigrationStatus::WouldChange;
+	Row.Details.Add(TEXT("height"), TEXT("Middle"));
+	Report.Rows.Add(Row);
+	FKatanaAssetMigrationRunner::Summarize(Report);
+
+	const FString ReportPath = FPaths::Combine(
+		FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("DefenseProofReport.json"));
+	TArray<FString> Errors;
+	TestTrue(TEXT("Defense report should serialize"),
+		FKatanaAssetMigrationRunner::WriteReport(Report, ReportPath, Errors));
+	FString Json;
+	TestTrue(TEXT("Defense report should be readable"), FFileHelper::LoadFileToString(Json, *ReportPath));
+	TestTrue(TEXT("Report should retain the fingerprint"), Json.Contains(TEXT("plan_fingerprint")));
+	TestTrue(TEXT("Report should contain the package ledger"), Json.Contains(TEXT("package_ledger")));
+	TestTrue(TEXT("Report should retain external actor packages"),
+		Json.Contains(TEXT("/Game/Test/Maps/ProofMap/_ExternalActors_/A/B/Actor")));
+	TestTrue(TEXT("Report should contain operation-specific details"), Json.Contains(TEXT("details")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofBlueprintDefaultsPersistenceTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseProof.BlueprintDefaultsMarkedModified",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofBlueprintDefaultsPersistenceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FName BlueprintName = MakeUniqueObjectName(
+		GetTransientPackage(), UBlueprint::StaticClass(), TEXT("BP_DefenseProofPlayer"));
+	UBlueprint* PlayerBlueprint = FKismetEditorUtilities::CreateBlueprint(
+		APlayerCharacter::StaticClass(), GetTransientPackage(), BlueprintName,
+		BPTYPE_Normal, TEXT("DefenseProofMigrationTest"));
+	TestNotNull(TEXT("Transient player Blueprint should be created"), PlayerBlueprint);
+	if (!PlayerBlueprint || !PlayerBlueprint->GeneratedClass)
+	{
+		return false;
+	}
+
+	FDefenseProofManifest Manifest;
+	Manifest.SchemaVersion = 1;
+	Manifest.Gate = TEXT("A");
+	Manifest.DefenseConfiguration = TEXT("/Game/Test/DA_Defense.DA_Defense");
+	Manifest.CombatSettings = {TEXT("/Game/Test/DA_Combat.DA_Combat")};
+	Manifest.Fixture.PlayerBlueprint = TEXT("/Game/Test/BP_Player.BP_Player");
+	Manifest.Fixture.PlayerCombatSettings = Manifest.CombatSettings[0];
+	Manifest.Fixture.InputAction = TEXT("/Game/Test/IA_Block.IA_Block");
+	Manifest.Fixture.InputMappingContext = TEXT("/Game/Test/IMC_Combat.IMC_Combat");
+	Manifest.Fixture.BlockKey = TEXT("ThumbMouseButton");
+
+	UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>(GetTransientPackage());
+	UCombatSettings* Settings = NewObject<UCombatSettings>(GetTransientPackage());
+	UInputAction* Action = NewObject<UInputAction>(GetTransientPackage());
+	UInputMappingContext* Context = NewObject<UInputMappingContext>(GetTransientPackage());
+	FDefenseProofAssetSet Assets;
+	Assets.Add(Manifest.DefenseConfiguration, Configuration);
+	Assets.Add(Manifest.CombatSettings[0], Settings);
+	Assets.Add(Manifest.Fixture.PlayerBlueprint, PlayerBlueprint);
+	Assets.Add(Manifest.Fixture.InputAction, Action);
+	Assets.Add(Manifest.Fixture.InputMappingContext, Context);
+
+	FDefenseProofMigrationPlan Plan;
+	TArray<FString> Errors;
+	TestTrue(TEXT("Blueprint fixture plan should build"),
+		FDefenseProofMigrationOperation::BuildLoadedPlan(
+			Manifest, TEXT("{}"), Assets, Plan, Errors));
+	PlayerBlueprint->Status = BS_UpToDate;
+	PlayerBlueprint->GetOutermost()->SetDirtyFlag(false);
+
+	TSet<FString> ChangedPackages;
+	Errors.Reset();
+	TestTrue(TEXT("Blueprint fixture plan should apply"),
+		FDefenseProofMigrationOperation::ApplyLoadedPlan(
+			Plan, Assets, false, ChangedPackages, Errors));
+	const APlayerCharacter* PlayerDefault = Cast<APlayerCharacter>(
+		PlayerBlueprint->GeneratedClass->GetDefaultObject());
+	TestNotNull(TEXT("Generated player class should have a player CDO"), PlayerDefault);
+	TestEqual(TEXT("Player CDO should receive the reviewed block action"),
+		PlayerDefault ? PlayerDefault->BlockAction.Get() : nullptr, Action);
+	TestEqual(TEXT("Player CDO should receive the reviewed mapping context"),
+		PlayerDefault ? PlayerDefault->DefaultMappingContext.Get() : nullptr, Context);
+	TestEqual(TEXT("Player CDO should receive the reviewed combat settings"),
+		PlayerDefault ? PlayerDefault->CombatSettings.Get() : nullptr, Settings);
+	TestEqual(TEXT("CDO edits must mark the Blueprint compilation state dirty"),
+		static_cast<int32>(PlayerBlueprint->Status), static_cast<int32>(BS_Dirty));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofPackageSaveReloadTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseProof.PackageSaveReloadRoundTrip",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofPackageSaveReloadTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FString Suffix = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+	const FString PackageName = FString::Printf(
+		TEXT("/Game/__Automation__/DefenseProofMap/_ExternalActors_/0/0/DefenseProofSave_%s"),
+		*Suffix);
+	const FString AssetName = FString::Printf(TEXT("DA_DefenseProofSave_%s"), *Suffix);
+	const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *PackageName, *AssetName);
+	UPackage* Package = CreatePackage(*PackageName);
+	Package->MarkAsFullyLoaded();
+	UAttackData* Asset = NewObject<UAttackData>(
+		Package, *AssetName, RF_Public | RF_Standalone);
+	Asset->BaseDamage = 73.25f;
+	Package->MarkPackageDirty();
+
+	FKatanaAssetMigrationReport Report;
+	Report.Operation = FDefenseProofMigrationOperation::OperationName;
+	Report.Mode = EKatanaAssetMigrationMode::ApplyAndSave;
+	FKatanaAssetMigrationRow Row;
+	Row.Status = EKatanaAssetMigrationStatus::Changed;
+	Row.ChangedPackages.Add(PackageName);
+	Report.Rows.Add(MoveTemp(Row));
+	Report.PackageLedger.Add({PackageName, TEXT("ExternalActor"), false,
+		TEXT("Modify"), TEXT("Modified"), TEXT("NotRun"), TEXT("NotRun")});
+	FKatanaAssetMigrationRunner::Summarize(Report);
+
+	FKatanaAssetMigrationOptions Options;
+	Options.Mode = EKatanaAssetMigrationMode::ApplyAndSave;
+	FKatanaAssetMigrationRunner Runner;
+	const TSet<FString> InitiallyDirtyPackages;
+	TestFalse(TEXT("ApplyAndSave must refuse without the package-save gate"),
+		Runner.SaveChangedPackages(Options, InitiallyDirtyPackages, Report));
+
+	Options.bAllowPackageSave = true;
+	TestTrue(TEXT("Approved changed package should save and reload"),
+		Runner.SaveChangedPackages(Options, InitiallyDirtyPackages, Report));
+	TestEqual(TEXT("Ledger should record a successful save"),
+		Report.PackageLedger[0].SaveResult, FString(TEXT("Saved")));
+	TestEqual(TEXT("Ledger should record a successful reload"),
+		Report.PackageLedger[0].PostSaveReloadResult, FString(TEXT("Reloaded")));
+	UAttackData* Reloaded = LoadObject<UAttackData>(nullptr, *ObjectPath);
+	TestNotNull(TEXT("Saved proof asset should reload by object path"), Reloaded);
+	TestEqual(TEXT("Reloaded proof asset should retain serialized data"),
+		Reloaded ? Reloaded->BaseDamage : 0.0f, 73.25f);
+
+	FString PackageFilename;
+	if (FPackageName::TryConvertLongPackageNameToFilename(
+		PackageName, PackageFilename, FPackageName::GetAssetPackageExtension()))
+	{
+		UPackage* ReloadedPackage = Reloaded ? Reloaded->GetOutermost() : nullptr;
+		Reloaded = nullptr;
+		Asset = nullptr;
+		Package = nullptr;
+		FText UnloadError;
+		TArray<UPackage*> PackagesToUnload;
+		if (ReloadedPackage)
+		{
+			PackagesToUnload.Add(ReloadedPackage);
+		}
+		TestTrue(TEXT("Generated proof package should unload for cleanup"),
+			UPackageTools::UnloadPackages(PackagesToUnload, UnloadError, true));
+		TestTrue(TEXT("Generated proof package file should be deleted"),
+			IFileManager::Get().Delete(*PackageFilename, true, true, true));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofSavePreflightTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseProof.SavePreflightPreventsPartialWrite",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofSavePreflightTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FString Suffix = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+	const FString PackageName = FString::Printf(
+		TEXT("/Game/__Automation__/DefenseProofPreflight_%s"), *Suffix);
+	const FString AssetName = FString::Printf(TEXT("DA_DefenseProofPreflight_%s"), *Suffix);
+	UPackage* Package = CreatePackage(*PackageName);
+	Package->MarkAsFullyLoaded();
+	UAttackData* Asset = NewObject<UAttackData>(Package, *AssetName, RF_Public | RF_Standalone);
+	Asset->BaseDamage = 31.0f;
+	Package->MarkPackageDirty();
+
+	FString PackageFilename;
+	TestTrue(TEXT("Generated preflight package should resolve to a filename"),
+		FPackageName::TryConvertLongPackageNameToFilename(
+			PackageName, PackageFilename, FPackageName::GetAssetPackageExtension()));
+	const FString MissingPackageName = PackageName + TEXT("_Missing");
+	FKatanaAssetMigrationReport Report;
+	Report.Operation = FDefenseProofMigrationOperation::OperationName;
+	Report.Mode = EKatanaAssetMigrationMode::ApplyAndSave;
+	FKatanaAssetMigrationRow Row;
+	Row.Status = EKatanaAssetMigrationStatus::Changed;
+	Row.ChangedPackages = {PackageName, MissingPackageName};
+	Report.Rows.Add(MoveTemp(Row));
+	Report.PackageLedger.Add({PackageName, TEXT("AttackData"), false,
+		TEXT("Modify"), TEXT("Modified"), TEXT("NotRun"), TEXT("NotRun")});
+	Report.PackageLedger.Add({MissingPackageName, TEXT("Missing"), false,
+		TEXT("Modify"), TEXT("Modified"), TEXT("NotRun"), TEXT("NotRun")});
+	FKatanaAssetMigrationRunner::Summarize(Report);
+
+	FKatanaAssetMigrationOptions Options;
+	Options.Mode = EKatanaAssetMigrationMode::ApplyAndSave;
+	Options.bAllowPackageSave = true;
+	const TSet<FString> InitiallyDirtyPackages;
+	TestFalse(TEXT("A missing package should fail the save preflight"),
+		FKatanaAssetMigrationRunner().SaveChangedPackages(
+			Options, InitiallyDirtyPackages, Report));
+	TestFalse(TEXT("A predictable late failure must not partially write an earlier package"),
+		IFileManager::Get().FileExists(*PackageFilename));
+
+	Asset = nullptr;
+	FText UnloadError;
+	TArray<UPackage*> PackagesToUnload = {Package};
+	TestTrue(TEXT("Unsaved preflight package should unload for cleanup"),
+		UPackageTools::UnloadPackages(PackagesToUnload, UnloadError, true));
+	IFileManager::Get().Delete(*PackageFilename, true, true, true);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofLoadedPlanApplyTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseProof.LoadedPlanApplyIsAtomicAndIdempotent",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofLoadedPlanApplyTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FDefenseProofManifest Manifest;
+	Manifest.SchemaVersion = 1;
+	Manifest.Gate = TEXT("A");
+	Manifest.DefenseConfiguration = TEXT("/Game/Test/DA_Defense.DA_Defense");
+	Manifest.CombatSettings = {TEXT("/Game/Test/DA_Combat.DA_Combat")};
+	Manifest.Fixture.InputAction = TEXT("/Game/Test/IA_Block.IA_Block");
+	Manifest.Fixture.InputMappingContext = TEXT("/Game/Test/IMC_Combat.IMC_Combat");
+	Manifest.Fixture.BlockKey = TEXT("ThumbMouseButton");
+
+	FDefenseProofAttackEntry AttackEntry;
+	AttackEntry.Name = TEXT("ProofAttack");
+	AttackEntry.AttackData = TEXT("/Game/Test/DA_Attack.DA_Attack");
+	AttackEntry.Montage = TEXT("/Game/Test/AM_Attack.AM_Attack");
+	AttackEntry.Section = TEXT("Target");
+	AttackEntry.ExpectedHeight = TEXT("High");
+	AttackEntry.ExpectedLane = TEXT("Right");
+	AttackEntry.ExpectedSwing = TEXT("Vertical");
+	AttackEntry.ExpectedSourceSocket = TEXT("weapon_top");
+	AttackEntry.ExpectedTargetBone = TEXT("head");
+	AttackEntry.ExpectedTags = {TEXT("Attack.Defense.Parryable")};
+	AttackEntry.ParryWindow.bPresent = true;
+	AttackEntry.ParryWindow.Basis = TEXT("SectionRelative");
+	AttackEntry.ParryWindow.StartSeconds = 0.20;
+	AttackEntry.ParryWindow.EndSeconds = 0.35;
+	AttackEntry.ParryWindow.bReviewed = true;
+	Manifest.Attacks.Add(AttackEntry);
+
+	UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>(GetTransientPackage());
+	UCombatSettings* Settings = NewObject<UCombatSettings>(GetTransientPackage());
+	UInputAction* Action = NewObject<UInputAction>(GetTransientPackage());
+	Action->ValueType = EInputActionValueType::Axis1D;
+	UInputMappingContext* Context = NewObject<UInputMappingContext>(GetTransientPackage());
+	Context->MapKey(Action, EKeys::RightMouseButton);
+	UAnimMontage* Montage = KatanaAssetMigrationTest::CreateMontage();
+	UAttackData* Attack = KatanaAssetMigrationTest::CreateAttackData(Montage);
+	Attack->CounterData = NewObject<UPairedAnimationData>(GetTransientPackage());
+	Attack->bHasCounterVariant = false;
+	Attack->FinisherData = NewObject<UPairedAnimationData>(GetTransientPackage());
+	Attack->bCanTriggerFinisher = false;
+
+	FDefenseProofAssetSet Assets;
+	Assets.Add(Manifest.DefenseConfiguration, Configuration);
+	Assets.Add(Manifest.CombatSettings[0], Settings);
+	Assets.Add(Manifest.Fixture.InputAction, Action);
+	Assets.Add(Manifest.Fixture.InputMappingContext, Context);
+	Assets.Add(AttackEntry.AttackData, Attack);
+	Assets.Add(AttackEntry.Montage, Montage);
+
+	FDefenseProofMigrationPlan Plan;
+	TArray<FString> Errors;
+	TestTrue(TEXT("A deterministic mutation plan should build"),
+		FDefenseProofMigrationOperation::BuildLoadedPlan(
+			Manifest, TEXT("{}"), Assets, Plan, Errors));
+	TestTrue(TEXT("The plan should include reviewed timing"), Plan.bRequiresTimingMutation);
+	TestTrue(TEXT("The plan should contain changes"), Plan.ProposedChanges.Num() > 0);
+	TestTrue(TEXT("The plan should repair stale variant-presence flags"),
+		Plan.ProposedChanges.ContainsByPredicate([](const FString& Change)
+		{
+			return Change.StartsWith(TEXT("SetAttackVariantFlags|"));
+		}));
+	TestTrue(TEXT("The plan should remove the deprecated right-mouse block binding"),
+		Plan.ProposedChanges.ContainsByPredicate([](const FString& Change)
+		{
+			return Change.StartsWith(TEXT("RemoveDeprecatedBlockMapping|"));
+		}));
+	TestTrue(TEXT("Validation should identify the deprecated right-mouse binding"),
+		Plan.Validation.HasFinding(TEXT("DeprecatedBlockInputMapping")));
+
+	FKatanaAssetMigrationReport ApprovedReport;
+	ApprovedReport.SchemaVersion = 2;
+	ApprovedReport.Operation = FDefenseProofMigrationOperation::OperationName;
+	ApprovedReport.Mode = EKatanaAssetMigrationMode::Plan;
+	ApprovedReport.ManifestPath = TEXT("Saved/Automation/DefenseProofManifest.json");
+	ApprovedReport.Gate = Manifest.Gate;
+	ApprovedReport.PlanFingerprint = Plan.Fingerprint;
+	ApprovedReport.PackageLedger = Plan.PackageLedger;
+	FKatanaAssetMigrationRunner::Summarize(ApprovedReport);
+	const FString ApprovedReportPath = FPaths::Combine(
+		FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("DefenseProofApprovedPlan.json"));
+	Errors.Reset();
+	TestTrue(TEXT("Approved plan report should serialize"),
+		FKatanaAssetMigrationRunner::WriteReport(ApprovedReport, ApprovedReportPath, Errors));
+
+	FKatanaAssetMigrationOptions ApprovedOptions;
+	ApprovedOptions.Operation = FDefenseProofMigrationOperation::OperationName;
+	ApprovedOptions.Mode = EKatanaAssetMigrationMode::Apply;
+	ApprovedOptions.ApprovedPlanReport = ApprovedReportPath;
+	ApprovedOptions.ApprovedPlanFingerprint = Plan.Fingerprint;
+	Errors.Reset();
+	TestTrue(TEXT("Reviewed plan should bind to the unchanged current plan"),
+		FDefenseProofMigrationOperation::ValidateApprovedPlanBinding(
+			ApprovedOptions, Plan, Errors));
+
+	FKatanaAssetMigrationOptions TamperedOptions = ApprovedOptions;
+	TamperedOptions.ApprovedPlanFingerprint = TEXT("tampered");
+	Errors.Reset();
+	TestFalse(TEXT("A tampered fingerprint argument must be rejected"),
+		FDefenseProofMigrationOperation::ValidateApprovedPlanBinding(
+			TamperedOptions, Plan, Errors));
+
+	FString ApprovedReportJson;
+	TestTrue(TEXT("Serialized approval should be readable for schema tamper coverage"),
+		FFileHelper::LoadFileToString(ApprovedReportJson, *ApprovedReportPath));
+	const int32 SchemaReplacementCount = ApprovedReportJson.ReplaceInline(
+		TEXT("\"schema_version\": 2"), TEXT("\"schema_version\": 1"));
+	TestEqual(TEXT("Approval fixture should contain exactly one schema field"),
+		SchemaReplacementCount, 1);
+	const FString WrongSchemaReportPath = FPaths::Combine(
+		FPaths::ProjectSavedDir(), TEXT("Automation"), TEXT("DefenseProofWrongSchemaPlan.json"));
+	TestTrue(TEXT("Wrong-schema approval fixture should serialize"),
+		FFileHelper::SaveStringToFile(ApprovedReportJson, *WrongSchemaReportPath));
+	FKatanaAssetMigrationOptions WrongSchemaOptions = ApprovedOptions;
+	WrongSchemaOptions.ApprovedPlanReport = WrongSchemaReportPath;
+	Errors.Reset();
+	TestFalse(TEXT("A report from another schema must not authorize Apply"),
+		FDefenseProofMigrationOperation::ValidateApprovedPlanBinding(
+			WrongSchemaOptions, Plan, Errors));
+
+	Errors.Reset();
+	TestTrue(TEXT("Clean approved packages should pass the dirty-package gate"),
+		FDefenseProofMigrationOperation::ValidateInitialDirtyPackageGate(
+			Plan, false, Errors));
+	FDefenseProofMigrationPlan DirtyPlan = Plan;
+	DirtyPlan.PackageLedger[0].bInitiallyDirty = true;
+	Errors.Reset();
+	TestFalse(TEXT("Dirty approved packages should be refused by default"),
+		FDefenseProofMigrationOperation::ValidateInitialDirtyPackageGate(
+			DirtyPlan, false, Errors));
+	Errors.Reset();
+	TestTrue(TEXT("Dirty approved packages should require an explicit override"),
+		FDefenseProofMigrationOperation::ValidateInitialDirtyPackageGate(
+			DirtyPlan, true, Errors));
+
+	TSet<FString> ChangedPackages;
+	TestFalse(TEXT("Timing-gated apply should reject before any mutation"),
+		FDefenseProofMigrationOperation::ApplyLoadedPlan(
+			Plan, Assets, false, ChangedPackages, Errors));
+	TestNull(TEXT("Rejected apply must not assign settings"), Settings->DefenseConfiguration.Get());
+	TestEqual(TEXT("Rejected apply must not change input type"),
+		static_cast<int32>(Action->ValueType), static_cast<int32>(EInputActionValueType::Axis1D));
+
+	FDefenseProofMigrationPlan MissingSectionPlan = Plan;
+	MissingSectionPlan.Manifest.Attacks[0].Section = TEXT("MissingSection");
+	Errors.Reset();
+	ChangedPackages.Reset();
+	TestFalse(TEXT("A missing timing section should reject before any mutation"),
+		FDefenseProofMigrationOperation::ApplyLoadedPlan(
+			MissingSectionPlan, Assets, true, ChangedPackages, Errors));
+	TestNull(TEXT("Late preflight failure must not assign settings"),
+		Settings->DefenseConfiguration.Get());
+	TestEqual(TEXT("Late preflight failure must not change input type"),
+		static_cast<int32>(Action->ValueType), static_cast<int32>(EInputActionValueType::Axis1D));
+	TestEqual(TEXT("Late preflight failure must report no changed packages"),
+		ChangedPackages.Num(), 0);
+
+	Errors.Reset();
+	TestTrue(TEXT("Approved timing mutation should apply"),
+		FDefenseProofMigrationOperation::ApplyLoadedPlan(
+			Plan, Assets, true, ChangedPackages, Errors));
+	TestEqual(TEXT("Combat settings should reference defense config"),
+		Settings->DefenseConfiguration.Get(), Configuration);
+	TestEqual(TEXT("Block action should become Boolean"),
+		static_cast<int32>(Action->ValueType), static_cast<int32>(EInputActionValueType::Boolean));
+	TestTrue(TEXT("Counter presence flag should agree with its data reference"),
+		Attack->bHasCounterVariant);
+	TestTrue(TEXT("Finisher presence flag should agree with its data reference"),
+		Attack->bCanTriggerFinisher);
+	TestTrue(TEXT("Reviewed block key should be mapped"), Context->GetMappings().ContainsByPredicate(
+		[Action](const FEnhancedActionKeyMapping& Mapping)
+		{
+			return Mapping.Action == Action && Mapping.Key == EKeys::ThumbMouseButton;
+		}));
+	TestFalse(TEXT("Right mouse must remain available for heavy attack"),
+		Context->GetMappings().ContainsByPredicate([Action](const FEnhancedActionKeyMapping& Mapping)
+		{
+			return Mapping.Action == Action && Mapping.Key == EKeys::RightMouseButton;
+		}));
+	Errors.Reset();
+	TestTrue(TEXT("Only the exact approved package set should pass"),
+		FDefenseProofMigrationOperation::ValidateChangedPackageSet(
+			Plan, ChangedPackages, Errors));
+	TSet<FString> UnexpectedPackages = ChangedPackages;
+	UnexpectedPackages.Add(TEXT("/Game/Unexpected"));
+	Errors.Reset();
+	TestFalse(TEXT("An extra changed package must fail closed"),
+		FDefenseProofMigrationOperation::ValidateChangedPackageSet(
+			Plan, UnexpectedPackages, Errors));
+
+	FDefenseProofMigrationPlan RebuiltPlan;
+	Errors.Reset();
+	TestTrue(TEXT("Post-apply plan should rebuild"),
+		FDefenseProofMigrationOperation::BuildLoadedPlan(
+			Manifest, TEXT("{}"), Assets, RebuiltPlan, Errors));
+	TestEqual(TEXT("Apply should be idempotent"), RebuiltPlan.ProposedChanges.Num(), 0);
+	TestFalse(TEXT("Post-apply validation should clear counter reference mismatch"),
+		RebuiltPlan.Validation.HasFinding(TEXT("CounterReferenceMismatch")));
+	TestFalse(TEXT("Post-apply validation should clear finisher reference mismatch"),
+		RebuiltPlan.Validation.HasFinding(TEXT("FinisherReferenceMismatch")));
+	TestFalse(TEXT("Post-apply validation should clear deprecated block input"),
+		RebuiltPlan.Validation.HasFinding(TEXT("DeprecatedBlockInputMapping")));
+	Errors.Reset();
+	TestFalse(TEXT("The old approval must not bind after asset-state drift"),
+		FDefenseProofMigrationOperation::ValidateApprovedPlanBinding(
+			ApprovedOptions, RebuiltPlan, Errors));
+
+	UInputAction* ConflictingAction = NewObject<UInputAction>(GetTransientPackage());
+	Context->MapKey(ConflictingAction, EKeys::ThumbMouseButton);
+	FDefenseProofMigrationPlan ConflictPlan;
+	Errors.Reset();
+	TestTrue(TEXT("Conflicting input plan should still inventory deterministically"),
+		FDefenseProofMigrationOperation::BuildLoadedPlan(
+			Manifest, TEXT("{}"), Assets, ConflictPlan, Errors));
+	TestTrue(TEXT("A second action on the reviewed block key must fail closed"),
+		ConflictPlan.Validation.HasFinding(TEXT("BlockInputKeyConflict")));
+	Context->UnmapKey(ConflictingAction, EKeys::ThumbMouseButton);
+	IFileManager::Get().Delete(*ApprovedReportPath, false, true, true);
+	IFileManager::Get().Delete(*WrongSchemaReportPath, false, true, true);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofFinisherTerminalPolicyTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseProof.FinisherTerminalPolicyPlanned",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofFinisherTerminalPolicyTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FDefenseProofManifest Manifest;
+	Manifest.SchemaVersion = 1;
+	Manifest.Gate = TEXT("A");
+	Manifest.DefenseConfiguration = TEXT("/Game/Test/DA_Defense.DA_Defense");
+	FDefenseProofPairedDependencyEntry Entry;
+	Entry.Name = TEXT("Finisher");
+	Entry.Role = TEXT("Finisher");
+	Entry.PairedData = TEXT("/Game/Test/PDA_Finisher.PDA_Finisher");
+	Entry.AttackerMontage = TEXT("/Game/Test/AM_Finisher_A.AM_Finisher_A");
+	Entry.AttackerSection = TEXT("Target");
+	Entry.VictimMontage = TEXT("/Game/Test/AM_Finisher_V.AM_Finisher_V");
+	Entry.VictimSection = TEXT("Target");
+	Entry.AttackerWarpTarget = TEXT("PairedTarget");
+	Entry.VictimWarpTarget = TEXT("PairedTarget");
+	Entry.bReviewed = true;
+	Manifest.PairedDependencies.Add(Entry);
+
+	UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>(GetTransientPackage());
+	UAnimMontage* AttackerMontage = KatanaAssetMigrationTest::CreateMontage();
+	UAnimMontage* VictimMontage = KatanaAssetMigrationTest::CreateMontage();
+	UPairedAnimationData* Data = NewObject<UPairedAnimationData>(GetTransientPackage());
+	Data->ReactionType = EPairedReactionType::Finisher;
+	Data->AttackerMontage = AttackerMontage;
+	Data->VictimMontage = VictimMontage;
+	Data->AttackerMontageSection = TEXT("Target");
+	Data->VictimMontageSection = TEXT("Target");
+	Data->AttackerWarpConfig.WarpTargetName = TEXT("PairedTarget");
+	Data->VictimWarpConfig.WarpTargetName = TEXT("PairedTarget");
+	Data->AttackerWarpConfig.bWarpRotation = true;
+	Data->VictimWarpConfig.bWarpRotation = true;
+	Data->ChainTransitionPolicy.RequiredMarker = NAME_None;
+	Data->ChainTransitionPolicy.bAutoContinue = true;
+
+	FDefenseProofAssetSet Assets;
+	Assets.Add(Manifest.DefenseConfiguration, Configuration);
+	Assets.Add(Entry.PairedData, Data);
+	Assets.Add(Entry.AttackerMontage, AttackerMontage);
+	Assets.Add(Entry.VictimMontage, VictimMontage);
+	FDefenseProofMigrationPlan Plan;
+	TArray<FString> Errors;
+	TestTrue(TEXT("Finisher plan should build"),
+		FDefenseProofMigrationOperation::BuildLoadedPlan(
+			Manifest, TEXT("{}"), Assets, Plan, Errors));
+	TestTrue(TEXT("Terminal auto-continue must produce a paired-definition change"),
+		Plan.ProposedChanges.ContainsByPredicate([](const FString& Change)
+		{
+			return Change.StartsWith(TEXT("SetPairedDefinition|"));
+		}));
+
+	TSet<FString> ChangedPackages;
+	Errors.Reset();
+	TestTrue(TEXT("Finisher terminal policy should apply"),
+		FDefenseProofMigrationOperation::ApplyLoadedPlan(
+			Plan, Assets, false, ChangedPackages, Errors));
+	TestFalse(TEXT("Terminal finisher must not auto-continue"),
+		Data->ChainTransitionPolicy.bAutoContinue);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofBridgePolicyTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseProof.BridgePolicyAndFingerprintAuthority",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofBridgePolicyTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FDefenseProofManifest Manifest;
+	Manifest.SchemaVersion = 1;
+	Manifest.Gate = TEXT("A");
+	Manifest.DefenseConfiguration = TEXT("/Game/Test/DA_Defense.DA_Defense");
+	FDefenseProofPairedDependencyEntry Entry;
+	Entry.Name = TEXT("Bridge");
+	Entry.Role = TEXT("Bridge");
+	Entry.PairedData = TEXT("/Game/Test/PDA_Bridge.PDA_Bridge");
+	Entry.AttackerMontage = TEXT("/Game/Test/AM_Bridge_A.AM_Bridge_A");
+	Entry.AttackerSection = TEXT("Target");
+	Entry.VictimMontage = TEXT("/Game/Test/AM_Bridge_V.AM_Bridge_V");
+	Entry.VictimSection = TEXT("Target");
+	Entry.DriverRole = TEXT("Attacker");
+	Entry.bHasDriverRole = true;
+	Entry.DriverMarker = TEXT("CounterReady");
+	Entry.bHasDriverMarker = true;
+	Entry.AttackerWarpTarget = TEXT("PairedTarget");
+	Entry.VictimWarpTarget = TEXT("PairedTarget");
+	Entry.bAttackerTerminalPoseCompatible = true;
+	Entry.bVictimTerminalPoseCompatible = true;
+	Entry.bReviewed = true;
+	Manifest.PairedDependencies.Add(Entry);
+
+	UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>(GetTransientPackage());
+	UAnimMontage* AttackerMontage = KatanaAssetMigrationTest::CreateMontage();
+	UAnimMontage* VictimMontage = KatanaAssetMigrationTest::CreateMontage();
+	UPairedAnimationData* Data = NewObject<UPairedAnimationData>(GetTransientPackage());
+	Data->ReactionType = EPairedReactionType::Parry;
+	Data->AttackerMontage = AttackerMontage;
+	Data->VictimMontage = VictimMontage;
+	Data->AttackerMontageSection = TEXT("Target");
+	Data->VictimMontageSection = TEXT("Target");
+	Data->AttackerWarpConfig.WarpTargetName = TEXT("PairedTarget");
+	Data->VictimWarpConfig.WarpTargetName = TEXT("PairedTarget");
+	Data->AttackerWarpConfig.bWarpRotation = true;
+	Data->VictimWarpConfig.bWarpRotation = true;
+	Data->ChainTransitionPolicy.DriverRole = EPairedAnimationRole::Attacker;
+	Data->ChainTransitionPolicy.RequiredMarker = TEXT("CounterReady");
+	Data->ChainTransitionPolicy.bAutoContinue = true;
+	Data->ChainTransitionPolicy.bAttackerTerminalPoseCompatible = true;
+	Data->ChainTransitionPolicy.bVictimTerminalPoseCompatible = true;
+
+	FDefenseProofAssetSet Assets;
+	Assets.Add(Manifest.DefenseConfiguration, Configuration);
+	Assets.Add(Entry.PairedData, Data);
+	Assets.Add(Entry.AttackerMontage, AttackerMontage);
+	Assets.Add(Entry.VictimMontage, VictimMontage);
+	FDefenseProofMigrationPlan AutoContinuePlan;
+	TArray<FString> Errors;
+	TestTrue(TEXT("Bridge policy plan should build"),
+		FDefenseProofMigrationOperation::BuildLoadedPlan(
+			Manifest, TEXT("{}"), Assets, AutoContinuePlan, Errors));
+	TestTrue(TEXT("A bridge must not auto-continue past its explicit marker handoff"),
+		AutoContinuePlan.ProposedChanges.ContainsByPredicate([](const FString& Change)
+		{
+			return Change.StartsWith(TEXT("SetPairedDefinition|"));
+		}));
+
+	Data->ChainTransitionPolicy.AttackerReadySection = TEXT("WrongReadyA");
+	FDefenseProofMigrationPlan DriftPlanA;
+	Errors.Reset();
+	TestTrue(TEXT("First relevant-state plan should build"),
+		FDefenseProofMigrationOperation::BuildLoadedPlan(
+			Manifest, TEXT("{}"), Assets, DriftPlanA, Errors));
+	Data->ChainTransitionPolicy.AttackerReadySection = TEXT("WrongReadyB");
+	FDefenseProofMigrationPlan DriftPlanB;
+	Errors.Reset();
+	TestTrue(TEXT("Second relevant-state plan should build"),
+		FDefenseProofMigrationOperation::BuildLoadedPlan(
+			Manifest, TEXT("{}"), Assets, DriftPlanB, Errors));
+	TestNotEqual(TEXT("A changed paired-policy fact must invalidate approval"),
+		DriftPlanA.Fingerprint, DriftPlanB.Fingerprint);
+	const float OriginalTurnRate = Configuration->DefenseTurnRate;
+	Configuration->DefenseTurnRate = OriginalTurnRate + 1.0f;
+	FDefenseProofMigrationPlan ConfigurationDriftPlan;
+	Errors.Reset();
+	TestTrue(TEXT("Configuration-drift plan should build"),
+		FDefenseProofMigrationOperation::BuildLoadedPlan(
+			Manifest, TEXT("{}"), Assets, ConfigurationDriftPlan, Errors));
+	TestNotEqual(TEXT("A changed defense configuration fact must invalidate approval"),
+		DriftPlanB.Fingerprint, ConfigurationDriftPlan.Fingerprint);
+	Configuration->DefenseTurnRate = OriginalTurnRate;
+
+	FDefenseProofMigrationPlan MissingSectionPlan = DriftPlanB;
+	MissingSectionPlan.Manifest.PairedDependencies[0].AttackerSection = TEXT("MissingSection");
+	TSet<FString> ChangedPackages;
+	Errors.Reset();
+	TestFalse(TEXT("Missing paired sections must reject before policy mutation"),
+		FDefenseProofMigrationOperation::ApplyLoadedPlan(
+			MissingSectionPlan, Assets, false, ChangedPackages, Errors));
+	TestTrue(TEXT("Rejected paired apply must preserve bridge continuation state"),
+		Data->ChainTransitionPolicy.bAutoContinue);
+	TestEqual(TEXT("Rejected paired apply must preserve ready-section state"),
+		Data->ChainTransitionPolicy.AttackerReadySection, FName(TEXT("WrongReadyB")));
+	TestEqual(TEXT("Rejected paired apply must report no changed packages"),
+		ChangedPackages.Num(), 0);
+
+	Errors.Reset();
+	TestTrue(TEXT("Reviewed bridge policy should apply"),
+		FDefenseProofMigrationOperation::ApplyLoadedPlan(
+			DriftPlanB, Assets, false, ChangedPackages, Errors));
+	TestFalse(TEXT("Bridge must wait for its explicit counter-window marker"),
+		Data->ChainTransitionPolicy.bAutoContinue);
+	TestTrue(TEXT("Manifest terminal-pose ownership should clear stale ready sections"),
+		Data->ChainTransitionPolicy.AttackerReadySection.IsNone());
 	return true;
 }
 

@@ -71,7 +71,9 @@ struct FDefenseProofParryWindow
 struct FDefenseProofFixture
 {
 	FString PlayerBlueprint;
+	FString PlayerCombatSettings;
 	TArray<FString> EnemyBlueprints;
+	TArray<FString> EnemyCombatSettings;
 	FString InputAction;
 	FString InputMappingContext;
 	FString BlockKey;
@@ -192,11 +194,10 @@ public:
 	/** Returns the unique, sorted object paths explicitly declared by the manifest. */
 	static TArray<FString> CollectExplicitObjectPaths(const FDefenseProofManifest& Manifest);
 
-	/** Loads only explicitly declared manifest paths. Missing paths are retained as findings. */
+	/** Loads only explicitly declared manifest paths. Validation reports missing paths separately. */
 	static void LoadExplicitObjects(
 		const FDefenseProofManifest& Manifest,
-		FDefenseProofAssetSet& OutAssets,
-		FDefenseAssetValidationResult& OutResult);
+		FDefenseProofAssetSet& OutAssets);
 
 	/** Validates the complete manifest graph against an injected or explicitly loaded object set. */
 	static void ValidateManifestObjects(
@@ -222,7 +223,9 @@ public:
 		const FDefenseProofPairedDependencyEntry& Entry,
 		const UPairedAnimationData* PairedData,
 		const UDefenseConfiguration* Configuration,
-		FDefenseAssetValidationResult& OutResult);
+		FDefenseAssetValidationResult& OutResult,
+		const UAnimMontage* ManifestAttackerMontage = nullptr,
+		const UAnimMontage* ManifestVictimMontage = nullptr);
 
 	static void ValidatePairedSequence(
 		const TArray<FDefenseProofPairedDependencyEntry>& Entries,

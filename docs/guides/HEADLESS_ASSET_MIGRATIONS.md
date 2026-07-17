@@ -2,6 +2,31 @@
 
 Use `KatanaAssetMigration` for repeatable editor-only asset migration passes. Start in `Audit` or `Plan` mode. Do not run `ApplyAndSave` unless the exact target list has been reviewed. Relative `-TargetsFile` and `-ReportPath` values resolve from the project directory.
 
+## Defense Proof Migration
+
+`DefenseProofMigration` validates and repairs one reviewed defense manifest without scanning unrelated content. Its target file must contain exactly one non-comment line, such as:
+
+```text
+Tools/Codex/manifests/defense-gate-a.json
+```
+
+Run read-only Audit and Plan passes first:
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=Audit -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-audit.json" -unattended -nopause -NullRHI -nosplash -stdout
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=Plan -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-plan.json" -unattended -nopause -NullRHI -nosplash -stdout
+```
+
+Review every proposed change and package-ledger entry. Apply modes require the unchanged schema-v2 Plan report and its exact `plan_fingerprint`:
+
+```powershell
+$planPath = "Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-plan.json"
+$fingerprint = (Get-Content $planPath -Raw | ConvertFrom-Json).plan_fingerprint
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=Apply -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" "-ApprovedPlanReport=$planPath" "-ApprovedPlanFingerprint=$fingerprint" -AllowTimingMutation -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-apply.json" -unattended -nopause -NullRHI -nosplash -stdout
+```
+
+Close the Editor and inspect `git status --short` before saving. Change `-Mode=Apply` to `-Mode=ApplyAndSave`, add `-AllowPackageSave`, and use a distinct save report. Keep `-AllowTimingMutation` only when the reviewed Plan includes parry-window edits. Do not use `-AllowDirtyPackages` unless the initial dirty state was separately reviewed. The operation rejects manifest or asset drift, changed-package mismatches, unregistered tags, unsupported block keys, unresolved assets, non-idempotent apply, and post-save Audit failures.
+
 ## AttackData Notify Migration
 
 Audit all AttackData assets:
