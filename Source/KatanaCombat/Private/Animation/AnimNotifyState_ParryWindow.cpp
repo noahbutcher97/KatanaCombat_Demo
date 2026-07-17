@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/AnimNotifyState_ParryWindow.h"
+#include "Animation/CombatAnimNotifyIdentity.h"
 #include "Core/CombatComponent.h"
 #include "Characters/BaseCombatCharacter.h"
 
@@ -23,13 +24,16 @@ void UAnimNotifyState_ParryWindow::NotifyBegin(USkeletalMeshComponent* MeshComp,
 		return;
 	}
 
-	// Set parry window active on the attacker's combat component
 	ABaseCombatCharacter* Attacker = Cast<ABaseCombatCharacter>(MeshComp->GetOwner());
 	if (Attacker)
 	{
 		if (UCombatComponent* Combat = Attacker->GetCombatComponent())
 		{
-			Combat->SetParryWindowActive(true);
+			Combat->OpenAttackWindow(
+				EAttackWindowKind::Parry,
+				ResolveRuntimeNotifySourceId(EventReference),
+				ResolveRuntimeMontageInstanceId(EventReference),
+				TotalDuration);
 		}
 	}
 }
@@ -43,13 +47,15 @@ void UAnimNotifyState_ParryWindow::NotifyEnd(USkeletalMeshComponent* MeshComp, U
 		return;
 	}
 
-	// Clear parry window on the attacker's combat component
 	ABaseCombatCharacter* Attacker = Cast<ABaseCombatCharacter>(MeshComp->GetOwner());
 	if (Attacker)
 	{
 		if (UCombatComponent* Combat = Attacker->GetCombatComponent())
 		{
-			Combat->SetParryWindowActive(false);
+			Combat->CloseAttackWindow(
+				EAttackWindowKind::Parry,
+				ResolveRuntimeNotifySourceId(EventReference),
+				ResolveRuntimeMontageInstanceId(EventReference));
 		}
 	}
 }

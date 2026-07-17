@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "GameplayTagContainer.h"
+#include "Containers/Ticker.h"
 #include "ActionQueueTypes.h"
 #include "CombatTypes.h"
 #include "Data/PairedAnimationTypes.h"
@@ -128,6 +129,32 @@ public:
 	/** Build a value snapshot of the currently published attack state. */
 	FAttackExecutionSnapshot BuildAttackExecutionSnapshot() const;
 
+	/** Open a canonical attacker-owned window for this exact attack and notify runtime instance. */
+	FAttackWindowInstanceId OpenAttackWindow(
+		EAttackWindowKind Kind,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId,
+		float Duration);
+
+	/** Retire the oldest matching Begin; closes the published window only when that Begin is current. */
+	bool CloseAttackWindow(
+		EAttackWindowKind Kind,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId);
+
+	/** Return the currently published canonical window of this kind. */
+	FAttackWindowInstanceId GetActiveAttackWindow(EAttackWindowKind Kind) const;
+
+	/** Atomically consume the current matching attack generation. */
+	bool ConsumeActiveAttack(
+		const FAttackInstanceId& AttackId,
+		EAttackConsumeReason Reason);
+
+	bool IsAttackConsumed(const FAttackInstanceId& AttackId) const
+	{
+		return AttackId.IsValid() && ConsumedAttackInstance == AttackId;
+	}
+
 	/** Publish prediction evidence for the current attack generation. */
 	void PublishAttackThreatPrediction(const FAttackThreatPrediction& Prediction);
 
@@ -164,6 +191,20 @@ public:
 #if WITH_AUTOMATION_TESTS
 	void SetCombatantStableIdForTesting(FCombatantStableId StableId) { CombatantStableId = StableId; }
 	void SetDefenseManualYawInputForTesting(float NormalizedYawInput, double UnscaledNow);
+	void SeedAttackWindowStateForTesting(UAttackData* Attack, EAttackPhase Phase, int32 Generation)
+	{
+		CurrentAttackData = Attack;
+		CurrentPhase = Phase;
+		AttackStateMachine.AttackGeneration = Generation;
+	}
+	const FDefenseResolution& GetLastInputDefenseResolutionForTesting() const
+	{
+		return LastInputDefenseResolution;
+	}
+	int32 GetPendingAttackConsumedEventCountForTesting() const
+	{
+		return PendingAttackConsumedEvents.Num();
+	}
 #endif
 
 	// ============================================================================
@@ -291,6 +332,9 @@ public:
 
 	/** Broadcast only after gameplay commit and source accounting are coherent. */
 	FOnDefenseResolvedNative OnDefenseResolvedNative;
+
+	/** Immediate source-side termination signal for AI and other native ownership systems. */
+	FOnAttackConsumedNative OnAttackConsumedInternal;
 
 	/** Add an active runtime context tag for C++ attack-resolution code. */
 	void AddActiveContextTag(FGameplayTag ContextTag);
@@ -458,6 +502,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Phase")
 	void OnPhaseTransition(EAttackPhase NewPhase);
 
+	/** Canonical phase path; invalid or stale runtime notify context cannot mutate phase or tracing. */
+	bool OnPhaseTransitionWithContext(
+		EAttackPhase NewPhase,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId,
+		float RemainingWindowDuration);
+
 	/**
 	 * Set phase (internal phase management)
 	 * Called when independently changing phase state
@@ -596,6 +647,10 @@ public:
 	/** Fires when this character's weapon hits a target (for audio, VFX, UI responses) */
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
 	FOnAttackHit OnAttackHit;
+
+	/** Deferred public notification after source-side attack consumption is coherent. */
+	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
+	FOnAttackConsumed OnAttackConsumed;
 
 	// Paired Animation forwarding wrappers (delegates to UPairedAnimationComponent)
 
@@ -898,6 +953,33 @@ protected:
 	UPROPERTY()
 	FAttackInstanceId PublishedPredictionAttackInstance;
 
+	/** All unmatched canonical Begin records, retained so delayed End callbacks retire FIFO. */
+	UPROPERTY(Transient)
+	TArray<FAttackWindowInstanceId> OpenAttackWindowRecords;
+
+	UPROPERTY(Transient)
+	FAttackWindowInstanceId ActiveHitWindow;
+
+	UPROPERTY(Transient)
+	FAttackWindowInstanceId ActiveParryWindow;
+
+	UPROPERTY(Transient)
+	FAttackWindowInstanceId ActiveCounterWindow;
+
+	int32 NextAttackWindowGeneration = 0;
+
+	UPROPERTY(Transient)
+	FAttackInstanceId ConsumedAttackInstance;
+
+	UPROPERTY(Transient)
+	TArray<FAttackConsumedEvent> PendingAttackConsumedEvents;
+
+	FTSTicker::FDelegateHandle DeferredAttackConsumedTickerHandle;
+	bool bConsumedPendingPresentation = false;
+
+	UPROPERTY(Transient)
+	FDefenseResolution LastInputDefenseResolution;
+
 	EThreatInvalidationReason LastThreatInvalidationReason = EThreatInvalidationReason::None;
 
 	/** Defender-owned immutable lock selected from one targeting enumeration. */
@@ -1019,6 +1101,20 @@ protected:
 	void UpdateGuardAlignmentRequest();
 	void SetDefenseManualYawInputAtTime(float NormalizedYawInput, double UnscaledNow);
 	void ResetDefenseManualYawOverride();
+	bool TryCommitPerfectParry(double BlockPressSimulationTime, double BlockPressUnscaledTime);
+	FDefenseQuery BuildDefenseInputQuery(
+		double BlockPressSimulationTime,
+		double BlockPressUnscaledTime) const;
+	bool ConsumeActiveAttackInternal(
+		const FAttackInstanceId& AttackId,
+		EAttackConsumeReason Reason,
+		const FDefenseInteractionId& InteractionId);
+	bool FlushDeferredAttackConsumedEvents(float DeltaTime);
+	bool HasRegisteredDefenseContactForAttack(const FAttackInstanceId& AttackId) const;
+	bool CloseHitWindowFromPhaseTransition(
+		const FAnimNotifyRuntimeSourceId& CloseSource,
+		int32 MontageInstanceId);
+	void ClearPublishedAttackWindowsForAttack(const FAttackInstanceId& AttackInstance);
 
 	/** Match press/release pairs */
 	void ProcessInputPair(const FQueuedInputAction& PressEvent, const FQueuedInputAction& ReleaseEvent);

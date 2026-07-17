@@ -179,6 +179,9 @@ public:
 	float NoMontageParryBridgeSeconds = 0.15f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Sequence", meta = (ClampMin = "0.0"))
+	float ParryStaggerDuration = 1.5f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Sequence", meta = (ClampMin = "0.0"))
 	float CounterWindowSeconds = 2.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Sequence", meta = (ClampMin = "0.0"))

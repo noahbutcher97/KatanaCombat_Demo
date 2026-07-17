@@ -553,8 +553,31 @@ bool FEnemyCombatAI_ProofEnemyExecutionSetsCombatCurrentAttack::RunTest(const FS
 	TestEqual(TEXT("Enemy attack execution should route through CombatComponent current attack state"),
 		Enemy->CombatComponent->GetCurrentAttack(),
 		AttackData);
+	const FAttackInstanceId ExecutingAttack =
+		Enemy->CombatComponent->BuildAttackExecutionSnapshot().AttackInstance;
+	TestTrue(TEXT("Executing AI attack publishes a generation"), ExecutingAttack.IsValid());
+	TestTrue(TEXT("Consuming the exact AI attack generation succeeds"),
+		Enemy->CombatComponent->ConsumeActiveAttack(
+			ExecutingAttack,
+			EAttackConsumeReason::PerfectParry));
+	TestTrue(TEXT("AI records exact consumed termination"),
+		CombatAI->WasAttackGenerationConsumed(ExecutingAttack.AttackGeneration));
+	TestFalse(TEXT("Consumed AI attack releases its token"), CombatAI->HasAttackToken());
+	TestEqual(TEXT("Consumed AI attack enters recovery"),
+		CombatAI->CurrentState,
+		EEnemyAIState::Recovering);
+	TestEqual(TEXT("Consumed AI attack releases ownership once"),
+		CombatAI->GetTokenReleaseCountForTesting(), 1);
+	TestEqual(TEXT("Consumed AI attack ends once"),
+		CombatAI->GetAttackEndBroadcastCountForTesting(), 1);
 
+	const int32 ReleasesBeforeLegacyCallback = CombatAI->GetTokenReleaseCountForTesting();
+	const int32 EndsBeforeLegacyCallback = CombatAI->GetAttackEndBroadcastCountForTesting();
 	CombatAI->OnParried();
+	TestEqual(TEXT("Legacy parry callback cannot release consumed ownership again"),
+		CombatAI->GetTokenReleaseCountForTesting(), ReleasesBeforeLegacyCallback);
+	TestEqual(TEXT("Legacy parry callback cannot end consumed ownership again"),
+		CombatAI->GetAttackEndBroadcastCountForTesting(), EndsBeforeLegacyCallback);
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

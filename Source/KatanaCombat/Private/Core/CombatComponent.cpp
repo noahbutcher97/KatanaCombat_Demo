@@ -26,6 +26,7 @@
 #include "Core/TargetingComponent.h"
 #include "Core/HitReactionComponent.h"
 #include "Defense/DefenseResolver.h"
+#include "Defense/DefensePresentationSelector.h"
 #include "Utilities/MontageUtilityLibrary.h"
 #include "Utilities/CombatGameplayTags.h"
 #include "Utilities/CombatUtils.h"
@@ -59,6 +60,81 @@ void RequestDefenderThreatRefresh(AActor* Defender, EThreatRefreshReason Reason)
 		: nullptr)
 	{
 		DefenderCombat->RefreshGuardThreat(Reason);
+	}
+}
+
+void SelectPerfectParryPresentation(
+	FDefenseResolution& Resolution,
+	const UDefenseConfiguration* DefenderConfiguration,
+	const UDefenseConfiguration* AttackerConfiguration)
+{
+	FDefensePresentationSelectionContext Context;
+	Context.Outcome = Resolution.Decision.Outcome;
+	Context.AttackerResponse = Resolution.Decision.AttackerResponse;
+	Context.Height = Resolution.Decision.Height;
+	Context.Lane = Resolution.Decision.Lane;
+	Context.SwingShape = Resolution.Decision.SwingShape;
+	Context.bPairedBridgeUsable = true;
+	if (Resolution.Decision.SelectedAttack)
+	{
+		Context.AttackTags = Resolution.Decision.SelectedAttack->AttackTags;
+	}
+
+	const FTableDefensePresentationSelector Selector;
+	const FDefensePresentationSelectionResult DefenderSelection =
+		Selector.SelectDefender(Context, DefenderConfiguration);
+	if (DefenderSelection.bFound)
+	{
+		Resolution.Presentation = DefenderSelection.Payload;
+		Resolution.PresentationRow = DefenderSelection.RowName;
+		Resolution.PresentationFallback = DefenderSelection.FallbackLevel;
+	}
+	if (!Resolution.Presentation.bOverrideImpactAudio)
+	{
+		Resolution.Presentation.bOverrideImpactAudio = true;
+		Resolution.Presentation.ImpactAudio = DefenderConfiguration
+			? DefenderConfiguration->DefaultParryImpactAudio
+			: FImpactAudioConfig();
+	}
+	if (!Resolution.Presentation.bOverrideImpactVFX)
+	{
+		Resolution.Presentation.bOverrideImpactVFX = true;
+		Resolution.Presentation.ImpactVFX = DefenderConfiguration
+			? DefenderConfiguration->DefaultParryImpactVFX
+			: FImpactVFXConfig();
+	}
+	if (!Resolution.Presentation.bOverrideHitstop
+		&& Resolution.Decision.SelectedAttack
+		&& Resolution.Decision.SelectedAttack->HitstopConfig.IsActive())
+	{
+		Resolution.Presentation.bOverrideHitstop = true;
+		Resolution.Presentation.Hitstop = Resolution.Decision.SelectedAttack->HitstopConfig;
+	}
+
+	FDefensePresentationSelectionResult AttackerSelection =
+		Selector.SelectAttacker(Context, AttackerConfiguration);
+	const bool bSelectedMontageUsable = AttackerSelection.Payload.Montage
+		&& (AttackerSelection.Payload.MontageSection.IsNone()
+			|| AttackerSelection.Payload.Montage->GetSectionIndex(
+				AttackerSelection.Payload.MontageSection) != INDEX_NONE);
+	if (!bSelectedMontageUsable)
+	{
+		const FDefensePresentationSelectionResult GenericSelection =
+			Selector.SelectGenericAttacker(Context, AttackerConfiguration);
+		const bool bGenericMontageUsable = GenericSelection.Payload.Montage
+			&& (GenericSelection.Payload.MontageSection.IsNone()
+				|| GenericSelection.Payload.Montage->GetSectionIndex(
+					GenericSelection.Payload.MontageSection) != INDEX_NONE);
+		if (bGenericMontageUsable)
+		{
+			AttackerSelection = GenericSelection;
+		}
+	}
+	if (AttackerSelection.bFound)
+	{
+		Resolution.AttackerPresentation = AttackerSelection.Payload;
+		Resolution.AttackerPresentationRow = AttackerSelection.RowName;
+		Resolution.AttackerPresentationFallback = AttackerSelection.FallbackLevel;
 	}
 }
 }
@@ -145,6 +221,12 @@ void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	ClearGuardThreat(EThreatClearReason::ComponentEndPlay);
 	DefenseStanceOverrides.Reset();
+	if (DeferredAttackConsumedTickerHandle.IsValid())
+	{
+		FTSTicker::GetCoreTicker().RemoveTicker(DeferredAttackConsumedTickerHandle);
+		DeferredAttackConsumedTickerHandle.Reset();
+	}
+	PendingAttackConsumedEvents.Reset();
 
 	// Clear timers owned by CombatComponent
 	if (GetWorld())
@@ -169,6 +251,12 @@ void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	bIsBlocking = false;
 	CachedPairedAnimComp = nullptr;
 	DefenseInteractionCache.Reset();
+	OpenAttackWindowRecords.Reset();
+	ActiveHitWindow = {};
+	ActiveParryWindow = {};
+	ActiveCounterWindow = {};
+	ConsumedAttackInstance = {};
+	bConsumedPendingPresentation = false;
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -754,22 +842,27 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 		PairedAnimComp = GetOwner() ? GetOwner()->FindComponentByClass<UPairedAnimationComponent>() : nullptr;
 	}
 
-	if (PairedAnimComp &&
-		EventType == EInputEventType::Press &&
-		InputType == EInputType::Block &&
-		PairedAnimComp->TryCounter())
-	{
-		FinalizeCombatInput(InputSerial, ECombatInputRoute::StatefulControl, ECombatInputDisposition::Consumed);
-		return;
-	}
-
 	if (InputType == EInputType::Block)
 	{
 		const bool bBlockStarted = BeginBlock();
+		const double BlockPressSimulationTime = GetWorld()
+			? static_cast<double>(GetWorld()->GetTimeSeconds())
+			: 0.0;
+		const bool bPerfectParryCommitted = bBlockStarted
+			&& EventType == EInputEventType::Press
+			&& TryCommitPerfectParry(BlockPressSimulationTime, FPlatformTime::Seconds());
+		const bool bLegacyCounterStarted = bBlockStarted
+			&& !bPerfectParryCommitted
+			&& EventType == EInputEventType::Press
+			&& !LockedDefenseThreat.AttackInstance.IsValid()
+			&& PairedAnimComp
+			&& PairedAnimComp->TryCounter();
 		FinalizeCombatInput(
 			InputSerial,
 			ECombatInputRoute::StatefulControl,
-			bBlockStarted ? ECombatInputDisposition::Consumed : ECombatInputDisposition::Rejected);
+			(bBlockStarted || bPerfectParryCommitted || bLegacyCounterStarted)
+				? ECombatInputDisposition::Consumed
+				: ECombatInputDisposition::Rejected);
 		return;
 	}
 
@@ -982,6 +1075,242 @@ bool UCombatComponent::CanProcessInput(EInputType InputType) const
 	return true;
 }
 
+FAttackWindowInstanceId UCombatComponent::OpenAttackWindow(
+	const EAttackWindowKind Kind,
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId,
+	const float Duration)
+{
+	FAttackWindowInstanceId Result;
+	const bool bSupportedKind = Kind == EAttackWindowKind::Hit
+		|| Kind == EAttackWindowKind::Parry
+		|| Kind == EAttackWindowKind::Counter;
+	if (!bSupportedKind
+		|| !NotifySource.IsValid()
+		|| MontageInstanceId < 0
+		|| !FMath::IsFinite(Duration)
+		|| Duration < 0.0f
+		|| !CurrentAttackData
+		|| CurrentPhase == EAttackPhase::None)
+	{
+		return Result;
+	}
+
+	Result.AttackInstance.Attacker = GetOwner();
+	Result.AttackInstance.AttackGeneration = AttackStateMachine.AttackGeneration;
+	if (!Result.AttackInstance.IsValid()
+		|| ConsumedAttackInstance == Result.AttackInstance)
+	{
+		return {};
+	}
+
+	const double SimulationNow = GetWorld()
+		? static_cast<double>(GetWorld()->GetTimeSeconds())
+		: 0.0;
+	const double SimulationEnd = SimulationNow + static_cast<double>(Duration);
+	if (!FMath::IsFinite(SimulationNow) || !FMath::IsFinite(SimulationEnd))
+	{
+		return {};
+	}
+
+	NextAttackWindowGeneration = NextAttackWindowGeneration == MAX_int32
+		? 1
+		: NextAttackWindowGeneration + 1;
+	Result.Kind = Kind;
+	Result.WindowGeneration = NextAttackWindowGeneration;
+	Result.NotifySource = NotifySource;
+	Result.MontageInstanceId = MontageInstanceId;
+	Result.SimulationStartTime = SimulationNow;
+	Result.SimulationEndTime = SimulationEnd;
+	OpenAttackWindowRecords.Add(Result);
+
+	switch (Kind)
+	{
+		case EAttackWindowKind::Hit:
+			ActiveHitWindow = Result;
+			break;
+		case EAttackWindowKind::Parry:
+			ActiveParryWindow = Result;
+			break;
+		case EAttackWindowKind::Counter:
+			ActiveCounterWindow = Result;
+			break;
+		default:
+			return {};
+	}
+
+	RequestDefenderThreatRefresh(AttackIntentTarget.Get(), EThreatRefreshReason::WindowChanged);
+	return Result;
+}
+
+bool UCombatComponent::CloseAttackWindow(
+	const EAttackWindowKind Kind,
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId)
+{
+	if (!NotifySource.IsValid() || MontageInstanceId < 0)
+	{
+		return false;
+	}
+
+	const int32 RecordIndex = OpenAttackWindowRecords.IndexOfByPredicate(
+		[Kind, &NotifySource, MontageInstanceId](const FAttackWindowInstanceId& Candidate)
+		{
+			return Candidate.Kind == Kind
+				&& Candidate.NotifySource == NotifySource
+				&& Candidate.MontageInstanceId == MontageInstanceId;
+		});
+	if (RecordIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FAttackWindowInstanceId ClosingWindow = OpenAttackWindowRecords[RecordIndex];
+	OpenAttackWindowRecords.RemoveAt(RecordIndex, 1, EAllowShrinking::No);
+	FAttackWindowInstanceId* PublishedWindow = nullptr;
+	switch (Kind)
+	{
+		case EAttackWindowKind::Hit:
+			PublishedWindow = &ActiveHitWindow;
+			break;
+		case EAttackWindowKind::Parry:
+			PublishedWindow = &ActiveParryWindow;
+			break;
+		case EAttackWindowKind::Counter:
+			PublishedWindow = &ActiveCounterWindow;
+			break;
+		default:
+			break;
+	}
+
+	if (!PublishedWindow || !(*PublishedWindow == ClosingWindow))
+	{
+		return false;
+	}
+
+	*PublishedWindow = {};
+	RequestDefenderThreatRefresh(AttackIntentTarget.Get(), EThreatRefreshReason::WindowChanged);
+	return true;
+}
+
+FAttackWindowInstanceId UCombatComponent::GetActiveAttackWindow(const EAttackWindowKind Kind) const
+{
+	switch (Kind)
+	{
+		case EAttackWindowKind::Hit:
+			return ActiveHitWindow;
+		case EAttackWindowKind::Parry:
+			return ActiveParryWindow;
+		case EAttackWindowKind::Counter:
+			return ActiveCounterWindow;
+		default:
+			return {};
+	}
+}
+
+bool UCombatComponent::ConsumeActiveAttack(
+	const FAttackInstanceId& AttackId,
+	const EAttackConsumeReason Reason)
+{
+	return ConsumeActiveAttackInternal(AttackId, Reason, {});
+}
+
+bool UCombatComponent::ConsumeActiveAttackInternal(
+	const FAttackInstanceId& AttackId,
+	const EAttackConsumeReason Reason,
+	const FDefenseInteractionId& InteractionId)
+{
+	FAttackInstanceId CurrentAttack;
+	CurrentAttack.Attacker = GetOwner();
+	CurrentAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
+	if (!AttackId.IsValid()
+		|| !(AttackId == CurrentAttack)
+		|| !CurrentAttackData
+		|| CurrentPhase == EAttackPhase::None
+		|| ConsumedAttackInstance == AttackId)
+	{
+		return false;
+	}
+
+	// The consumed marker is installed before any cleanup callback can reenter combat.
+	ConsumedAttackInstance = AttackId;
+	bConsumedPendingPresentation = true;
+	const FAttackWindowInstanceId ConsumedHitWindow = ActiveHitWindow;
+	ClearPublishedAttackWindowsForAttack(AttackId);
+	InvalidateAttackThreatPrediction(EThreatInvalidationReason::AttackConsumed);
+
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		if (UWeaponComponent* Weapon = Character->WeaponComponent.Get())
+		{
+			if (!Weapon->DisableHitDetectionForAttack(ConsumedHitWindow)
+				&& Weapon->IsHitDetectionEnabled())
+			{
+				Weapon->DisableHitDetection();
+			}
+		}
+		if (UTargetingComponent* Targeting = Character->GetTargetingComponent())
+		{
+			Targeting->ReleaseActiveAttackWarp();
+		}
+	}
+
+	ActionQueue.RemoveAll([](const FActionQueueEntry& Entry)
+	{
+		return Entry.IsPending();
+	});
+
+	FAttackConsumedEvent Event;
+	Event.AttackInstance = AttackId;
+	Event.Reason = Reason;
+	Event.InteractionId = InteractionId;
+	PendingAttackConsumedEvents.Add(Event);
+	if (!DeferredAttackConsumedTickerHandle.IsValid())
+	{
+		DeferredAttackConsumedTickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+			FTickerDelegate::CreateUObject(
+				this,
+				&UCombatComponent::FlushDeferredAttackConsumedEvents));
+	}
+
+	OnAttackConsumedInternal.Broadcast(Event);
+	return true;
+}
+
+bool UCombatComponent::FlushDeferredAttackConsumedEvents(const float DeltaTime)
+{
+	(void)DeltaTime;
+	DeferredAttackConsumedTickerHandle.Reset();
+	TArray<FAttackConsumedEvent> Events = MoveTemp(PendingAttackConsumedEvents);
+	PendingAttackConsumedEvents.Reset();
+	for (const FAttackConsumedEvent& Event : Events)
+	{
+		OnAttackConsumed.Broadcast(Event);
+	}
+	return false;
+}
+
+bool UCombatComponent::HasRegisteredDefenseContactForAttack(
+	const FAttackInstanceId& AttackId) const
+{
+	if (!AttackId.IsValid())
+	{
+		return false;
+	}
+
+	for (const TPair<FDefenseInteractionKey, FDefenseInteractionCacheRecord>& Pair : DefenseInteractionCache)
+	{
+		const FDefenseInteractionKey& Key = Pair.Key;
+		if (Key.Stage == EDefenseQueryStage::Contact
+			&& Key.ContactInstance.bUsesAttackWindow
+			&& Key.ContactInstance.AttackWindow.AttackInstance == AttackId)
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
 FAttackExecutionSnapshot UCombatComponent::BuildAttackExecutionSnapshot() const
 {
 	FAttackExecutionSnapshot Snapshot;
@@ -996,17 +1325,31 @@ FAttackExecutionSnapshot UCombatComponent::BuildAttackExecutionSnapshot() const
 	Snapshot.ActiveMontage = AttackStateMachine.ActiveMontage;
 	Snapshot.MontageSection = AttackStateMachine.ActiveSectionName;
 	Snapshot.AttackPhase = CurrentPhase;
+	if (ActiveParryWindow.IsValid()
+		&& ActiveParryWindow.AttackInstance == Snapshot.AttackInstance)
+	{
+		Snapshot.ActiveParryWindow = ActiveParryWindow;
+	}
+	if (ActiveCounterWindow.IsValid()
+		&& ActiveCounterWindow.AttackInstance == Snapshot.AttackInstance)
+	{
+		Snapshot.ActiveCounterWindow = ActiveCounterWindow;
+	}
 	Snapshot.IntendedTarget = AttackIntentTarget;
 	Snapshot.AttackerTransform = Owner ? Owner->GetActorTransform() : FTransform::Identity;
 	Snapshot.AttackerVelocity = Owner ? Owner->GetVelocity() : FVector::ZeroVector;
 	Snapshot.AttackerTeam = Character ? Character->TeamId : ETeamId::Neutral;
 	Snapshot.bAttackerAlive = IsValid(Owner) && (!Character || !Character->IsDeadOrDying());
 	Snapshot.bAttackerPaired = CachedPairedAnimComp && CachedPairedAnimComp->IsPairedAnimationActive();
-	Snapshot.bAttackActive = Snapshot.AttackInstance.IsValid()
+	Snapshot.bAttackConsumed = Snapshot.AttackInstance.IsValid()
+		&& ConsumedAttackInstance == Snapshot.AttackInstance;
+	Snapshot.bAttackIdentityCurrent = Snapshot.AttackInstance.IsValid()
+		&& Snapshot.AttackInstance.AttackGeneration == AttackStateMachine.AttackGeneration;
+	Snapshot.bAttackActive = Snapshot.bAttackIdentityCurrent
 		&& CurrentAttackData
 		&& CurrentPhase != EAttackPhase::None
-		&& Snapshot.bAttackerAlive;
-	Snapshot.bAttackIdentityCurrent = Snapshot.bAttackActive;
+		&& Snapshot.bAttackerAlive
+		&& !Snapshot.bAttackConsumed;
 
 	if (const UAttackData* Attack = CurrentAttackData)
 	{
@@ -1650,6 +1993,206 @@ void UCombatComponent::HandleCoalescedGuardThreatRefresh()
 {
 	CoalescedGuardThreatRefreshTimerHandle.Invalidate();
 	RefreshGuardThreatInternal(EThreatRefreshReason::ManualRevalidation, true);
+}
+
+FDefenseQuery UCombatComponent::BuildDefenseInputQuery(
+	const double BlockPressSimulationTime,
+	const double BlockPressUnscaledTime) const
+{
+	FDefenseQuery Query;
+	Query.Stage = EDefenseQueryStage::InputIntent;
+	Query.Attack = LockedDefenseThreat;
+	Query.Defender = GetOwner();
+	Query.DefenderStableId = CombatantStableId;
+	Query.DefenderTransform = GetOwner() ? GetOwner()->GetActorTransform() : FTransform::Identity;
+	Query.BlockPressSimulationTime = BlockPressSimulationTime;
+	Query.BlockPressUnscaledTime = BlockPressUnscaledTime;
+	Query.CurrentSimulationTime = BlockPressSimulationTime;
+	Query.RelativeYawDegrees = Query.Attack.RelativeYawDegrees;
+	Query.TimeToAlignmentDeadline = Query.Attack.TimeToAlignmentDeadline;
+	Query.LockedThreatId = LockedDefenseThreatId;
+	Query.ThreatLockAgeSeconds = DefenseThreatLockAcquiredSimulationTime >= 0.0
+		? static_cast<float>(FMath::Max(
+			0.0,
+			BlockPressSimulationTime - DefenseThreatLockAcquiredSimulationTime))
+		: 0.0f;
+	Query.bHasSelectedThreat = Query.Attack.AttackInstance.IsValid();
+
+	const ABaseCombatCharacter* Defender = GetOwnerCharacter();
+	Query.DefenderTeam = Defender ? Defender->TeamId : ETeamId::Neutral;
+	Query.bDefenderAlive = Defender && !Defender->IsDeadOrDying();
+	Query.bDefenderPaired = CachedPairedAnimComp && CachedPairedAnimComp->IsPairedAnimationActive();
+	Query.bDefenderCanGuard = Query.bDefenderAlive
+		&& !Query.bDefenderPaired
+		&& !CurrentAttackData
+		&& CurrentPhase == EAttackPhase::None;
+	Query.bDefenderGuarding = bIsBlocking;
+	Query.bDefenderCanBeDamaged = Defender
+		&& Defender->HitReactionComponent
+		&& Defender->HitReactionComponent->CanBeDamaged();
+	Query.bDefenderInIFrames = Defender
+		&& Defender->HitReactionComponent
+		&& Defender->HitReactionComponent->IsInIFrames();
+
+	const UDefenseConfiguration* Configuration = GetEffectiveDefenseConfiguration();
+	if (Configuration)
+	{
+		Query.MaximumHighConfidencePredictionAge =
+			Configuration->MaximumHighConfidencePredictionAge;
+		Query.HardGuardConeHalfAngle = Configuration->HardGuardConeHalfAngle;
+		Query.MaximumAutomaticTurn = Configuration->MaximumAutomaticTurn;
+		Query.RemainingAutomaticTurn = FMath::Min(
+			Configuration->MaximumAutomaticTurn,
+			FMath::Max(0.0f, RemainingDefenseAutomaticTurn));
+		Query.DefenseTurnRate = Configuration->DefenseTurnRate;
+		Query.NormalBlockFinalTolerance = Configuration->NormalBlockFinalTolerance;
+		Query.PerfectParryFinalTolerance = Configuration->PerfectParryFinalTolerance;
+	}
+
+	if (const UCombatComponent* SourceCombat = Query.Attack.AttackInstance.Attacker.IsValid()
+		? Query.Attack.AttackInstance.Attacker->FindComponentByClass<UCombatComponent>()
+		: nullptr)
+	{
+		Query.Attack.bAttackConsumed = SourceCombat->IsAttackConsumed(Query.Attack.AttackInstance);
+		Query.Attack.bAttackIdentityCurrent =
+			SourceCombat->GetCurrentAttackGeneration() == Query.Attack.AttackInstance.AttackGeneration;
+		Query.Attack.bAttackActive = Query.Attack.bAttackIdentityCurrent
+			&& SourceCombat->GetCurrentAttack() == Query.Attack.AttackData
+			&& !Query.Attack.bAttackConsumed;
+	}
+
+	return Query;
+}
+
+bool UCombatComponent::TryCommitPerfectParry(
+	const double BlockPressSimulationTime,
+	const double BlockPressUnscaledTime)
+{
+	FDefenseQuery Query = BuildDefenseInputQuery(
+		BlockPressSimulationTime,
+		BlockPressUnscaledTime);
+	LastInputDefenseResolution = {};
+	LastInputDefenseResolution.Stage = EDefenseQueryStage::InputIntent;
+	LastInputDefenseResolution.PredictedContact = Query.Attack.PredictedContact;
+	LastInputDefenseResolution.Decision = FDefenseResolver::Resolve(Query);
+
+	if (LastInputDefenseResolution.Decision.Outcome == EDefenseOutcome::PerfectParry
+		&& HasRegisteredDefenseContactForAttack(Query.Attack.AttackInstance))
+	{
+		LastInputDefenseResolution.Decision.Outcome = EDefenseOutcome::GuardEntered;
+		LastInputDefenseResolution.Decision.Reason = EDefenseReason::Duplicate;
+		LastInputDefenseResolution.Decision.AttackerResponse = EAttackerResponse::None;
+		LastInputDefenseResolution.Decision.AlignmentPolicy = EDefenseAlignmentPolicy::GuardFacing;
+		LastInputDefenseResolution.Decision.bChainEligible = false;
+	}
+
+	if (LastInputDefenseResolution.Decision.Outcome != EDefenseOutcome::PerfectParry)
+	{
+		return false;
+	}
+
+	FDefenseInteractionKey Key;
+	Key.Stage = EDefenseQueryStage::InputIntent;
+	Key.AttackInstance = Query.Attack.AttackInstance;
+	Key.Defender = GetOwner();
+	FDefenseContactReceipt ExistingReceipt;
+	FDefenseInteractionId InteractionId;
+	const EDefenseCommitStatus Registration = BeginDefenseInteraction(
+		Key,
+		InteractionId,
+		ExistingReceipt);
+	if (Registration != EDefenseCommitStatus::NewCommit)
+	{
+		if (Registration == EDefenseCommitStatus::Cached)
+		{
+			LastInputDefenseResolution = ExistingReceipt.Resolution;
+		}
+		return Registration == EDefenseCommitStatus::Cached
+			&& LastInputDefenseResolution.Decision.Outcome == EDefenseOutcome::PerfectParry;
+	}
+
+	LastInputDefenseResolution.InteractionId = InteractionId;
+	ABaseCombatCharacter* SourceCharacter = Cast<ABaseCombatCharacter>(
+		Query.Attack.AttackInstance.Attacker.Get());
+	UCombatComponent* SourceCombat = SourceCharacter
+		? SourceCharacter->CombatComponent.Get()
+		: nullptr;
+	const UDefenseConfiguration* DefenderConfiguration = GetEffectiveDefenseConfiguration();
+	const UDefenseConfiguration* AttackerConfiguration = SourceCombat
+		? SourceCombat->GetEffectiveDefenseConfiguration()
+		: GetDefault<UDefenseConfiguration>();
+	SelectPerfectParryPresentation(
+		LastInputDefenseResolution,
+		DefenderConfiguration,
+		AttackerConfiguration);
+
+	if (!SourceCombat
+		|| !SourceCombat->ConsumeActiveAttackInternal(
+			Query.Attack.AttackInstance,
+			EAttackConsumeReason::PerfectParry,
+			InteractionId))
+	{
+		LastInputDefenseResolution.Decision.Outcome = EDefenseOutcome::GuardEntered;
+		LastInputDefenseResolution.Decision.Reason = EDefenseReason::Consumed;
+		LastInputDefenseResolution.Decision.AttackerResponse = EAttackerResponse::None;
+		LastInputDefenseResolution.Decision.AlignmentPolicy = EDefenseAlignmentPolicy::GuardFacing;
+		LastInputDefenseResolution.Decision.bChainEligible = false;
+		FDefenseContactReceipt DowngradedReceipt;
+		DowngradedReceipt.Resolution = LastInputDefenseResolution;
+		DowngradedReceipt.CommitStatus = EDefenseCommitStatus::NewCommit;
+		FinalizeDefenseInteraction(InteractionId, DowngradedReceipt);
+		return false;
+	}
+
+	FDefenseContactReceipt Receipt;
+	Receipt.Resolution = LastInputDefenseResolution;
+	Receipt.CommitStatus = EDefenseCommitStatus::NewCommit;
+	FinalizeDefenseInteraction(InteractionId, Receipt);
+
+	UPairedAnimationComponent* DefenseSequence = CachedPairedAnimComp;
+	if (!DefenseSequence && GetOwner())
+	{
+		DefenseSequence = GetOwner()->FindComponentByClass<UPairedAnimationComponent>();
+	}
+	const bool bDefenseSequenceStarted = DefenseSequence
+		&& DefenseSequence->BeginDefenseSequence(LastInputDefenseResolution);
+	const bool bPairedBridgeStarted = bDefenseSequenceStarted
+		&& DefenseSequence->IsPairedAnimationActive();
+	FDefenseResolution DirectPresentationResolution = LastInputDefenseResolution;
+	if (bPairedBridgeStarted)
+	{
+		// The paired bridge owns both montage roles; direct presentation still owns FX.
+		DirectPresentationResolution.Presentation.Montage = nullptr;
+		DirectPresentationResolution.AttackerPresentation.Montage = nullptr;
+	}
+
+	if (ABaseCombatCharacter* Defender = GetOwnerCharacter())
+	{
+		if (Defender->HitReactionComponent)
+		{
+			Defender->HitReactionComponent->PlayDefensePresentation(DirectPresentationResolution);
+		}
+	}
+	if (IsValid(SourceCharacter) && SourceCharacter->HitReactionComponent)
+	{
+		const bool bResponsePresented =
+			bPairedBridgeStarted
+			|| SourceCharacter->HitReactionComponent->PlayAttackerResponse(
+				DirectPresentationResolution);
+		const float ConfiguredStaggerDuration = AttackerConfiguration
+			? AttackerConfiguration->ParryStaggerDuration
+			: 1.5f;
+		const float StaggerDuration = FMath::IsFinite(ConfiguredStaggerDuration)
+			&& ConfiguredStaggerDuration > 0.0f
+			? ConfiguredStaggerDuration
+			: 1.5f;
+		SourceCharacter->HitReactionComponent->ApplyStagger(
+			StaggerDuration,
+			!bResponsePresented);
+	}
+
+	OnDefenseResolvedNative.Broadcast(LastInputDefenseResolution);
+	return true;
 }
 
 bool UCombatComponent::BeginBlock(AActor* ThreatActor)
@@ -2447,6 +2990,28 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		}
 	}
 
+	ConsumedAttackInstance = {};
+	bConsumedPendingPresentation = false;
+	FAttackInstanceId StartedAttack;
+	StartedAttack.Attacker = GetOwner();
+	StartedAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
+	OpenAttackWindowRecords.RemoveAll([&StartedAttack](const FAttackWindowInstanceId& Candidate)
+	{
+		return !(Candidate.AttackInstance == StartedAttack);
+	});
+	if (ActiveHitWindow.IsValid() && !(ActiveHitWindow.AttackInstance == StartedAttack))
+	{
+		ActiveHitWindow = {};
+	}
+	if (ActiveParryWindow.IsValid() && !(ActiveParryWindow.AttackInstance == StartedAttack))
+	{
+		ActiveParryWindow = {};
+	}
+	if (ActiveCounterWindow.IsValid() && !(ActiveCounterWindow.AttackInstance == StartedAttack))
+	{
+		ActiveCounterWindow = {};
+	}
+
 	// NOTE: bCurrentAttackIsDirectionalFollowUp flag is managed in GetAttackForInput()
 	// It's set during resolution based on whether the attack was found in DirectionalFollowUps map
 
@@ -3218,6 +3783,115 @@ void UCombatComponent::OnPhaseTransition(EAttackPhase NewPhase)
 	}
 }
 
+bool UCombatComponent::OnPhaseTransitionWithContext(
+	const EAttackPhase NewPhase,
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId,
+	const float RemainingWindowDuration)
+{
+	if (!NotifySource.IsValid() || MontageInstanceId < 0)
+	{
+		return false;
+	}
+
+	if (NewPhase == EAttackPhase::Active)
+	{
+		FAttackInstanceId CurrentAttack;
+		CurrentAttack.Attacker = GetOwner();
+		CurrentAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
+		if (ActiveHitWindow.IsValid()
+			&& ActiveHitWindow.AttackInstance == CurrentAttack
+			&& ActiveHitWindow.NotifySource == NotifySource
+			&& ActiveHitWindow.MontageInstanceId == MontageInstanceId)
+		{
+			return false;
+		}
+
+		const FAttackWindowInstanceId HitWindow = OpenAttackWindow(
+			EAttackWindowKind::Hit,
+			NotifySource,
+			MontageInstanceId,
+			RemainingWindowDuration);
+		if (!HitWindow.IsValid())
+		{
+			return false;
+		}
+
+		OnPhaseTransition(NewPhase);
+		return true;
+	}
+
+	if (NewPhase == EAttackPhase::Recovery)
+	{
+		if (!CloseHitWindowFromPhaseTransition(NotifySource, MontageInstanceId))
+		{
+			return false;
+		}
+
+		OnPhaseTransition(NewPhase);
+		return true;
+	}
+
+	return false;
+}
+
+bool UCombatComponent::CloseHitWindowFromPhaseTransition(
+	const FAnimNotifyRuntimeSourceId& CloseSource,
+	const int32 MontageInstanceId)
+{
+	if (!CloseSource.IsValid() || MontageInstanceId < 0)
+	{
+		return false;
+	}
+
+	const int32 RecordIndex = OpenAttackWindowRecords.IndexOfByPredicate(
+		[MontageInstanceId](const FAttackWindowInstanceId& Candidate)
+		{
+			return Candidate.Kind == EAttackWindowKind::Hit
+				&& Candidate.MontageInstanceId == MontageInstanceId;
+		});
+	if (RecordIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	const FAttackWindowInstanceId ClosingWindow = OpenAttackWindowRecords[RecordIndex];
+	OpenAttackWindowRecords.RemoveAt(RecordIndex, 1, EAllowShrinking::No);
+	if (!(ActiveHitWindow == ClosingWindow))
+	{
+		return false;
+	}
+
+	ActiveHitWindow = {};
+	RequestDefenderThreatRefresh(AttackIntentTarget.Get(), EThreatRefreshReason::WindowChanged);
+	return true;
+}
+
+void UCombatComponent::ClearPublishedAttackWindowsForAttack(const FAttackInstanceId& AttackInstance)
+{
+	if (!AttackInstance.IsValid())
+	{
+		return;
+	}
+
+	if (ActiveHitWindow.AttackInstance == AttackInstance)
+	{
+		ActiveHitWindow = {};
+	}
+	if (ActiveParryWindow.AttackInstance == AttackInstance)
+	{
+		ActiveParryWindow = {};
+	}
+	if (ActiveCounterWindow.AttackInstance == AttackInstance)
+	{
+		ActiveCounterWindow = {};
+	}
+	OpenAttackWindowRecords.RemoveAll([&AttackInstance](const FAttackWindowInstanceId& Candidate)
+	{
+		return Candidate.AttackInstance == AttackInstance;
+	});
+}
+
 void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 {
 	if (CurrentPhase == NewPhase)
@@ -3226,6 +3900,13 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 	}
 
 	EAttackPhase OldPhase = CurrentPhase;
+	if (NewPhase == EAttackPhase::None)
+	{
+		FAttackInstanceId EndingAttack;
+		EndingAttack.Attacker = GetOwner();
+		EndingAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
+		ClearPublishedAttackWindowsForAttack(EndingAttack);
+	}
 	CurrentPhase = NewPhase;
 	if (NewPhase == EAttackPhase::None)
 	{

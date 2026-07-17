@@ -345,6 +345,11 @@ public:
     virtual void OnAttackPhaseBegin_Implementation(EAttackPhase Phase) override;
     virtual void OnAttackPhaseEnd_Implementation(EAttackPhase Phase) override;
     virtual void OnAttackPhaseTransition_Implementation(EAttackPhase NewPhase) override;
+	virtual void OnAttackPhaseTransitionWithContext_Implementation(
+		EAttackPhase NewPhase,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId,
+		float RemainingWindowDuration) override;
     virtual bool IsInParryWindow_Implementation() const override;
     virtual void OnHoldWindowStart_Implementation(EInputType InputType) override;
 

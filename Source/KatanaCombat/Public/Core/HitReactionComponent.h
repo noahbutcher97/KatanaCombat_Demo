@@ -348,6 +348,10 @@ public:
     UFUNCTION(BlueprintPure, Category = "Hit Reaction|Stagger")
     bool IsStaggered() const { return bIsStaggered; }
 
+    /** Returns the remaining configured stagger duration in seconds. */
+    UFUNCTION(BlueprintPure, Category = "Hit Reaction|Stagger")
+    float GetRemainingStaggerTime() const { return StaggerTimeRemaining; }
+
     /**
      * Apply a contextual stagger to this character.
      * Opens a finisher vulnerability window for the specified duration.
@@ -356,7 +360,7 @@ public:
      * @param Duration - How long the stagger lasts (seconds). 0 = use default (1.5s)
      */
     UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Stagger")
-    void ApplyStagger(float Duration = 0.0f);
+    void ApplyStagger(float Duration = 0.0f, bool bPlayDefaultReaction = true);
 
     /**
      * End current stagger state immediately.

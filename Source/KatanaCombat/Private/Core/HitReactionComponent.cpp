@@ -270,11 +270,14 @@ void UHitReactionComponent::BroadcastCommittedDamage(
 
 bool UHitReactionComponent::PlayDefensePresentation(const FDefenseResolution& Resolution)
 {
+	const bool bNormalBlock = Resolution.Decision.Outcome == EDefenseOutcome::NormalBlock
+		&& Resolution.bHasActualContact
+		&& Resolution.ActualContact.bIsValid;
+	const bool bPerfectParry = Resolution.Stage == EDefenseQueryStage::InputIntent
+		&& Resolution.Decision.Outcome == EDefenseOutcome::PerfectParry;
 	if (!Resolution.InteractionId.IsValid()
 		|| Resolution.InteractionId.Key.Defender.Get() != GetOwner()
-		|| Resolution.Decision.Outcome != EDefenseOutcome::NormalBlock
-		|| !Resolution.bHasActualContact
-		|| !Resolution.ActualContact.bIsValid)
+		|| (!bNormalBlock && !bPerfectParry))
 	{
 		return false;
 	}
@@ -284,8 +287,12 @@ bool UHitReactionComponent::PlayDefensePresentation(const FDefenseResolution& Re
 
 	bool bPresented = PlayCommittedDefenseMontage(
 		Resolution, Resolution.Presentation, false);
-	const FHitReactionInfo& HitInfo = Resolution.ActualContact.HitInfo;
-	ABaseCombatCharacter* Source = Cast<ABaseCombatCharacter>(HitInfo.Attacker);
+	const FHitReactionInfo* HitInfo = bNormalBlock
+		? &Resolution.ActualContact.HitInfo
+		: nullptr;
+	ABaseCombatCharacter* Source = Cast<ABaseCombatCharacter>(bPerfectParry
+		? Resolution.InteractionId.Key.AttackInstance.Attacker.Get()
+		: HitInfo ? HitInfo->Attacker.Get() : nullptr);
 	const UWeaponComponent* SourceWeapon = Source ? Source->WeaponComponent.Get() : nullptr;
 	const UWeaponData* WeaponData = SourceWeapon ? SourceWeapon->WeaponData.Get() : nullptr;
 	const UCombatFXData* FXData = WeaponData ? WeaponData->CombatFXData.Get() : nullptr;
@@ -293,8 +300,17 @@ bool UHitReactionComponent::PlayDefensePresentation(const FDefenseResolution& Re
 	UNiagaraSystem* WeaponVFXFallback = WeaponData ? WeaponData->HitVFX.Get() : nullptr;
 	const UAttackData* AttackData = Resolution.Decision.SelectedAttack
 		? Resolution.Decision.SelectedAttack.Get()
-		: HitInfo.AttackData.Get();
+		: HitInfo ? HitInfo->AttackData.Get() : nullptr;
 	const EAttackType AttackType = AttackData ? AttackData->AttackType : EAttackType::None;
+	const FVector ImpactPoint = HitInfo
+		? HitInfo->ImpactPoint
+		: Resolution.Decision.ContactPoint;
+	const FVector ImpactNormal = HitInfo
+		? HitInfo->ImpactNormal
+		: Source && GetOwner()
+			? (GetOwner()->GetActorLocation() - Source->GetActorLocation()).GetSafeNormal()
+			: FVector::UpVector;
+	const FName ImpactBone = HitInfo ? HitInfo->BoneName : Resolution.Decision.TargetBone;
 
 	const FImpactAudioConfig AudioConfig = Resolution.Presentation.bOverrideImpactAudio
 		? Resolution.Presentation.ImpactAudio
@@ -305,7 +321,7 @@ bool UHitReactionComponent::PlayDefensePresentation(const FDefenseResolution& Re
 		FXData,
 		AttackType,
 		WeaponAudioFallback,
-		HitInfo.ImpactPoint,
+		ImpactPoint,
 		true,
 		Source) || bPresented;
 	if (!IsValid(this) || !IsValid(GetOwner()))
@@ -322,10 +338,10 @@ bool UHitReactionComponent::PlayDefensePresentation(const FDefenseResolution& Re
 		FXData,
 		AttackType,
 		WeaponVFXFallback,
-		HitInfo.ImpactPoint,
-		HitInfo.ImpactNormal,
+		ImpactPoint,
+		ImpactNormal,
 		true,
-		HitInfo.BoneName) || bPresented;
+		ImpactBone) || bPresented;
 	if (!IsValid(this) || !IsValid(GetOwner()))
 	{
 		return bPresented;
@@ -1496,9 +1512,9 @@ bool UHitReactionComponent::IsGuardBroken() const
     return bIsStaggered;
 }
 
-void UHitReactionComponent::ApplyStagger(float Duration)
+void UHitReactionComponent::ApplyStagger(float Duration, const bool bPlayDefaultReaction)
 {
-    if (Duration <= 0.0f)
+    if (!FMath::IsFinite(Duration) || Duration <= 0.0f)
     {
         Duration = DefaultStaggerDuration;
     }
@@ -1511,9 +1527,15 @@ void UHitReactionComponent::ApplyStagger(float Duration)
 
     // Broadcast stagger event
     OnStaggered.Broadcast(GetOwner(), Duration);
+	if (!IsValid(this) || !IsValid(GetOwner()))
+	{
+		return;
+	}
 
-    // Play guard broken reaction animation (reused for stagger visual)
-    PlayGuardBrokenReaction();
+    if (bPlayDefaultReaction)
+    {
+        PlayGuardBrokenReaction();
+    }
 
     UE_LOG(LogTemp, Log, TEXT("[STAGGER] %s staggered for %.1fs"),
         GetOwner() ? *GetOwner()->GetName() : TEXT("None"), Duration);

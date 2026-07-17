@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "AI/EnemyAITypes.h"
+#include "CombatTypes.h"
 #include "EnemyCombatAIComponent.generated.h"
 
 class UCombatTokenSubsystem;
@@ -201,8 +202,27 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AI|State")
 	bool IsStaggered() const { return CurrentState == EEnemyAIState::Staggered; }
 
+	/** Exact generation currently owned by the active StateTree attack task. */
+	int32 GetActiveAttackGeneration() const
+	{
+		return ActiveAttackInstance.AttackGeneration;
+	}
+
+	/** True when this component observed source-side consumption for this generation. */
+	bool WasAttackGenerationConsumed(int32 AttackGeneration) const
+	{
+		return AttackGeneration > 0
+			&& LastConsumedAttackInstance.Attacker.Get() == GetOwner()
+			&& LastConsumedAttackInstance.AttackGeneration == AttackGeneration;
+	}
+
 	/** Inject deterministic token ownership for automation worlds that do not own a GameInstance. */
 	void SetTokenSubsystemForTesting(UCombatTokenSubsystem* InTokenSubsystem);
+
+#if WITH_AUTOMATION_TESTS
+	int32 GetTokenReleaseCountForTesting() const { return TokenReleaseCountForTesting; }
+	int32 GetAttackEndBroadcastCountForTesting() const { return AttackEndBroadcastCountForTesting; }
+#endif
 
 	// ============================================================================
 	// DELEGATES
@@ -261,6 +281,14 @@ protected:
 	/** Release attack token and clean up */
 	void ReleaseTokenAndCleanup();
 
+	void HandleAttackConsumedInternal(const FAttackConsumedEvent& Event);
+	bool TerminateActiveAttack(
+		bool bInterrupted,
+		EEnemyAIState TerminalState,
+		float RecoveryDuration,
+		bool bStopActiveMontage);
+	void UnbindAttackConsumption();
+
 	/** Return to the next non-attacking state after an attack could not start. */
 	void ReturnToReadyState();
 
@@ -291,4 +319,14 @@ protected:
 
 	/** True only while this component is queued and waiting for an async token grant. */
 	bool bWaitingForTokenGrant = false;
+
+	FAttackInstanceId ActiveAttackInstance;
+	FAttackInstanceId LastConsumedAttackInstance;
+	FDelegateHandle AttackConsumedDelegateHandle;
+	bool bAttackTerminationCommitted = false;
+
+#if WITH_AUTOMATION_TESTS
+	int32 TokenReleaseCountForTesting = 0;
+	int32 AttackEndBroadcastCountForTesting = 0;
+#endif
 };

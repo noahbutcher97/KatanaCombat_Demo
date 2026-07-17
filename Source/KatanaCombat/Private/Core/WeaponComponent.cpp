@@ -99,11 +99,24 @@ void UWeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 void UWeaponComponent::EnableHitDetection()
 {
 	NotifyRichContactSourceTerminal();
-	TraceGeneration = TraceGeneration == MAX_int32 ? 1 : TraceGeneration + 1;
-	FWeaponTraceInstanceId TraceId;
-	TraceId.WeaponComponent = this;
-	TraceId.TraceGeneration = TraceGeneration;
-	ActiveContactId = FContactInstanceId::FromCompatibilityTrace(TraceId);
+	const UCombatComponent* Combat = GetOwner()
+		? GetOwner()->FindComponentByClass<UCombatComponent>()
+		: nullptr;
+	const FAttackWindowInstanceId HitWindow = Combat
+		? Combat->GetActiveAttackWindow(EAttackWindowKind::Hit)
+		: FAttackWindowInstanceId();
+	if (HitWindow.IsValid())
+	{
+		ActiveContactId = FContactInstanceId::FromAttackWindow(HitWindow);
+	}
+	else
+	{
+		TraceGeneration = TraceGeneration == MAX_int32 ? 1 : TraceGeneration + 1;
+		FWeaponTraceInstanceId TraceId;
+		TraceId.WeaponComponent = this;
+		TraceId.TraceGeneration = TraceGeneration;
+		ActiveContactId = FContactInstanceId::FromCompatibilityTrace(TraceId);
+	}
 	AcceptedHitCount = 0;
 
     // Always clear hit actors for the new attack, even if already enabled.
@@ -177,7 +190,20 @@ void UWeaponComponent::DisableHitDetection()
     HitActors.Empty();
 
     // Clear cached velocity so external consumers don't read stale data between attacks
-    CachedWeaponTipVelocity = FVector::ZeroVector;
+	CachedWeaponTipVelocity = FVector::ZeroVector;
+}
+
+bool UWeaponComponent::DisableHitDetectionForAttack(const FAttackWindowInstanceId& HitWindow)
+{
+	if (!HitWindow.IsValid()
+		|| !ActiveContactId.bUsesAttackWindow
+		|| !(ActiveContactId.AttackWindow == HitWindow))
+	{
+		return false;
+	}
+
+	DisableHitDetection();
+	return true;
 }
 
 void UWeaponComponent::ResetHitActors()
@@ -614,6 +640,18 @@ void UWeaponComponent::EnsureActiveContactInstance()
 {
 	if (ActiveContactId.IsValid())
 	{
+		return;
+	}
+
+	const UCombatComponent* Combat = GetOwner()
+		? GetOwner()->FindComponentByClass<UCombatComponent>()
+		: nullptr;
+	const FAttackWindowInstanceId HitWindow = Combat
+		? Combat->GetActiveAttackWindow(EAttackWindowKind::Hit)
+		: FAttackWindowInstanceId();
+	if (HitWindow.IsValid())
+	{
+		ActiveContactId = FContactInstanceId::FromAttackWindow(HitWindow);
 		return;
 	}
 

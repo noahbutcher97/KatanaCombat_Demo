@@ -364,3 +364,156 @@ bool FDefenseCombatWarpCloneOwnershipSourceTest::RunTest(const FString& Paramete
 		Body.Contains(TEXT("RootMotionModifier->")));
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseAttackConsumptionOrderingSourceTest,
+	"KatanaCombat.Defense.Architecture.AttackConsumptionOrdering",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseAttackConsumptionOrderingSourceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FString Source;
+	if (!TestTrue(TEXT("CombatComponent source loads"), LoadProjectSource(
+		TEXT("Source/KatanaCombat/Private/Core/CombatComponent.cpp"), Source)))
+	{
+		return false;
+	}
+
+	FString Body;
+	if (!TestTrue(TEXT("Attack consumption body is extractable"), ExtractFunctionBody(
+		Source, TEXT("UCombatComponent::ConsumeActiveAttackInternal"), Body)))
+	{
+		return false;
+	}
+
+	const int32 ConsumedIndex = Body.Find(TEXT("ConsumedAttackInstance = AttackId"));
+	const int32 WindowCleanupIndex = Body.Find(TEXT("ClearPublishedAttackWindowsForAttack"));
+	const int32 TraceCleanupIndex = Body.Find(TEXT("DisableHitDetectionForAttack"));
+	const int32 ImmediateEventIndex = Body.Find(TEXT("OnAttackConsumedInternal.Broadcast"));
+	TestTrue(TEXT("Consumed marker is installed"), ConsumedIndex != INDEX_NONE);
+	TestTrue(TEXT("Canonical windows are cleaned"), WindowCleanupIndex != INDEX_NONE);
+	TestTrue(TEXT("Exact trace generation is cleaned"), TraceCleanupIndex != INDEX_NONE);
+	TestTrue(TEXT("Native termination event remains present"), ImmediateEventIndex != INDEX_NONE);
+	TestTrue(TEXT("Consumed marker precedes cleanup and all callbacks"),
+		ConsumedIndex < WindowCleanupIndex
+			&& ConsumedIndex < TraceCleanupIndex
+			&& ConsumedIndex < ImmediateEventIndex);
+	TestFalse(TEXT("Public event is not broadcast synchronously"),
+		Body.Contains(TEXT("OnAttackConsumed.Broadcast")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseEnemyTerminationOwnershipSourceTest,
+	"KatanaCombat.Defense.Architecture.EnemyTerminationOwnsTokenRelease",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseEnemyTerminationOwnershipSourceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FString Source;
+	if (!TestTrue(TEXT("Enemy combat AI source loads"), LoadProjectSource(
+		TEXT("Source/KatanaCombat/Private/AI/EnemyCombatAIComponent.cpp"), Source)))
+	{
+		return false;
+	}
+
+	const TCHAR* CompatibilityHandlers[] =
+	{
+		TEXT("UEnemyCombatAIComponent::HandleAttackConsumedInternal"),
+		TEXT("UEnemyCombatAIComponent::OnAttackMontageEnded"),
+		TEXT("UEnemyCombatAIComponent::OnParried"),
+		TEXT("UEnemyCombatAIComponent::OnCountered")
+	};
+	for (const TCHAR* Handler : CompatibilityHandlers)
+	{
+		FString Body;
+		if (!TestTrue(*FString::Printf(TEXT("Termination handler is extractable: %s"), Handler),
+			ExtractFunctionBody(Source, Handler, Body)))
+		{
+			continue;
+		}
+		TestTrue(*FString::Printf(TEXT("Handler delegates to centralized termination: %s"), Handler),
+			Body.Contains(TEXT("TerminateActiveAttack")));
+		TestFalse(*FString::Printf(TEXT("Handler cannot release a token directly: %s"), Handler),
+			Body.Contains(TEXT("ReleaseTokenAndCleanup")));
+	}
+
+	FString TerminationBody;
+	if (!TestTrue(TEXT("Central termination body is extractable"), ExtractFunctionBody(
+		Source, TEXT("UEnemyCombatAIComponent::TerminateActiveAttack"), TerminationBody)))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Central termination owns token cleanup"),
+		TerminationBody.Contains(TEXT("ReleaseTokenAndCleanup")));
+	const int32 CommitIndex = TerminationBody.Find(TEXT("bAttackTerminationCommitted = true"));
+	const int32 ReleaseIndex = TerminationBody.Find(TEXT("ReleaseTokenAndCleanup"));
+	TestTrue(TEXT("Central termination commits idempotence before cleanup"),
+		CommitIndex != INDEX_NONE && ReleaseIndex != INDEX_NONE && CommitIndex < ReleaseIndex);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseCanonicalNotifyIdentitySourceTest,
+	"KatanaCombat.Defense.Architecture.CanonicalNotifyIdentity",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseCanonicalNotifyIdentitySourceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const TCHAR* NotifySources[] =
+	{
+		TEXT("Source/KatanaCombat/Private/Animation/AnimNotifyState_ParryWindow.cpp"),
+		TEXT("Source/KatanaCombat/Private/Animation/AnimNotifyState_CounterWindow.cpp"),
+		TEXT("Source/KatanaCombat/Private/Animation/AnimNotify_AttackPhaseTransition.cpp")
+	};
+	for (const TCHAR* RelativePath : NotifySources)
+	{
+		FString Source;
+		if (!TestTrue(*FString::Printf(TEXT("Notify source loads: %s"), RelativePath),
+			LoadProjectSource(RelativePath, Source)))
+		{
+			continue;
+		}
+		const FString Body = StripCppComments(Source);
+		TestTrue(*FString::Printf(TEXT("Notify resolves exact source identity: %s"), RelativePath),
+			Body.Contains(TEXT("ResolveRuntimeNotifySourceId")));
+		TestTrue(*FString::Printf(TEXT("Notify resolves montage-instance identity: %s"), RelativePath),
+			Body.Contains(TEXT("ResolveRuntimeMontageInstanceId")));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefensePerfectParryCommitAuthoritySourceTest,
+	"KatanaCombat.Defense.Architecture.PerfectParryCommitAuthority",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefensePerfectParryCommitAuthoritySourceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FString Source;
+	if (!TestTrue(TEXT("CombatComponent source loads"), LoadProjectSource(
+		TEXT("Source/KatanaCombat/Private/Core/CombatComponent.cpp"), Source)))
+	{
+		return false;
+	}
+
+	FString Body;
+	if (!TestTrue(TEXT("Perfect-parry commit body is extractable"), ExtractFunctionBody(
+		Source, TEXT("UCombatComponent::TryCommitPerfectParry"), Body)))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Perfect parry resolves through the pure defense resolver"),
+		Body.Contains(TEXT("FDefenseResolver::Resolve")));
+	TestTrue(TEXT("Perfect parry consumes the selected source generation"),
+		Body.Contains(TEXT("ConsumeActiveAttackInternal")));
+	TestFalse(TEXT("Perfect-parry commit does not invoke the legacy counter search"),
+		Body.Contains(TEXT("TryCounter")));
+	TestFalse(TEXT("Perfect-parry commit does not mutate compatibility parry flags"),
+		Body.Contains(TEXT("SetParryWindowActive")));
+	return true;
+}

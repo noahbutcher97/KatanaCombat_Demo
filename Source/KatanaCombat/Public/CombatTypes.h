@@ -3003,6 +3003,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStaggered, AActor*, StaggeredAct
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectParry, AActor*, ParriedActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectEvade, AActor*, EvadedActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFinisherAvailable, AActor*, Target);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAttackConsumed, const FAttackConsumedEvent&, Event);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnAttackConsumedNative, const FAttackConsumedEvent&);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnDefenseResolvedNative, const FDefenseResolution&);
 

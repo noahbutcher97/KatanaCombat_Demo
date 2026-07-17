@@ -184,6 +184,9 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Weapon")
     void DisableHitDetection();
 
+	/** Disable tracing only when it still belongs to this canonical hit-window generation. */
+	bool DisableHitDetectionForAttack(const FAttackWindowInstanceId& HitWindow);
+
     /**
      * Is hit detection currently enabled?
      * @return True if actively tracing for hits
@@ -254,6 +257,7 @@ public:
 
 #if WITH_AUTOMATION_TESTS
 	int32 GetAcceptedHitCountForTesting() const { return AcceptedHitCount; }
+	const FContactInstanceId& GetActiveContactIdForTesting() const { return ActiveContactId; }
 	void ProcessHitForTesting(const FHitResult& Hit, UAttackData* AttackData)
 	{
 		ProcessHitWithAttackData(Hit, AttackData);

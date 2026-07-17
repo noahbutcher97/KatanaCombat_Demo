@@ -101,6 +101,14 @@ public:
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
 	void OnAttackPhaseTransition(EAttackPhase NewPhase);
 
+	/** Canonical phase transition carrying exact runtime notify and montage-instance identity. */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
+	void OnAttackPhaseTransitionWithContext(
+		EAttackPhase NewPhase,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId,
+		float RemainingWindowDuration);
+
 	/**
 	 * Is this actor currently in parry window? (Attacker-side state)
 	 * Timing input only; target intent, capability, identity, team, and alignment

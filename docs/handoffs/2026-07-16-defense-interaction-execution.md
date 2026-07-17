@@ -244,3 +244,23 @@ Final Slice 3 evidence:
 - adjacent roots: `Saved/Logs/Defense-Slice3-CounterInput-20260717-0050-tests.log`, 2/2 passed, and `Saved/Logs/Defense-Slice3-Targeting-20260717-0050-tests.log`, 7/7 passed.
 
 No C++ high/medium Slice 3 finding is deferred. No asset, Blueprint, montage, map, input asset, or configuration package changed, so visible normal-block animation and final composed-yaw acceptance remain Task 6 Editor/PIE proof rather than a headless claim. Task 4 still owns authored parry-window identity, attack consumption, `ParryStagger`, and bridge preflight; Task 5 owns retained paired-stage migration and cleanup. `GO` for Task 4 after the Slice 3 commit.
+
+## Slice 4 Completion
+
+Task 4 now owns canonical attacker-side Hit, Parry, and Counter windows keyed by attack generation, exact source-animation notify index, and montage-instance ID. Consuming an attack installs the consumed marker before cleanup or callbacks, retires all matching window records, prevents delayed notifies from reopening the generation, disables its trace, rejects queued continuation, and emits immediate native plus deferred public termination events. Counter notify compatibility data is published only after a canonical open succeeds.
+
+Block Press resolves and commits perfect parry through the public defense path. Contact-first ordering retains its committed hit; input-first ordering consumes the whole source generation and rejects later contacts. Presentation selection cannot rewrite the committed result. The source attacker receives the configured `ParryStaggerDuration`, paired parry data is always nonlethal, and malformed or unavailable bridge data falls back to the generation-keyed no-montage `ParryActive` stage without reopening the attack.
+
+Enemy attack ownership now captures the exact generation and routes consumption, montage completion, and legacy parry/counter callbacks through one idempotent termination function. Token release and attack-end broadcast occur once, and the StateTree task recognizes the consumed generation instead of waiting for montage completion.
+
+The adversarial pass retired legacy Chain feature tests that directly toggled windows, assigned `ChainState`, or invoked protected helpers. Their replacement evidence enters through canonical windows and public input. It also closed delayed-window record retention, consumed-generation reopen, invalid counter-notify compatibility publication, non-finite bridge budgets, signed generation overflow, and an untracked StateTree zero-generation wait.
+
+Final evidence:
+
+- editor build succeeded with `-MaxParallelActions=4`;
+- `Saved/Logs/Defense-Slice4-Final-20260717-0219-Defense.log`: 89 completed, 0 failures/errors;
+- `Saved/Logs/Defense-Slice4-Final-20260717-0219-EnemyAI.log`: 12 completed, 0 failures/errors;
+- `Saved/Logs/Defense-Slice4-Final-20260717-0219-CounterSystem.log`: 13 completed, 0 failures/errors;
+- `git diff --check` reports no whitespace errors (line-ending conversion warnings only).
+
+Slice 4 does not claim the retained multi-stage sequence. Task 5 must replace the name-only bridge marker, world timers, broad paired cleanup, and shared collision/time restoration with generation-keyed stage transitions and scoped leases. In particular, authored bridge completion must not expose `None` or restore input, collision, warp, context, or time ownership between successful stages. No asset package changed in Slice 4, and the branch is not merge-ready until those Task 5 contracts and later live proof gates are complete. `GO` for Task 5 after the Slice 4 commit.

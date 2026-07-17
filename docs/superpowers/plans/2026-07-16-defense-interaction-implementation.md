@@ -775,7 +775,7 @@ git commit -m "Route guard input through owned defense alignment"
 
 **Produces:** Generation-safe parry windows, edge-triggered perfect parry with downgrade, atomic whole-attack consumption, exact AI termination, attacker `ParryStagger`, and post-decision bridge preflight.
 
-- [ ] **Step 1: Make notify windows generation-safe**
+- [x] **Step 1: Make notify windows generation-safe**
 
 Include `Animation/ActiveMontageInstanceScope.h` and extract:
 
@@ -795,13 +795,13 @@ Implement `ResolveRuntimeNotifySourceId` in `CombatAnimNotifyIdentity.*`. It use
 
 Keep compatibility `SetParryWindowActive`/counter methods only as deprecated adapters for legacy tests/assets; production notifies use identities.
 
-- [ ] **Step 2: Add failing perfect-parry matrix and downgrade tests**
+- [x] **Step 2: Add failing perfect-parry matrix and downgrade tests**
 
 Enter through `UCombatComponent::OnInputEvent(Block, Press)`. Cover valid parry, held-before-window non-parry, no tag, no window, stale generation, low/stale prediction, hard cone, normal-reachable/perfect-unreachable downgrade, unblockable-plus-parryable, dead/paired/attacking defender rejection, and bridge missing/blocked/over-budget.
 
 Assert bridge usability never changes a committed `PerfectParry` decision. Assert a failed parry and guard fallback retain the same selected attack ID. Assert contact-first versus input-first same-frame ordering.
 
-- [ ] **Step 3: Implement atomic `ConsumeActiveAttack`**
+- [x] **Step 3: Implement atomic `ConsumeActiveAttack`**
 
 Add:
 
@@ -815,7 +815,7 @@ Before callbacks, mark the matching generation consumed. Close matching hit/parr
 
 Track every defender interaction under the generation so a perfect parry suppresses remaining targets. Previously committed damage remains committed.
 
-- [ ] **Step 4: Terminate AI attack ownership exactly once**
+- [x] **Step 4: Terminate AI attack ownership exactly once**
 
 Store the attack generation when `UEnemyCombatAIComponent::ExecuteAttack()` starts. Bind its native handler before public events:
 
@@ -825,13 +825,13 @@ void HandleAttackConsumedInternal(const FAttackConsumedEvent& Event);
 
 Abort only the matching StateTree task, release the combat token once, and transition to recovery/ready state. `OnParried`, `OnCountered`, and montage-end compatibility handlers may play/clean presentation but must not release the same token again. StateTree task polling compares the captured generation and recognizes consumed termination rather than waiting forever for montage end.
 
-- [ ] **Step 5: Commit perfect parry and select attacker response**
+- [x] **Step 5: Commit perfect parry and select attacker response**
 
 On a Block Press resolver result of `PerfectParry`, install/finalize the input-intent interaction, consume the source attack, apply `ParryStagger`, and retain guard ownership as specified. A Block Release after commit does not cancel the owned sequence. A presentation listener cannot rewrite the result or re-consume the attack.
 
 Normal block selects `Continue` unless `BlockInterruptible` requests `Recoil`; perfect parry always requests `ParryStagger`. Remove the current hardcoded two-second stagger from canonical Chain flow and resolve response duration/playback from the attacker's defense configuration.
 
-- [ ] **Step 6: Preflight and start the parry bridge after decision**
+- [x] **Step 6: Preflight and start the parry bridge after decision**
 
 Add:
 
@@ -846,7 +846,7 @@ After terminal bridge failure, return the defender to guard only when Block rema
 
 For paired bridge data, map the defender/sequence initiator to `UPairedAnimationData::AttackerMontage` and the consumed source attacker to `VictimMontage`; validation and telemetry print semantic and authored role names.
 
-- [ ] **Step 7: Verify and commit Slice 4**
+- [x] **Step 7: Verify and commit Slice 4**
 
 Build first, then run `KatanaCombat.Defense.Parry`, `.ParryDetection`, `.EnemyCombatAI`, and relevant contact tests. Run source gates for generation-blind window close, duplicate token release, and legacy block recalculation, then complete the slice adversarial/spec-coverage gate. Commit:
 

@@ -54,14 +54,9 @@ class KATANACOMBAT_API UPairedAnimationComponent : public UActorComponent
 	friend class FCounter_AC3HitInfoMarkedAsCounter;
 	friend class FCounter_AC3SpecificCounterDataFallbackDamage;
 	friend class FCounter_AC3NullAttackerFails;
-	friend class FCounter_ChainParryTransition;
-	friend class FCounter_ChainCancelResetsState;
 	friend class FCounter_CancelNoopWhenNone;
 	friend class FCounter_CounterAttackRequiresWindow;
-	friend class FCounter_ChainParryStaggersEnemy;
 	friend class FCounter_ChainNullAttackerFails;
-	friend class FCounter_ChainAttackInputAdvancesCounter;
-	friend class FCounter_ChainAdvanceRejectsNullAttackData;
 	friend class FDefenseInput_ChainPreflightFailureExpires;
 
 	// Paired animation tests
@@ -229,6 +224,18 @@ public:
 	/** True while Chain mode has a retained parried target for follow-up counter/finisher steps. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	bool HasActiveChainTarget() const { return ActiveChainTarget.IsValid(); }
+
+	/**
+	 * Start presentation ownership for an already committed perfect parry.
+	 * Presentation failure never rewrites the resolution or reopens its consumed attack.
+	 */
+	bool BeginDefenseSequence(const FDefenseResolution& Resolution);
+
+	/** Current identity-bearing defense sequence, if one owns the Chain state. */
+	const FDefenseSequenceContext& GetActiveDefenseSequenceContext() const
+	{
+		return ActiveDefenseSequence;
+	}
 
 	/** Resolve whether paired animation data should be treated as lethal for this reaction type. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
@@ -442,6 +449,19 @@ protected:
 	/** Handle chain timeout expiration */
 	void OnChainTimeout();
 
+	/** Validate a paired bridge without mutating either participant. */
+	bool PreflightDefenseBridge(
+		const FDefenseResolution& Resolution,
+		const FDefensePresentationPayload& Presentation,
+		FString& OutFailureReason) const;
+
+	/** Open CounterWindow only for the currently owned defense-stage generation. */
+	bool EnterDefenseCounterWindow(int32 ExpectedStageGeneration);
+
+	/** Schedule and receive the no-montage parry bridge. */
+	bool ScheduleNoMontageDefenseBridge(int32 ExpectedStageGeneration);
+	void HandleNoMontageDefenseBridgeElapsed(int32 ExpectedStageGeneration);
+
 	// ============================================================================
 	// COUNTER/PARRY WINDOW STATE
 	// ============================================================================
@@ -491,6 +511,16 @@ protected:
 
 	/** Timer handle for chain mode timeout */
 	FTimerHandle ChainTimeoutHandle;
+
+	/** Identity-bearing context retained from perfect parry through Chain stages. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
+	FDefenseSequenceContext ActiveDefenseSequence;
+
+	/** Monotonic stage generation; zero is never issued. */
+	int32 NextDefenseStageGeneration = 0;
+
+	/** Simulation-time fallback used when no usable parry bridge montage exists. */
+	FTimerHandle DefenseBridgeFallbackHandle;
 
 	// ============================================================================
 	// PAIRED ANIMATION INTERNAL STATE

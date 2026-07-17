@@ -766,8 +766,11 @@ void ABaseCombatCharacter::PopulateDefenseContactQuery(
 		Query.Attack.bAttackIdentityCurrent = SourceCombat
 			&& Query.Attack.AttackInstance.Attacker.Get() == Source
 			&& SourceCombat->GetCurrentAttackGeneration() == Query.Attack.AttackInstance.AttackGeneration;
+		Query.Attack.bAttackConsumed = SourceCombat
+			&& SourceCombat->IsAttackConsumed(Query.Attack.AttackInstance);
 		Query.Attack.bAttackActive = Query.Attack.bAttackIdentityCurrent
-			&& SourceCombat->GetCurrentAttack() == AttackData;
+			&& SourceCombat->GetCurrentAttack() == AttackData
+			&& !Query.Attack.bAttackConsumed;
 	}
 	else
 	{
@@ -1391,6 +1394,22 @@ void ABaseCombatCharacter::OnAttackPhaseTransition_Implementation(EAttackPhase N
     {
         CombatComponent->OnPhaseTransition(NewPhase);
     }
+}
+
+void ABaseCombatCharacter::OnAttackPhaseTransitionWithContext_Implementation(
+	const EAttackPhase NewPhase,
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId,
+	const float RemainingWindowDuration)
+{
+	if (CombatComponent)
+	{
+		CombatComponent->OnPhaseTransitionWithContext(
+			NewPhase,
+			NotifySource,
+			MontageInstanceId,
+			RemainingWindowDuration);
+	}
 }
 
 bool ABaseCombatCharacter::IsInParryWindow_Implementation() const
