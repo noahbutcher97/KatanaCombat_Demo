@@ -13,6 +13,7 @@
 #include "Data/AttackData.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "Engine/Blueprint.h"
 #include "Engine/World.h"
 #include "HAL/FileManager.h"
 #include "Modules/ModuleManager.h"
@@ -24,6 +25,28 @@
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
 #include "UObject/SavePackage.h"
+#include "UObject/UObjectHash.h"
+
+namespace
+{
+	// PackageTools sends this notification after loading replacements; FiB must release
+	// the old Blueprint path before replacement loading begins.
+	void PrepareBlueprintsForPackageReload(const TArray<UPackage*>& PackagesToReload)
+	{
+		for (UPackage* Package : PackagesToReload)
+		{
+			TArray<UObject*> PackageObjects;
+			GetObjectsWithPackage(Package, PackageObjects, true);
+			for (UObject* Object : PackageObjects)
+			{
+				if (UBlueprint* Blueprint = Cast<UBlueprint>(Object))
+				{
+					Blueprint->ClearEditorReferences();
+				}
+			}
+		}
+	}
+}
 
 bool FKatanaAssetMigrationRunner::ParseOptions(const FString& Params, FKatanaAssetMigrationOptions& OutOptions, TArray<FString>& OutErrors)
 {
@@ -836,6 +859,7 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 	}
 	if (Report.Summary.Failed == 0 && !PackagesToReload.IsEmpty())
 	{
+		PrepareBlueprintsForPackageReload(PackagesToReload);
 		FText ReloadError;
 		const bool bReloaded = UPackageTools::ReloadPackages(
 			PackagesToReload, ReloadError, EReloadPackagesInteractionMode::AssumePositive);

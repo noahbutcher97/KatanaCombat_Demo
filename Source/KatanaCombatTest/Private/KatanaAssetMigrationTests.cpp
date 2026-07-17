@@ -4,6 +4,10 @@
 
 #include "Misc/AutomationTest.h"
 #include "AttackDataNotifyGenerationService.h"
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "Animation/AnimBlueprint.h"
+#include "Animation/AnimBlueprintGeneratedClass.h"
+#include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_AttackPhaseTransition.h"
 #include "Animation/AnimNotify_HoldWindowStart.h"
@@ -26,6 +30,7 @@
 #include "Commandlets/KatanaAssetMigrationTypes.h"
 #include "Dom/JsonObject.h"
 #include "Engine/Blueprint.h"
+#include "FindInBlueprintManager.h"
 #include "InputAction.h"
 #include "InputMappingContext.h"
 #include "HAL/PlatformProcess.h"
@@ -1303,6 +1308,116 @@ bool FDefenseProofPackageSaveReloadTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("Generated proof package should unload for cleanup"),
 			UPackageTools::UnloadPackages(PackagesToUnload, UnloadError, true));
 		TestTrue(TEXT("Generated proof package file should be deleted"),
+			IFileManager::Get().Delete(*PackageFilename, true, true, true));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofAnimBlueprintSaveReloadTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseProof.AnimBlueprintSaveReloadRoundTrip",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofAnimBlueprintSaveReloadTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FString Suffix = FGuid::NewGuid().ToString(EGuidFormats::Digits);
+	const FString PackageName = FString::Printf(
+		TEXT("/Game/__Automation__/DefenseProofAnimBlueprint_%s"), *Suffix);
+	const FString AssetName = FString::Printf(TEXT("ABP_DefenseProofSave_%s"), *Suffix);
+	const FString ObjectPath = FString::Printf(TEXT("%s.%s"), *PackageName, *AssetName);
+	UPackage* Package = CreatePackage(*PackageName);
+	Package->MarkAsFullyLoaded();
+	UAnimBlueprint* AnimBlueprint = Cast<UAnimBlueprint>(FKismetEditorUtilities::CreateBlueprint(
+		UAnimInstance::StaticClass(), Package, *AssetName, BPTYPE_Normal,
+		UAnimBlueprint::StaticClass(), UAnimBlueprintGeneratedClass::StaticClass(),
+		TEXT("DefenseProofAnimBlueprintSaveReloadTest")));
+	TestNotNull(TEXT("Anim Blueprint proof asset should be created"), AnimBlueprint);
+	if (!AnimBlueprint)
+	{
+		return false;
+	}
+	AnimBlueprint->bIsTemplate = true;
+	AnimBlueprint->TargetSkeleton = nullptr;
+	FAssetRegistryModule::AssetCreated(AnimBlueprint);
+	FFindInBlueprintSearchManager::Get().AddOrUpdateBlueprintSearchMetadata(AnimBlueprint);
+	Package->MarkPackageDirty();
+	int32 BlueprintUnloadNotifications = 0;
+	const FDelegateHandle BlueprintUnloadedHandle =
+		FKismetEditorUtilities::OnBlueprintUnloaded.AddLambda(
+			[&BlueprintUnloadNotifications, ObjectPath](UBlueprint* Blueprint)
+			{
+				if (Blueprint && Blueprint->GetPathName() == ObjectPath)
+				{
+					++BlueprintUnloadNotifications;
+				}
+			});
+
+	FKatanaAssetMigrationReport Report;
+	Report.Operation = FDefenseProofMigrationOperation::OperationName;
+	Report.Mode = EKatanaAssetMigrationMode::ApplyAndSave;
+	FKatanaAssetMigrationRow Row;
+	Row.Status = EKatanaAssetMigrationStatus::Changed;
+	Row.ChangedPackages.Add(PackageName);
+	Report.Rows.Add(MoveTemp(Row));
+	Report.PackageLedger.Add({PackageName, TEXT("AnimBlueprint"), false,
+		TEXT("Create"), TEXT("Created"), TEXT("NotRun"), TEXT("NotRun")});
+	FKatanaAssetMigrationRunner::Summarize(Report);
+
+	FKatanaAssetMigrationOptions Options;
+	Options.Mode = EKatanaAssetMigrationMode::ApplyAndSave;
+	Options.bAllowPackageSave = true;
+	const TSet<FString> InitiallyDirtyPackages;
+	TestTrue(TEXT("Anim Blueprint should save and reload without lifecycle errors"),
+		FKatanaAssetMigrationRunner().SaveChangedPackages(
+			Options, InitiallyDirtyPackages, Report));
+	TestEqual(TEXT("Anim Blueprint ledger should record reload success"),
+		Report.PackageLedger[0].PostSaveReloadResult, FString(TEXT("Reloaded")));
+	UAnimBlueprint* Reloaded = LoadObject<UAnimBlueprint>(nullptr, *ObjectPath);
+	TestNotNull(TEXT("Saved Anim Blueprint should reload by object path"), Reloaded);
+	if (Reloaded)
+	{
+		FFindInBlueprintSearchManager::Get().AddOrUpdateBlueprintSearchMetadata(Reloaded);
+		Reloaded->BlueprintDescription = TEXT("Second save/reload pass");
+		Reloaded->MarkPackageDirty();
+		Report.Rows[0].Status = EKatanaAssetMigrationStatus::Changed;
+		Report.Rows[0].SavedPackages.Reset();
+		Report.PackageLedger[0].SaveResult = TEXT("NotRun");
+		Report.PackageLedger[0].PostSaveReloadResult = TEXT("NotRun");
+		FKatanaAssetMigrationRunner::Summarize(Report);
+		TestTrue(TEXT("Previously reloaded Anim Blueprint should save and reload again"),
+			FKatanaAssetMigrationRunner().SaveChangedPackages(
+				Options, InitiallyDirtyPackages, Report));
+		Reloaded = LoadObject<UAnimBlueprint>(nullptr, *ObjectPath);
+		TestNotNull(TEXT("Anim Blueprint should remain loadable after the second reload"), Reloaded);
+		TestEqual(TEXT("Second reload should retain serialized Blueprint data"),
+			Reloaded ? Reloaded->BlueprintDescription : FString(),
+			FString(TEXT("Second save/reload pass")));
+	}
+	FKismetEditorUtilities::OnBlueprintUnloaded.Remove(BlueprintUnloadedHandle);
+	TestEqual(TEXT("Each Anim Blueprint reload should run the unload lifecycle first"),
+		BlueprintUnloadNotifications, 2);
+
+	FString PackageFilename;
+	if (FPackageName::TryConvertLongPackageNameToFilename(
+		PackageName, PackageFilename, FPackageName::GetAssetPackageExtension()))
+	{
+		UPackage* ReloadedPackage = Reloaded ? Reloaded->GetOutermost() : nullptr;
+		if (Reloaded)
+		{
+			FAssetRegistryModule::AssetDeleted(Reloaded);
+		}
+		Reloaded = nullptr;
+		AnimBlueprint = nullptr;
+		Package = nullptr;
+		FText UnloadError;
+		TArray<UPackage*> PackagesToUnload;
+		if (ReloadedPackage)
+		{
+			PackagesToUnload.Add(ReloadedPackage);
+		}
+		TestTrue(TEXT("Generated Anim Blueprint package should unload for cleanup"),
+			UPackageTools::UnloadPackages(PackagesToUnload, UnloadError, true));
+		TestTrue(TEXT("Generated Anim Blueprint package file should be deleted"),
 			IFileManager::Get().Delete(*PackageFilename, true, true, true));
 	}
 	return true;
