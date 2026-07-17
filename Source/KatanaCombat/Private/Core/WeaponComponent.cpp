@@ -2,6 +2,7 @@
 
 #include "Core/WeaponComponent.h"
 #include "Core/CombatComponent.h"
+#include "Core/PairedAnimationComponent.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Data/AttackData.h"
 #include "Data/AttackConfiguration.h"
@@ -16,6 +17,7 @@
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Animation/AnimInstance.h"
+#include "HAL/PlatformTime.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogWeaponComponent, Log, All);
 
@@ -72,6 +74,12 @@ void UWeaponComponent::BeginPlay()
     }
 }
 
+void UWeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	NotifyRichContactSourceTerminal();
+	Super::EndPlay(EndPlayReason);
+}
+
 void UWeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -90,6 +98,14 @@ void UWeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 
 void UWeaponComponent::EnableHitDetection()
 {
+	NotifyRichContactSourceTerminal();
+	TraceGeneration = TraceGeneration == MAX_int32 ? 1 : TraceGeneration + 1;
+	FWeaponTraceInstanceId TraceId;
+	TraceId.WeaponComponent = this;
+	TraceId.TraceGeneration = TraceGeneration;
+	ActiveContactId = FContactInstanceId::FromCompatibilityTrace(TraceId);
+	AcceptedHitCount = 0;
+
     // Always clear hit actors for the new attack, even if already enabled.
     // During combo blends, the new montage's Active phase notify fires BEFORE
     // the old montage's OnMontageEnded callback (which disables hit detection).
@@ -149,6 +165,8 @@ void UWeaponComponent::DisableHitDetection()
             *GetOwner()->GetName(), HitActors.Num());
     }
 
+	NotifyRichContactSourceTerminal();
+
     bHitDetectionEnabled = false;
     SetComponentTickEnabled(false);
 
@@ -165,6 +183,7 @@ void UWeaponComponent::DisableHitDetection()
 void UWeaponComponent::ResetHitActors()
 {
     HitActors.Empty();
+	AcceptedHitCount = 0;
 }
 
 // ============================================================================
@@ -394,12 +413,65 @@ void UWeaponComponent::PerformWeaponTrace()
 
 void UWeaponComponent::ProcessHit(const FHitResult& Hit)
 {
+	ProcessHitWithAttackData(Hit, GetCurrentAttackData());
+}
+
+void UWeaponComponent::ProcessHitWithAttackData(const FHitResult& Hit, UAttackData* AttackData)
+{
     AActor* HitActor = Hit.GetActor();
 
-    if (!HitActor || WasActorAlreadyHit(HitActor) || ShouldIgnoreHitActor(HitActor))
+	if (!HitActor || WasActorAlreadyHit(HitActor))
     {
         return;
     }
+
+	EnsureActiveContactInstance();
+	ABaseCombatCharacter* SourceCharacter = Cast<ABaseCombatCharacter>(OwnerCharacter.Get());
+	if (!SourceCharacter)
+	{
+		SourceCharacter = Cast<ABaseCombatCharacter>(GetOwner());
+	}
+	ABaseCombatCharacter* RichTarget = Cast<ABaseCombatCharacter>(HitActor);
+	if (SourceCharacter && RichTarget)
+	{
+		if (AttackData && AttackData->MaxHitCount > 0 && AcceptedHitCount >= AttackData->MaxHitCount)
+		{
+			return;
+		}
+
+		const FDefenseContactRequest Request = BuildDefenseContactRequest(Hit, AttackData);
+		if (Request.ContactId.IsValid())
+		{
+			RichContactParticipants.Add(RichTarget, Request.ContactId);
+		}
+
+		TWeakObjectPtr<UWeaponComponent> WeakThis(this);
+		TWeakObjectPtr<ABaseCombatCharacter> WeakSource(SourceCharacter);
+		TWeakObjectPtr<ABaseCombatCharacter> WeakTarget(RichTarget);
+		const FDefenseContactReceipt Receipt = SourceCharacter->ResolveWeaponContactCandidate(
+			HitActor,
+			Request);
+		if (!WeakThis.IsValid() || !WeakSource.IsValid() || !WeakTarget.IsValid())
+		{
+			return;
+		}
+
+		if (Receipt.CommitStatus == EDefenseCommitStatus::NewCommit && Receipt.bAcceptsWeaponHit)
+		{
+			AddHitActor(HitActor);
+			if (Receipt.bConsumesHitBudget)
+			{
+				++AcceptedHitCount;
+			}
+		}
+		WeakSource->FinalizeResolvedWeaponContact(HitActor, Receipt);
+		return;
+	}
+
+	if (ShouldIgnoreHitActor(HitActor))
+	{
+		return;
+	}
 
     // Filter out dead/dying actors at the trace level - they shouldn't count as hits
     if (const ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(HitActor))
@@ -411,22 +483,173 @@ void UWeaponComponent::ProcessHit(const FHitResult& Hit)
     }
 
     // Enforce max hit count per attack (0 = unlimited)
-    UAttackData* AttackData = GetCurrentAttackData();
-    if (AttackData && AttackData->MaxHitCount > 0 && HitActors.Num() >= AttackData->MaxHitCount)
+	if (AttackData && AttackData->MaxHitCount > 0 && AcceptedHitCount >= AttackData->MaxHitCount)
     {
         return;
     }
 
     // Add to hit list (only living actors reach here)
     AddHitActor(HitActor);
+	++AcceptedHitCount;
 
     // Broadcast hit event
     OnWeaponHit.Broadcast(HitActor, Hit, AttackData);
 }
 
+FDefenseContactRequest UWeaponComponent::BuildDefenseContactRequest(
+	const FHitResult& Hit,
+	UAttackData* AttackData) const
+{
+	FDefenseContactRequest Request;
+	Request.ContactId = ActiveContactId;
+	Request.TraceStart = Hit.TraceStart;
+	Request.TraceEnd = Hit.TraceEnd;
+	Request.ActiveSourceSocket = GetEffectiveEndSocket();
+
+	ABaseCombatCharacter* Source = Cast<ABaseCombatCharacter>(OwnerCharacter.Get());
+	if (!Source)
+	{
+		Source = Cast<ABaseCombatCharacter>(GetOwner());
+	}
+	AActor* Target = Hit.GetActor();
+	Request.Query.Stage = EDefenseQueryStage::Contact;
+	Request.Query.Attack.AttackData = AttackData;
+	Request.Query.Attack.AttackType = AttackData ? AttackData->AttackType : EAttackType::None;
+	Request.Query.Attack.AttackTags = AttackData ? AttackData->AttackTags : FGameplayTagContainer();
+	Request.Query.Attack.AuthoredHeight = AttackData
+		? AttackData->DefenseProfile.Height
+		: EAttackHeight::Middle;
+	Request.Query.Attack.NominalLane = AttackData
+		? AttackData->DefenseProfile.NominalLane
+		: EIncomingAttackLane::Center;
+	Request.Query.Attack.SwingShape = AttackData
+		? AttackData->DefenseProfile.SwingShape
+		: ESwingDirection::Horizontal;
+	Request.Query.Attack.SourceSocket = Request.ActiveSourceSocket;
+	Request.Query.Attack.DefenderTargetBone = AttackData
+		? AttackData->GetDefenseTargetBoneFallback()
+		: NAME_None;
+	Request.Query.Attack.AttackerTransform = Source ? Source->GetActorTransform() : FTransform::Identity;
+	Request.Query.Attack.AttackerVelocity = Source ? Source->GetVelocity() : FVector::ZeroVector;
+	Request.Query.Attack.bAttackerAlive = Source && !Source->IsDeadOrDying();
+	Request.Query.Attack.bAttackActive = bHitDetectionEnabled;
+	Request.Query.Attack.bAttackerPaired = Source
+		&& Source->PairedAnimationComponent
+		&& Source->PairedAnimationComponent->IsPairedAnimationActive();
+	if (Source)
+	{
+		Request.Query.Attack.AttackerTeam = Source->TeamId;
+	}
+
+	if (Source && Source->CombatComponent && AttackData
+		&& Source->CombatComponent->GetCurrentAttack() == AttackData
+		&& Source->CombatComponent->GetCurrentAttackGeneration() > 0)
+	{
+		Request.Query.Attack.AttackInstance.Attacker = Source;
+		Request.Query.Attack.AttackInstance.AttackGeneration =
+			Source->CombatComponent->GetCurrentAttackGeneration();
+		Request.Query.Attack.bAttackIdentityCurrent = true;
+	}
+
+	FHitReactionInfo& HitInfo = Request.HitInfo;
+	HitInfo.Attacker = Source;
+	HitInfo.AttackData = AttackData;
+	HitInfo.Damage = AttackData ? AttackData->BaseDamage * GetDamageMultiplier() : 0.0f;
+	HitInfo.StunDuration = AttackData ? AttackData->HitStunDuration : 0.0f;
+	HitInfo.ImpactPoint = Hit.ImpactPoint;
+	HitInfo.ImpactNormal = Hit.ImpactNormal;
+	HitInfo.BoneName = Hit.BoneName;
+	HitInfo.SurfaceType = UWeaponTraceLibrary::MapPhysicalMaterialToSurfaceType(Hit.PhysMaterial.Get());
+
+	if (!CachedWeaponTipVelocity.IsNearlyZero())
+	{
+		HitInfo.HitDirection = -CachedWeaponTipVelocity.GetSafeNormal();
+		HitInfo.WeaponVelocity = CachedWeaponTipVelocity;
+	}
+	else if (Source && Target)
+	{
+		HitInfo.HitDirection = (Source->GetActorLocation() - Target->GetActorLocation()).GetSafeNormal();
+		HitInfo.WeaponVelocity = -HitInfo.HitDirection * HitInfo.Damage;
+	}
+
+	if (Target && Source)
+	{
+		HitInfo.DistanceToTarget = FVector::Dist(Source->GetActorLocation(), Target->GetActorLocation());
+	}
+	if (Source && Source->CombatComponent)
+	{
+		HitInfo.PhaseWhenHit = Source->CombatComponent->GetCurrentPhase();
+		HitInfo.bWasCounter = Source->CombatComponent->IsInCounterWindow();
+	}
+	if (OwnerMesh)
+	{
+		if (UAnimInstance* AnimInstance = OwnerMesh->GetAnimInstance())
+		{
+			if (UAnimMontage* Montage = AnimInstance->GetCurrentActiveMontage())
+			{
+				HitInfo.AnimationTime = AnimInstance->Montage_GetPosition(Montage);
+			}
+		}
+	}
+
+	USkeletalMeshComponent* EffectiveMesh = OwnerMesh.Get();
+	if (!EffectiveMesh && Source)
+	{
+		EffectiveMesh = Source->GetMesh();
+	}
+	if (EffectiveMesh
+		&& EffectiveMesh->DoesSocketExist(GetEffectiveStartSocket())
+		&& EffectiveMesh->DoesSocketExist(GetEffectiveEndSocket()))
+	{
+		HitInfo.HitConfidence = UWeaponTraceLibrary::ComputeHitConfidence(
+			CachedWeaponTipVelocity,
+			Hit.ImpactPoint,
+			EffectiveMesh->GetSocketLocation(GetEffectiveStartSocket()),
+			EffectiveMesh->GetSocketLocation(GetEffectiveEndSocket()));
+	}
+	return Request;
+}
+
+void UWeaponComponent::EnsureActiveContactInstance()
+{
+	if (ActiveContactId.IsValid())
+	{
+		return;
+	}
+
+	TraceGeneration = TraceGeneration == MAX_int32 ? 1 : TraceGeneration + 1;
+	FWeaponTraceInstanceId TraceId;
+	TraceId.WeaponComponent = this;
+	TraceId.TraceGeneration = TraceGeneration;
+	ActiveContactId = FContactInstanceId::FromCompatibilityTrace(TraceId);
+}
+
+void UWeaponComponent::NotifyRichContactSourceTerminal()
+{
+	if (RichContactParticipants.IsEmpty())
+	{
+		ActiveContactId = FContactInstanceId();
+		return;
+	}
+
+	const double UnscaledNow = FPlatformTime::Seconds();
+	for (const TPair<TWeakObjectPtr<ABaseCombatCharacter>, FContactInstanceId>& Pair : RichContactParticipants)
+	{
+		if (ABaseCombatCharacter* Target = Pair.Key.Get())
+		{
+			if (Target->CombatComponent)
+			{
+				Target->CombatComponent->MarkDefenseContactSourceTerminal(Pair.Value, UnscaledNow);
+			}
+		}
+	}
+	RichContactParticipants.Reset();
+	ActiveContactId = FContactInstanceId();
+}
+
 bool UWeaponComponent::ShouldIgnoreHitActor(AActor* HitActor) const
 {
-    if (!HitActor || HitActor == OwnerCharacter)
+    if (!HitActor || HitActor == OwnerCharacter || HitActor == GetOwner())
     {
         return true;
     }
@@ -436,6 +659,13 @@ bool UWeaponComponent::ShouldIgnoreHitActor(AActor* HitActor) const
     {
         OwnerActor = GetOwner();
     }
+
+	// Rich combat characters must reach the target-owned resolver so friendly,
+	// dead, invulnerable, and consumed contacts receive canonical receipts.
+	if (Cast<ABaseCombatCharacter>(HitActor))
+	{
+		return false;
+	}
 
     if (!OwnerActor)
     {
@@ -466,13 +696,18 @@ void UWeaponComponent::AddHitActor(AActor* Actor)
 
 UAttackData* UWeaponComponent::GetCurrentAttackData() const
 {
-    if (!OwnerCharacter)
-    {
-        return nullptr;
-    }
+	ACharacter* EffectiveOwner = OwnerCharacter.Get();
+	if (!EffectiveOwner)
+	{
+		EffectiveOwner = Cast<ACharacter>(GetOwner());
+	}
+	if (!EffectiveOwner)
+	{
+		return nullptr;
+	}
 
     // Get current attack from CombatComponent
-    if (UCombatComponent* CombatComp = OwnerCharacter->FindComponentByClass<UCombatComponent>())
+	if (UCombatComponent* CombatComp = EffectiveOwner->FindComponentByClass<UCombatComponent>())
     {
         return CombatComp->GetCurrentAttack();
     }

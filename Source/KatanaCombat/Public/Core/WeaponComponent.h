@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "CombatTypes.h"
 #include "WeaponComponent.generated.h"
 
 class UAttackData;
@@ -13,6 +14,7 @@ class UCombatSettings;
 class ACharacter;
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
+class ABaseCombatCharacter;
 
 /**
  * Handles weapon-based hit detection via socket tracing
@@ -250,6 +252,30 @@ public:
     UFUNCTION(BlueprintPure, Category = "Weapon")
     int32 GetHitActorCount() const { return HitActors.Num(); }
 
+#if WITH_AUTOMATION_TESTS
+	int32 GetAcceptedHitCountForTesting() const { return AcceptedHitCount; }
+	void ProcessHitForTesting(const FHitResult& Hit, UAttackData* AttackData)
+	{
+		ProcessHitWithAttackData(Hit, AttackData);
+	}
+	void SetCompatibilityTraceGenerationForTesting(int32 InTraceGeneration)
+	{
+		TraceGeneration = FMath::Max(0, InTraceGeneration);
+		FWeaponTraceInstanceId TraceId;
+		TraceId.WeaponComponent = TraceGeneration > 0 ? this : nullptr;
+		TraceId.TraceGeneration = TraceGeneration;
+		ActiveContactId = TraceGeneration > 0
+			? FContactInstanceId::FromCompatibilityTrace(TraceId)
+			: FContactInstanceId();
+	}
+#endif
+
+	/** Native source-lifecycle check used by defender cache lazy sweeping. */
+	bool IsContactInstanceCurrent(const FContactInstanceId& ContactId) const
+	{
+		return ActiveContactId.IsValid() && ActiveContactId == ContactId;
+	}
+
     /**
      * Get the weapon tip velocity computed from frame-to-frame position delta.
      * Accurate for VFX alignment, knockback, and hit analytics.
@@ -273,6 +299,7 @@ public:
 
 protected:
     virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 private:
     // ============================================================================
@@ -298,6 +325,14 @@ private:
     /** Actors already hit by current attack (prevents double-hitting) */
     UPROPERTY()
     TArray<TObjectPtr<AActor>> HitActors;
+
+	/** Accepted rich or generic contacts that spend this attack's MaxHitCount budget. */
+	int32 AcceptedHitCount = 0;
+
+	/** Monotonic compatibility identity for each trace-enable generation. */
+	int32 TraceGeneration = 0;
+	FContactInstanceId ActiveContactId;
+	TMap<TWeakObjectPtr<ABaseCombatCharacter>, FContactInstanceId> RichContactParticipants;
 
     /**
      * Previous frame positions for each trace point along the blade.
@@ -353,6 +388,12 @@ private:
      * @param Hit - Hit result from trace
      */
     void ProcessHit(const FHitResult& Hit);
+	void ProcessHitWithAttackData(const FHitResult& Hit, UAttackData* AttackData);
+	FDefenseContactRequest BuildDefenseContactRequest(
+		const FHitResult& Hit,
+		UAttackData* AttackData) const;
+	void NotifyRichContactSourceTerminal();
+	void EnsureActiveContactInstance();
 
     /**
      * Returns true when the trace should ignore this actor before it is counted

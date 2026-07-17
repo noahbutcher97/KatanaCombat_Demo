@@ -2,6 +2,7 @@
 
 #include "Core/CombatComponent.h"
 #include "Core/PairedAnimationComponent.h"
+#include "HAL/PlatformTime.h"
 #include "Core/WeaponComponent.h"
 #include "Interfaces/CombatInterface.h"
 #include "Interfaces/DamageableInterface.h"
@@ -127,6 +128,7 @@ void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	CurrentPhase = EAttackPhase::None;
 	bIsBlocking = false;
 	CachedPairedAnimComp = nullptr;
+	DefenseInteractionCache.Reset();
 
 	Super::EndPlay(EndPlayReason);
 }
@@ -310,6 +312,201 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 ABaseCombatCharacter* UCombatComponent::GetOwnerCharacter() const
 {
 	return OwnerCharacter ? OwnerCharacter.Get() : Cast<ABaseCombatCharacter>(GetOwner());
+}
+
+// ============================================================================
+// DEFENSE INTERACTION COMMIT CACHE
+// ============================================================================
+
+EDefenseCommitStatus UCombatComponent::BeginDefenseInteraction(
+	const FDefenseInteractionKey& Key,
+	FDefenseInteractionId& OutId,
+	FDefenseContactReceipt& OutExistingReceipt,
+	const bool bAllowNewRegistration)
+{
+	OutId = FDefenseInteractionId();
+	OutExistingReceipt = FDefenseContactReceipt();
+	SweepDefenseInteractionCache(FPlatformTime::Seconds());
+
+	if (Key.Defender.Get() != GetOwner())
+	{
+		return EDefenseCommitStatus::RejectedBeforeRegistration;
+	}
+
+	if (FDefenseInteractionCacheRecord* Existing = DefenseInteractionCache.Find(Key))
+	{
+		OutId = Existing->Id;
+		if (!Existing->bFinalized)
+		{
+			OutExistingReceipt.Resolution.InteractionId = Existing->Id;
+			OutExistingReceipt.CommitStatus = EDefenseCommitStatus::InProgress;
+			return EDefenseCommitStatus::InProgress;
+		}
+
+		OutExistingReceipt = Existing->Receipt;
+		OutExistingReceipt.CommitStatus = EDefenseCommitStatus::Cached;
+		return EDefenseCommitStatus::Cached;
+	}
+
+	if (!bAllowNewRegistration || !Key.IsValid())
+	{
+		return EDefenseCommitStatus::RejectedBeforeRegistration;
+	}
+
+	FDefenseInteractionCacheRecord& Record = DefenseInteractionCache.Add(Key);
+	Record.Id.Key = Key;
+	Record.Id.Epoch = ++NextDefenseInteractionEpoch;
+	OutId = Record.Id;
+	return EDefenseCommitStatus::NewCommit;
+}
+
+void UCombatComponent::FinalizeDefenseInteraction(
+	const FDefenseInteractionId& Id,
+	const FDefenseContactReceipt& Receipt)
+{
+	if (Id.Epoch == 0 || Id.Key.Defender.Get() != GetOwner())
+	{
+		return;
+	}
+
+	FDefenseInteractionCacheRecord* Record = DefenseInteractionCache.Find(Id.Key);
+	if (!Record || Record->bFinalized || !(Record->Id == Id))
+	{
+		return;
+	}
+
+	Record->Receipt = Receipt;
+	Record->Receipt.Resolution.InteractionId = Id;
+	Record->Receipt.CommitStatus = EDefenseCommitStatus::NewCommit;
+	Record->bFinalized = true;
+}
+
+bool UCombatComponent::IsDefenseInteractionFinalized(const FDefenseInteractionId& Id) const
+{
+	if (Id.Epoch == 0 || Id.Key.Defender.Get() != GetOwner())
+	{
+		return false;
+	}
+
+	const FDefenseInteractionCacheRecord* Record = DefenseInteractionCache.Find(Id.Key);
+	return Record
+		&& Record->bFinalized
+		&& Record->Id == Id
+		&& Record->Receipt.Resolution.InteractionId == Id;
+}
+
+void UCombatComponent::MarkDefenseContactSourceTerminal(
+	const FContactInstanceId& ContactId,
+	const double UnscaledNow)
+{
+	const bool bHasStructuralIdentity = ContactId.bUsesAttackWindow
+		? ContactId.AttackWindow.WindowGeneration > 0
+			&& ContactId.AttackWindow.AttackInstance.AttackGeneration > 0
+		: ContactId.CompatibilityTrace.TraceGeneration > 0;
+	if (!bHasStructuralIdentity || !FMath::IsFinite(UnscaledNow))
+	{
+		return;
+	}
+
+	for (TPair<FDefenseInteractionKey, FDefenseInteractionCacheRecord>& Pair : DefenseInteractionCache)
+	{
+		FDefenseInteractionCacheRecord& Record = Pair.Value;
+		if (Pair.Key.Stage == EDefenseQueryStage::Contact
+			&& Pair.Key.ContactInstance == ContactId
+			&& !Record.bSourceTerminal)
+		{
+			Record.bSourceTerminal = true;
+			Record.TerminalUnscaledTime = UnscaledNow;
+			Record.TerminalSequence = ++NextDefenseTerminalSequence;
+		}
+	}
+
+	SweepDefenseInteractionCache(UnscaledNow);
+}
+
+void UCombatComponent::SweepDefenseInteractionCache(const double UnscaledNow)
+{
+	if (!FMath::IsFinite(UnscaledNow))
+	{
+		return;
+	}
+
+	for (TPair<FDefenseInteractionKey, FDefenseInteractionCacheRecord>& Pair : DefenseInteractionCache)
+	{
+		FDefenseInteractionCacheRecord& Record = Pair.Value;
+		if (Pair.Key.Stage != EDefenseQueryStage::Contact || Record.bSourceTerminal)
+		{
+			continue;
+		}
+
+		const FContactInstanceId& Contact = Pair.Key.ContactInstance;
+		bool bSourceStillValid = false;
+		if (Contact.bUsesAttackWindow)
+		{
+			const ABaseCombatCharacter* SourceCharacter = Cast<ABaseCombatCharacter>(
+				Contact.AttackWindow.AttackInstance.Attacker.Get());
+			bSourceStillValid = SourceCharacter
+				&& SourceCharacter->CombatComponent
+				&& SourceCharacter->CombatComponent->GetCurrentAttackGeneration()
+					== Contact.AttackWindow.AttackInstance.AttackGeneration;
+		}
+		else
+		{
+			const UWeaponComponent* SourceWeapon = Cast<UWeaponComponent>(
+				Contact.CompatibilityTrace.WeaponComponent.Get());
+			bSourceStillValid = SourceWeapon
+				&& SourceWeapon->IsContactInstanceCurrent(Contact);
+		}
+		if (!bSourceStillValid)
+		{
+			Record.bSourceTerminal = true;
+			Record.TerminalUnscaledTime = UnscaledNow;
+			Record.TerminalSequence = ++NextDefenseTerminalSequence;
+		}
+	}
+
+	for (auto Iterator = DefenseInteractionCache.CreateIterator(); Iterator; ++Iterator)
+	{
+		const FDefenseInteractionCacheRecord& Record = Iterator.Value();
+		if (Record.bFinalized
+			&& Record.bSourceTerminal
+			&& UnscaledNow - Record.TerminalUnscaledTime >= DefenseInteractionTombstoneSeconds)
+		{
+			Iterator.RemoveCurrent();
+		}
+	}
+
+	auto CountTerminalRecords = [this]()
+	{
+		int32 Count = 0;
+		for (const TPair<FDefenseInteractionKey, FDefenseInteractionCacheRecord>& Pair : DefenseInteractionCache)
+		{
+			Count += Pair.Value.bFinalized && Pair.Value.bSourceTerminal ? 1 : 0;
+		}
+		return Count;
+	};
+
+	while (CountTerminalRecords() > DefenseTerminalInteractionCacheCap)
+	{
+		const FDefenseInteractionKey* OldestKey = nullptr;
+		uint64 OldestSequence = MAX_uint64;
+		for (const TPair<FDefenseInteractionKey, FDefenseInteractionCacheRecord>& Pair : DefenseInteractionCache)
+		{
+			const FDefenseInteractionCacheRecord& Record = Pair.Value;
+			if (Record.bFinalized && Record.bSourceTerminal && Record.TerminalSequence < OldestSequence)
+			{
+				OldestKey = &Pair.Key;
+				OldestSequence = Record.TerminalSequence;
+			}
+		}
+
+		if (!OldestKey)
+		{
+			break;
+		}
+		const FDefenseInteractionKey KeyToRemove = *OldestKey;
+		DefenseInteractionCache.Remove(KeyToRemove);
+	}
 }
 
 bool UCombatComponent::GetDebugDraw() const

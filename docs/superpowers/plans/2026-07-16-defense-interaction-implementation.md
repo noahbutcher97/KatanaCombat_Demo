@@ -465,7 +465,7 @@ git commit -m "Add typed defense resolution contracts"
 
 **Produces:** One synchronous target-owned resolution/commit, bounded cache/tombstones, rich-contact receipt transport, and post-accept source accounting. Legacy generic contacts remain operational.
 
-- [ ] **Step 1: Add failing rich-contact and accounting tests**
+- [x] **Step 1: Add failing rich-contact and accounting tests**
 
 Cover `NewCommit`, `Cached`, same-key synchronous `InProgress`, friendly, invalid/dead, invulnerable/i-frame, consumed, null-attack compatibility, normal block, hit, and unblockable hit. Assert exact health delta, exact `OnDamageReceived` count, exact presentation/effect count, and returned `AppliedDamage` after resistance.
 
@@ -479,13 +479,13 @@ TestEqual(TEXT("Cached duplicate does not consume again"), Weapon->GetAcceptedHi
 
 Add a multi-target test proving a friendly or invulnerable first target does not prevent a later hostile target. Add a same-frame test proving first committed contact prevents retroactive parry, while prior attack consumption returns `IgnoredConsumed` for contact.
 
-- [ ] **Step 2: Add a static rich-path source gate**
+- [x] **Step 2: Add a static rich-path source gate**
 
 `DefenseArchitectureSourceTests.cpp` loads `BaseCombatCharacter.cpp` and extracts the body of `ResolveAndCommitCombatContact`. Fail if that body contains `ApplyDamage`, `IsBlocking`, or `CanBlockHit`. Also fail if `WeaponComponent::ProcessHit` calls `AddHitActor` before obtaining a rich receipt.
 
 Use a balanced-brace extractor that strips C++ comments before token checks. A raw whole-file substring test is too prone to false positives from compatibility methods and documentation.
 
-- [ ] **Step 3: Add canonical cache ownership to `UCombatComponent`**
+- [x] **Step 3: Add canonical cache ownership to `UCombatComponent`**
 
 Add:
 
@@ -505,7 +505,7 @@ Install an in-progress entry before any health or presentation call. Cache looku
 
 Allocate a target-local monotonic interaction epoch only when a `(stage, attack/contact, defender)` key is first registered. Duplicate lookups reuse that `FDefenseInteractionId`; they never allocate a new epoch.
 
-- [ ] **Step 4: Add the native target and source adapter methods**
+- [x] **Step 4: Add the native target and source adapter methods**
 
 Add to `ABaseCombatCharacter`:
 
@@ -527,7 +527,7 @@ Equal non-neutral teams resolve `IgnoredFriendly` when friendly fire is disabled
 
 `ApplyDamage_Implementation` remains a compatibility adapter. It may build a best-effort request when source identity exists, but the rich path must never call it recursively.
 
-- [ ] **Step 5: Move weapon accounting after the receipt**
+- [x] **Step 5: Move weapon accounting after the receipt**
 
 Increment `FWeaponTraceInstanceId::Generation` in `EnableHitDetection()`. Build `FContactInstanceId` from the active hit-window identity, or from the compatibility trace generation when no valid authored attack exists.
 
@@ -550,13 +550,13 @@ Revalidate the weak source owner after the target call before touching weapon st
 
 Dead, invulnerable, i-frame, and null-`AttackData` prefilters also move behind the rich target boundary so they produce canonical receipts. Keep best-effort prefilters for generic targets. Add a test-only accepted-hit-count accessor. `Hit`, `UnblockableHit`, and `NormalBlock` each consume one rich hit-budget unit; ignored, cached, in-progress, and rejected contacts consume none.
 
-- [ ] **Step 6: Enforce commit/event ordering and reentrancy**
+- [x] **Step 6: Enforce commit/event ordering and reentrancy**
 
 Direct silent gameplay mutation and receipt finalization happen before presentation/delegates. Source finalization uses only the finalized receipt plus its target-owned deferred gameplay result, completes weapon accounting, attempts defender presentation and attacker response, revalidates both actors after every cross-actor call, then broadcasts immutable events. Before each optional dispatch, verify that the owning actor and interaction generation remain valid; participant destruction suppresses remaining optional work without changing the committed receipt. Add a generation-keyed one-shot end-of-frame fallback when the source coordinator becomes invalid. A cached or in-progress receipt never replays effects or broadcasts.
 
 Add reentrancy tests whose `OnDamageReceived`, `OnHealthChanged`, and `OnCharacterDying` listeners query the same contact, begin another action, or destroy a participant. Assert that same-key reentry sees `InProgress` or the finalized cached receipt as appropriate, all listeners observe the finalized receipt, damage/death transition and each public event occur exactly once, weapon accounting is already coherent, and no optional presentation runs after its owner is destroyed.
 
-- [ ] **Step 7: Verify and commit Slice 2**
+- [x] **Step 7: Verify and commit Slice 2**
 
 Build the fresh editor/test modules, then run:
 

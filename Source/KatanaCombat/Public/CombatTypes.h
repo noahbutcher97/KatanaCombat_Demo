@@ -2108,6 +2108,12 @@ struct FActualDefenseContact
 	FVector IncomingTrajectory = FVector::ZeroVector;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector TraceStart = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector TraceEnd = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	EIncomingAttackLane Lane = EIncomingAttackLane::Center;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
@@ -2118,6 +2124,10 @@ struct FActualDefenseContact
 
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	EDefenseHeightProvenance HeightProvenance = EDefenseHeightProvenance::None;
+
+	/** Exact or parent bone row that supplied Height; none when authored fallback won. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName HeightSourceBone = NAME_None;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	FName ResolvedTargetBone = NAME_None;

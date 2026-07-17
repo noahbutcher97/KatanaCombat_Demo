@@ -3,7 +3,7 @@
 Date: 2026-07-16
 Branch: `codex/defense-interaction-design`
 Pre-checkpoint HEAD: `108abf49` (`Harden defense interaction execution plan`)
-Status: `TASK 0A COMPLETE - GO TO TASK 1`
+Status: `SLICE 2 COMPLETE - GO TO TASK 3`
 
 ## Authority And Scope
 
@@ -120,3 +120,47 @@ The adversarial pass additionally:
 Final evidence is `Saved/Logs/Codex-Agent-Baseline-20260716-201508-*`. `KatanaCombatEditor Win64 Development` built successfully and all 452 `KatanaCombat` tests passed with zero failures/errors. The generated warning count remained 482, identical to the 439-test Task 0A baseline, and no new defense test emitted a warning. Static inspection found no world, component, asset-loading, delegate-broadcast, or mutable actor-state access in `FDefenseResolver`.
 
 `GO` for Task 2 after the Slice 1 commit. Gate A remains unclaimed, and all asset/editor/PIE obligations remain open.
+
+## Slice 2 Completion
+
+Task 2 now provides the native rich-contact commit boundary: target-owned first registration and immutable receipts, reflected bounded tombstones, silent resistance/health/death mutation, source accounting only after acceptance, canonical source finalization, and retained unscaled `FTSTicker` fallback handles. Generic contacts and `ApplyDamage_Implementation` retain immediate compatibility behavior.
+
+The test-first adversarial pass found and closed these material gaps:
+
+- source destruction could invalidate cache lookup or strand world-time fallback;
+- retained `NewCommit` receipts could replay source presentation and `OnAttackHit`;
+- a caller-mutated receipt could alter source effects instead of using target-owned truth;
+- foreign weapon IDs could commit, poison a legitimate cache key, or let stale compatibility generations hit;
+- target loss during the target call could still consume source hit budget;
+- participant destruction during Blueprint-native team queries could still mutate health;
+- health/dying listener destruction could continue later optional dispatch;
+- cache and pending results were not reflected, so forced GC collected referenced attack data;
+- accepted trace endpoints and target-bone fallback precedence were incomplete;
+- the cache-cap fixture advanced the generation it claimed was active.
+
+Current focused evidence:
+
+- final focused build: `Saved/Logs/Defense-Slice2-WarningCleanup-20260716-221838-build.log`, exit `0`;
+- full contact/static root: `Saved/Logs/Defense-Slice2-WarningCleanup-20260716-221854-contact.log`, 29 completed, 0 failures/warnings/errors;
+- post-audit adjacent roots: Damage 19 in `Saved/Logs/Defense-Slice2-PostAudit-20260716-221532-KatanaCombat-Damage.log`, Weapon 22 in `Saved/Logs/Defense-Slice2-PostAudit-20260716-221547-KatanaCombat-Weapon.log`, and Integration 12 in `Saved/Logs/Defense-Slice2-PostAudit-20260716-221602-KatanaCombat-Integration.log`, all green with zero failures.
+- final standard baseline: `Saved/Logs/Codex-Agent-Baseline-20260716-221917-*`, 482 completed, 0 failures/errors, and 482 warnings. The warning count is identical to the pre-Slice 1 baseline; the Contact root contributes no warnings.
+
+### Slice 2 Contract Coverage
+
+| Contract | Status | Evidence boundary |
+|---|---|---|
+| Target-owned `NewCommit`/`InProgress`/`Cached`, immutable applied damage, monotonic epoch | Proven | Contact cache, replay, reentry, lethal, and canonical-receipt tests. |
+| Active-record retention, terminal tombstone aging/cap, lazy source invalidation, GC-safe receipt ownership | Proven | Cache lifecycle/cap/source invalidation/forced-GC tests. |
+| Rich target authority, silent gameplay commit, source accounting before observable callbacks | Proven | Architecture gates plus Damage/Weapon/Contact event-order tests. |
+| Friendly/invulnerable/dead/i-frame/consumed/neutral policy and enemy-enemy suppression | Proven | Focused outcome and weapon-budget tests. |
+| Complete retained trace/hit metadata, independent prediction, exact bone provenance, target-bone precedence | Proven headlessly | Contact context tests; live parent-skeleton coverage remains Gate A evidence. |
+| Participant destruction, fallback, duplicate source finalization, malformed/stale identity handling | Proven | Dedicated adversarial regression tests under `KatanaCombat.Defense.Contact`. |
+| Authored hit-window producer and atomic perfect-parry attack consumption | Out Of Scope | Task 4 owns the producer and real same-frame consumption race. |
+| Full configuration precedence, owned alignment, specialized block/attacker response | Out Of Scope | Task 3 owns these runtime paths. |
+| Asset, Blueprint, montage, map, and visible PIE proof | Out Of Scope | Gate A/Task 6 own live proof. |
+
+No in-scope contract remains `Partial` or `Not Implemented`, and no high/medium Slice 2 audit finding is deferred. No asset, Blueprint, montage, map, input, AI, or paired-sequence package changed in Slice 2.
+
+Explicit later-slice dependencies are not Slice 2 failures: Task 4 supplies authored hit-window identity and atomic perfect-parry consumption; Task 3 supplies full defense-configuration precedence plus specialized normal-block/attacker-response presentation and alignment; Gate A supplies live parent-skeleton, asset, Editor, and PIE proof. Slice 2 proves immutable first-contact precedence and pre-consumed contact handling, not the future real parry-window producer.
+
+The exact next action after the Slice 2 commit is the Task 3 context-refresh preflight, followed by failing input-capture tests. Do not begin asset edits or claim visible block/parry behavior yet.

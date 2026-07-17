@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "Containers/Ticker.h"
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Interfaces/CombatInterface.h"
@@ -23,6 +24,57 @@ class UAttackData;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHealthChanged, float, NewHealth, float, MaxHealth);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDying, AActor*, Killer);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnCharacterDeath, AActor*, Killer);
+
+USTRUCT()
+struct FSilentHealthCommit
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	float OldHealth = 0.0f;
+
+	UPROPERTY()
+	float NewHealth = 0.0f;
+
+	UPROPERTY()
+	float ActualDelta = 0.0f;
+
+	UPROPERTY()
+	bool bHealthChanged = false;
+
+	UPROPERTY()
+	bool bNewlyDying = false;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> DamageInstigator;
+};
+
+USTRUCT()
+struct FDefenseGameplayCommitResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FDefenseContactReceipt Receipt;
+
+	UPROPERTY()
+	FHitReactionInfo HitInfo;
+
+	UPROPERTY()
+	float ResolvedDamage = 0.0f;
+
+	UPROPERTY()
+	bool bDispatchDamage = false;
+
+	UPROPERTY()
+	bool bPlayHitReaction = false;
+
+	UPROPERTY()
+	bool bSourceFinalizationClaimed = false;
+
+	UPROPERTY()
+	FSilentHealthCommit Health;
+};
 
 /**
  * Abstract base class for all combat-capable characters
@@ -206,6 +258,46 @@ public:
     UFUNCTION(BlueprintCallable, Category = "Combat|Health")
     void SetHealth(float NewHealth, AActor* DamageInstigator = nullptr);
 
+	// ========================================================================
+	// NATIVE RICH CONTACT TRANSPORT
+	// ========================================================================
+
+	FDefenseContactReceipt ResolveAndCommitCombatContact(const FDefenseContactRequest& Request);
+
+	FDefenseContactReceipt ResolveWeaponContactCandidate(
+		AActor* Target,
+		const FDefenseContactRequest& Request);
+
+	void FinalizeResolvedWeaponContact(
+		AActor* Target,
+		const FDefenseContactReceipt& Receipt);
+
+#if WITH_AUTOMATION_TESTS
+	void ConfigureResolvedWeaponImpactForTesting(
+		bool bDestroySelfDuringImpact,
+		bool bDestroyTargetDuringImpact)
+	{
+		bDestroySelfDuringResolvedWeaponImpactForTesting = bDestroySelfDuringImpact;
+		bDestroyTargetDuringResolvedWeaponImpactForTesting = bDestroyTargetDuringImpact;
+	}
+	void SetDestroyAfterDefenseCommitForTesting(bool bDestroy)
+	{
+		ActorToDestroyAfterDefenseCommitForTesting = bDestroy ? this : nullptr;
+	}
+	void SetActorToDestroyAfterDefenseCommitForTesting(AActor* Actor)
+	{
+		ActorToDestroyAfterDefenseCommitForTesting = Actor;
+	}
+	int32 GetResolvedWeaponImpactAttemptCountForTesting() const
+	{
+		return ResolvedWeaponImpactAttemptCountForTesting;
+	}
+	int32 GetAcceptedHitCountObservedDuringImpactForTesting() const
+	{
+		return AcceptedHitCountObservedDuringImpactForTesting;
+	}
+#endif
+
     // ========================================================================
     // ITeamMemberInterface IMPLEMENTATION
     // ========================================================================
@@ -258,6 +350,7 @@ public:
 
 protected:
     virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
     /**
      * Called when character dies (health reaches 0)
@@ -276,4 +369,45 @@ protected:
      */
     UFUNCTION()
     virtual void OnWeaponHitTarget(AActor* HitActor, const FHitResult& HitResult, UAttackData* AttackData);
+
+private:
+	FSilentHealthCommit CommitHealthDeltaSilently(float Delta, AActor* DamageInstigator);
+	void DispatchCommittedHealth(
+		const FSilentHealthCommit& Commit,
+		const FDefenseInteractionId* InteractionId = nullptr);
+	void DispatchCommittedDying(
+		AActor* Killer,
+		const FDefenseInteractionId* InteractionId = nullptr);
+	bool IsDefenseDispatchValid(const FDefenseInteractionId* InteractionId) const;
+
+	FActualDefenseContact BuildActualDefenseContact(const FDefenseContactRequest& Request) const;
+	void PopulateDefenseContactQuery(
+		FDefenseQuery& Query,
+		const FDefenseContactRequest& Request,
+		const FActualDefenseContact& ActualContact) const;
+	FDefenseGameplayCommitResult CommitResolvedDefenseDamage(
+		const FDefenseResolution& Resolution,
+		float ResistanceSnapshot);
+	bool TryClaimDefenseContactSourceFinalization(
+		const FDefenseInteractionId& InteractionId,
+		const ABaseCombatCharacter* ClaimingSource,
+		FDefenseContactReceipt& OutCanonicalReceipt);
+	void FlushCommittedDefenseContact(const FDefenseInteractionId& InteractionId);
+	void ScheduleDefenseContactFallback(const FDefenseInteractionId& InteractionId);
+	void CancelDefenseContactFallback(const FDefenseInteractionId& InteractionId);
+	void PlayResolvedWeaponImpact(AActor* Target, const FDefenseContactReceipt& Receipt);
+
+	UPROPERTY(Transient)
+	TMap<FDefenseInteractionId, FDefenseGameplayCommitResult> PendingDefenseGameplayCommits;
+	TMap<FDefenseInteractionId, FTSTicker::FDelegateHandle> PendingDefenseFallbackTickers;
+	TOptional<FDefenseInteractionId> ActiveDefenseDeathDispatchInteraction;
+	bool bCommittedDyingDispatchPending = false;
+
+#if WITH_AUTOMATION_TESTS
+	int32 ResolvedWeaponImpactAttemptCountForTesting = 0;
+	int32 AcceptedHitCountObservedDuringImpactForTesting = INDEX_NONE;
+	bool bDestroySelfDuringResolvedWeaponImpactForTesting = false;
+	bool bDestroyTargetDuringResolvedWeaponImpactForTesting = false;
+	TWeakObjectPtr<AActor> ActorToDestroyAfterDefenseCommitForTesting;
+#endif
 };

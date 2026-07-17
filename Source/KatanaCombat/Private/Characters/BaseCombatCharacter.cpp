@@ -7,7 +7,9 @@
 #include "Utilities/WeaponTraceLibrary.h"
 #include "Core/HitReactionComponent.h"
 #include "Core/PairedAnimationComponent.h"
+#include "Defense/DefenseResolver.h"
 #include "Data/AttackData.h"
+#include "Data/DefenseConfiguration.h"
 #include "Data/WeaponData.h"
 #include "Data/CombatSettings.h"
 #include "Data/CombatFXData.h"
@@ -15,6 +17,44 @@
 #include "MotionWarpingComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+
+namespace
+{
+bool DefenseOutcomeAcceptsWeaponHit(const EDefenseOutcome Outcome)
+{
+	return Outcome == EDefenseOutcome::NormalBlock
+		|| Outcome == EDefenseOutcome::Hit
+		|| Outcome == EDefenseOutcome::UnblockableHit;
+}
+
+bool IsUsableDefenseVector(const FVector& Vector)
+{
+	return FMath::IsFinite(Vector.X)
+		&& FMath::IsFinite(Vector.Y)
+		&& FMath::IsFinite(Vector.Z);
+}
+
+bool DoesContactIdentityBelongToSource(
+	const FContactInstanceId& ContactId,
+	const ABaseCombatCharacter* Source)
+{
+	if (!Source || !ContactId.IsValid())
+	{
+		return false;
+	}
+	if (ContactId.bUsesAttackWindow)
+	{
+		return ContactId.AttackWindow.AttackInstance.Attacker.Get() == Source;
+	}
+
+	const UWeaponComponent* ContactWeapon = Cast<UWeaponComponent>(
+		ContactId.CompatibilityTrace.WeaponComponent.Get());
+	return ContactWeapon
+		&& Source->WeaponComponent.Get() == ContactWeapon
+		&& ContactWeapon->GetOwner() == Source;
+}
+}
 
 ABaseCombatCharacter::ABaseCombatCharacter()
 {
@@ -46,39 +86,113 @@ void ABaseCombatCharacter::BeginPlay()
     }
 }
 
+void ABaseCombatCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	for (const TPair<FDefenseInteractionId, FTSTicker::FDelegateHandle>& Pair : PendingDefenseFallbackTickers)
+	{
+		FTSTicker::RemoveTicker(Pair.Value);
+	}
+	PendingDefenseFallbackTickers.Reset();
+	PendingDefenseGameplayCommits.Reset();
+	ActiveDefenseDeathDispatchInteraction.Reset();
+
+	if (WeaponComponent)
+	{
+		WeaponComponent->OnWeaponHit.RemoveDynamic(this, &ABaseCombatCharacter::OnWeaponHitTarget);
+	}
+	Super::EndPlay(EndPlayReason);
+}
+
 // ============================================================================
 // HEALTH UTILITIES
 // ============================================================================
 
 float ABaseCombatCharacter::ModifyHealth(float Delta, AActor* DamageInstigator)
 {
-    const float OldHealth = CurrentHealth;
-    CurrentHealth = FMath::Clamp(CurrentHealth + Delta, 0.0f, MaxHealth);
-    const float ActualDelta = CurrentHealth - OldHealth;
-
-    if (!FMath::IsNearlyZero(ActualDelta))
-    {
-        UE_LOG(LogTemp, Log, TEXT("[HEALTH] %s: %.1f -> %.1f (delta: %.1f, max: %.1f)"),
-            *GetName(), OldHealth, CurrentHealth, ActualDelta, MaxHealth);
-
-        OnHealthChanged.Broadcast(CurrentHealth, MaxHealth);
-
-        if (CurrentHealth <= 0.0f && OldHealth > 0.0f)
-        {
-            UE_LOG(LogTemp, Warning, TEXT("[HEALTH] %s DIED! Killed by %s"),
-                *GetName(),
-                DamageInstigator ? *DamageInstigator->GetName() : TEXT("Unknown"));
-            HandleDeath(DamageInstigator);
-        }
-    }
-
-    return ActualDelta;
+	const FSilentHealthCommit Commit = CommitHealthDeltaSilently(Delta, DamageInstigator);
+	DispatchCommittedHealth(Commit);
+	return Commit.ActualDelta;
 }
 
 void ABaseCombatCharacter::SetHealth(float NewHealth, AActor* DamageInstigator)
 {
     const float Delta = NewHealth - CurrentHealth;
     ModifyHealth(Delta, DamageInstigator);
+}
+
+FSilentHealthCommit ABaseCombatCharacter::CommitHealthDeltaSilently(
+	const float Delta,
+	AActor* DamageInstigator)
+{
+	FSilentHealthCommit Commit;
+	Commit.OldHealth = CurrentHealth;
+	CurrentHealth = FMath::Clamp(CurrentHealth + Delta, 0.0f, MaxHealth);
+	Commit.NewHealth = CurrentHealth;
+	Commit.ActualDelta = Commit.NewHealth - Commit.OldHealth;
+	Commit.bHealthChanged = !FMath::IsNearlyZero(Commit.ActualDelta);
+	Commit.DamageInstigator = DamageInstigator;
+
+	if (Commit.bHealthChanged
+		&& Commit.NewHealth <= 0.0f
+		&& Commit.OldHealth > 0.0f
+		&& !bIsDead
+		&& !bIsDying)
+	{
+		bIsDying = true;
+		bCommittedDyingDispatchPending = true;
+		Commit.bNewlyDying = true;
+	}
+	return Commit;
+}
+
+bool ABaseCombatCharacter::IsDefenseDispatchValid(
+	const FDefenseInteractionId* InteractionId) const
+{
+	if (!IsValid(this))
+	{
+		return false;
+	}
+	return !InteractionId
+		|| (CombatComponent && CombatComponent->IsDefenseInteractionFinalized(*InteractionId));
+}
+
+void ABaseCombatCharacter::DispatchCommittedHealth(
+	const FSilentHealthCommit& Commit,
+	const FDefenseInteractionId* InteractionId)
+{
+	if (!Commit.bHealthChanged || !IsDefenseDispatchValid(InteractionId))
+	{
+		return;
+	}
+
+	UE_LOG(LogTemp, Log, TEXT("[HEALTH] %s: %.1f -> %.1f (delta: %.1f, max: %.1f)"),
+		*GetName(), Commit.OldHealth, Commit.NewHealth, Commit.ActualDelta, MaxHealth);
+	OnHealthChanged.Broadcast(Commit.NewHealth, MaxHealth);
+	if (!IsDefenseDispatchValid(InteractionId))
+	{
+		return;
+	}
+
+	if (Commit.bNewlyDying)
+	{
+		AActor* Killer = Commit.DamageInstigator.Get();
+		UE_LOG(LogTemp, Warning, TEXT("[HEALTH] %s DIED! Killed by %s"),
+			*GetName(), Killer ? *Killer->GetName() : TEXT("Unknown"));
+		if (InteractionId)
+		{
+			const TOptional<FDefenseInteractionId> PreviousInteraction = ActiveDefenseDeathDispatchInteraction;
+			ActiveDefenseDeathDispatchInteraction = *InteractionId;
+			HandleDeath(Killer);
+			if (IsValid(this))
+			{
+				ActiveDefenseDeathDispatchInteraction = PreviousInteraction;
+			}
+		}
+		else
+		{
+			HandleDeath(Killer);
+		}
+	}
 }
 
 void ABaseCombatCharacter::HandleDeath_Implementation(AActor* Killer)
@@ -98,25 +212,32 @@ void ABaseCombatCharacter::HandleDeath_Implementation(AActor* Killer)
         return;
     }
 
-    if (bIsDying)
+	if (bIsDying && !bCommittedDyingDispatchPending)
     {
         UE_LOG(LogTemp, Log, TEXT("[DEATH] %s HandleDeath called but already DYING - skipping"),
             *GetName());
         return;
     }
 
-    // ========================================================================
-    // TWO-STAGE DEATH: Enter DYING state (not DEAD yet)
-    // ========================================================================
-    // Dying = lethal damage received, death animation playing, combat blocked
-    // Dead  = death animation complete, ragdoll/freeze applied
-    //
-    // This allows the death animation to play through naturally before
-    // the final outcome (ragdoll/freeze) is applied via FinalizeDeath().
-    // ========================================================================
+	if (!bIsDying)
+	{
+		bIsDying = true;
+	}
+	bCommittedDyingDispatchPending = false;
+	const FDefenseInteractionId* InteractionId = ActiveDefenseDeathDispatchInteraction.IsSet()
+		? &ActiveDefenseDeathDispatchInteraction.GetValue()
+		: nullptr;
+	DispatchCommittedDying(Killer, InteractionId);
+}
 
-    // Set DYING flag - blocks combat but allows animation to continue
-    bIsDying = true;
+void ABaseCombatCharacter::DispatchCommittedDying(
+	AActor* Killer,
+	const FDefenseInteractionId* InteractionId)
+{
+	if (!IsDefenseDispatchValid(InteractionId))
+	{
+		return;
+	}
 
     UE_LOG(LogTemp, Log, TEXT("[DEATH] %s entering DYING state (killed by %s)"),
         *GetName(),
@@ -124,6 +245,10 @@ void ABaseCombatCharacter::HandleDeath_Implementation(AActor* Killer)
 
     // Broadcast dying event - systems can react to "dying" state
     OnCharacterDying.Broadcast(Killer);
+	if (!IsDefenseDispatchValid(InteractionId))
+	{
+		return;
+	}
 
     // Calculate death direction from killer
     EAttackDirection DeathDirection = EAttackDirection::Forward;
@@ -143,6 +268,10 @@ void ABaseCombatCharacter::HandleDeath_Implementation(AActor* Killer)
     {
         HitReactionComponent->PlayDeathReaction(DeathDirection);
     }
+	if (!IsDefenseDispatchValid(InteractionId))
+	{
+		return;
+	}
 
     // Disable combat component tick (combat is blocked during dying)
     if (CombatComponent)
@@ -273,6 +402,606 @@ bool ABaseCombatCharacter::IsFriendlyTo_Implementation(AActor* Other) const
     }
 
     return false;
+}
+
+// ============================================================================
+// NATIVE RICH CONTACT TRANSPORT
+// ============================================================================
+
+FActualDefenseContact ABaseCombatCharacter::BuildActualDefenseContact(
+	const FDefenseContactRequest& Request) const
+{
+	FActualDefenseContact Contact;
+	Contact.HitInfo = Request.HitInfo;
+	ABaseCombatCharacter* Source = Cast<ABaseCombatCharacter>(Request.HitInfo.Attacker);
+	Contact.bIsValid = Request.ContactId.IsValid()
+		&& IsValid(Source)
+		&& Source != this
+		&& DoesContactIdentityBelongToSource(Request.ContactId, Source)
+		&& IsUsableDefenseVector(Request.HitInfo.ImpactPoint)
+		&& IsUsableDefenseVector(Request.TraceStart)
+		&& IsUsableDefenseVector(Request.TraceEnd);
+
+	Contact.SourceBearing = Source
+		? (Source->GetActorLocation() - GetActorLocation()).GetSafeNormal()
+		: FVector::ZeroVector;
+	Contact.TraceStart = Request.TraceStart;
+	Contact.TraceEnd = Request.TraceEnd;
+	Contact.IncomingTrajectory = Request.HitInfo.WeaponVelocity;
+	if (!IsUsableDefenseVector(Contact.IncomingTrajectory)
+		|| Contact.IncomingTrajectory.IsNearlyZero())
+	{
+		Contact.IncomingTrajectory = Request.TraceEnd - Request.TraceStart;
+	}
+
+	Contact.SourceSocket = Request.ActiveSourceSocket;
+	if (Contact.SourceSocket.IsNone())
+	{
+		Contact.SourceSocket = Request.Query.Attack.PredictedContact.SourceSocket;
+	}
+	if (Contact.SourceSocket.IsNone() && Request.HitInfo.AttackData)
+	{
+		Contact.SourceSocket = Request.HitInfo.AttackData->DefenseProfile.SourceContactSocketOverride;
+	}
+
+	const EIncomingAttackLane AuthoredLane = Request.HitInfo.AttackData
+		? Request.HitInfo.AttackData->DefenseProfile.NominalLane
+		: Request.Query.Attack.NominalLane;
+	const FDefenseLaneResolution Lane = FDefenseResolver::ResolveIncomingLane(
+		Request.HitInfo.WeaponVelocity,
+		Request.TraceStart,
+		Request.TraceEnd,
+		AuthoredLane,
+		GetActorTransform(),
+		12.0f);
+	Contact.Lane = Lane.Lane;
+	Contact.LaneProvenance = Lane.Provenance;
+	Contact.IncomingTrajectory = Lane.IncomingTrajectory;
+
+	const EAttackHeight AuthoredHeight = Request.HitInfo.AttackData
+		? Request.HitInfo.AttackData->DefenseProfile.Height
+		: Request.Query.Attack.AuthoredHeight;
+	Contact.ResolvedTargetBone = Request.HitInfo.BoneName;
+	if (Contact.ResolvedTargetBone.IsNone()
+		&& Request.Query.Attack.PredictedContact.bIsValid)
+	{
+		Contact.ResolvedTargetBone = Request.Query.Attack.PredictedContact.DefenderTargetBone;
+	}
+	if (Contact.ResolvedTargetBone.IsNone())
+	{
+		Contact.ResolvedTargetBone = Request.Query.Attack.DefenderTargetBone;
+	}
+	if (Contact.ResolvedTargetBone.IsNone() && Request.HitInfo.AttackData)
+	{
+		Contact.ResolvedTargetBone = Request.HitInfo.AttackData->GetDefenseTargetBoneFallback();
+	}
+
+	TArray<FName> ParentBoneChain;
+	if (!Request.HitInfo.BoneName.IsNone())
+	{
+		if (const USkeletalMeshComponent* CharacterMesh = GetMesh())
+		{
+			TSet<FName> VisitedBones;
+			FName ParentBone = CharacterMesh->GetParentBone(Request.HitInfo.BoneName);
+			while (!ParentBone.IsNone() && !VisitedBones.Contains(ParentBone))
+			{
+				ParentBoneChain.Add(ParentBone);
+				VisitedBones.Add(ParentBone);
+				ParentBone = CharacterMesh->GetParentBone(ParentBone);
+			}
+		}
+	}
+
+	const UDefenseConfiguration* Configuration = CombatComponent
+		? CombatComponent->DefenseConfigurationOverride.Get()
+		: nullptr;
+	const FDefenseHeightResolution HeightResolution = Configuration
+		? Configuration->ResolveHeight(
+			Request.HitInfo.BoneName,
+			ParentBoneChain,
+			AuthoredHeight)
+		: FDefenseHeightResolution(
+			AuthoredHeight,
+			EDefenseHeightProvenance::Authored,
+			NAME_None);
+	Contact.Height = HeightResolution.Height;
+	Contact.HeightProvenance = HeightResolution.Provenance;
+	Contact.HeightSourceBone = HeightResolution.MatchedBone;
+	return Contact;
+}
+
+void ABaseCombatCharacter::PopulateDefenseContactQuery(
+	FDefenseQuery& Query,
+	const FDefenseContactRequest& Request,
+	const FActualDefenseContact& ActualContact) const
+{
+	Query.Stage = EDefenseQueryStage::Contact;
+	Query.Defender = const_cast<ABaseCombatCharacter*>(this);
+	Query.DefenderTransform = GetActorTransform();
+	Query.DefenderTeam = TeamId;
+	Query.ActualContact = ActualContact;
+	Query.bHasActualContact = ActualContact.bIsValid;
+	Query.bContactIdentityValid = Request.ContactId.IsValid();
+	Query.bDefenderAlive = !IsDeadOrDying();
+	Query.bDefenderPaired = PairedAnimationComponent
+		&& PairedAnimationComponent->IsPairedAnimationActive();
+	Query.bDefenderCanGuard = Query.bDefenderAlive && !Query.bDefenderPaired;
+	Query.bDefenderGuarding = CombatComponent && CombatComponent->IsGuardHeldForDefense();
+	Query.bDefenderCanBeDamaged = HitReactionComponent && HitReactionComponent->CanBeDamaged();
+	Query.bDefenderInIFrames = HitReactionComponent && HitReactionComponent->IsInIFrames();
+	Query.bFriendlyFireEnabled = false;
+	Query.RelativeYawDegrees = FDefenseResolver::CalculateDefenderRelativeYaw(
+		Query.DefenderTransform,
+		ActualContact.SourceBearing);
+	Query.CurrentSimulationTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+
+	AActor* Source = Request.HitInfo.Attacker;
+	UAttackData* AttackData = Request.HitInfo.AttackData;
+	Query.Attack.AttackData = AttackData;
+	Query.Attack.AttackType = AttackData ? AttackData->AttackType : EAttackType::None;
+	Query.Attack.AttackTags = AttackData ? AttackData->AttackTags : FGameplayTagContainer();
+	Query.Attack.AuthoredHeight = AttackData
+		? AttackData->DefenseProfile.Height
+		: Query.Attack.AuthoredHeight;
+	Query.Attack.NominalLane = AttackData
+		? AttackData->DefenseProfile.NominalLane
+		: Query.Attack.NominalLane;
+	Query.Attack.SwingShape = AttackData
+		? AttackData->DefenseProfile.SwingShape
+		: Query.Attack.SwingShape;
+	Query.Attack.SourceSocket = ActualContact.SourceSocket;
+	Query.Attack.DefenderTargetBone = ActualContact.ResolvedTargetBone;
+	Query.Attack.AttackerTransform = Source ? Source->GetActorTransform() : FTransform::Identity;
+	Query.Attack.AttackerVelocity = Source ? Source->GetVelocity() : FVector::ZeroVector;
+	Query.Attack.bAttackerAlive = IsValid(Source) && Source != this;
+
+	const ABaseCombatCharacter* SourceCharacter = Cast<ABaseCombatCharacter>(Source);
+	if (SourceCharacter)
+	{
+		Query.Attack.AttackerTeam = SourceCharacter->TeamId;
+		Query.Attack.bAttackerAlive = !SourceCharacter->IsDeadOrDying();
+		Query.Attack.bAttackerPaired = SourceCharacter->PairedAnimationComponent
+			&& SourceCharacter->PairedAnimationComponent->IsPairedAnimationActive();
+	}
+	else if (Source && Source->Implements<UTeamMemberInterface>())
+	{
+		Query.Attack.AttackerTeam = ITeamMemberInterface::Execute_GetTeamId(Source);
+	}
+
+	if (Source && Source->Implements<UTeamMemberInterface>() && Implements<UTeamMemberInterface>())
+	{
+		const bool bBothNonNeutral = Query.Attack.AttackerTeam != ETeamId::Neutral
+			&& Query.DefenderTeam != ETeamId::Neutral;
+		const bool bExplicitlyHostile = ITeamMemberInterface::Execute_IsHostileTo(
+			Source, const_cast<ABaseCombatCharacter*>(this))
+			|| ITeamMemberInterface::Execute_IsHostileTo(
+				const_cast<ABaseCombatCharacter*>(this), Source);
+		const bool bDefaultFriendly = Query.Attack.AttackerTeam == Query.DefenderTeam
+			|| (Query.Attack.AttackerTeam == ETeamId::Player && Query.DefenderTeam == ETeamId::Ally)
+			|| (Query.Attack.AttackerTeam == ETeamId::Ally && Query.DefenderTeam == ETeamId::Player);
+		Query.Attack.bIsHostileToDefender = bExplicitlyHostile;
+		Query.Attack.bIsFriendlyToDefender = bBothNonNeutral
+			&& bDefaultFriendly
+			&& !bExplicitlyHostile;
+	}
+
+	if (Request.ContactId.bUsesAttackWindow)
+	{
+		Query.Attack.AttackInstance = Request.ContactId.AttackWindow.AttackInstance;
+	}
+	else
+	{
+		const UWeaponComponent* ContactWeapon = Cast<UWeaponComponent>(
+			Request.ContactId.CompatibilityTrace.WeaponComponent.Get());
+		const bool bCompatibilityIdentityCurrent = DoesContactIdentityBelongToSource(
+			Request.ContactId,
+			SourceCharacter)
+			&& ContactWeapon
+			&& ContactWeapon->IsContactInstanceCurrent(Request.ContactId);
+		Query.Attack.bAttackConsumed = Query.Attack.bAttackConsumed
+			|| !bCompatibilityIdentityCurrent;
+	}
+
+	if (Query.Attack.AttackInstance.IsValid())
+	{
+		const UCombatComponent* SourceCombat = SourceCharacter
+			? SourceCharacter->CombatComponent.Get()
+			: nullptr;
+		Query.Attack.bAttackIdentityCurrent = SourceCombat
+			&& Query.Attack.AttackInstance.Attacker.Get() == Source
+			&& SourceCombat->GetCurrentAttackGeneration() == Query.Attack.AttackInstance.AttackGeneration;
+		Query.Attack.bAttackActive = Query.Attack.bAttackIdentityCurrent
+			&& SourceCombat->GetCurrentAttack() == AttackData;
+	}
+	else
+	{
+		Query.Attack.bAttackIdentityCurrent = false;
+		Query.Attack.bAttackActive = Query.Attack.bAttackerAlive;
+	}
+}
+
+FDefenseGameplayCommitResult ABaseCombatCharacter::CommitResolvedDefenseDamage(
+	const FDefenseResolution& Resolution,
+	const float ResistanceSnapshot)
+{
+	FDefenseGameplayCommitResult Result;
+	Result.HitInfo = Resolution.ActualContact.HitInfo;
+	if (Resolution.Decision.DamageDisposition != EDefenseDamageDisposition::ApplyRequestedDamage
+		|| !HitReactionComponent)
+	{
+		return Result;
+	}
+
+	const FCommittedHitReactionDamage DamageCommit = HitReactionComponent->CommitResolvedDamage(
+		Result.HitInfo,
+		ResistanceSnapshot);
+	Result.ResolvedDamage = FMath::IsFinite(DamageCommit.ResolvedDamage)
+		? FMath::Max(0.0f, DamageCommit.ResolvedDamage)
+		: 0.0f;
+	Result.bDispatchDamage = DamageCommit.bShouldNotify;
+	Result.bPlayHitReaction = DamageCommit.bShouldPlayReaction;
+	Result.Health = CommitHealthDeltaSilently(-Result.ResolvedDamage, Result.HitInfo.Attacker);
+	return Result;
+}
+
+FDefenseContactReceipt ABaseCombatCharacter::ResolveAndCommitCombatContact(
+	const FDefenseContactRequest& Request)
+{
+	FDefenseContactReceipt Receipt;
+	if (!CombatComponent)
+	{
+		return Receipt;
+	}
+
+	FDefenseInteractionKey Key;
+	Key.Stage = EDefenseQueryStage::Contact;
+	Key.ContactInstance = Request.ContactId;
+	Key.Defender = this;
+	FDefenseInteractionId InteractionId;
+	const ABaseCombatCharacter* RequestSource = Cast<ABaseCombatCharacter>(
+		Request.HitInfo.Attacker);
+	const EDefenseCommitStatus Registration = CombatComponent->BeginDefenseInteraction(
+		Key,
+		InteractionId,
+		Receipt,
+		DoesContactIdentityBelongToSource(Request.ContactId, RequestSource));
+	if (Registration != EDefenseCommitStatus::NewCommit)
+	{
+		Receipt.CommitStatus = Registration;
+		return Receipt;
+	}
+
+	FDefenseQuery Query = Request.Query;
+	FActualDefenseContact ActualContact = BuildActualDefenseContact(Request);
+	PopulateDefenseContactQuery(Query, Request, ActualContact);
+	const bool bTargetStillValid = IsValid(this) && IsValid(CombatComponent);
+	const bool bSourceStillValid = IsValid(Request.HitInfo.Attacker);
+	if (!bTargetStillValid || !bSourceStillValid)
+	{
+		ActualContact.bIsValid = false;
+		Query.ActualContact = ActualContact;
+		Query.bHasActualContact = false;
+		Query.bDefenderAlive = Query.bDefenderAlive && bTargetStillValid;
+		Query.Attack.bAttackerAlive = Query.Attack.bAttackerAlive && bSourceStillValid;
+	}
+	Receipt.Resolution.InteractionId = InteractionId;
+	Receipt.Resolution.Stage = EDefenseQueryStage::Contact;
+	Receipt.Resolution.PredictedContact = Query.Attack.PredictedContact;
+	Receipt.Resolution.ActualContact = ActualContact;
+	Receipt.Resolution.bHasActualContact = ActualContact.bIsValid;
+	Receipt.Resolution.Decision = FDefenseResolver::Resolve(Query);
+	Receipt.CommitStatus = EDefenseCommitStatus::NewCommit;
+	Receipt.bAcceptsWeaponHit = DefenseOutcomeAcceptsWeaponHit(
+		Receipt.Resolution.Decision.Outcome);
+	Receipt.bConsumesHitBudget = Receipt.bAcceptsWeaponHit;
+	if (!bTargetStillValid)
+	{
+		return Receipt;
+	}
+
+	const float ResistanceSnapshot = HitReactionComponent
+		? HitReactionComponent->DamageResistance
+		: 0.0f;
+	FDefenseGameplayCommitResult Gameplay = CommitResolvedDefenseDamage(
+		Receipt.Resolution,
+		ResistanceSnapshot);
+	Receipt.AppliedDamage = FMath::Max(0.0f, -Gameplay.Health.ActualDelta);
+	Gameplay.Receipt = Receipt;
+	CombatComponent->FinalizeDefenseInteraction(InteractionId, Receipt);
+	PendingDefenseGameplayCommits.Add(InteractionId, MoveTemp(Gameplay));
+	ScheduleDefenseContactFallback(InteractionId);
+#if WITH_AUTOMATION_TESTS
+	if (AActor* ActorToDestroy = ActorToDestroyAfterDefenseCommitForTesting.Get())
+	{
+		ActorToDestroy->Destroy();
+	}
+#endif
+	return Receipt;
+}
+
+FDefenseContactReceipt ABaseCombatCharacter::ResolveWeaponContactCandidate(
+	AActor* Target,
+	const FDefenseContactRequest& Request)
+{
+	FDefenseContactReceipt Rejected;
+	ABaseCombatCharacter* TargetCharacter = Cast<ABaseCombatCharacter>(Target);
+	if (!IsValid(TargetCharacter) || TargetCharacter == this)
+	{
+		return Rejected;
+	}
+
+	FDefenseContactRequest CanonicalRequest = Request;
+	CanonicalRequest.HitInfo.Attacker = this;
+	return TargetCharacter->ResolveAndCommitCombatContact(CanonicalRequest);
+}
+
+void ABaseCombatCharacter::ScheduleDefenseContactFallback(
+	const FDefenseInteractionId& InteractionId)
+{
+	UWorld* World = GetWorld();
+	if (!World
+		|| InteractionId.Epoch == 0
+		|| InteractionId.Key.Defender.Get() != this
+		|| PendingDefenseFallbackTickers.Contains(InteractionId))
+	{
+		return;
+	}
+
+	const TWeakObjectPtr<ABaseCombatCharacter> WeakTarget(this);
+	const TWeakObjectPtr<UWorld> WeakWorld(World);
+	const FTSTicker::FDelegateHandle Handle = FTSTicker::GetCoreTicker().AddTicker(
+		TEXT("DefenseContactFallback"),
+		0.0f,
+		[WeakTarget, WeakWorld, InteractionId](float)
+		{
+			ABaseCombatCharacter* Target = WeakTarget.Get();
+			if (!Target)
+			{
+				return false;
+			}
+
+			// The ticker removes itself by returning false; remove the retained handle
+			// before flushing so normal cancellation never removes an executing ticker.
+			Target->PendingDefenseFallbackTickers.Remove(InteractionId);
+			if (!WeakWorld.IsValid() || Target->GetWorld() != WeakWorld.Get())
+			{
+				return false;
+			}
+			Target->FlushCommittedDefenseContact(InteractionId);
+			return false;
+		});
+	PendingDefenseFallbackTickers.Add(
+		InteractionId,
+		Handle);
+}
+
+void ABaseCombatCharacter::CancelDefenseContactFallback(
+	const FDefenseInteractionId& InteractionId)
+{
+	if (const FTSTicker::FDelegateHandle* Handle = PendingDefenseFallbackTickers.Find(InteractionId))
+	{
+		FTSTicker::RemoveTicker(*Handle);
+		PendingDefenseFallbackTickers.Remove(InteractionId);
+	}
+}
+
+bool ABaseCombatCharacter::TryClaimDefenseContactSourceFinalization(
+	const FDefenseInteractionId& InteractionId,
+	const ABaseCombatCharacter* ClaimingSource,
+	FDefenseContactReceipt& OutCanonicalReceipt)
+{
+	OutCanonicalReceipt = FDefenseContactReceipt();
+	FDefenseGameplayCommitResult* Pending = PendingDefenseGameplayCommits.Find(InteractionId);
+	if (!Pending
+		|| Pending->bSourceFinalizationClaimed
+		|| Pending->Receipt.Resolution.ActualContact.HitInfo.Attacker != ClaimingSource
+		|| !IsDefenseDispatchValid(&InteractionId))
+	{
+		return false;
+	}
+
+	Pending->bSourceFinalizationClaimed = true;
+	OutCanonicalReceipt = Pending->Receipt;
+	return true;
+}
+
+void ABaseCombatCharacter::FlushCommittedDefenseContact(
+	const FDefenseInteractionId& InteractionId)
+{
+	FDefenseGameplayCommitResult* Pending = PendingDefenseGameplayCommits.Find(InteractionId);
+	if (!Pending)
+	{
+		return;
+	}
+
+	FDefenseGameplayCommitResult Commit = MoveTemp(*Pending);
+	PendingDefenseGameplayCommits.Remove(InteractionId);
+	CancelDefenseContactFallback(InteractionId);
+	if (!IsDefenseDispatchValid(&InteractionId))
+	{
+		return;
+	}
+
+	if (Commit.bDispatchDamage && HitReactionComponent)
+	{
+		FCommittedHitReactionDamage DamageCommit;
+		DamageCommit.HitInfo = Commit.HitInfo;
+		DamageCommit.ResolvedDamage = Commit.ResolvedDamage;
+		DamageCommit.bShouldNotify = true;
+		DamageCommit.bShouldPlayReaction = Commit.bPlayHitReaction;
+		HitReactionComponent->PlayCommittedDamageReaction(DamageCommit);
+		if (!IsDefenseDispatchValid(&InteractionId))
+		{
+			return;
+		}
+		HitReactionComponent->BroadcastCommittedDamage(DamageCommit);
+		if (!IsDefenseDispatchValid(&InteractionId))
+		{
+			return;
+		}
+	}
+
+	DispatchCommittedHealth(Commit.Health, &InteractionId);
+	if (!IsDefenseDispatchValid(&InteractionId))
+	{
+		return;
+	}
+	if (CombatComponent)
+	{
+		CombatComponent->OnDefenseResolvedNative.Broadcast(Commit.Receipt.Resolution);
+	}
+}
+
+void ABaseCombatCharacter::FinalizeResolvedWeaponContact(
+	AActor* Target,
+	const FDefenseContactReceipt& Receipt)
+{
+	if (Receipt.CommitStatus != EDefenseCommitStatus::NewCommit
+		|| !Receipt.Resolution.InteractionId.IsValid())
+	{
+		return;
+	}
+
+	TWeakObjectPtr<ABaseCombatCharacter> WeakSource(this);
+	TWeakObjectPtr<ABaseCombatCharacter> WeakTarget(Cast<ABaseCombatCharacter>(Target));
+	FDefenseContactReceipt CanonicalReceipt;
+	if (!WeakTarget.IsValid()
+		|| !WeakTarget->CombatComponent
+		|| !WeakTarget->CombatComponent->IsDefenseInteractionFinalized(
+			Receipt.Resolution.InteractionId)
+		|| !WeakTarget->TryClaimDefenseContactSourceFinalization(
+			Receipt.Resolution.InteractionId,
+			this,
+			CanonicalReceipt))
+	{
+		return;
+	}
+
+	if (CanonicalReceipt.bAcceptsWeaponHit)
+	{
+		PlayResolvedWeaponImpact(Target, CanonicalReceipt);
+		if (!WeakSource.IsValid()
+			|| !WeakTarget.IsValid()
+			|| !WeakTarget->CombatComponent
+			|| !WeakTarget->CombatComponent->IsDefenseInteractionFinalized(
+				CanonicalReceipt.Resolution.InteractionId))
+		{
+			return;
+		}
+	}
+
+	WeakTarget->FlushCommittedDefenseContact(CanonicalReceipt.Resolution.InteractionId);
+	if (!WeakSource.IsValid()
+		|| !WeakTarget.IsValid()
+		|| !WeakTarget->CombatComponent
+		|| !WeakTarget->CombatComponent->IsDefenseInteractionFinalized(
+			CanonicalReceipt.Resolution.InteractionId))
+	{
+		return;
+	}
+
+	if (CanonicalReceipt.bAcceptsWeaponHit && CombatComponent)
+	{
+		CombatComponent->OnAttackHit.Broadcast(
+			Target,
+			CanonicalReceipt.Resolution.ActualContact.HitInfo);
+	}
+}
+
+void ABaseCombatCharacter::PlayResolvedWeaponImpact(
+	AActor* Target,
+	const FDefenseContactReceipt& Receipt)
+{
+	auto IsPresentationCurrent = [this, Target, &Receipt]()
+	{
+		const ABaseCombatCharacter* TargetCharacter = Cast<ABaseCombatCharacter>(Target);
+		return IsValid(this)
+			&& IsValid(TargetCharacter)
+			&& TargetCharacter->CombatComponent
+			&& TargetCharacter->CombatComponent->IsDefenseInteractionFinalized(
+				Receipt.Resolution.InteractionId);
+	};
+
+	if (!Receipt.bAcceptsWeaponHit || !IsPresentationCurrent())
+	{
+		return;
+	}
+
+#if WITH_AUTOMATION_TESTS
+	++ResolvedWeaponImpactAttemptCountForTesting;
+	AcceptedHitCountObservedDuringImpactForTesting = WeaponComponent
+		? WeaponComponent->GetAcceptedHitCountForTesting()
+		: INDEX_NONE;
+	if (bDestroyTargetDuringResolvedWeaponImpactForTesting && IsValid(Target))
+	{
+		Target->Destroy();
+	}
+	if (bDestroySelfDuringResolvedWeaponImpactForTesting)
+	{
+		Destroy();
+	}
+	if (bDestroyTargetDuringResolvedWeaponImpactForTesting
+		|| bDestroySelfDuringResolvedWeaponImpactForTesting)
+	{
+		return;
+	}
+#endif
+
+	const FHitReactionInfo& HitInfo = Receipt.Resolution.ActualContact.HitInfo;
+	UAttackData* AttackData = HitInfo.AttackData;
+	if (!AttackData)
+	{
+		return;
+	}
+
+	const bool bWasBlocked = Receipt.Resolution.Decision.Outcome == EDefenseOutcome::NormalBlock;
+	const UCombatFXData* FXData = nullptr;
+	USoundBase* WeaponAudioFallback = nullptr;
+	UNiagaraSystem* WeaponVFXFallback = nullptr;
+	if (WeaponComponent && WeaponComponent->WeaponData)
+	{
+		FXData = WeaponComponent->WeaponData->CombatFXData;
+		WeaponAudioFallback = WeaponComponent->WeaponData->HitSound;
+		WeaponVFXFallback = WeaponComponent->WeaponData->HitVFX;
+	}
+
+	UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(
+		GetWorld(),
+		AttackData->ImpactAudioConfig,
+		FXData,
+		AttackData->AttackType,
+		WeaponAudioFallback,
+		HitInfo.ImpactPoint,
+		bWasBlocked,
+		this);
+	if (!IsPresentationCurrent())
+	{
+		return;
+	}
+
+	UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(
+		GetWorld(),
+		AttackData->ImpactVFXConfig,
+		FXData,
+		AttackData->AttackType,
+		WeaponVFXFallback,
+		HitInfo.ImpactPoint,
+		HitInfo.ImpactNormal,
+		bWasBlocked,
+		HitInfo.BoneName);
+	if (!IsPresentationCurrent())
+	{
+		return;
+	}
+
+	if (AttackData->HitstopConfig.IsActive())
+	{
+		UCinematicEffectsUtilityLibrary::ApplyHitstop(
+			this,
+			Target,
+			AttackData->HitstopConfig,
+			bWasBlocked);
+	}
 }
 
 // ============================================================================

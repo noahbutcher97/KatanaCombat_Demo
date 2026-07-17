@@ -2,6 +2,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/HitReactionComponent.h"
+#include "Core/CombatComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Animation/AnimInstance.h"
@@ -179,27 +180,73 @@ float UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
         return 0.0f;
     }
 
-    // Calculate final damage
-    float FinalDamage = HitInfo.Damage * DamageResistance;
+	const FCommittedHitReactionDamage Commit = CommitResolvedDamage(HitInfo, DamageResistance);
+	UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s APPLIED: %.1f damage (resistance: %.2f)"),
+		*OwnerName, Commit.ResolvedDamage, DamageResistance);
+	DispatchCommittedDamage(Commit);
+	return Commit.ResolvedDamage;
+}
 
-    UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s APPLIED: %.1f damage (resistance: %.2f)"),
-        *OwnerName, FinalDamage, DamageResistance);
+FCommittedHitReactionDamage UHitReactionComponent::CommitResolvedDamage(
+	const FHitReactionInfo& HitInfo,
+	const float ResistanceSnapshot) const
+{
+	FCommittedHitReactionDamage Commit;
+	Commit.HitInfo = HitInfo;
+	Commit.ResolvedDamage = HitInfo.Damage * ResistanceSnapshot;
+	Commit.bShouldNotify = true;
+	Commit.bShouldPlayReaction = !bHasSuperArmor;
+	return Commit;
+}
 
-    // Broadcast event
-    OnDamageReceived.Broadcast(HitInfo);
+void UHitReactionComponent::DispatchCommittedDamage(
+	const FCommittedHitReactionDamage& Commit,
+	const FDefenseInteractionId* InteractionId,
+	const UCombatComponent* InteractionOwner)
+{
+	if (!Commit.bShouldNotify)
+	{
+		return;
+	}
 
-    // Play hit reaction if not super armored
-    if (!bHasSuperArmor)
-    {
-        PlayHitReaction(HitInfo);
-    }
-    else
-    {
-        UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s has super armor - no hit reaction"),
-            *OwnerName);
-    }
+	BroadcastCommittedDamage(Commit);
+	if (!IsValid(this) || !IsValid(GetOwner()))
+	{
+		return;
+	}
+	if (InteractionId
+		&& (!InteractionOwner || !InteractionOwner->IsDefenseInteractionFinalized(*InteractionId)))
+	{
+		return;
+	}
+	PlayCommittedDamageReaction(Commit);
+}
 
-    return FinalDamage;
+void UHitReactionComponent::PlayCommittedDamageReaction(
+	const FCommittedHitReactionDamage& Commit)
+{
+	if (!Commit.bShouldNotify || !IsValid(this) || !IsValid(GetOwner()))
+	{
+		return;
+	}
+	if (Commit.bShouldPlayReaction)
+	{
+		PlayHitReaction(Commit.HitInfo);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s has super armor - no hit reaction"),
+			*GetNameSafe(GetOwner()));
+	}
+}
+
+void UHitReactionComponent::BroadcastCommittedDamage(
+	const FCommittedHitReactionDamage& Commit)
+{
+	if (Commit.bShouldNotify && IsValid(this) && IsValid(GetOwner()))
+	{
+		OnDamageReceived.Broadcast(Commit.HitInfo);
+	}
 }
 
 void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)

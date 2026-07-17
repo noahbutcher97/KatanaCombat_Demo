@@ -1,5 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "CombatEventRecorder.h"
 #include "CombatTestHelpers.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Characters/PlayerCharacter.h"
@@ -207,6 +208,34 @@ bool FOnHealthChangedFiresOnDamageTest::RunTest(const FString& Parameters)
 	TestTrue("MaxHealth should be valid", Enemy->MaxHealth > 0.0f);
 
 	World->DestroyActor(Enemy);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCompatibilityDamageDelegatesRemainImmediateTest,
+	"KatanaCombat.Damage.Events.CompatibilityDelegatesRemainImmediate",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FCompatibilityDamageDelegatesRemainImmediateTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Source = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	AEnemyCharacter* Target = FCombatTestHelpers::CreateTestEnemyCharacter(World);
+	UCombatEventRecorder* Recorder = NewObject<UCombatEventRecorder>();
+	Target->HitReactionComponent->OnDamageReceived.AddDynamic(
+		Recorder, &UCombatEventRecorder::HandleDamageReceived);
+	Target->OnHealthChanged.AddDynamic(
+		Recorder, &UCombatEventRecorder::HandleHealthChanged);
+
+	const FHitReactionInfo HitInfo = FCombatTestHelpers::CreateTestHitInfo(Source, 15.0f);
+	const float Damage = IDamageableInterface::Execute_ApplyDamage(Target, HitInfo);
+	TestEqual(TEXT("Compatibility adapter returns applied damage"), Damage, 15.0f);
+	TestEqual(TEXT("Compatibility damage delegate is immediate"), Recorder->DamageReceivedCount, 1);
+	TestEqual(TEXT("Compatibility health delegate is immediate"), Recorder->HealthChangedCount, 1);
+
+	World->DestroyActor(Source);
+	World->DestroyActor(Target);
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

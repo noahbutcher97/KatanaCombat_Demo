@@ -13,6 +13,16 @@ class ACharacter;
 class UAnimInstance;
 class UHitReactionSettings;
 class UHitReactionData;
+class UCombatComponent;
+
+/** Immutable result of target-authorized damage calculation before observable work. */
+struct KATANACOMBAT_API FCommittedHitReactionDamage
+{
+	FHitReactionInfo HitInfo;
+	float ResolvedDamage = 0.0f;
+	bool bShouldNotify = false;
+	bool bShouldPlayReaction = false;
+};
 
 /**
  * Handles receiving damage, playing hit reactions, and managing stun states
@@ -134,6 +144,33 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "Hit Reaction")
     float ApplyDamage(const FHitReactionInfo& HitInfo);
+
+	/** Calculate accepted damage without eligibility checks, delegates, or presentation. */
+	FCommittedHitReactionDamage CommitResolvedDamage(
+		const FHitReactionInfo& HitInfo,
+		float ResistanceSnapshot) const;
+
+	/** Dispatch immutable callbacks and the reaction selected at commit time. */
+	void DispatchCommittedDamage(
+		const FCommittedHitReactionDamage& Commit,
+		const FDefenseInteractionId* InteractionId = nullptr,
+		const UCombatComponent* InteractionOwner = nullptr);
+
+	/** Attempt only the reaction chosen at commit time; broadcasts no damage event. */
+	void PlayCommittedDamageReaction(const FCommittedHitReactionDamage& Commit);
+
+	/** Broadcast only the immutable damage event; performs no presentation. */
+	void BroadcastCommittedDamage(const FCommittedHitReactionDamage& Commit);
+
+#if WITH_AUTOMATION_TESTS
+	void SetIFrameStateForTesting(bool bActive)
+	{
+		bCurrentReactionHasIFrames = bActive;
+		CurrentReactionTime = 0.5f;
+		CurrentIFrameStart = 0.0f;
+		CurrentIFrameEnd = bActive ? 1.0f : 0.0f;
+	}
+#endif
 
     /**
      * Play appropriate hit reaction based on hit direction and intensity

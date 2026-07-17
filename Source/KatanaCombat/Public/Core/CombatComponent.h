@@ -51,6 +51,31 @@ class UCombatSettings;
 class UAnimInstance;
 class UPairedAnimationData;
 class UPairedAnimationComponent;
+class UDefenseConfiguration;
+
+USTRUCT()
+struct FDefenseInteractionCacheRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FDefenseInteractionId Id;
+
+	UPROPERTY()
+	FDefenseContactReceipt Receipt;
+
+	UPROPERTY()
+	bool bFinalized = false;
+
+	UPROPERTY()
+	bool bSourceTerminal = false;
+
+	UPROPERTY()
+	double TerminalUnscaledTime = 0.0;
+
+	UPROPERTY()
+	uint64 TerminalSequence = 0;
+};
 
 // ============================================================================
 // DEBUG VISUALIZATION TESTING SUPPORT
@@ -95,6 +120,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Attack")
 	UAttackData* GetCurrentAttack() const { return CurrentAttackData; }
 
+	/** Current attack-state generation used for native contact identity validation. */
+	int32 GetCurrentAttackGeneration() const { return AttackStateMachine.AttackGeneration; }
+
 	// ============================================================================
 	// CACHED REFERENCES
 	// ============================================================================
@@ -106,6 +134,10 @@ public:
 	/** Combat settings (cached from character for performance) */
 	UPROPERTY()
 	TObjectPtr<UCombatSettings> CombatSettings = nullptr;
+
+	/** Defender-local configuration seam; Task 3 adds stance/settings precedence. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Defense")
+	TObjectPtr<UDefenseConfiguration> DefenseConfigurationOverride = nullptr;
 
 	// ============================================================================
 	// INPUT PROCESSING
@@ -187,6 +219,35 @@ public:
 	/** True when the held block should mitigate this concrete incoming hit. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Block")
 	bool CanBlockHit(const FHitReactionInfo& HitInfo) const;
+
+	/** Native guard snapshot used by the rich defense resolver. */
+	bool IsGuardHeldForDefense() const { return bIsBlocking; }
+
+	// ============================================================================
+	// DEFENSE INTERACTION COMMIT CACHE
+	// ============================================================================
+
+	EDefenseCommitStatus BeginDefenseInteraction(
+		const FDefenseInteractionKey& Key,
+		FDefenseInteractionId& OutId,
+		FDefenseContactReceipt& OutExistingReceipt,
+		bool bAllowNewRegistration = true);
+
+	void FinalizeDefenseInteraction(
+		const FDefenseInteractionId& Id,
+		const FDefenseContactReceipt& Receipt);
+
+	/** True only while this exact target-owned epoch remains finalized in the cache. */
+	bool IsDefenseInteractionFinalized(const FDefenseInteractionId& Id) const;
+
+	void MarkDefenseContactSourceTerminal(
+		const FContactInstanceId& ContactId,
+		double UnscaledNow);
+
+	void SweepDefenseInteractionCache(double UnscaledNow);
+
+	/** Broadcast only after gameplay commit and source accounting are coherent. */
+	FOnDefenseResolvedNative OnDefenseResolvedNative;
 
 	/** Add an active runtime context tag for C++ attack-resolution code. */
 	void AddActiveContextTag(FGameplayTag ContextTag);
@@ -651,6 +712,11 @@ public:
 	// ============================================================================
 
 #if WITH_AUTOMATION_TESTS
+	int32 GetDefenseInteractionCacheSizeForTesting() const
+	{
+		return DefenseInteractionCache.Num();
+	}
+
 	/**
 	 * Calculate all debug visualization data without drawing
 	 * Allows unit tests to verify positioning, coloring, and visibility logic
@@ -760,6 +826,13 @@ protected:
 	/** Half-angle of the normal block defensive cone. */
 	UPROPERTY(EditAnywhere, Category = "Combat|Block", meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float BlockFacingConeHalfAngle = 70.0f;
+
+	UPROPERTY(Transient)
+	TMap<FDefenseInteractionKey, FDefenseInteractionCacheRecord> DefenseInteractionCache;
+	uint64 NextDefenseInteractionEpoch = 0;
+	uint64 NextDefenseTerminalSequence = 0;
+	static constexpr double DefenseInteractionTombstoneSeconds = 1.0;
+	static constexpr int32 DefenseTerminalInteractionCacheCap = 128;
 
 	/** Optional target supplied by external attack execution, used before soft-aim fallback. */
 	TWeakObjectPtr<AActor> ExplicitAttackWarpTarget;

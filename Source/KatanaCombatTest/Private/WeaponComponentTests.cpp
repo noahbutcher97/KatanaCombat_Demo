@@ -1,5 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "CombatEventRecorder.h"
 #include "CombatTestHelpers.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Characters/PlayerCharacter.h"
@@ -691,6 +692,106 @@ bool FMultipleWeaponsIndependentTest::RunTest(const FString& Parameters)
 
 	World->DestroyActor(Player1);
 	World->DestroyActor(Player2);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+// ============================================================================
+// RICH DEFENSE CONTACT ACCOUNTING TESTS
+// ============================================================================
+
+namespace
+{
+FHitResult MakeWeaponContactHit(AActor* Target, const FVector& TraceStart)
+{
+	FHitResult Hit(Target, Cast<UPrimitiveComponent>(Target ? Target->GetRootComponent() : nullptr),
+		Target ? Target->GetActorLocation() : FVector::ZeroVector, FVector::BackwardVector);
+	Hit.TraceStart = TraceStart;
+	Hit.TraceEnd = Target ? Target->GetActorLocation() : FVector::ZeroVector;
+	Hit.ImpactPoint = Hit.TraceEnd;
+	Hit.ImpactNormal = FVector::BackwardVector;
+	Hit.BoneName = TEXT("spine_03");
+	return Hit;
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseWeaponBudgetAccountingTest,
+	"KatanaCombat.Defense.Contact.WeaponBudget.AcceptedContactsOnly",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseWeaponBudgetAccountingTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(-100.0f, 0.0f, 0.0f));
+	AEnemyCharacter* Friendly = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector::ZeroVector);
+	APlayerCharacter* Hostile = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector(100.0f, 0.0f, 0.0f));
+	UWeaponComponent* Weapon = Source->WeaponComponent;
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	Attack->BaseDamage = 20.0f;
+	Attack->MaxHitCount = 1;
+
+	UCombatEventRecorder* Recorder = NewObject<UCombatEventRecorder>();
+	Recorder->ObservedWeapon = Weapon;
+	Hostile->HitReactionComponent->OnDamageReceived.AddDynamic(
+		Recorder, &UCombatEventRecorder::HandleDamageReceived);
+
+	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Friendly, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Friendly does not consume budget"), Weapon->GetAcceptedHitCountForTesting(), 0);
+	TestEqual(TEXT("Friendly is not added to rich dedupe list"), Weapon->GetHitActorCount(), 0);
+	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Friendly, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Cached friendly repeat does not consume budget"), Weapon->GetAcceptedHitCountForTesting(), 0);
+	TestEqual(TEXT("Cached friendly repeat remains outside rich dedupe list"), Weapon->GetHitActorCount(), 0);
+
+	const float HostileHealth = Hostile->CurrentHealth;
+	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Hostile, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Later hostile hit consumes budget"), Weapon->GetAcceptedHitCountForTesting(), 1);
+	TestEqual(TEXT("Later hostile hit is deduped"), Weapon->GetHitActorCount(), 1);
+	TestEqual(TEXT("Later hostile hit applies damage"), Hostile->CurrentHealth, HostileHealth - 20.0f);
+	TestEqual(TEXT("Damage listener observes coherent weapon accounting"),
+		Recorder->AcceptedHitCountObservedDuringDamage, 1);
+
+	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Hostile, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Accepted duplicate does not consume again"), Weapon->GetAcceptedHitCountForTesting(), 1);
+	TestEqual(TEXT("Accepted duplicate does not replay damage"), Recorder->DamageReceivedCount, 1);
+
+	World->DestroyActor(Source);
+	World->DestroyActor(Friendly);
+	World->DestroyActor(Hostile);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseWeaponInvulnerableBudgetTest,
+	"KatanaCombat.Defense.Contact.WeaponBudget.InvulnerableThenHostile",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseWeaponInvulnerableBudgetTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Source = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector(-100.0f, 0.0f, 0.0f));
+	AEnemyCharacter* Invulnerable = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector::ZeroVector);
+	AEnemyCharacter* Hostile = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(100.0f, 0.0f, 0.0f));
+	Invulnerable->HitReactionComponent->bIsInvulnerable = true;
+	UWeaponComponent* Weapon = Source->WeaponComponent;
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	Attack->BaseDamage = 25.0f;
+	Attack->MaxHitCount = 1;
+
+	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Invulnerable, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Invulnerable target does not consume budget"), Weapon->GetAcceptedHitCountForTesting(), 0);
+	TestEqual(TEXT("Invulnerable target takes no damage"), Invulnerable->CurrentHealth, Invulnerable->MaxHealth);
+
+	Weapon->ProcessHitForTesting(MakeWeaponContactHit(Hostile, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Hostile after invulnerable target consumes budget"),
+		Weapon->GetAcceptedHitCountForTesting(), 1);
+	TestEqual(TEXT("Hostile after invulnerable target takes damage"),
+		Hostile->CurrentHealth, Hostile->MaxHealth - 25.0f);
+
+	World->DestroyActor(Source);
+	World->DestroyActor(Invulnerable);
+	World->DestroyActor(Hostile);
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }
