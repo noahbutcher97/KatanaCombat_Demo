@@ -7,6 +7,7 @@
 #include "Commandlets/Operations/AttackDataTimingMigrationOperation.h"
 #include "Commandlets/Operations/ContentReadinessAuditOperation.h"
 #include "Commandlets/Operations/CounterChainProofMigrationOperation.h"
+#include "Commandlets/Operations/DefenseProofAuthoringOperation.h"
 #include "Commandlets/Operations/DefenseProofMigrationOperation.h"
 #include "Commandlets/Operations/EnemyAIProofAssetsOperation.h"
 #include "Data/AttackData.h"
@@ -56,6 +57,7 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	else if (!Options.Operation.Equals(FAttackDataNotifyMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FAttackDataTimingMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FCounterChainProofMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
+		!Options.Operation.Equals(FDefenseProofAuthoringOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FDefenseProofMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FContentReadinessAuditOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FEnemyAIProofAssetsOperation::OperationName, ESearchCase::IgnoreCase))
@@ -84,6 +86,11 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	{
 		OutErrors.Add(TEXT("DefenseProofMigration requires explicit manifest targets; global scan is intentionally unsupported"));
 	}
+	else if (Options.Operation.Equals(FDefenseProofAuthoringOperation::OperationName, ESearchCase::IgnoreCase)
+		&& (Options.bAllowGlobalScan || !Options.TargetsFile.IsEmpty()))
+	{
+		OutErrors.Add(TEXT("DefenseProofAuthoring uses the fixed reviewed Gate A recipe and rejects scans or target files"));
+	}
 
 	if (Options.Operation.Equals(FDefenseProofMigrationOperation::OperationName, ESearchCase::IgnoreCase)
 		&& (Options.Mode == EKatanaAssetMigrationMode::Apply
@@ -92,8 +99,16 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	{
 		OutErrors.Add(TEXT("DefenseProofMigration Apply modes require -ApprovedPlanReport and -ApprovedPlanFingerprint"));
 	}
+	if (Options.Operation.Equals(FDefenseProofAuthoringOperation::OperationName, ESearchCase::IgnoreCase)
+		&& (Options.Mode == EKatanaAssetMigrationMode::Apply
+			|| Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
+		&& (Options.ApprovedPlanReport.IsEmpty() || Options.ApprovedPlanFingerprint.IsEmpty()))
+	{
+		OutErrors.Add(TEXT("DefenseProofAuthoring Apply modes require -ApprovedPlanReport and -ApprovedPlanFingerprint"));
+	}
 
 	if (!Options.Operation.Equals(FEnemyAIProofAssetsOperation::OperationName, ESearchCase::IgnoreCase) &&
+		!Options.Operation.Equals(FDefenseProofAuthoringOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.bAllowGlobalScan &&
 		Options.TargetsFile.IsEmpty())
 	{
@@ -608,6 +623,13 @@ bool FKatanaAssetMigrationRunner::RunEnemyAIProofAssets(const FKatanaAssetMigrat
 	return OutReport.Summary.Failed == 0;
 }
 
+bool FKatanaAssetMigrationRunner::RunDefenseProofAuthoring(
+	const FKatanaAssetMigrationOptions& Options,
+	FKatanaAssetMigrationReport& OutReport) const
+{
+	return FDefenseProofAuthoringOperation().Run(Options, OutReport);
+}
+
 static void SnapshotInitiallyDirtyPackages(const TArray<UAttackData*>& Targets, TSet<FString>& OutDirtyPackages)
 {
 	for (const UAttackData* Target : Targets)
@@ -950,6 +972,67 @@ EKatanaAssetMigrationExitCode FKatanaAssetMigrationRunner::Run(const FKatanaAsse
 				if (!Report.Rows.IsEmpty())
 				{
 					Report.Rows[0].Errors.Add(TEXT("Post-save Audit did not return Unchanged"));
+					Report.Rows[0].Status = EKatanaAssetMigrationStatus::Failed;
+					Summarize(Report);
+				}
+			}
+		}
+
+		bool bReportFailed = false;
+		if (!Options.ReportPath.IsEmpty())
+		{
+			TArray<FString> ReportErrors;
+			if (!WriteReport(Report, Options.ReportPath, ReportErrors))
+			{
+				bReportFailed = true;
+				for (const FString& ReportError : ReportErrors)
+				{
+					UE_LOG(LogTemp, Error, TEXT("%s"), *ReportError);
+				}
+			}
+		}
+		if (bSaveFailed)
+		{
+			return EKatanaAssetMigrationExitCode::SaveFailure;
+		}
+		return (!bOperationSucceeded || Report.Summary.Failed > 0 || bReportFailed)
+			? EKatanaAssetMigrationExitCode::RowFailure
+			: EKatanaAssetMigrationExitCode::Success;
+	}
+	if (Options.Operation.Equals(FDefenseProofAuthoringOperation::OperationName, ESearchCase::IgnoreCase))
+	{
+		FKatanaAssetMigrationReport Report;
+		const bool bOperationSucceeded = RunDefenseProofAuthoring(Options, Report);
+		TSet<FString> InitiallyDirtyPackages;
+		for (const FKatanaAssetMigrationPackageLedgerEntry& Entry : Report.PackageLedger)
+		{
+			if (Entry.bInitiallyDirty)
+			{
+				InitiallyDirtyPackages.Add(Entry.PackageName);
+			}
+		}
+
+		bool bSaveFailed = false;
+		if (bOperationSucceeded && Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
+		{
+			bSaveFailed = !SaveChangedPackages(Options, InitiallyDirtyPackages, Report);
+		}
+		if (!bSaveFailed && bOperationSucceeded
+			&& Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
+		{
+			FKatanaAssetMigrationOptions AuditOptions = Options;
+			AuditOptions.Mode = EKatanaAssetMigrationMode::Audit;
+			AuditOptions.ApprovedPlanReport.Reset();
+			AuditOptions.ApprovedPlanFingerprint.Reset();
+			FKatanaAssetMigrationReport PostSaveAudit;
+			if (!RunDefenseProofAuthoring(AuditOptions, PostSaveAudit)
+				|| PostSaveAudit.Summary.Failed > 0
+				|| PostSaveAudit.Summary.WouldChange > 0)
+			{
+				bSaveFailed = true;
+				if (!Report.Rows.IsEmpty())
+				{
+					Report.Rows[0].Errors.Add(TEXT("post-save DefenseProofAuthoring Audit did not return Unchanged"));
 					Report.Rows[0].Status = EKatanaAssetMigrationStatus::Failed;
 					Summarize(Report);
 				}

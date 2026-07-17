@@ -21,6 +21,7 @@
 #include "Commandlets/Operations/AttackDataTimingMigrationOperation.h"
 #include "Commandlets/Operations/ContentReadinessAuditOperation.h"
 #include "Commandlets/Operations/CounterChainProofMigrationOperation.h"
+#include "Commandlets/Operations/DefenseProofAuthoringOperation.h"
 #include "Commandlets/Operations/DefenseProofMigrationOperation.h"
 #include "Commandlets/KatanaAssetMigrationTypes.h"
 #include "Dom/JsonObject.h"
@@ -989,6 +990,109 @@ bool FDefenseProofMigrationOptionsGateTest::RunTest(const FString& Parameters)
 	Errors.Reset();
 	TestTrue(TEXT("Apply should accept both approval bindings"),
 		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofAuthoringOptionsGateTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseAuthoring.OptionsGate",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofAuthoringOptionsGateTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FKatanaAssetMigrationOptions Options;
+	Options.Operation = FDefenseProofAuthoringOperation::OperationName;
+	Options.Mode = EKatanaAssetMigrationMode::Plan;
+	TArray<FString> Errors;
+	TestTrue(TEXT("The fixed reviewed authoring recipe should not require arbitrary targets"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+
+	Options.bAllowGlobalScan = true;
+	Errors.Reset();
+	TestFalse(TEXT("Defense authoring must reject global scans"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+
+	Options.bAllowGlobalScan = false;
+	Options.TargetsFile = TEXT("Config/AssetMigrations/UnexpectedTargets.txt");
+	Errors.Reset();
+	TestFalse(TEXT("Defense authoring must reject an arbitrary targets file"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+
+	Options.TargetsFile.Reset();
+	Options.Mode = EKatanaAssetMigrationMode::Apply;
+	Errors.Reset();
+	TestFalse(TEXT("Defense authoring Apply must require a reviewed report and fingerprint"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+	Options.ApprovedPlanReport = TEXT("Saved/Logs/defense-authoring-plan.json");
+	Options.ApprovedPlanFingerprint = TEXT("abc123");
+	Errors.Reset();
+	TestTrue(TEXT("Defense authoring Apply should accept both approval bindings"),
+		FKatanaAssetMigrationRunner::ValidateOptions(Options, Errors));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseProofAuthoringPlanReadOnlyTest,
+	"KatanaCombat.Editor.AssetMigration.DefenseAuthoring.PlanIsConcreteAndReadOnly",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseProofAuthoringPlanReadOnlyTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const TArray<FString> Destinations =
+		FDefenseProofAuthoringOperation::GetDestinationPackageNames();
+	TestEqual(TEXT("The reviewed Gate A recipe should own fourteen packages"),
+		Destinations.Num(), 14);
+
+	TMap<FString, bool> DirtyBefore;
+	for (const FString& PackageName : Destinations)
+	{
+		const UPackage* Package = FindPackage(nullptr, *PackageName);
+		DirtyBefore.Add(PackageName, Package && Package->IsDirty());
+	}
+
+	FKatanaAssetMigrationOptions Options;
+	Options.Operation = FDefenseProofAuthoringOperation::OperationName;
+	Options.Mode = EKatanaAssetMigrationMode::Plan;
+	FDefenseProofAuthoringOperation Operation;
+	FKatanaAssetMigrationReport FirstReport;
+	TestTrue(TEXT("The real-project authoring plan should build"),
+		Operation.Run(Options, FirstReport));
+	TestEqual(TEXT("Authoring reports use the approval-binding schema"),
+		FirstReport.SchemaVersion, 2);
+	TestEqual(TEXT("Authoring reports identify Gate A"), FirstReport.Gate, FString(TEXT("A")));
+	TestEqual(TEXT("Authoring reports identify their operation"), FirstReport.Operation,
+		FDefenseProofAuthoringOperation::OperationName);
+	TestEqual(TEXT("The recipe should produce one aggregate row"), FirstReport.Rows.Num(), 1);
+	TestEqual(TEXT("The row should expose the fixed destination count"),
+		FirstReport.Rows[0].Details.FindRef(TEXT("destination_package_count")), FString(TEXT("14")));
+	TestTrue(TEXT("The plan fingerprint should be a SHA-1 digest"),
+		FirstReport.PlanFingerprint.Len() == 40);
+	TestEqual(TEXT("A clean plan should not report errors"), FirstReport.Rows[0].Errors.Num(), 0);
+
+	TSet<FString> DestinationSet(Destinations);
+	TSet<FString> LedgerSet;
+	for (const FKatanaAssetMigrationPackageLedgerEntry& Entry : FirstReport.PackageLedger)
+	{
+		TestTrue(TEXT("Every planned package must be owned by the fixed recipe"),
+			DestinationSet.Contains(Entry.PackageName));
+		TestTrue(TEXT("The package ledger must not contain duplicates"),
+			!LedgerSet.Contains(Entry.PackageName));
+		LedgerSet.Add(Entry.PackageName);
+		TestTrue(TEXT("Every planned action must be explicit"),
+			Entry.PlannedAction == TEXT("Create") || Entry.PlannedAction == TEXT("Modify"));
+	}
+
+	for (const FString& PackageName : Destinations)
+	{
+		const UPackage* Package = FindPackage(nullptr, *PackageName);
+		TestEqual(FString::Printf(TEXT("Plan must not dirty %s"), *PackageName),
+			Package && Package->IsDirty(), DirtyBefore.FindRef(PackageName));
+	}
+
+	FKatanaAssetMigrationReport SecondReport;
+	TestTrue(TEXT("A repeated plan should also build"), Operation.Run(Options, SecondReport));
+	TestEqual(TEXT("Unchanged project state must produce the same approval fingerprint"),
+		SecondReport.PlanFingerprint, FirstReport.PlanFingerprint);
 	return true;
 }
 

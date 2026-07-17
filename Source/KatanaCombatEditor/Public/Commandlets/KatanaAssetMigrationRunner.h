@@ -30,6 +30,7 @@ private:
 	bool RunAttackDataTimingMigration(const FKatanaAssetMigrationOptions& Options, const TArray<UAttackData*>& Targets, FKatanaAssetMigrationReport& OutReport) const;
 	bool RunCounterChainProofMigration(const FKatanaAssetMigrationOptions& Options, FKatanaAssetMigrationReport& OutReport) const;
 	bool RunDefenseProofMigration(const FKatanaAssetMigrationOptions& Options, FKatanaAssetMigrationReport& OutReport) const;
+	bool RunDefenseProofAuthoring(const FKatanaAssetMigrationOptions& Options, FKatanaAssetMigrationReport& OutReport) const;
 	bool RunContentReadinessAudit(const FKatanaAssetMigrationOptions& Options, FKatanaAssetMigrationReport& OutReport) const;
 	bool RunEnemyAIProofAssets(const FKatanaAssetMigrationOptions& Options, FKatanaAssetMigrationReport& OutReport) const;
 };
