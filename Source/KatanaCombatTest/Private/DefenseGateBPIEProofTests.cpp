@@ -132,7 +132,7 @@ bool AnalyzeGateBFrame(const FString& Filename, FGateBFrameValidation& OutResult
 	return true;
 }
 
-FString EnumName(const UEnum* Enum, const int64 Value)
+FString GateBEnumName(const UEnum* Enum, const int64 Value)
 {
 	return Enum ? Enum->GetNameStringByValue(Value) : TEXT("Unknown");
 }
@@ -140,7 +140,7 @@ FString EnumName(const UEnum* Enum, const int64 Value)
 template <typename TEnum>
 bool EnumMatches(const TEnum Actual, const FString& Expected)
 {
-	return EnumName(StaticEnum<TEnum>(), static_cast<int64>(Actual)) == Expected;
+	return GateBEnumName(StaticEnum<TEnum>(), static_cast<int64>(Actual)) == Expected;
 }
 
 struct FGateBNormalCase
@@ -817,7 +817,7 @@ private:
 			Fail(FString::Printf(
 				TEXT("Case '%s' produced no physical contact resolution (state=%s generation=%d trace_frames=%d trace_radius=%.2f min_blade_target_cm=%.2f target_delta=%s capsule_separation=%.2f capsule_delta=%s)"),
 				*CurrentCase().Expected.Name,
-				*EnumName(StaticEnum<EEnemyAIState>(),
+				*GateBEnumName(StaticEnum<EEnemyAIState>(),
 					static_cast<int64>(SelectedAI->CurrentState)),
 				ExpectedAttackGeneration,
 				TraceFrameCount,
@@ -1805,18 +1805,18 @@ private:
 		Entry->SetNumberField(TEXT("attacker_montage_progress_seconds"),
 			AttackerPresentationMaxProgress);
 		Entry->SetBoolField(TEXT("passed"), CurrentCasePassed);
-		Entry->SetStringField(TEXT("outcome"), EnumName(
+		Entry->SetStringField(TEXT("outcome"), GateBEnumName(
 			StaticEnum<EDefenseOutcome>(), static_cast<int64>(Decision.Outcome)));
-		Entry->SetStringField(TEXT("reason"), EnumName(
+		Entry->SetStringField(TEXT("reason"), GateBEnumName(
 			StaticEnum<EDefenseReason>(), static_cast<int64>(Decision.Reason)));
-		Entry->SetStringField(TEXT("height"), EnumName(
+		Entry->SetStringField(TEXT("height"), GateBEnumName(
 			StaticEnum<EAttackHeight>(), static_cast<int64>(Decision.Height)));
-		Entry->SetStringField(TEXT("lane"), EnumName(
+		Entry->SetStringField(TEXT("lane"), GateBEnumName(
 			StaticEnum<EIncomingAttackLane>(), static_cast<int64>(Decision.Lane)));
-		Entry->SetStringField(TEXT("lane_provenance"), EnumName(
+		Entry->SetStringField(TEXT("lane_provenance"), GateBEnumName(
 			StaticEnum<EDefenseLaneProvenance>(),
 			static_cast<int64>(LastResolution.ActualContact.LaneProvenance)));
-		Entry->SetStringField(TEXT("swing"), EnumName(
+		Entry->SetStringField(TEXT("swing"), GateBEnumName(
 			StaticEnum<ESwingDirection>(), static_cast<int64>(Decision.SwingShape)));
 		Entry->SetStringField(TEXT("source_socket"), Decision.SourceSocket.ToString());
 		Entry->SetNumberField(TEXT("actual_trajectory_x"),
@@ -1841,10 +1841,10 @@ private:
 			SourceSocketVelocityAtResolution.Y);
 		Entry->SetNumberField(TEXT("source_socket_velocity_z"),
 			SourceSocketVelocityAtResolution.Z);
-		Entry->SetStringField(TEXT("source_socket_velocity_lane"), EnumName(
+		Entry->SetStringField(TEXT("source_socket_velocity_lane"), GateBEnumName(
 			StaticEnum<EIncomingAttackLane>(),
 			static_cast<int64>(SourceSocketLaneAtResolution)));
-		Entry->SetStringField(TEXT("source_socket_velocity_lane_provenance"), EnumName(
+		Entry->SetStringField(TEXT("source_socket_velocity_lane_provenance"), GateBEnumName(
 			StaticEnum<EDefenseLaneProvenance>(),
 			static_cast<int64>(SourceSocketLaneProvenanceAtResolution)));
 		Entry->SetNumberField(TEXT("source_socket_lane_center_half_angle_degrees"),
@@ -1869,11 +1869,11 @@ private:
 			ActiveWindowTipTrajectoryAtResolution.Y);
 		Entry->SetNumberField(TEXT("active_window_tip_trajectory_z"),
 			ActiveWindowTipTrajectoryAtResolution.Z);
-		Entry->SetStringField(TEXT("active_window_tip_trajectory_lane"), EnumName(
+		Entry->SetStringField(TEXT("active_window_tip_trajectory_lane"), GateBEnumName(
 			StaticEnum<EIncomingAttackLane>(),
 			static_cast<int64>(ActiveWindowTipLaneAtResolution)));
 		Entry->SetStringField(
-			TEXT("active_window_tip_trajectory_lane_provenance"), EnumName(
+			TEXT("active_window_tip_trajectory_lane_provenance"), GateBEnumName(
 				StaticEnum<EDefenseLaneProvenance>(),
 				static_cast<int64>(ActiveWindowTipLaneProvenanceAtResolution)));
 		Entry->SetBoolField(TEXT("rate_normalized_tip_trajectory_usable"),
@@ -1886,11 +1886,11 @@ private:
 			RateNormalizedTipTrajectoryAtResolution.Y);
 		Entry->SetNumberField(TEXT("rate_normalized_tip_trajectory_z"),
 			RateNormalizedTipTrajectoryAtResolution.Z);
-		Entry->SetStringField(TEXT("rate_normalized_tip_trajectory_lane"), EnumName(
+		Entry->SetStringField(TEXT("rate_normalized_tip_trajectory_lane"), GateBEnumName(
 			StaticEnum<EIncomingAttackLane>(),
 			static_cast<int64>(RateNormalizedTipLaneAtResolution)));
 		Entry->SetStringField(
-			TEXT("rate_normalized_tip_trajectory_lane_provenance"), EnumName(
+			TEXT("rate_normalized_tip_trajectory_lane_provenance"), GateBEnumName(
 				StaticEnum<EDefenseLaneProvenance>(),
 				static_cast<int64>(RateNormalizedTipLaneProvenanceAtResolution)));
 		Entry->SetBoolField(TEXT("short_rate_normalized_tip_trajectory_usable"),
@@ -1903,11 +1903,11 @@ private:
 			ShortRateNormalizedTipTrajectoryAtResolution.Y);
 		Entry->SetNumberField(TEXT("short_rate_normalized_tip_trajectory_z"),
 			ShortRateNormalizedTipTrajectoryAtResolution.Z);
-		Entry->SetStringField(TEXT("short_rate_normalized_tip_trajectory_lane"), EnumName(
+		Entry->SetStringField(TEXT("short_rate_normalized_tip_trajectory_lane"), GateBEnumName(
 			StaticEnum<EIncomingAttackLane>(),
 			static_cast<int64>(ShortRateNormalizedTipLaneAtResolution)));
 		Entry->SetStringField(
-			TEXT("short_rate_normalized_tip_trajectory_lane_provenance"), EnumName(
+			TEXT("short_rate_normalized_tip_trajectory_lane_provenance"), GateBEnumName(
 				StaticEnum<EDefenseLaneProvenance>(),
 				static_cast<int64>(ShortRateNormalizedTipLaneProvenanceAtResolution)));
 		const FVector TraceTrajectory =
