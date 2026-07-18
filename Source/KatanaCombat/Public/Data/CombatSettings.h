@@ -11,6 +11,7 @@ class UAttackConfiguration;
 class UTargetingSettings;
 class UMotionWarpingSettings;
 class UHitReactionSettings;
+class UDefenseConfiguration;
 
 /**
  * Root configuration for combat system - composes subsystem settings
@@ -75,6 +76,10 @@ public:
     /** Hit reaction configuration (directional reactions, special reactions) */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Subsystems")
     TObjectPtr<UHitReactionSettings> HitReactionSettings;
+
+    /** Defense kinematics, threat policy, and presentation configuration */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Subsystems")
+    TObjectPtr<UDefenseConfiguration> DefenseConfiguration;
 
     // ============================================================================
     // FUTURE SUBSYSTEMS (Add as implemented)

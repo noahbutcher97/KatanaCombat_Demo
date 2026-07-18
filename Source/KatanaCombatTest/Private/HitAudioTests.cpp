@@ -3,6 +3,7 @@
 #include "CombatTestHelpers.h"
 #include "Core/CombatComponent.h"
 #include "Data/AttackData.h"
+#include "Sound/SoundWave.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
 
 // ============================================================================
@@ -116,6 +117,51 @@ bool FHitAudioPlayNullSafetyTest::RunTest(const FString& Parameters)
 		FCombatTestHelpers::DestroyTestWorld(World);
 	}
 
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FHitAudioPlaybackInvocationTest,
+	"KatanaCombat.HitAudio.PlayImpactSound.PlaybackInvocation",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FHitAudioPlaybackInvocationTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	USoundWave* Sound = NewObject<USoundWave>(World);
+	if (!World || !Sound)
+	{
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	bool bInvoked = false;
+	const FVector ExpectedLocation(10.0, 20.0, 30.0);
+	const FDelegateHandle Handle =
+		UCinematicEffectsUtilityLibrary::OnImpactSoundPlaybackInvokedForTesting.AddLambda(
+			[&bInvoked, World, Sound, ExpectedLocation](
+				UWorld* PlayedWorld,
+				USoundBase* PlayedSound,
+				const FVector& Location,
+				AActor* Attacker)
+			{
+				bInvoked = PlayedWorld == World
+					&& PlayedSound == Sound
+					&& Location.Equals(ExpectedLocation)
+					&& Attacker == nullptr;
+			});
+
+	FImpactAudioConfig Config;
+	Config.ImpactSound = Sound;
+	Config.bUseWeaponFallback = false;
+	const bool bPlayed = UCinematicEffectsUtilityLibrary::PlayImpactSound(
+		World, Config, nullptr, ExpectedLocation);
+	UCinematicEffectsUtilityLibrary::OnImpactSoundPlaybackInvokedForTesting.Remove(Handle);
+
+	TestTrue(TEXT("A concrete impact sound should reach the engine playback call"), bPlayed);
+	TestTrue(TEXT("The playback-site observer should receive the resolved sound"), bInvoked);
+	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }
 

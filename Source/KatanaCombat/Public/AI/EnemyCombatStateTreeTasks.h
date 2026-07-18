@@ -143,6 +143,9 @@ struct FStateTreeExecuteEnemyAttackInstanceData
 
 	UPROPERTY(VisibleAnywhere, Category = Runtime)
 	bool bAttackStarted = false;
+
+	UPROPERTY(VisibleAnywhere, Category = Runtime)
+	int32 AttackGeneration = 0;
 };
 
 USTRUCT(meta = (DisplayName = "Execute Enemy Attack", Category = "Katana Combat"))

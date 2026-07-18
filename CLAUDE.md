@@ -69,9 +69,9 @@ Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 
 1. **Phases vs Windows**: Phases are exclusive (Windup→Active→Recovery). Windows overlap (ParryWindow, ComboWindow, HoldWindow).
 
-2. **Input ALWAYS Buffered**: Combo window modifies WHEN execution happens, not WHETHER input is captured.
+2. **Input ALWAYS Captured**: Combo windows modify WHEN attack execution happens, not WHETHER the edge is recorded. Stateful Block input is immediate, and planned Chain-only input must not fall through to the normal attack queue.
 
-3. **Parry = Contextual Block**: Defender checks enemy's ParryWindow (on attacker's montage), not their own.
+3. **Parry Timing Is Attacker-Owned**: `ParryWindow` is on the attacker's montage. Current source still uses legacy detection; the revised defense target also requires capability, identity, intent, team, and reachable alignment.
 
 4. **Hold = Button State Check**: At window start, check if button is STILL held. NOT duration tracking.
 
@@ -215,7 +215,7 @@ Active development plans with gap tracking. Read when continuing phased implemen
 
 **Hits not detecting**: Check weapon sockets (`WeaponStart/WeaponEnd`), `AnimNotify_AttackPhaseTransition(Active)` present
 
-**Parry not working**: `AnimNotifyState_ParryWindow` must be on ATTACKER's montage, defender calls `IsInParryWindow()` on enemy
+**Parry not working**: `AnimNotifyState_ParryWindow` must be on the ATTACKER's montage. Legacy source checks `IsInParryWindow()` directly; do not describe that baseline as proof of the revised resolver contract in `docs/superpowers/specs/2026-07-16-defense-interaction-design.md`.
 
 ## Coding Guidelines
 
@@ -442,18 +442,18 @@ Track ongoing work across sessions. This section provides detailed status of all
 | Finisher Execution Flow | PairedAnimationComponent.cpp | `TryExecuteFinisher()` → `CompletePairedAnimation()` |
 | Finisher Vulnerability | HitReactionComponent.h/.cpp | `IsVulnerableToFinisher()`, `GetFinisherTriggerReason()` |
 | Symmetric Warp Tracking | TargetingComponent.h/.cpp | `SetupVictimWarp()`, `SetupAttackerPairedWarp()` with continuous tracking |
-| Partner Collision Management | PairedAnimationComponent.h/.cpp | `PairedAnimationPartners` array + `IgnoreActorWhenMoving()` |
-| Input Blocking | PairedAnimationComponent.cpp | `bBlockCombatInput` flag, queried by `CombatComponent::CanProcessInput()` |
+| Partner Collision Management | PairedAnimationComponent.h/.cpp | Component-owned partner and collision/movement leases keyed by stage/notify identity |
+| Input Blocking | PairedAnimationComponent.cpp | Opaque paired-input leases recompute `bBlockCombatInput`; Chain input routes remain explicit |
 | State Transition Safety | PairedAnimationComponent.cpp | `OnPairedPartnerDeath()`, `CancelPairedAnimation()`, EndPlay cleanup |
 | Death Animation Handling | HitReactionComponent.h/.cpp | `bDeathHandledByPairedAnimation` flag prevents double death |
-| Damage Application | PairedAnimationComponent.cpp | Intelligent calc: `Max(damage, currentHealth + 1)` for lethal |
+| Damage Application | PairedAnimationComponent.cpp | Finishers enforce authored lethal damage; counters clamp to one health unless both data and component explicitly opt into lethal behavior |
 | Guard Flags | PairedAnimationComponent.cpp | `bCompletingPairedAnimation` prevents double execution |
 | Distance Validation | PairedAnimationComponent.cpp | Uses SoftAimRange (intentional - see design decisions) |
 | Sync Point Validation | AnimNotifyState_PairedAnimationSync.cpp | Alignment check with auto-nudge |
-| Cinematic Effects | CinematicEffectsUtilityLibrary.h/.cpp | `ApplySlowMotion()`, `TriggerCameraShake()`, `RestoreTimeDilation()` |
+| Cinematic Effects | CombatEffectsWorldSubsystem.h/.cpp, CinematicEffectsUtilityLibrary.h/.cpp | Overlap-safe world/actor time leases with compatibility adapters and watchdog cleanup |
 | Obstacle Validation | PairedAnimationUtilityLibrary.cpp | `ValidatePairedAnimation()`, `IsPathClear()` |
 | Debug Visualization | CombatDebugHUD.cpp, DebugUtils.cpp | CVars for warp targets, partner connections, sync points |
-| Test Suite | PairedAnimationTests.cpp | 34 tests covering core functionality |
+| Test Suite | PairedAnimationTests.cpp, DefenseChainTests.cpp, CombatEffectsLeaseTests.cpp | 39 paired-animation tests plus retained-Chain and effects-ownership suites |
 
 #### Wired FX Systems (Commit f27a068, 3038b21, 0e6ae4e, 150cd3a)
 | Component | Files | Status |
@@ -477,23 +477,23 @@ Track ongoing work across sessions. This section provides detailed status of all
 | Component | Files | Status |
 |-----------|-------|--------|
 | Counter AC3 Mode | PairedAnimationComponent.cpp | `TryCounter_AC3Mode()` — instant counter-kill via slow-mo + lethal damage |
-| Counter Chain Mode | PairedAnimationComponent.cpp | `TryCounter_ChainMode()` — Parry→Counter→Finisher state machine |
-| Chain State Machine | PairedAnimationComponent.h | `EChainCounterState`: None→ParryActive→CounterWindow→CounterActive→FinisherReady |
-| Parry Window | PairedAnimationComponent.h | `bParryWindowActive` + `AnimNotifyState_ParryWindow` wired |
+| Counter Chain Mode | PairedAnimationComponent.cpp | Public Block/attack input drives retained Parry→Counter→Finisher ownership; protected helpers are compatibility primitives only |
+| Chain State Machine | PairedAnimationComponent.h | `ParryActive -> CounterWindow -> CounterActive -> FinisherReady -> FinisherActive -> None`, keyed by interaction and stage generation |
+| Parry Window | CombatComponent.h/.cpp | Canonical attacker-side window records use attack generation, montage instance, and runtime notify-source identity |
 | Contextual Stagger | HitReactionComponent.h | `ApplyStagger()`, `IsStaggered()`, `EndStagger()` — replaces posture |
 | Procedural Blending | CombatComponent.cpp | 6 easing strategies wired in `PlayAttackMontage()` |
 
 #### Branch Acceptance Caveats
 | Area | Status | Requirement |
 |------|--------|-------------|
-| Counter Chain Mode | Canonical but incomplete | Must be proven through public Block/attack input flow, active Chain context, paired completion handoff, and asset readiness. Protected helper tests are not enough. |
-| SpecificCounterData Wiring | In scope | Resolve selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only as an explicit fallback, then non-paired fallback. |
+| Defense interaction | Gate A and Gate B accepted for scoped single-player behavior | Gate A proves held guard, normal block, perfect parry, bounded alignment, and adjacent-frame counter-to-finisher continuity. Gate B proves the nine-cell matrix, recoil/continue responses, two-active-threat arbitration, physical unblockable contact, and the perfect-parry regression. See `docs/handoffs/2026-07-16-defense-gate-b-acceptance.md`. |
+| Counter Chain Mode | Source and Gate A content proof accepted | Public Block/attack input, retained context, generation-safe handoff, `FinisherActive`, retry/cancel/death paths, and scoped ownership have automation and rendered Gate A evidence. Catalog-wide animation quality remains tuning work. |
+| SpecificCounterData Wiring | Implemented with explicit fallback gate | Resolve selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only when `bAllowNotifyCounterDataFallback` is enabled, then non-paired fallback. |
 
-#### Planned (Not Yet Started)
+#### Current Follow-On Work
 | Component | Priority | Blocker |
 |-----------|----------|---------|
-| Counter Animations | P1 | Parry, counter attack, chain finisher montages needed |
-| SpecificCounterData Wiring | P1 | In scope for Chain branch: selected `AttackData::CounterData` first; `SpecificCounterData` is an explicit fallback only. |
+| Defense catalog and animation tuning | P2 | Expand beyond the reviewed Gate A sequence and Gate B proof assets without weakening manifest, timing, trajectory, or continuity gates. |
 | Production Enemy AI | P2 | Minimal StateTree + `UCombatTokenSubsystem` combat proof is wired; perception, patrol, tactics, and production tuning remain future work. |
 
 #### Editor/Runtime Unification Gap (Needs Further Inquiry)

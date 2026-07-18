@@ -35,6 +35,8 @@ struct FKatanaAssetMigrationOptions
 	EKatanaAssetMigrationMode Mode = EKatanaAssetMigrationMode::Audit;
 	FString TargetsFile;
 	FString ReportPath;
+	FString ApprovedPlanReport;
+	FString ApprovedPlanFingerprint;
 	bool bAllowGlobalScan = false;
 	bool bAllowPackageSave = false;
 	bool bAllowDirtyPackages = false;
@@ -78,6 +80,7 @@ struct FKatanaAssetMigrationRow
 	TArray<FString> SavedPackages;
 	TArray<FString> Warnings;
 	TArray<FString> Errors;
+	TMap<FString, FString> Details;
 	bool bPackageFileExists = false;
 	bool bLoaded = false;
 	bool bMapLoaded = false;
@@ -91,6 +94,17 @@ struct FKatanaAssetMigrationRow
 	bool bFinisherHasData = false;
 	bool bHasRequiredContextTags = false;
 	bool bHasUnblockableTag = false;
+};
+
+struct FKatanaAssetMigrationPackageLedgerEntry
+{
+	FString PackageName;
+	FString PackageRole;
+	bool bInitiallyDirty = false;
+	FString PlannedAction = TEXT("None");
+	FString ActualAction = TEXT("None");
+	FString SaveResult = TEXT("NotRun");
+	FString PostSaveReloadResult = TEXT("NotRun");
 };
 
 struct FKatanaAssetMigrationSummary
@@ -108,8 +122,12 @@ struct FKatanaAssetMigrationReport
 	int32 SchemaVersion = 1;
 	FString Operation;
 	EKatanaAssetMigrationMode Mode = EKatanaAssetMigrationMode::Audit;
+	FString ManifestPath;
+	FString Gate;
+	FString PlanFingerprint;
 	FKatanaAssetMigrationSummary Summary;
 	TArray<FKatanaAssetMigrationRow> Rows;
+	TArray<FKatanaAssetMigrationPackageLedgerEntry> PackageLedger;
 };
 
 inline FString LexToString(EKatanaAssetMigrationMode Mode)

@@ -24,8 +24,13 @@ public class KatanaCombatTest : ModuleRules
 			PrivateDependencyModuleNames.AddRange(new string[]
 			{
 				"UnrealEd",          // For editor utilities in tests
+				"AssetRegistry",     // Temporary proof assets and FiB cache setup
+				"ImageCore",         // Rendered proof-frame decode and pixel validation
+				"Kismet",           // Find-in-Blueprint cache reload regression coverage
 				"KatanaCombatEditor", // For editor tool regression tests
 				"Json",             // For asset migration report tests
+				"MotionWarping",    // For alignment warp-target ownership tests
+				"Niagara",          // For defense presentation effect fixtures
 				"StateTreeModule",  // Enemy AI proof asset validation
 				"GameplayStateTreeModule"
 			});

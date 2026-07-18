@@ -1,6 +1,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/AnimNotifyState_CounterWindow.h"
+#include "Animation/CombatAnimNotifyIdentity.h"
+#include "Core/CombatComponent.h"
 #include "Core/PairedAnimationComponent.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Data/PairedAnimationData.h"
@@ -27,10 +29,22 @@ void UAnimNotifyState_CounterWindow::NotifyBegin(USkeletalMeshComponent* MeshCom
 
 	// Get the attacker's paired animation component (counter window state lives here)
 	AActor* Owner = MeshComp->GetOwner();
-	if (UPairedAnimationComponent* PairedComp = Owner->FindComponentByClass<UPairedAnimationComponent>())
+	bool bOpenedCanonicalWindow = false;
+	if (UCombatComponent* Combat = Owner->FindComponentByClass<UCombatComponent>())
 	{
-		// Store counter context on the attacker for defenders to query
-		PairedComp->SetCounterWindowData(AttackType, SwingDirection, CounterData, TotalDuration);
+		bOpenedCanonicalWindow = Combat->OpenAttackWindow(
+			EAttackWindowKind::Counter,
+			ResolveRuntimeNotifySourceId(EventReference),
+			ResolveRuntimeMontageInstanceId(EventReference),
+			TotalDuration).IsValid();
+	}
+	if (bOpenedCanonicalWindow)
+	{
+		if (UPairedAnimationComponent* PairedComp = Owner->FindComponentByClass<UPairedAnimationComponent>())
+		{
+			// Legacy query data mirrors only an accepted canonical runtime window.
+			PairedComp->SetCounterWindowData(AttackType, SwingDirection, CounterData, TotalDuration);
+		}
 	}
 }
 
@@ -43,10 +57,20 @@ void UAnimNotifyState_CounterWindow::NotifyEnd(USkeletalMeshComponent* MeshComp,
 		return;
 	}
 
-	// Clear counter context when window ends
 	AActor* Owner = MeshComp->GetOwner();
-	if (UPairedAnimationComponent* PairedComp = Owner->FindComponentByClass<UPairedAnimationComponent>())
+	bool bClosedCanonicalWindow = false;
+	if (UCombatComponent* Combat = Owner->FindComponentByClass<UCombatComponent>())
 	{
-		PairedComp->ClearCounterWindowData();
+		bClosedCanonicalWindow = Combat->CloseAttackWindow(
+			EAttackWindowKind::Counter,
+			ResolveRuntimeNotifySourceId(EventReference),
+			ResolveRuntimeMontageInstanceId(EventReference));
+	}
+	if (bClosedCanonicalWindow)
+	{
+		if (UPairedAnimationComponent* PairedComp = Owner->FindComponentByClass<UPairedAnimationComponent>())
+		{
+			PairedComp->ClearCounterWindowData();
+		}
 	}
 }

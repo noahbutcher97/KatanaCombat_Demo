@@ -267,38 +267,28 @@ int32 UMontageUtilityLibrary::DiscoverCheckpoints(UAnimMontage* Montage, TArray<
 
 	for (const FAnimNotifyEvent& NotifyEvent : Montage->Notifies)
 	{
-		if (NotifyEvent.NotifyStateClass)
+		if (const UAnimNotifyState_ActionWindow_Base* WindowNotify =
+			Cast<UAnimNotifyState_ActionWindow_Base>(NotifyEvent.NotifyStateClass))
 		{
-			UClass* NotifyClass = static_cast<UClass*>(NotifyEvent.NotifyStateClass);
+			FTimerCheckpoint Checkpoint;
+			Checkpoint.WindowType = WindowNotify->GetWindowType();
+			Checkpoint.MontageTime = NotifyEvent.GetTriggerTime();
+			Checkpoint.Duration = NotifyEvent.GetDuration();
+			Checkpoint.bActive = true;
+			OutCheckpoints.Add(Checkpoint);
 
-			// Check if this is an ActionWindow subclass
-			if (NotifyClass && NotifyClass->IsChildOf(UAnimNotifyState_ActionWindow_Base::StaticClass()))
+			const TCHAR* WindowTypeName = TEXT("Unknown");
+			switch (Checkpoint.WindowType)
 			{
-				// Get the CDO to call GetWindowType()
-				if (const UAnimNotifyState_ActionWindow_Base* WindowCDO =
-					NotifyClass->GetDefaultObject<UAnimNotifyState_ActionWindow_Base>())
-				{
-					FTimerCheckpoint Checkpoint;
-					Checkpoint.WindowType = WindowCDO->GetWindowType();
-					Checkpoint.MontageTime = NotifyEvent.GetTriggerTime();
-					Checkpoint.Duration = NotifyEvent.GetDuration();
-					Checkpoint.bActive = true;
-					OutCheckpoints.Add(Checkpoint);
-
-					// Log window type name
-					const TCHAR* WindowTypeName = TEXT("Unknown");
-					switch (Checkpoint.WindowType)
-					{
-						case EActionWindowType::Combo:    WindowTypeName = TEXT("Combo"); break;
-						case EActionWindowType::Parry:    WindowTypeName = TEXT("Parry"); break;
-						case EActionWindowType::Hold:     WindowTypeName = TEXT("Hold"); break;
-						case EActionWindowType::Cancel:   WindowTypeName = TEXT("Cancel"); break;
-						case EActionWindowType::Recovery: WindowTypeName = TEXT("Recovery"); break;
-					}
-					UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] + %s window (explicit): %.3fs - %.3fs"),
-						WindowTypeName, Checkpoint.MontageTime, Checkpoint.MontageTime + Checkpoint.Duration);
-				}
+				case EActionWindowType::Combo:    WindowTypeName = TEXT("Combo"); break;
+				case EActionWindowType::Parry:    WindowTypeName = TEXT("Parry"); break;
+				case EActionWindowType::Counter:  WindowTypeName = TEXT("Counter"); break;
+				case EActionWindowType::Hold:     WindowTypeName = TEXT("Hold"); break;
+				case EActionWindowType::Cancel:   WindowTypeName = TEXT("Cancel"); break;
+				case EActionWindowType::Recovery: WindowTypeName = TEXT("Recovery"); break;
 			}
+			UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] + %s window (explicit): %.3fs - %.3fs"),
+				WindowTypeName, Checkpoint.MontageTime, Checkpoint.MontageTime + Checkpoint.Duration);
 		}
 	}
 

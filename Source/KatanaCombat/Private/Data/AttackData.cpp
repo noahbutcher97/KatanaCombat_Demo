@@ -17,6 +17,13 @@ UAttackData::UAttackData()
     // Only set complex defaults here if needed
 }
 
+FName UAttackData::GetDefenseTargetBoneFallback() const
+{
+	return DefenseProfile.DefenderTargetBoneFallback.IsNone()
+		? DefaultContactBone
+		: DefenseProfile.DefenderTargetBoneFallback;
+}
+
 // ============================================================================
 // SECTION & TIMING QUERIES
 // ============================================================================

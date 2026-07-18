@@ -2,71 +2,64 @@
 
 #include "CombatTestHelpers.h"
 #include "Core/CombatComponent.h"
+#include "Data/AttackData.h"
 
-/**
- * Test: Parry Detection
- * Verifies parry window is on ATTACKER's montage and defender checks it
- *
- * Design Rule: Parry window goes on the ATTACKER's animation, not the defender's.
- * Defender queries the attacker's CombatComponent to check if parry is available.
- */
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FParryDetectionTest, "KatanaCombat.CombatComponent.ParryDetection", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+/** The attacker owns canonical parry-window identity; the defender only queries it. */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FParryDetectionAttackerOwnsCanonicalWindow,
+	"KatanaCombat.Defense.ParryDetection.AttackerOwnsCanonicalWindow",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FParryDetectionTest::RunTest(const FString& Parameters)
+bool FParryDetectionAttackerOwnsCanonicalWindow::RunTest(const FString& Parameters)
 {
-	// Setup - create two characters
+	(void)Parameters;
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* AttackerComp = nullptr;
-	UCombatComponent* DefenderComp = nullptr;
-
-	APlayerCharacter* Attacker = FCombatTestHelpers::CreateTestCharacterWithCombat(World, AttackerComp);
-	APlayerCharacter* Defender = FCombatTestHelpers::CreateTestCharacterWithCombat(World, DefenderComp);
-
-	if (!TestNotNull("Attacker CombatComponent should be created", AttackerComp) ||
-		!TestNotNull("Defender CombatComponent should be created", DefenderComp))
+	UCombatComponent* AttackerCombat = nullptr;
+	UCombatComponent* DefenderCombat = nullptr;
+	APlayerCharacter* Attacker =
+		FCombatTestHelpers::CreateTestCharacterWithCombat(World, AttackerCombat);
+	APlayerCharacter* Defender =
+		FCombatTestHelpers::CreateTestCharacterWithCombat(World, DefenderCombat);
+	if (!TestNotNull(TEXT("Attacker combat component"), AttackerCombat)
+		|| !TestNotNull(TEXT("Defender combat component"), DefenderCombat))
 	{
 		FCombatTestHelpers::DestroyTestWorld(World);
 		return false;
 	}
 
-	// Helper lambda to check if parry window is active
-	auto HasActiveParryWindow = [](UCombatComponent* Comp, float Time) -> bool
-	{
-		TArray<FTimerCheckpoint> Windows = Comp->GetActiveWindows(Time);
-		for (const FTimerCheckpoint& Checkpoint : Windows)
-		{
-			if (Checkpoint.WindowType == EActionWindowType::Parry)
-			{
-				return true;
-			}
-		}
-		return false;
-	};
+	TestFalse(TEXT("Attacker starts without a canonical parry window"),
+		AttackerCombat->GetActiveAttackWindow(EAttackWindowKind::Parry).IsValid());
+	TestFalse(TEXT("Defender starts without a canonical parry window"),
+		DefenderCombat->GetActiveAttackWindow(EAttackWindowKind::Parry).IsValid());
 
-	// Test 1: Parry window not active by default
-	TestFalse("Attacker should not have parry window by default", HasActiveParryWindow(AttackerComp, 0.0f));
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
+	AttackerCombat->SeedAttackWindowStateForTesting(Attack, EAttackPhase::Windup, 17);
+	FAnimNotifyRuntimeSourceId Source;
+	Source.SourceAnimation = FSoftObjectPath(
+		TEXT("/Game/Test/Defense/AM_AttackerParryWindow"));
+	Source.NotifyEventIndex = 2;
+	const FAttackWindowInstanceId Window = AttackerCombat->OpenAttackWindow(
+		EAttackWindowKind::Parry,
+		Source,
+		71,
+		0.30f);
+	TestTrue(TEXT("Attacker opens an identity-bearing parry window"), Window.IsValid());
+	TestEqual(TEXT("Published window is the exact opened instance"),
+		AttackerCombat->GetActiveAttackWindow(EAttackWindowKind::Parry), Window);
+	TestFalse(TEXT("Attacker window is never copied onto the defender"),
+		DefenderCombat->GetActiveAttackWindow(EAttackWindowKind::Parry).IsValid());
 
-	// Test 2: Registering parry checkpoint on attacker activates parry window
-	// Parry window at 0.1s with 0.3s duration (active from 0.1 to 0.4)
-	AttackerComp->RegisterCheckpoint(EActionWindowType::Parry, 0.1f, 0.3f);
+	TestFalse(TEXT("A stale montage instance cannot close the active window"),
+		AttackerCombat->CloseAttackWindow(EAttackWindowKind::Parry, Source, 72));
+	TestEqual(TEXT("Rejected stale close preserves the active window"),
+		AttackerCombat->GetActiveAttackWindow(EAttackWindowKind::Parry), Window);
+	TestTrue(TEXT("The matching runtime source and montage instance close the window"),
+		AttackerCombat->CloseAttackWindow(EAttackWindowKind::Parry, Source, 71));
+	TestFalse(TEXT("Closed parry window is no longer published"),
+		AttackerCombat->GetActiveAttackWindow(EAttackWindowKind::Parry).IsValid());
 
-	// At 0.2s (within window), parry should be active
-	TestTrue("Attacker should have parry window at 0.2s", HasActiveParryWindow(AttackerComp, 0.2f));
-
-	// Test 3: Defender can query attacker's parry window
-	// (In real gameplay, defender would get attacker via targeting system)
-	TestFalse("Defender should NOT have parry window (on their own component)", HasActiveParryWindow(DefenderComp, 0.2f));
-
-	// Test 4: Outside parry window timing
-	TestFalse("Parry window should not be active at 0.5s (outside 0.1-0.4 range)", HasActiveParryWindow(AttackerComp, 0.5f));
-
-	// Test 5: Before parry window starts
-	TestFalse("Parry window should not be active at 0.05s (before 0.1 start)", HasActiveParryWindow(AttackerComp, 0.05f));
-
-	// Cleanup
 	World->DestroyActor(Attacker);
 	World->DestroyActor(Defender);
 	FCombatTestHelpers::DestroyTestWorld(World);
-
 	return true;
 }

@@ -5,10 +5,12 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "GameplayTagContainer.h"
+#include "Containers/Ticker.h"
 #include "ActionQueueTypes.h"
 #include "CombatTypes.h"
 #include "Data/PairedAnimationTypes.h"
 #include "Data/ProceduralAnimationTypes.h"
+#include "Debug/DefenseTelemetry.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "CombatComponent.generated.h"
 
@@ -51,6 +53,31 @@ class UCombatSettings;
 class UAnimInstance;
 class UPairedAnimationData;
 class UPairedAnimationComponent;
+class UDefenseConfiguration;
+
+USTRUCT()
+struct FDefenseInteractionCacheRecord
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FDefenseInteractionId Id;
+
+	UPROPERTY()
+	FDefenseContactReceipt Receipt;
+
+	UPROPERTY()
+	bool bFinalized = false;
+
+	UPROPERTY()
+	bool bSourceTerminal = false;
+
+	UPROPERTY()
+	double TerminalUnscaledTime = 0.0;
+
+	UPROPERTY()
+	uint64 TerminalSequence = 0;
+};
 
 // ============================================================================
 // DEBUG VISUALIZATION TESTING SUPPORT
@@ -67,7 +94,6 @@ class KATANACOMBAT_API UCombatComponent : public UActorComponent
 	friend class FComboRace_RevertOnFailure;
 	friend class FComboRace_AttackDataSetBeforePlay;
 	friend class FComboRace_AttackDataNotNullAfterExecute;
-
 public:
 	UCombatComponent();
 
@@ -95,6 +121,124 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Attack")
 	UAttackData* GetCurrentAttack() const { return CurrentAttackData; }
 
+	/** Current attack-state generation used for native contact identity validation. */
+	int32 GetCurrentAttackGeneration() const { return AttackStateMachine.AttackGeneration; }
+
+	/** Immutable process-local identity used as the deterministic threat tie-break. */
+	FCombatantStableId GetCombatantStableId() const { return CombatantStableId; }
+
+	/** Append one diagnostic observation to this combatant's bounded telemetry ring. */
+	void AppendDefenseTelemetry(FDefenseTelemetryRecord Record);
+	const TArray<FDefenseTelemetryRecord>& GetDefenseTelemetry() const { return DefenseTelemetryRecords; }
+	void ClearDefenseTelemetry();
+	static constexpr int32 GetDefenseTelemetryCapacity() { return DefenseTelemetryCapacity; }
+
+	/** Build a value snapshot of the currently published attack state. */
+	FAttackExecutionSnapshot BuildAttackExecutionSnapshot() const;
+
+	/** Open a canonical attacker-owned window for this exact attack and notify runtime instance. */
+	FAttackWindowInstanceId OpenAttackWindow(
+		EAttackWindowKind Kind,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId,
+		float Duration);
+
+	/** Refresh one open window's runtime deadline without changing its canonical generation. */
+	FAttackWindowInstanceId RefreshAttackWindow(
+		EAttackWindowKind Kind,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId,
+		float RemainingDuration);
+
+	/** Retire the oldest matching Begin; closes the published window only when that Begin is current. */
+	bool CloseAttackWindow(
+		EAttackWindowKind Kind,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId);
+
+	/** Return the currently published canonical window of this kind. */
+	FAttackWindowInstanceId GetActiveAttackWindow(EAttackWindowKind Kind) const;
+
+	/** Atomically consume the current matching attack generation. */
+	bool ConsumeActiveAttack(
+		const FAttackInstanceId& AttackId,
+		EAttackConsumeReason Reason);
+
+	/** Immediately retire only the exact current attack generation. */
+	bool AbortActiveAttack(const FAttackInstanceId& AttackId);
+
+	bool IsAttackConsumed(const FAttackInstanceId& AttackId) const
+	{
+		return AttackId.IsValid() && ConsumedAttackInstance == AttackId;
+	}
+
+	/** Publish prediction evidence for the current attack generation. */
+	void PublishAttackThreatPrediction(const FAttackThreatPrediction& Prediction);
+
+	/** Publish high-confidence evidence from an authored runtime window and explicit attack target. */
+	bool PublishReviewedAttackWindowPrediction(const FAttackWindowInstanceId& Window);
+
+	/** Invalidate prediction evidence without mutating the active attack. */
+	void InvalidateAttackThreatPrediction(EThreatInvalidationReason Reason);
+
+	/** Capture the explicit defender intended by the active or pending attack. */
+	void SetAttackIntentTarget(AActor* IntendedTarget);
+
+	/** Enumerate and deterministically select one immutable defense threat snapshot. */
+	FDefenseThreatSelectionResult SelectDefenseThreat(double SimulationNow);
+
+	/** Refresh the held-guard threat lock, coalescing event requests within one frame. */
+	void RefreshGuardThreat(EThreatRefreshReason Reason);
+
+	/** Release held-guard threat ownership and its simulation-time refresh timer. */
+	void ClearGuardThreat(EThreatClearReason Reason);
+
+	/** Route normalized player yaw intent through the capped held-guard alignment request. */
+	void SetDefenseManualYawInput(float NormalizedYawInput);
+
+	/** Resolve stance, component, character-settings, then C++ default defense configuration. */
+	const UDefenseConfiguration* GetEffectiveDefenseConfiguration() const;
+
+	/** Install a scoped stance override. The newest active override has highest precedence. */
+	FDefenseConfigurationOverrideHandle AcquireDefenseStanceOverride(UDefenseConfiguration* Configuration);
+
+	/** Release only the scoped stance override represented by Handle. */
+	bool ReleaseDefenseStanceOverride(FDefenseConfigurationOverrideHandle Handle);
+
+	/** Last immutable threat selected for this defender, if still locked. */
+	const FAttackExecutionSnapshot& GetLockedDefenseThreat() const { return LockedDefenseThreat; }
+
+#if WITH_AUTOMATION_TESTS
+	void SetCombatantStableIdForTesting(FCombatantStableId StableId) { CombatantStableId = StableId; }
+	void SetAttackMontagePlayRateForTesting(float PlayRate)
+	{
+		AttackMontagePlayRateForTesting = FMath::Max(UE_SMALL_NUMBER, PlayRate);
+	}
+	float GetAttackMontagePlayRateForTesting() const
+	{
+		return AttackMontagePlayRateForTesting;
+	}
+	void SetDefenseManualYawInputForTesting(float NormalizedYawInput, double UnscaledNow);
+	void SeedAttackWindowStateForTesting(UAttackData* Attack, EAttackPhase Phase, int32 Generation)
+	{
+		CurrentAttackData = Attack;
+		CurrentPhase = Phase;
+		AttackStateMachine.AttackGeneration = Generation;
+	}
+	const FDefenseResolution& GetLastInputDefenseResolutionForTesting() const
+	{
+		return LastInputDefenseResolution;
+	}
+	int32 GetPendingAttackConsumedEventCountForTesting() const
+	{
+		return PendingAttackConsumedEvents.Num();
+	}
+	int32 GetClearQueueCallCountForTesting() const
+	{
+		return ClearQueueCallCountForTesting;
+	}
+#endif
+
 	// ============================================================================
 	// CACHED REFERENCES
 	// ============================================================================
@@ -106,6 +250,10 @@ public:
 	/** Combat settings (cached from character for performance) */
 	UPROPERTY()
 	TObjectPtr<UCombatSettings> CombatSettings = nullptr;
+
+	/** Defender-local configuration seam; Task 3 adds stance/settings precedence. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Defense")
+	TObjectPtr<UDefenseConfiguration> DefenseConfigurationOverride = nullptr;
 
 	// ============================================================================
 	// INPUT PROCESSING
@@ -188,6 +336,46 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Block")
 	bool CanBlockHit(const FHitReactionInfo& HitInfo) const;
 
+	/** Native guard snapshot used by the rich defense resolver. */
+	bool IsGuardHeldForDefense() const { return bIsBlocking; }
+
+	// ============================================================================
+	// DEFENSE INTERACTION COMMIT CACHE
+	// ============================================================================
+
+	EDefenseCommitStatus BeginDefenseInteraction(
+		const FDefenseInteractionKey& Key,
+		FDefenseInteractionId& OutId,
+		FDefenseContactReceipt& OutExistingReceipt,
+		bool bAllowNewRegistration = true);
+
+	void FinalizeDefenseInteraction(
+		const FDefenseInteractionId& Id,
+		const FDefenseContactReceipt& Receipt);
+
+	/** True only while this exact target-owned epoch remains finalized in the cache. */
+	bool IsDefenseInteractionFinalized(const FDefenseInteractionId& Id) const;
+
+	void MarkDefenseContactSourceTerminal(
+		const FContactInstanceId& ContactId,
+		double UnscaledNow);
+
+	void SweepDefenseInteractionCache(double UnscaledNow);
+
+	/** Broadcast only after gameplay commit and source accounting are coherent. */
+	FOnDefenseResolvedNative OnDefenseResolvedNative;
+
+	/** Immediate source-side termination signal for AI and other native ownership systems. */
+	FOnAttackConsumedNative OnAttackConsumedInternal;
+
+#if WITH_AUTOMATION_TESTS
+	/** Fires after a reviewed high-confidence prediction and defender refresh are coherent. */
+	DECLARE_MULTICAST_DELEGATE_OneParam(
+		FOnReviewedAttackPredictionPublishedForTesting,
+		const FAttackWindowInstanceId&);
+	FOnReviewedAttackPredictionPublishedForTesting OnReviewedAttackPredictionPublishedForTesting;
+#endif
+
 	/** Add an active runtime context tag for C++ attack-resolution code. */
 	void AddActiveContextTag(FGameplayTag ContextTag);
 
@@ -196,6 +384,12 @@ public:
 
 	/** Clear all active runtime context tags. */
 	void ClearActiveContextTags();
+
+	/** Acquire one independently releasable contribution to a runtime context tag. */
+	FCombatContextLeaseHandle AcquireContextTagLease(FGameplayTag ContextTag, FName Owner);
+
+	/** Release only the contribution represented by Handle. Duplicate release is a no-op. */
+	void ReleaseContextTagLease(FCombatContextLeaseHandle Handle);
 
 	/** True when this component currently has the supplied runtime context tag. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Context")
@@ -354,6 +548,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Phase")
 	void OnPhaseTransition(EAttackPhase NewPhase);
 
+	/** Canonical phase path; invalid or stale runtime notify context cannot mutate phase or tracing. */
+	bool OnPhaseTransitionWithContext(
+		EAttackPhase NewPhase,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId,
+		float RemainingWindowDuration);
+
 	/**
 	 * Set phase (internal phase management)
 	 * Called when independently changing phase state
@@ -493,6 +694,10 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
 	FOnAttackHit OnAttackHit;
 
+	/** Deferred public notification after source-side attack consumption is coherent. */
+	UPROPERTY(BlueprintAssignable, Category = "Combat|Events")
+	FOnAttackConsumed OnAttackConsumed;
+
 	// Paired Animation forwarding wrappers (delegates to UPairedAnimationComponent)
 
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
@@ -546,6 +751,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Debug")
 	FQueueStats GetQueueStats() const { return QueueStats; }
 
+	/** Bounded chronological ledger of captured combat-input edges. */
+	const TArray<FCombatInputRecord>& GetCombatInputHistory() const { return CombatInputHistory; }
+
 	/** Reset statistics */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Debug")
 	void ResetStats() { QueueStats.Reset(); }
@@ -557,6 +765,11 @@ public:
 	/** Action queue (FIFO execution) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	TArray<FActionQueueEntry> ActionQueue;
+
+#if WITH_AUTOMATION_TESTS
+	int32 ClearQueueCallCountForTesting = 0;
+	float AttackMontagePlayRateForTesting = 1.0f;
+#endif
 
 	/** Timer checkpoints for current montage */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
@@ -630,6 +843,17 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Context")
 	FGameplayTagContainer ActiveContextTags;
 
+	struct FCombatContextLeaseRecord
+	{
+		FGameplayTag Tag;
+		FName Owner = NAME_None;
+	};
+
+	TMap<FCombatContextLeaseHandle, FCombatContextLeaseRecord> ActiveContextTagLeases;
+	TMap<FGameplayTag, int32> ActiveContextTagLeaseCounts;
+	TMap<FGameplayTag, TArray<FCombatContextLeaseHandle>> LegacyContextTagLeases;
+	uint64 NextContextTagLeaseId = 0;
+
 	/**
 	 * Visited attacks during current resolution (cycle detection)
 	 * Cleared at start of each resolution, prevents infinite loops
@@ -651,6 +875,11 @@ public:
 	// ============================================================================
 
 #if WITH_AUTOMATION_TESTS
+	int32 GetDefenseInteractionCacheSizeForTesting() const
+	{
+		return DefenseInteractionCache.Num();
+	}
+
 	/**
 	 * Calculate all debug visualization data without drawing
 	 * Allows unit tests to verify positioning, coloring, and visibility logic
@@ -691,11 +920,27 @@ public:
 	friend class FComboRace_ComboChainDataIntegrity;
 	friend class FComboRace_RevertOnFailure;
 	friend class FComboRace_SetPhaseNoneClearsState;
+	friend class FDefenseThreat_AttackSnapshotPublication;
+	friend class FDefenseThreat_HighConfidenceRequiresCompleteEvidence;
+	friend class FDefenseThreat_ComponentSelectionOwnership;
+	friend class FDefenseAlignment_GuardUsesOwnedSmoothRequest;
+	friend class FDefenseAlignment_GuardManualOverridePreservesBudget;
+	friend class FDefenseAlignment_GuardManualThresholdAndPriority;
+	friend class FDefenseAlignment_PlayerLookRoutesManualYaw;
 #endif // WITH_AUTOMATION_TESTS
 
 protected:
+	virtual void OnRegister() override;
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	void EnsureCombatantStableId();
+
+	/** Active scoped stance overrides, retained for GC until their owner releases the handle. */
+	UPROPERTY(Transient)
+	TMap<uint64, TObjectPtr<UDefenseConfiguration>> DefenseStanceOverrides;
+
+	uint64 NextDefenseStanceOverrideId = 1;
 
 	/**
 	 * Validates that default attacks are assigned (called in BeginPlay in editor builds)
@@ -710,7 +955,7 @@ protected:
 	 * Bind this to character's OnDeath event delegate
 	 */
 	UFUNCTION()
-	void OnCharacterDeath();
+	void OnCharacterDeath(AActor* Killer);
 
 	/**
 	 * Set current input interpretation context
@@ -741,6 +986,13 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	FQueueStats QueueStats;
 
+	/** Last 64 captured input edges, including terminal rejections. */
+	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
+	TArray<FCombatInputRecord> CombatInputHistory;
+
+	/** Process-monotonic identity for the next captured input edge. */
+	uint64 NextCombatInputSerial = 1;
+
 	/** Current attack phase (tracked independently) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	EAttackPhase CurrentPhase = EAttackPhase::None;
@@ -748,6 +1000,71 @@ protected:
 	/** Currently executing attack (for combo progression tracking) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	TObjectPtr<UAttackData> CurrentAttackData = nullptr;
+
+	/** Process-local deterministic identity assigned when the component registers. */
+	FCombatantStableId CombatantStableId;
+
+	/** Explicit defender captured by attack selection, never inferred during defense query. */
+	UPROPERTY()
+	TWeakObjectPtr<AActor> AttackIntentTarget;
+
+	/** Latest prediction evidence, bound to PublishedPredictionAttackInstance. */
+	UPROPERTY()
+	FAttackThreatPrediction PublishedAttackThreatPrediction;
+
+	UPROPERTY()
+	FAttackInstanceId PublishedPredictionAttackInstance;
+
+	/** All unmatched canonical Begin records, retained so delayed End callbacks retire FIFO. */
+	UPROPERTY(Transient)
+	TArray<FAttackWindowInstanceId> OpenAttackWindowRecords;
+
+	UPROPERTY(Transient)
+	FAttackWindowInstanceId ActiveHitWindow;
+
+	UPROPERTY(Transient)
+	FAttackWindowInstanceId ActiveParryWindow;
+
+	UPROPERTY(Transient)
+	FAttackWindowInstanceId ActiveCounterWindow;
+
+	int32 NextAttackWindowGeneration = 0;
+
+	UPROPERTY(Transient)
+	FAttackInstanceId ConsumedAttackInstance;
+
+	UPROPERTY(Transient)
+	TArray<FAttackConsumedEvent> PendingAttackConsumedEvents;
+
+	FTSTicker::FDelegateHandle DeferredAttackConsumedTickerHandle;
+	bool bConsumedPendingPresentation = false;
+
+	UPROPERTY(Transient)
+	FDefenseResolution LastInputDefenseResolution;
+
+	EThreatInvalidationReason LastThreatInvalidationReason = EThreatInvalidationReason::None;
+
+	/** Defender-owned immutable lock selected from one targeting enumeration. */
+	UPROPERTY()
+	FAttackExecutionSnapshot LockedDefenseThreat;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> LockedDefenseThreatActor;
+
+	FCombatantStableId LockedDefenseThreatId;
+	double DefenseThreatLockAcquiredSimulationTime = -1.0;
+	float RemainingDefenseAutomaticTurn = 0.0f;
+	FAlignmentRequestHandle GuardAlignmentRequestHandle;
+	int32 GuardAlignmentGeneration = 0;
+	bool bGuardThreatCandidatesExist = false;
+	bool bGuardThreatRefreshInProgress = false;
+	uint64 LastGuardThreatRefreshFrame = MAX_uint64;
+	FTimerHandle GuardThreatRefreshTimerHandle;
+	FTimerHandle CoalescedGuardThreatRefreshTimerHandle;
+	FTSTicker::FDelegateHandle GuardManualResumeTickerHandle;
+	float DefenseManualYawInput = 0.0f;
+	double GuardManualInputBelowThresholdRealTime = -1.0;
+	bool bGuardManualOverrideActive = false;
 
 	/** Input type that triggered current attack (Light/Heavy) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
@@ -760,6 +1077,16 @@ protected:
 	/** Half-angle of the normal block defensive cone. */
 	UPROPERTY(EditAnywhere, Category = "Combat|Block", meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float BlockFacingConeHalfAngle = 70.0f;
+
+	UPROPERTY(Transient)
+	TMap<FDefenseInteractionKey, FDefenseInteractionCacheRecord> DefenseInteractionCache;
+	uint64 NextDefenseInteractionEpoch = 0;
+	TArray<FDefenseTelemetryRecord> DefenseTelemetryRecords;
+	uint64 NextDefenseTelemetrySequence = 0;
+	static constexpr int32 DefenseTelemetryCapacity = 512;
+	uint64 NextDefenseTerminalSequence = 0;
+	static constexpr double DefenseInteractionTombstoneSeconds = 1.0;
+	static constexpr int32 DefenseTerminalInteractionCacheCap = 128;
 
 	/** Optional target supplied by external attack execution, used before soft-aim fallback. */
 	TWeakObjectPtr<AActor> ExplicitAttackWarpTarget;
@@ -832,11 +1159,31 @@ protected:
 	 */
 	void SetupAttackWarp(UAttackData* AttackData);
 
-	/** Find the best nearby threat for normal block facing. */
-	AActor* FindBlockThreat() const;
+	/** Simulation-time timer callback used only while held guard has candidates. */
+	void HandleGuardThreatRefreshTimer();
+	void HandleCoalescedGuardThreatRefresh();
 
-	/** Rotate owner yaw toward a threat once when normal block begins. */
-	void FaceThreatForBlock(AActor* ThreatActor);
+	void RefreshGuardThreatInternal(EThreatRefreshReason Reason, bool bForceRevalidation);
+	void UpdateGuardAlignmentRequest();
+	void SetDefenseManualYawInputAtTime(float NormalizedYawInput, double UnscaledNow);
+	void ScheduleGuardManualResume(double DelaySeconds);
+	void CancelGuardManualResume();
+	bool HandleGuardManualResumeTicker(float DeltaTime);
+	void ResetDefenseManualYawOverride();
+	bool TryCommitPerfectParry(double BlockPressSimulationTime, double BlockPressUnscaledTime);
+	FDefenseQuery BuildDefenseInputQuery(
+		double BlockPressSimulationTime,
+		double BlockPressUnscaledTime) const;
+	bool ConsumeActiveAttackInternal(
+		const FAttackInstanceId& AttackId,
+		EAttackConsumeReason Reason,
+		const FDefenseInteractionId& InteractionId);
+	bool FlushDeferredAttackConsumedEvents(float DeltaTime);
+	bool HasRegisteredDefenseContactForAttack(const FAttackInstanceId& AttackId) const;
+	bool CloseHitWindowFromPhaseTransition(
+		const FAnimNotifyRuntimeSourceId& CloseSource,
+		int32 MontageInstanceId);
+	void ClearPublishedAttackWindowsForAttack(const FAttackInstanceId& AttackInstance);
 
 	/** Match press/release pairs */
 	void ProcessInputPair(const FQueuedInputAction& PressEvent, const FQueuedInputAction& ReleaseEvent);
@@ -866,5 +1213,20 @@ protected:
 
 	/** Check if can accept new input (prevents double-queueing same input) */
 	bool CanAcceptNewInput(EInputType InputType) const;
+
+	/** Capture an input edge before any routing or eligibility gate. */
+	uint64 CaptureCombatInput(
+		EInputType InputType,
+		EInputEventType EventType,
+		EInputDirection InputDirection);
+
+	/** Finalize a retained record by identity; safe if reentrant input evicted it. */
+	void FinalizeCombatInput(
+		uint64 Serial,
+		ECombatInputRoute Route,
+		ECombatInputDisposition Disposition);
+
+	/** Queue implementation that reports whether the normal route accepted the edge. */
+	bool TryQueueAction(const FQueuedInputAction& InputAction, UAttackData* AttackData = nullptr);
 
 };

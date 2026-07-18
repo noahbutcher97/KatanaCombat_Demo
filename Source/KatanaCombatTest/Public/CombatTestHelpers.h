@@ -4,6 +4,8 @@
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/StaticMeshSocket.h"
 #include "Engine/World.h"
 #include "GameFramework/Character.h"
 #include "Characters/PlayerCharacter.h"
@@ -19,6 +21,7 @@
 #include "Core/WeaponComponent.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Interfaces/DamageableInterface.h"
+#include "UObject/StrongObjectPtr.h"
 
 class UHitReactionComponent;
 class UWeaponComponent;
@@ -30,6 +33,51 @@ class UWeaponComponent;
 class KATANACOMBATTEST_API FCombatTestHelpers
 {
 public:
+    /** Configure a reusable synthetic weapon mesh with valid trace sockets. */
+    static void ConfigureTestWeaponTraceSockets(ABaseCombatCharacter* Character)
+    {
+        if (!Character || !Character->CombatSettings || !Character->WeaponComponent)
+        {
+            return;
+        }
+
+        static TStrongObjectPtr<UStaticMesh> TestWeaponMesh;
+        if (!TestWeaponMesh.IsValid())
+        {
+            UStaticMesh* TemplateMesh = LoadObject<UStaticMesh>(
+                nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+            UStaticMesh* Mesh = TemplateMesh
+                ? DuplicateObject<UStaticMesh>(TemplateMesh, GetTransientPackage())
+                : nullptr;
+            if (!Mesh)
+            {
+                return;
+            }
+
+            UStaticMeshSocket* StartSocket = NewObject<UStaticMeshSocket>(Mesh);
+            StartSocket->SocketName = TEXT("weapon_start");
+            StartSocket->RelativeLocation = FVector::ZeroVector;
+            Mesh->AddSocket(StartSocket);
+
+            UStaticMeshSocket* EndSocket = NewObject<UStaticMeshSocket>(Mesh);
+            EndSocket->SocketName = TEXT("weapon_end");
+            EndSocket->RelativeLocation = FVector(100.0f, 0.0f, 0.0f);
+            Mesh->AddSocket(EndSocket);
+            TestWeaponMesh.Reset(Mesh);
+        }
+
+        UWeaponData* WeaponData = Character->CombatSettings->DefaultWeaponData;
+        if (!WeaponData || !TestWeaponMesh.IsValid())
+        {
+            return;
+        }
+        WeaponData->WeaponMesh = TestWeaponMesh.Get();
+        WeaponData->bUseCharacterSocketsForTrace = false;
+        WeaponData->EquippedSocket = NAME_None;
+        WeaponData->HolsteredSocket = NAME_None;
+        Character->WeaponComponent->InitializeFromWeaponData(WeaponData, true);
+    }
+
     /**
      * Create a minimal test world for combat tests
      * @return New test world (must be destroyed with DestroyTestWorld)
@@ -85,7 +133,10 @@ public:
      * @param OutCombat - Output parameter for created combat component
      * @return Created character
      */
-    static APlayerCharacter* CreateTestCharacterWithCombat(UWorld* World, UCombatComponent*& OutCombat)
+    static APlayerCharacter* CreateTestCharacterWithCombat(
+        UWorld* World,
+        UCombatComponent*& OutCombat,
+        bool bConfigureWeaponTraceSockets = true)
     {
         APlayerCharacter* Character = World->SpawnActor<APlayerCharacter>();
 
@@ -94,6 +145,11 @@ public:
 
         // Get the combat component (created by character constructor)
         OutCombat = Character->CombatComponent;
+
+        if (bConfigureWeaponTraceSockets)
+        {
+            ConfigureTestWeaponTraceSockets(Character);
+        }
 
         return Character;
     }
@@ -124,13 +180,21 @@ public:
      * @param Location - Spawn location (default: origin)
      * @return Created player character
      */
-    static APlayerCharacter* CreateTestPlayerCharacter(UWorld* World, FVector Location = FVector::ZeroVector)
+    static APlayerCharacter* CreateTestPlayerCharacter(
+        UWorld* World,
+        FVector Location = FVector::ZeroVector,
+        bool bConfigureWeaponTraceSockets = true)
     {
         FActorSpawnParameters SpawnParams;
         APlayerCharacter* Character = World->SpawnActor<APlayerCharacter>(APlayerCharacter::StaticClass(), Location, FRotator::ZeroRotator, SpawnParams);
 
         // Setup minimal combat settings
         Character->CombatSettings = CreateTestCombatSettings();
+
+        if (bConfigureWeaponTraceSockets)
+        {
+            ConfigureTestWeaponTraceSockets(Character);
+        }
 
         return Character;
     }
@@ -141,13 +205,21 @@ public:
      * @param Location - Spawn location (default: origin)
      * @return Created enemy character
      */
-    static AEnemyCharacter* CreateTestEnemyCharacter(UWorld* World, FVector Location = FVector::ZeroVector)
+    static AEnemyCharacter* CreateTestEnemyCharacter(
+        UWorld* World,
+        FVector Location = FVector::ZeroVector,
+        bool bConfigureWeaponTraceSockets = true)
     {
         FActorSpawnParameters SpawnParams;
         AEnemyCharacter* Character = World->SpawnActor<AEnemyCharacter>(AEnemyCharacter::StaticClass(), Location, FRotator::ZeroRotator, SpawnParams);
 
         // Setup minimal combat settings
         Character->CombatSettings = CreateTestCombatSettings();
+
+        if (bConfigureWeaponTraceSockets)
+        {
+            ConfigureTestWeaponTraceSockets(Character);
+        }
 
         return Character;
     }

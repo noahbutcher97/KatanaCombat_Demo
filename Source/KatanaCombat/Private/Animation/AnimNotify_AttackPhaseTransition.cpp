@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/AnimNotify_AttackPhaseTransition.h"
+#include "Animation/CombatAnimNotifyIdentity.h"
 #include "Interfaces/CombatInterface.h"
 #include "GameFramework/Actor.h"
 
@@ -31,7 +32,18 @@ void UAnimNotify_AttackPhaseTransition::Notify(USkeletalMeshComponent* MeshComp,
 	// Route to ICombatInterface on owner
 	if (Owner->Implements<UCombatInterface>())
 	{
-		ICombatInterface::Execute_OnAttackPhaseTransition(Owner, TransitionToPhase);
+		const FAnimNotifyRuntimeSourceId NotifySource = ResolveRuntimeNotifySourceId(EventReference);
+		const int32 MontageInstanceId = ResolveRuntimeMontageInstanceId(EventReference);
+		const FAnimNotifyEvent* NotifyEvent = EventReference.GetNotify();
+		const float RemainingDuration = Animation && NotifyEvent
+			? FMath::Max(0.0f, Animation->GetPlayLength() - NotifyEvent->GetTriggerTime())
+			: 0.0f;
+		ICombatInterface::Execute_OnAttackPhaseTransitionWithContext(
+			Owner,
+			TransitionToPhase,
+			NotifySource,
+			MontageInstanceId,
+			RemainingDuration);
 	}
 }
 

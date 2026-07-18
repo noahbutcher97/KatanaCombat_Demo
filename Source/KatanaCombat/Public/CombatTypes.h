@@ -4,6 +4,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayTagContainer.h"
+#include "Interfaces/TeamMemberInterface.h"
 #include "CombatTypes.generated.h"
 
 // Forward declarations
@@ -15,6 +17,7 @@ class UCameraShakeBase;
 class USoundBase;
 class UNiagaraSystem;
 class UPairedAnimationData;
+class UActorComponent;
 
 // ============================================================================
 // ENUMS
@@ -236,7 +239,26 @@ enum class EChainCounterState : uint8
     CounterActive   UMETA(DisplayName = "Counter Active"),
 
     /** Enemy vulnerable, finisher available */
-    FinisherReady   UMETA(DisplayName = "Finisher Ready")
+    FinisherReady   UMETA(DisplayName = "Finisher Ready"),
+
+    /** Playing the terminal paired finisher stage */
+    FinisherActive  UMETA(DisplayName = "Finisher Active")
+};
+
+/** Runtime role occupied by an actor in paired animation data. */
+UENUM(BlueprintType)
+enum class EPairedAnimationRole : uint8
+{
+	Attacker,
+	Victim
+};
+
+/** Gameplay transitions authored into the driver montage for a retained Chain. */
+UENUM(BlueprintType)
+enum class EChainStageTransitionType : uint8
+{
+	OpenCounterWindow,
+	AutoContinue
 };
 
 /**
@@ -261,6 +283,217 @@ enum class ESwingDirection : uint8
 
     /** Unarmed grabs, grapples */
     Grab            UMETA(DisplayName = "Grab")
+};
+
+UENUM(BlueprintType)
+enum class EDefenseQueryStage : uint8
+{
+	InputIntent,
+	Contact
+};
+
+UENUM(BlueprintType)
+enum class EDefenseOutcome : uint8
+{
+	Rejected,
+	GuardEntered,
+	PerfectParry,
+	NormalBlock,
+	Hit,
+	UnblockableHit,
+	IgnoredFriendly,
+	IgnoredInvulnerable,
+	IgnoredConsumed,
+	IgnoredInvalid
+};
+
+UENUM(BlueprintType)
+enum class EDefenseDamageDisposition : uint8
+{
+	ApplyRequestedDamage,
+	SuppressDamage,
+	NoContactSideEffects
+};
+
+UENUM(BlueprintType)
+enum class EAttackerResponse : uint8
+{
+	None,
+	Continue,
+	Recoil,
+	ParryStagger
+};
+
+UENUM(BlueprintType)
+enum class EDefenseCommitStatus : uint8
+{
+	NewCommit,
+	Cached,
+	InProgress,
+	RejectedBeforeRegistration
+};
+
+UENUM(BlueprintType)
+enum class EDefensePredictionConfidence : uint8
+{
+	None,
+	Low,
+	High
+};
+
+UENUM(BlueprintType)
+enum class EAttackHeight : uint8
+{
+	High,
+	Middle,
+	Low
+};
+
+UENUM(BlueprintType)
+enum class EIncomingAttackLane : uint8
+{
+	Left,
+	Center,
+	Right
+};
+
+UENUM(BlueprintType)
+enum class EAttackWindowKind : uint8
+{
+	Hit,
+	Parry,
+	Counter
+};
+
+UENUM(BlueprintType)
+enum class EThreatInvalidationReason : uint8
+{
+	None,
+	TargetChanged,
+	PathChanged,
+	WindowChanged,
+	MontageRateChanged,
+	AttackGenerationChanged,
+	AttackEnded,
+	AttackConsumed,
+	OwnerInvalid
+};
+
+UENUM(BlueprintType)
+enum class EThreatRefreshReason : uint8
+{
+	BlockPressed,
+	PredictionPublished,
+	PredictionInvalidated,
+	TargetChanged,
+	WindowChanged,
+	GuardedTimer,
+	ManualRevalidation
+};
+
+UENUM(BlueprintType)
+enum class EThreatClearReason : uint8
+{
+	BlockReleased,
+	NoCandidates,
+	PairedTakeover,
+	OwnerDeath,
+	ComponentEndPlay
+};
+
+UENUM(BlueprintType)
+enum class EAttackConsumeReason : uint8
+{
+	PerfectParry,
+	Death,
+	PairedTakeover,
+	Cancelled
+};
+
+UENUM(BlueprintType)
+enum class EDefenseAlignmentPolicy : uint8
+{
+	None,
+	GuardFacing,
+	BlockContact,
+	PerfectParryBridge
+};
+
+UENUM(BlueprintType)
+enum class EDefenseAlignmentPriority : uint8
+{
+	GuardFacing,
+	ActiveAttackWarp,
+	BlockContact,
+	PairedOrParryBridge,
+	Terminal
+};
+
+UENUM(BlueprintType)
+enum class EAlignmentExecutor : uint8
+{
+	None,
+	CharacterMovement,
+	MotionWarping
+};
+
+UENUM(BlueprintType)
+enum class EAlignmentReleaseReason : uint8
+{
+	OwnerCompleted,
+	OwnerCancelled,
+	TargetInvalid,
+	Death,
+	ComponentTeardown
+};
+
+UENUM(BlueprintType)
+enum class EDefenseReason : uint8
+{
+	None,
+	InvalidDefenderState,
+	NoHostileCandidate,
+	StaleAttack,
+	NoParryWindow,
+	MissingParryCapability,
+	PredictionInsufficient,
+	OutsideHardCone,
+	PerfectAlignmentUnreachable,
+	NotGuarding,
+	OutsideBlockTolerance,
+	Unblockable,
+	FriendlyFireDisabled,
+	Invulnerable,
+	Consumed,
+	InvalidParticipant,
+	Duplicate,
+	CommitInProgress
+};
+
+UENUM(BlueprintType)
+enum class EDefenseHeightProvenance : uint8
+{
+	None,
+	ExactBone,
+	MappedParent,
+	Authored
+};
+
+UENUM(BlueprintType)
+enum class EDefenseLaneProvenance : uint8
+{
+	None,
+	WeaponVelocity,
+	TraceSegment,
+	AuthoredFallback
+};
+
+UENUM(BlueprintType)
+enum class EDefensePresentationFallbackLevel : uint8
+{
+	Exact,
+	Generic,
+	NoPresentation
 };
 
 // ============================================================================
@@ -887,6 +1120,11 @@ struct FAttackWarpConfig
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion Warp|Target",
         meta = (EditCondition = "bEnableWarp", ClampMin = "0.0", ClampMax = "1000.0"))
     float MaxWarpDistance = 400.0f;
+
+	/** Contact-alignment offset in the target actor's local space. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion Warp|Target",
+		meta = (EditCondition = "bEnableWarp"))
+	FVector TargetRelativeOffset = FVector::ZeroVector;
 
     /** Minimum distance before warping kicks in (prevents micro-warps when already close) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion Warp|Target",
@@ -1584,6 +1822,1369 @@ struct FAttackStateMachine
 };
 
 // ============================================================================
+// DEFENSE INTERACTION CONTRACTS
+// ============================================================================
+
+USTRUCT(BlueprintType)
+struct FCombatantStableId
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	uint64 Value = 0;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FCombatantStableId& Other) const { return Value == Other.Value; }
+	bool operator!=(const FCombatantStableId& Other) const { return !(*this == Other); }
+	bool operator<(const FCombatantStableId& Other) const { return Value < Other.Value; }
+
+	friend uint32 GetTypeHash(const FCombatantStableId& Id)
+	{
+		return GetTypeHash(Id.Value);
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FAttackInstanceId
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> Attacker;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 AttackGeneration = 0;
+
+	/** Structural reference/generation check only; it does not prove this is the attacker's current generation. */
+	bool IsValid() const { return Attacker.IsValid() && AttackGeneration > 0; }
+	bool operator==(const FAttackInstanceId& Other) const
+	{
+		return Attacker == Other.Attacker && AttackGeneration == Other.AttackGeneration;
+	}
+
+	friend uint32 GetTypeHash(const FAttackInstanceId& Id)
+	{
+		return HashCombineFast(GetTypeHash(Id.Attacker), GetTypeHash(Id.AttackGeneration));
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FAnimNotifyRuntimeSourceId
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FSoftObjectPath SourceAnimation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 NotifyEventIndex = INDEX_NONE;
+
+	bool IsValid() const { return SourceAnimation.IsValid() && NotifyEventIndex >= 0; }
+	bool operator==(const FAnimNotifyRuntimeSourceId& Other) const
+	{
+		return SourceAnimation == Other.SourceAnimation && NotifyEventIndex == Other.NotifyEventIndex;
+	}
+
+	friend uint32 GetTypeHash(const FAnimNotifyRuntimeSourceId& Id)
+	{
+		return HashCombineFast(GetTypeHash(Id.SourceAnimation.ToString()), GetTypeHash(Id.NotifyEventIndex));
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FAttackWindowInstanceId
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackInstanceId AttackInstance;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackWindowKind Kind = EAttackWindowKind::Hit;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 WindowGeneration = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAnimNotifyRuntimeSourceId NotifySource;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 MontageInstanceId = INDEX_NONE;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double SimulationStartTime = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double SimulationEndTime = 0.0;
+
+	bool IsValid() const
+	{
+		return AttackInstance.IsValid() && WindowGeneration > 0 && NotifySource.IsValid()
+			&& MontageInstanceId >= 0
+			&& FMath::IsFinite(SimulationStartTime)
+			&& FMath::IsFinite(SimulationEndTime)
+			&& SimulationEndTime >= SimulationStartTime;
+	}
+
+	bool operator==(const FAttackWindowInstanceId& Other) const
+	{
+		return AttackInstance == Other.AttackInstance
+			&& Kind == Other.Kind
+			&& WindowGeneration == Other.WindowGeneration
+			&& NotifySource == Other.NotifySource
+			&& MontageInstanceId == Other.MontageInstanceId
+			&& SimulationStartTime == Other.SimulationStartTime
+			&& SimulationEndTime == Other.SimulationEndTime;
+	}
+
+	friend uint32 GetTypeHash(const FAttackWindowInstanceId& Id)
+	{
+		uint32 Hash = HashCombineFast(GetTypeHash(Id.AttackInstance), GetTypeHash(Id.Kind));
+		Hash = HashCombineFast(Hash, GetTypeHash(Id.WindowGeneration));
+		Hash = HashCombineFast(Hash, GetTypeHash(Id.NotifySource));
+		Hash = HashCombineFast(Hash, GetTypeHash(Id.MontageInstanceId));
+		Hash = HashCombineFast(Hash, GetTypeHash(Id.SimulationStartTime));
+		return HashCombineFast(Hash, GetTypeHash(Id.SimulationEndTime));
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FWeaponTraceInstanceId
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TWeakObjectPtr<UActorComponent> WeaponComponent;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 TraceGeneration = 0;
+
+	bool IsValid() const { return WeaponComponent.IsValid() && TraceGeneration > 0; }
+	bool operator==(const FWeaponTraceInstanceId& Other) const
+	{
+		return WeaponComponent == Other.WeaponComponent && TraceGeneration == Other.TraceGeneration;
+	}
+
+	friend uint32 GetTypeHash(const FWeaponTraceInstanceId& Id)
+	{
+		return HashCombineFast(GetTypeHash(Id.WeaponComponent), GetTypeHash(Id.TraceGeneration));
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FContactInstanceId
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bUsesAttackWindow = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackWindowInstanceId AttackWindow;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FWeaponTraceInstanceId CompatibilityTrace;
+
+	static FContactInstanceId FromAttackWindow(const FAttackWindowInstanceId& Window)
+	{
+		FContactInstanceId Result;
+		Result.bUsesAttackWindow = true;
+		Result.AttackWindow = Window;
+		return Result;
+	}
+
+	static FContactInstanceId FromCompatibilityTrace(const FWeaponTraceInstanceId& Trace)
+	{
+		FContactInstanceId Result;
+		Result.CompatibilityTrace = Trace;
+		return Result;
+	}
+
+	bool IsValid() const
+	{
+		return bUsesAttackWindow ? AttackWindow.IsValid() : CompatibilityTrace.IsValid();
+	}
+
+	bool operator==(const FContactInstanceId& Other) const
+	{
+		return bUsesAttackWindow == Other.bUsesAttackWindow
+			&& (bUsesAttackWindow ? AttackWindow == Other.AttackWindow
+				: CompatibilityTrace == Other.CompatibilityTrace);
+	}
+
+	friend uint32 GetTypeHash(const FContactInstanceId& Id)
+	{
+		return HashCombineFast(GetTypeHash(Id.bUsesAttackWindow),
+			Id.bUsesAttackWindow ? GetTypeHash(Id.AttackWindow) : GetTypeHash(Id.CompatibilityTrace));
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseInteractionKey
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseQueryStage Stage = EDefenseQueryStage::Contact;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackInstanceId AttackInstance;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FContactInstanceId ContactInstance;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> Defender;
+
+	bool IsValid() const
+	{
+		const bool bSourceValid = Stage == EDefenseQueryStage::InputIntent
+			? AttackInstance.IsValid()
+			: ContactInstance.IsValid();
+		return bSourceValid && Defender.IsValid();
+	}
+
+	bool operator==(const FDefenseInteractionKey& Other) const
+	{
+		if (Stage != Other.Stage || Defender != Other.Defender)
+		{
+			return false;
+		}
+		return Stage == EDefenseQueryStage::InputIntent
+			? AttackInstance == Other.AttackInstance
+			: ContactInstance == Other.ContactInstance;
+	}
+
+	friend uint32 GetTypeHash(const FDefenseInteractionKey& Key)
+	{
+		uint32 Hash = HashCombineFast(GetTypeHash(Key.Stage),
+			Key.Stage == EDefenseQueryStage::InputIntent
+				? GetTypeHash(Key.AttackInstance)
+				: GetTypeHash(Key.ContactInstance));
+		return HashCombineFast(Hash, GetTypeHash(Key.Defender));
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseInteractionId
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseInteractionKey Key;
+
+	UPROPERTY()
+	uint64 Epoch = 0;
+
+	bool IsValid() const { return Key.IsValid() && Epoch > 0; }
+	bool operator==(const FDefenseInteractionId& Other) const
+	{
+		return Key == Other.Key && Epoch == Other.Epoch;
+	}
+
+	friend uint32 GetTypeHash(const FDefenseInteractionId& Id)
+	{
+		return HashCombineFast(GetTypeHash(Id.Key), GetTypeHash(Id.Epoch));
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FAttackThreatPrediction
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> IntendedTarget;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector PathOrigin = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector PathDirection = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector PredictedContactPoint = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName SourceSocket = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName DefenderTargetBone = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double PredictedContactSimulationTime = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double PredictionSimulationTimestamp = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EIncomingAttackLane Lane = EIncomingAttackLane::Center;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackHeight Height = EAttackHeight::Middle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefensePredictionConfidence Confidence = EDefensePredictionConfidence::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bPathIntersectsThreatVolume = false;
+};
+
+USTRUCT(BlueprintType)
+struct FPredictedDefenseContact
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bIsValid = false;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> IntendedTarget;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector PathOrigin = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector PathDirection = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector ContactPoint = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName SourceSocket = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName DefenderTargetBone = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double ContactSimulationTime = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double PredictionSimulationTimestamp = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EIncomingAttackLane Lane = EIncomingAttackLane::Center;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackHeight Height = EAttackHeight::Middle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefensePredictionConfidence Confidence = EDefensePredictionConfidence::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bPathIntersectsThreatVolume = false;
+};
+
+USTRUCT(BlueprintType)
+struct FActualDefenseContact
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bIsValid = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FHitReactionInfo HitInfo;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName SourceSocket = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector SourceBearing = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector IncomingTrajectory = FVector::ZeroVector;
+
+	/** True when IncomingTrajectory spans a fixed interval of source montage time. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bIncomingTrajectoryRateNormalized = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector TraceStart = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector TraceEnd = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EIncomingAttackLane Lane = EIncomingAttackLane::Center;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseLaneProvenance LaneProvenance = EDefenseLaneProvenance::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackHeight Height = EAttackHeight::Middle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseHeightProvenance HeightProvenance = EDefenseHeightProvenance::None;
+
+	/** Exact or parent bone row that supplied Height; none when authored fallback won. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName HeightSourceBone = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName ResolvedTargetBone = NAME_None;
+};
+
+USTRUCT(BlueprintType)
+struct FAttackExecutionSnapshot
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackInstanceId AttackInstance;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FCombatantStableId StableId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	TObjectPtr<UAttackData> AttackData = nullptr;
+
+	UPROPERTY()
+	TWeakObjectPtr<UAnimMontage> ActiveMontage;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName MontageSection = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float SectionTime = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackPhase AttackPhase = EAttackPhase::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackWindowInstanceId ActiveParryWindow;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackWindowInstanceId ActiveCounterWindow;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FGameplayTagContainer AttackTags;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackType AttackType = EAttackType::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackHeight AuthoredHeight = EAttackHeight::Middle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EIncomingAttackLane NominalLane = EIncomingAttackLane::Center;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	ESwingDirection SwingShape = ESwingDirection::Horizontal;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName SourceSocket = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName DefenderTargetBone = NAME_None;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> IntendedTarget;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FPredictedDefenseContact PredictedContact;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float TimeToPredictedContact = -1.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float TimeToParryWindowEnd = -1.0f;
+
+	/** Earlier reliable prediction/parry deadline used by defense alignment. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float TimeToAlignmentDeadline = -1.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float RelativeYawDegrees = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float DistanceToDefender = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FTransform AttackerTransform = FTransform::Identity;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector AttackerVelocity = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	ETeamId AttackerTeam = ETeamId::Neutral;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bAttackerAlive = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bAttackActive = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bAttackIdentityCurrent = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bAttackConsumed = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bAttackerPaired = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bIsHostileToDefender = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bIsFriendlyToDefender = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bHasCredibleIntent = false;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseThreatSelectionContext
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FCombatantStableId LockedThreatId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float LockAgeSeconds = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float ThreatLockMinSeconds = 0.15f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float ThreatSwitchLeadSeconds = 0.10f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float HardGuardConeHalfAngle = 70.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float MaximumAutomaticTurn = 70.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float RemainingAutomaticTurn = 70.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float DefenseTurnRate = 180.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float PerfectParryFinalTolerance = 10.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double CurrentSimulationTime = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float MaximumHighConfidencePredictionAge = 0.10f;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseThreatSelectionResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bFound = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackExecutionSnapshot SelectedThreat;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 SourceCandidateIndex = INDEX_NONE;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseReachability
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float AbsoluteYawError = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float AvailableTurn = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bWithinHardCone = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bReachable = false;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseLaneResolution
+{
+	GENERATED_BODY()
+
+	FDefenseLaneResolution() = default;
+	FDefenseLaneResolution(
+		const EIncomingAttackLane InLane,
+		const EDefenseLaneProvenance InProvenance,
+		const FVector& InIncomingTrajectory)
+		: Lane(InLane)
+		, Provenance(InProvenance)
+		, IncomingTrajectory(InIncomingTrajectory)
+	{
+	}
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EIncomingAttackLane Lane = EIncomingAttackLane::Center;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseLaneProvenance Provenance = EDefenseLaneProvenance::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector IncomingTrajectory = FVector::ZeroVector;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseHeightResolution
+{
+	GENERATED_BODY()
+
+	FDefenseHeightResolution() = default;
+	FDefenseHeightResolution(
+		const EAttackHeight InHeight,
+		const EDefenseHeightProvenance InProvenance,
+		const FName InMatchedBone)
+		: Height(InHeight)
+		, Provenance(InProvenance)
+		, MatchedBone(InMatchedBone)
+	{
+	}
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackHeight Height = EAttackHeight::Middle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseHeightProvenance Provenance = EDefenseHeightProvenance::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName MatchedBone = NAME_None;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseQuery
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseQueryStage Stage = EDefenseQueryStage::InputIntent;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackExecutionSnapshot Attack;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> Defender;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FCombatantStableId DefenderStableId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FTransform DefenderTransform = FTransform::Identity;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FGameplayTagContainer DefenderTags;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	ETeamId DefenderTeam = ETeamId::Neutral;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FActualDefenseContact ActualContact;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double BlockPressSimulationTime = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double BlockPressUnscaledTime = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double CurrentSimulationTime = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float MaximumHighConfidencePredictionAge = 0.10f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float RelativeYawDegrees = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float TimeToAlignmentDeadline = -1.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FCombatantStableId LockedThreatId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float ThreatLockAgeSeconds = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float HardGuardConeHalfAngle = 70.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float MaximumAutomaticTurn = 70.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float RemainingAutomaticTurn = 70.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float DefenseTurnRate = 180.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float NormalBlockFinalTolerance = 35.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float PerfectParryFinalTolerance = 10.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bDefenderAlive = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bDefenderCanGuard = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bDefenderGuarding = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bDefenderCanBeDamaged = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bDefenderInIFrames = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bDefenderPaired = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bHasSelectedThreat = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bHasActualContact = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bContactIdentityValid = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bFriendlyFireEnabled = false;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseDecision
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseOutcome Outcome = EDefenseOutcome::Rejected;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseReason Reason = EDefenseReason::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	TObjectPtr<UAttackData> SelectedAttack = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackInstanceId AttackInstance;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FCombatantStableId LockedThreatId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackHeight Height = EAttackHeight::Middle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EIncomingAttackLane Lane = EIncomingAttackLane::Center;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	ESwingDirection SwingShape = ESwingDirection::Horizontal;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector ContactPoint = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName SourceSocket = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName TargetBone = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float MeasuredYawDegrees = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float AvailableTurnDegrees = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float RequiredFinalTolerance = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefensePredictionConfidence PredictionConfidence = EDefensePredictionConfidence::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseDamageDisposition DamageDisposition = EDefenseDamageDisposition::NoContactSideEffects;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackerResponse AttackerResponse = EAttackerResponse::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseAlignmentPolicy AlignmentPolicy = EDefenseAlignmentPolicy::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bChainEligible = false;
+};
+
+USTRUCT(BlueprintType)
+struct FDefensePresentationPayload
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	TObjectPtr<UAnimMontage> Montage = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	FName MontageSection = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	TObjectPtr<UPairedAnimationData> PairedBridgeData = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	float BlendInSeconds = 0.10f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	float BlendOutSeconds = 0.10f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	bool bEnableRotationWarp = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	float MaximumTranslation = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	bool bOverrideImpactAudio = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	FImpactAudioConfig ImpactAudio;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	bool bOverrideImpactVFX = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	FImpactVFXConfig ImpactVFX;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	bool bOverrideHitstop = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	FHitstopConfig Hitstop;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	FName ReviewedDeflectionMarker = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	FName SourceSocketOverride = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	FName TargetBoneOverride = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	bool bRequiresBridgePreflight = false;
+
+	bool IsEmpty() const
+	{
+		return Montage == nullptr
+			&& PairedBridgeData == nullptr
+			&& !bOverrideImpactAudio
+			&& !bOverrideImpactVFX
+			&& !bOverrideHitstop
+			&& !bEnableRotationWarp
+			&& !bRequiresBridgePreflight
+			&& ReviewedDeflectionMarker.IsNone()
+			&& SourceSocketOverride.IsNone()
+			&& TargetBoneOverride.IsNone();
+	}
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseAlignmentRequestSpec
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseInteractionId OwnerInteraction;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseAlignmentPolicy Policy = EDefenseAlignmentPolicy::None;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> Target;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float MaximumTurnRate = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float RemainingTurnBudget = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float MaximumTranslation = 0.0f;
+};
+
+USTRUCT(BlueprintType)
+struct FAlignmentRequestHandle
+{
+	GENERATED_BODY()
+
+	FAlignmentRequestHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FAlignmentRequestHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FAlignmentRequestHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FAlignmentRequestHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FAlignmentRequestHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UTargetingComponent;
+};
+
+/** Opaque token returned to the owner of a scoped defense-configuration override. */
+USTRUCT(BlueprintType)
+struct FDefenseConfigurationOverrideHandle
+{
+	GENERATED_BODY()
+
+	FDefenseConfigurationOverrideHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FDefenseConfigurationOverrideHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FDefenseConfigurationOverrideHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FDefenseConfigurationOverrideHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FDefenseConfigurationOverrideHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UCombatComponent;
+};
+
+/** Opaque owner token for one contribution to a runtime combat-context tag. */
+USTRUCT(BlueprintType)
+struct FCombatContextLeaseHandle
+{
+	GENERATED_BODY()
+
+	FCombatContextLeaseHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FCombatContextLeaseHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FCombatContextLeaseHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FCombatContextLeaseHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FCombatContextLeaseHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UCombatComponent;
+};
+
+/** Opaque token for one world- or actor-time-dilation request. */
+USTRUCT(BlueprintType)
+struct FTimeDilationLeaseHandle
+{
+	GENERATED_BODY()
+
+	FTimeDilationLeaseHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FTimeDilationLeaseHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FTimeDilationLeaseHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FTimeDilationLeaseHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FTimeDilationLeaseHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UCombatEffectsWorldSubsystem;
+};
+
+/** Opaque token for component-owned paired input, collision, or movement state. */
+USTRUCT(BlueprintType)
+struct FPairedSequenceLeaseHandle
+{
+	GENERATED_BODY()
+
+	FPairedSequenceLeaseHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FPairedSequenceLeaseHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FPairedSequenceLeaseHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FPairedSequenceLeaseHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FPairedSequenceLeaseHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UPairedAnimationComponent;
+};
+
+/** Opaque token for a generation-owned asynchronous Chain callback. */
+USTRUCT(BlueprintType)
+struct FDefenseAsyncHandle
+{
+	GENERATED_BODY()
+
+	FDefenseAsyncHandle() = default;
+
+	bool IsValid() const { return Value != 0; }
+	bool operator==(const FDefenseAsyncHandle& Other) const { return Value == Other.Value; }
+	bool operator!=(const FDefenseAsyncHandle& Other) const { return !(*this == Other); }
+
+	friend uint32 GetTypeHash(const FDefenseAsyncHandle& Handle)
+	{
+		return GetTypeHash(Handle.Value);
+	}
+
+private:
+	explicit FDefenseAsyncHandle(uint64 InValue)
+		: Value(InValue)
+	{
+	}
+
+	uint64 Value = 0;
+
+	friend class UPairedAnimationComponent;
+};
+
+USTRUCT(BlueprintType)
+struct FAlignmentRequestSpec
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FName OwnerId = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	int32 OwnerGeneration = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EDefenseAlignmentPriority Priority = EDefenseAlignmentPriority::GuardFacing;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EAlignmentExecutor Executor = EAlignmentExecutor::None;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> Target;
+
+	/** Target-local offset used by paired role alignment. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FVector TargetRelativeOffset = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FRotator DesiredRotation = FRotator::ZeroRotator;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float MaximumTurnRate = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float RemainingTurnBudget = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float MaximumTranslation = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FName WarpTargetName = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	bool bTrackTargetRotation = true;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	bool bWarpTranslation = false;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseResolution
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseInteractionId InteractionId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseQueryStage Stage = EDefenseQueryStage::Contact;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseDecision Decision;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FPredictedDefenseContact PredictedContact;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FActualDefenseContact ActualContact;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bHasActualContact = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseAlignmentRequestSpec AlignmentRequest;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefensePresentationPayload Presentation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName PresentationRow = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefensePresentationFallbackLevel PresentationFallback = EDefensePresentationFallbackLevel::NoPresentation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefensePresentationPayload AttackerPresentation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName AttackerPresentationRow = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefensePresentationFallbackLevel AttackerPresentationFallback = EDefensePresentationFallbackLevel::NoPresentation;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseContactRequest
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FContactInstanceId ContactId;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseQuery Query;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FHitReactionInfo HitInfo;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector TraceStart = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector TraceEnd = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName ActiveSourceSocket = NAME_None;
+
+	/** Preferred contact trajectory for defense classification. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector IncomingTrajectory = FVector::ZeroVector;
+
+	/** True when IncomingTrajectory spans a fixed interval of source montage time. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bIncomingTrajectoryRateNormalized = false;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseContactReceipt
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseResolution Resolution;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseCommitStatus CommitStatus = EDefenseCommitStatus::RejectedBeforeRegistration;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	float AppliedDamage = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bAcceptsWeaponHit = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bConsumesHitBudget = false;
+};
+
+USTRUCT(BlueprintType)
+struct FDefenseSequenceContext
+{
+	GENERATED_BODY()
+
+	/** Immutable committed result that created this presentation sequence. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseResolution OriginatingResolution;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseInteractionId OriginatingInteraction;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackExecutionSnapshot OriginatingAttack;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> Defender;
+
+	UPROPERTY()
+	TWeakObjectPtr<AActor> SourceAttacker;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	TObjectPtr<UAttackData> SelectedCounterAttack = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	TObjectPtr<UPairedAnimationData> CounterData = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	TObjectPtr<UPairedAnimationData> FinisherData = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EChainCounterState ChainState = EChainCounterState::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 StageGeneration = 0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 AttackerMontageInstanceId = INDEX_NONE;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 VictimMontageInstanceId = INDEX_NONE;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefensePresentationPayload ActivePresentation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	TObjectPtr<UPairedAnimationData> ActivePairedData = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	double ResponseDeadlineUnscaled = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseAsyncHandle ResponseTimeoutHandle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseAsyncHandle BridgeFallbackHandle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FCombatContextLeaseHandle ContextTagLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAlignmentRequestHandle AttackerAlignmentLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAlignmentRequestHandle VictimAlignmentLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FTimeDilationLeaseHandle TimeDilationLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FPairedSequenceLeaseHandle AttackerCollisionLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FPairedSequenceLeaseHandle VictimCollisionLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FPairedSequenceLeaseHandle InputOwnershipLease;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 LastDamageAppliedStageGeneration = 0;
+
+	/** Exact stage whose owner montage-end callback has already been processed. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	int32 LastOwnerMontageEndHandledStageGeneration = 0;
+};
+
+USTRUCT(BlueprintType)
+struct FAttackConsumedEvent
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FAttackInstanceId AttackInstance;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackConsumeReason Reason = EAttackConsumeReason::Cancelled;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefenseInteractionId InteractionId;
+};
+
+USTRUCT(BlueprintType)
+struct FDefensePresentationSelectionContext
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseOutcome Outcome = EDefenseOutcome::Rejected;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackerResponse AttackerResponse = EAttackerResponse::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackHeight Height = EAttackHeight::Middle;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EIncomingAttackLane Lane = EIncomingAttackLane::Center;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	ESwingDirection SwingShape = ESwingDirection::Horizontal;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FGameplayTagContainer AttackTags;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bPairedBridgeUsable = true;
+};
+
+USTRUCT(BlueprintType)
+struct FDefensePresentationSelectionResult
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bFound = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bAmbiguous = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FName RowName = NAME_None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefenseOutcome Outcome = EDefenseOutcome::Rejected;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EAttackerResponse AttackerResponse = EAttackerResponse::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	EDefensePresentationFallbackLevel FallbackLevel = EDefensePresentationFallbackLevel::NoPresentation;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FDefensePresentationPayload Payload;
+};
+
+// ============================================================================
 // DELEGATES
 // ============================================================================
 
@@ -1604,6 +3205,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStaggered, AActor*, StaggeredAct
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectParry, AActor*, ParriedActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPerfectEvade, AActor*, EvadedActor);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFinisherAvailable, AActor*, Target);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAttackConsumed, const FAttackConsumedEvent&, Event);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnAttackConsumedNative, const FAttackConsumedEvent&);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnDefenseResolvedNative, const FDefenseResolution&);
 
 // ============================================================================
 // HELPER FUNCTIONS

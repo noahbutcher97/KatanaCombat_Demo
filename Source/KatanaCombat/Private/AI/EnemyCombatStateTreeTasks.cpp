@@ -268,6 +268,7 @@ EStateTreeRunStatus FStateTreeExecuteEnemyAttackTask::EnterState(FStateTreeExecu
 {
 	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
 	InstanceData.bAttackStarted = false;
+	InstanceData.AttackGeneration = 0;
 
 	UEnemyCombatAIComponent* CombatAI = FindEnemyCombatAI(InstanceData.EnemyActor);
 	if (!CombatAI)
@@ -278,6 +279,11 @@ EStateTreeRunStatus FStateTreeExecuteEnemyAttackTask::EnterState(FStateTreeExecu
 	if (CombatAI->IsAttacking())
 	{
 		InstanceData.bAttackStarted = true;
+		InstanceData.AttackGeneration = CombatAI->GetActiveAttackGeneration();
+		if (InstanceData.AttackGeneration <= 0)
+		{
+			return EStateTreeRunStatus::Failed;
+		}
 		return EStateTreeRunStatus::Running;
 	}
 
@@ -287,6 +293,11 @@ EStateTreeRunStatus FStateTreeExecuteEnemyAttackTask::EnterState(FStateTreeExecu
 	}
 
 	InstanceData.bAttackStarted = true;
+	InstanceData.AttackGeneration = CombatAI->GetActiveAttackGeneration();
+	if (InstanceData.AttackGeneration <= 0)
+	{
+		return EStateTreeRunStatus::Failed;
+	}
 	return EStateTreeRunStatus::Running;
 }
 
@@ -298,8 +309,13 @@ EStateTreeRunStatus FStateTreeExecuteEnemyAttackTask::Tick(FStateTreeExecutionCo
 	{
 		return EStateTreeRunStatus::Failed;
 	}
+	if (CombatAI->WasAttackGenerationConsumed(InstanceData.AttackGeneration))
+	{
+		return EStateTreeRunStatus::Succeeded;
+	}
 
-	if (CombatAI->IsAttacking())
+	if (CombatAI->IsAttacking()
+		&& CombatAI->GetActiveAttackGeneration() == InstanceData.AttackGeneration)
 	{
 		return EStateTreeRunStatus::Running;
 	}

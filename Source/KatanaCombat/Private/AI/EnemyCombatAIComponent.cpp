@@ -6,6 +6,8 @@
 #include "Data/AttackData.h"
 #include "Interfaces/CombatInterface.h"
 #include "Core/CombatComponent.h"
+#include "Core/HitReactionComponent.h"
+#include "Core/TargetingComponent.h"
 #include "GameFramework/Character.h"
 #include "Animation/AnimInstance.h"
 #include "Engine/World.h"
@@ -36,6 +38,8 @@ void UEnemyCombatAIComponent::BeginPlay()
 
 void UEnemyCombatAIComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	DefenseChainSuppressions.Reset();
+	UnbindAttackConsumption();
 	// Clean up token if we have one
 	ReleaseTokenAndCleanup();
 
@@ -138,8 +142,57 @@ void UEnemyCombatAIComponent::CancelQueuedAttackRequest()
 	}
 }
 
+void UEnemyCombatAIComponent::AbortAttack()
+{
+	CancelQueuedAttackRequest();
+	if (CurrentState == EEnemyAIState::Dying)
+	{
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(RecoveryTimerHandle);
+	}
+
+	const bool bOwnsLiveAttack = CurrentState == EEnemyAIState::Attacking
+		&& ActiveAttackInstance.IsValid()
+		&& !bAttackTerminationCommitted;
+	if (bOwnsLiveAttack)
+	{
+		TerminateActiveAttack(
+			true,
+			CombatTarget.IsValid() ? EEnemyAIState::Circling : EEnemyAIState::Idle,
+			-1.0f,
+			true);
+	}
+	else
+	{
+		UnbindAttackConsumption();
+		if (const ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner()))
+		{
+			if (UTargetingComponent* Targeting = OwnerCharacter->GetTargetingComponent())
+			{
+				Targeting->ReleaseActiveAttackWarp();
+			}
+		}
+		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
+	}
+
+	ActiveAttackInstance = {};
+	bAttackTerminationCommitted = true;
+}
+
 bool UEnemyCombatAIComponent::ExecuteAttack()
 {
+	if (IsDefenseChainSuppressed())
+	{
+		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
+		return false;
+	}
+
 	if (CurrentState != EEnemyAIState::Approaching)
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: Cannot execute attack - not in Approaching state"),
@@ -187,22 +240,13 @@ bool UEnemyCombatAIComponent::ExecuteAttack()
 		return false;
 	}
 
-	if (AActor* Target = CombatTarget.Get())
-	{
-		FVector ToTarget = Target->GetActorLocation() - OwnerChar->GetActorLocation();
-		ToTarget.Z = 0.0f;
-		if (!ToTarget.IsNearlyZero())
-		{
-			OwnerChar->SetActorRotation(ToTarget.Rotation());
-		}
-	}
-
 	// Transition to attacking state
 	SetState(EEnemyAIState::Attacking);
 
 	const EInputType AttackInputType = SelectedAttack->AttackType == EAttackType::Heavy
 		? EInputType::HeavyAttack
 		: EInputType::LightAttack;
+	CombatComponent->SetAttackIntentTarget(CombatTarget.Get());
 	if (!CombatComponent->ExecuteAttackData(SelectedAttack, CombatTarget.Get(), AttackInputType))
 	{
 		UE_LOG(LogTemp, Warning, TEXT("[EnemyAI] %s: Failed to execute attack through CombatComponent"),
@@ -211,6 +255,22 @@ bool UEnemyCombatAIComponent::ExecuteAttack()
 		ReturnToReadyState();
 		return false;
 	}
+
+	UnbindAttackConsumption();
+	ActiveAttackInstance = CombatComponent->BuildAttackExecutionSnapshot().AttackInstance;
+	if (!ActiveAttackInstance.IsValid())
+	{
+		UE_LOG(LogTemp, Error, TEXT("[EnemyAI] %s: Attack started without a valid generation"),
+			*GetOwner()->GetName());
+		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
+		return false;
+	}
+	bAttackTerminationCommitted = false;
+	LastConsumedAttackInstance = {};
+	AttackConsumedDelegateHandle = CombatComponent->OnAttackConsumedInternal.AddUObject(
+		this,
+		&UEnemyCombatAIComponent::HandleAttackConsumedInternal);
 
 	// Bind to montage end
 	FOnMontageEnded EndDelegate;
@@ -229,69 +289,21 @@ bool UEnemyCombatAIComponent::ExecuteAttack()
 void UEnemyCombatAIComponent::OnCountered()
 {
 	UE_LOG(LogTemp, Log, TEXT("[EnemyAI] %s: Countered by player"), *GetOwner()->GetName());
-
-	// Stop current montage
-	if (ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
-	{
-		if (UAnimInstance* AnimInstance = OwnerChar->GetMesh() ? OwnerChar->GetMesh()->GetAnimInstance() : nullptr)
-		{
-			AnimInstance->StopAllMontages(0.2f);
-		}
-	}
-
-	// Release token
-	ReleaseTokenAndCleanup();
-
-	// In AC3 mode, counter typically kills the enemy
-	// In Chain mode, counter deals damage and staggers
-	// For now, transition to staggered state
-	SetState(EEnemyAIState::Staggered);
-
-	// Start stagger recovery timer
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimer(
-			RecoveryTimerHandle,
-			this,
-			&UEnemyCombatAIComponent::OnRecoveryComplete,
-			StaggerRecoveryTime,
-			false);
-	}
-
-	OnAttackEnded.Broadcast(true);
+	TerminateActiveAttack(
+		true,
+		EEnemyAIState::Staggered,
+		StaggerRecoveryTime,
+		true);
 }
 
 void UEnemyCombatAIComponent::OnParried()
 {
 	UE_LOG(LogTemp, Log, TEXT("[EnemyAI] %s: Parried by player"), *GetOwner()->GetName());
-
-	// Stop current montage
-	if (ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
-	{
-		if (UAnimInstance* AnimInstance = OwnerChar->GetMesh() ? OwnerChar->GetMesh()->GetAnimInstance() : nullptr)
-		{
-			AnimInstance->StopAllMontages(0.2f);
-		}
-	}
-
-	// Release token
-	ReleaseTokenAndCleanup();
-
-	// Transition to staggered
-	SetState(EEnemyAIState::Staggered);
-
-	// Start stagger recovery timer
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimer(
-			RecoveryTimerHandle,
-			this,
-			&UEnemyCombatAIComponent::OnRecoveryComplete,
-			StaggerRecoveryTime,
-			false);
-	}
-
-	OnAttackEnded.Broadcast(true);
+	TerminateActiveAttack(
+		true,
+		EEnemyAIState::Staggered,
+		StaggerRecoveryTime,
+		true);
 }
 
 void UEnemyCombatAIComponent::OnDamaged()
@@ -301,33 +313,11 @@ void UEnemyCombatAIComponent::OnDamaged()
 	{
 		UE_LOG(LogTemp, Log, TEXT("[EnemyAI] %s: Damaged during attack, interrupting"), *GetOwner()->GetName());
 
-		// Stop montage
-		if (ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
-		{
-			if (UAnimInstance* AnimInstance = OwnerChar->GetMesh() ? OwnerChar->GetMesh()->GetAnimInstance() : nullptr)
-			{
-				AnimInstance->StopAllMontages(0.2f);
-			}
-		}
-
-		// Release token
-		ReleaseTokenAndCleanup();
-
-		// Transition to staggered
-		SetState(EEnemyAIState::Staggered);
-
-		// Start recovery timer
-		if (UWorld* World = GetWorld())
-		{
-			World->GetTimerManager().SetTimer(
-				RecoveryTimerHandle,
-				this,
-				&UEnemyCombatAIComponent::OnRecoveryComplete,
-				StaggerRecoveryTime,
-				false);
-		}
-
-		OnAttackEnded.Broadcast(true);
+		TerminateActiveAttack(
+			true,
+			EEnemyAIState::Staggered,
+			StaggerRecoveryTime,
+			true);
 	}
 }
 
@@ -335,6 +325,8 @@ void UEnemyCombatAIComponent::OnDeath()
 {
 	UE_LOG(LogTemp, Log, TEXT("[EnemyAI] %s: Died"), *GetOwner()->GetName());
 
+	bAttackTerminationCommitted = true;
+	UnbindAttackConsumption();
 	// Release token
 	ReleaseTokenAndCleanup();
 
@@ -464,6 +456,18 @@ bool UEnemyCombatAIComponent::IsWaitingForToken() const
 
 bool UEnemyCombatAIComponent::CanAttemptAttack() const
 {
+	if (IsDefenseChainSuppressed())
+	{
+		return false;
+	}
+	if (const ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner());
+		OwnerCharacter
+		&& OwnerCharacter->HitReactionComponent
+		&& OwnerCharacter->HitReactionComponent->IsStaggered())
+	{
+		return false;
+	}
+
 	// Can only initiate attack from Circling or Idle states
 	if (CurrentState != EEnemyAIState::Circling && CurrentState != EEnemyAIState::Idle)
 	{
@@ -610,6 +614,9 @@ void UEnemyCombatAIComponent::ReleaseTokenAndCleanup()
 		if (TokenSubsystem->HasAttackToken(GetOwner()))
 		{
 			TokenSubsystem->ReleaseAttackToken(GetOwner());
+#if WITH_AUTOMATION_TESTS
+			++TokenReleaseCountForTesting;
+#endif
 		}
 		else if (TokenSubsystem->IsInTokenQueue(GetOwner()))
 		{
@@ -618,6 +625,123 @@ void UEnemyCombatAIComponent::ReleaseTokenAndCleanup()
 	}
 
 	SelectedAttack = nullptr;
+}
+
+void UEnemyCombatAIComponent::HandleAttackConsumedInternal(
+	const FAttackConsumedEvent& Event)
+{
+	if (bAttackTerminationCommitted
+		|| !ActiveAttackInstance.IsValid()
+		|| !(Event.AttackInstance == ActiveAttackInstance))
+	{
+		return;
+	}
+
+	LastConsumedAttackInstance = Event.AttackInstance;
+	const bool bPerfectParry = Event.Reason == EAttackConsumeReason::PerfectParry;
+	TerminateActiveAttack(
+		true,
+		bPerfectParry ? EEnemyAIState::Staggered : EEnemyAIState::Recovering,
+		bPerfectParry ? StaggerRecoveryTime : PostAttackRecoveryTime,
+		true);
+}
+
+bool UEnemyCombatAIComponent::TerminateActiveAttack(
+	const bool bInterrupted,
+	const EEnemyAIState TerminalState,
+	const float RecoveryDuration,
+	const bool bStopActiveMontage)
+{
+	if (bAttackTerminationCommitted)
+	{
+		return false;
+	}
+
+	bAttackTerminationCommitted = true;
+	UnbindAttackConsumption();
+	if (const ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner()))
+	{
+		if (UCombatComponent* Combat = OwnerCharacter->CombatComponent.Get())
+		{
+			Combat->AbortActiveAttack(ActiveAttackInstance);
+		}
+		if (UTargetingComponent* Targeting = OwnerCharacter->GetTargetingComponent())
+		{
+			Targeting->ReleaseActiveAttackWarp();
+		}
+	}
+	if (bStopActiveMontage)
+	{
+		if (ACharacter* OwnerChar = Cast<ACharacter>(GetOwner()))
+		{
+			if (UAnimInstance* AnimInstance = OwnerChar->GetMesh()
+				? OwnerChar->GetMesh()->GetAnimInstance()
+				: nullptr)
+			{
+				AnimInstance->StopAllMontages(0.2f);
+			}
+		}
+	}
+
+	ReleaseTokenAndCleanup();
+	SetState(TerminalState);
+	if (UWorld* World = GetWorld(); RecoveryDuration >= 0.0f && TerminalState != EEnemyAIState::Dying)
+	{
+		World->GetTimerManager().SetTimer(
+			RecoveryTimerHandle,
+			this,
+			&UEnemyCombatAIComponent::OnRecoveryComplete,
+			FMath::Max(0.0f, RecoveryDuration),
+			false);
+	}
+
+#if WITH_AUTOMATION_TESTS
+	++AttackEndBroadcastCountForTesting;
+#endif
+	OnAttackEnded.Broadcast(bInterrupted);
+	return true;
+}
+
+bool UEnemyCombatAIComponent::AcquireDefenseChainSuppression(
+	const FDefenseInteractionId& InteractionId)
+{
+	if (!InteractionId.IsValid())
+	{
+		return false;
+	}
+
+	const bool bWasSuppressed = IsDefenseChainSuppressed();
+	DefenseChainSuppressions.Add(InteractionId);
+	if (!bWasSuppressed)
+	{
+		ReleaseTokenAndCleanup();
+	}
+	return true;
+}
+
+bool UEnemyCombatAIComponent::ReleaseDefenseChainSuppression(
+	const FDefenseInteractionId& InteractionId)
+{
+	return InteractionId.IsValid()
+		&& DefenseChainSuppressions.Remove(InteractionId) > 0;
+}
+
+void UEnemyCombatAIComponent::UnbindAttackConsumption()
+{
+	if (!AttackConsumedDelegateHandle.IsValid())
+	{
+		return;
+	}
+
+	if (const ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner()))
+	{
+		if (OwnerCharacter->CombatComponent)
+		{
+			OwnerCharacter->CombatComponent->OnAttackConsumedInternal.Remove(
+				AttackConsumedDelegateHandle);
+		}
+	}
+	AttackConsumedDelegateHandle.Reset();
 }
 
 void UEnemyCombatAIComponent::ReturnToReadyState()
@@ -642,6 +766,12 @@ void UEnemyCombatAIComponent::HandleTokenGranted(AActor* Attacker)
 	// Only react if this is us getting the token from queue
 	if (Attacker != GetOwner())
 	{
+		return;
+	}
+	if (IsDefenseChainSuppressed())
+	{
+		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
 		return;
 	}
 
@@ -671,7 +801,7 @@ void UEnemyCombatAIComponent::HandleTokenGranted(AActor* Attacker)
 
 void UEnemyCombatAIComponent::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
-	if (CurrentState != EEnemyAIState::Attacking)
+	if (CurrentState != EEnemyAIState::Attacking || bAttackTerminationCommitted)
 	{
 		return;
 	}
@@ -679,24 +809,11 @@ void UEnemyCombatAIComponent::OnAttackMontageEnded(UAnimMontage* Montage, bool b
 	UE_LOG(LogTemp, Log, TEXT("[EnemyAI] %s: Attack montage ended (interrupted: %s)"),
 		*GetOwner()->GetName(), bInterrupted ? TEXT("YES") : TEXT("NO"));
 
-	// Release token
-	ReleaseTokenAndCleanup();
-
-	// Transition to recovery
-	SetState(EEnemyAIState::Recovering);
-
-	// Start recovery timer
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().SetTimer(
-			RecoveryTimerHandle,
-			this,
-			&UEnemyCombatAIComponent::OnRecoveryComplete,
-			PostAttackRecoveryTime,
-			false);
-	}
-
-	OnAttackEnded.Broadcast(bInterrupted);
+	TerminateActiveAttack(
+		bInterrupted,
+		EEnemyAIState::Recovering,
+		PostAttackRecoveryTime,
+		false);
 }
 
 void UEnemyCombatAIComponent::HandleOwnerDying(AActor* Killer)

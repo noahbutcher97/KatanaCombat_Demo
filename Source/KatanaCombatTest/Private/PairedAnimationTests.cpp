@@ -255,15 +255,16 @@ bool FPairedAnimationInputBlockingTest::RunTest(const FString& Parameters)
 	// Note: Test environment doesn't call BeginPlay, so we test PairedComp directly
 	TestFalse("Input should not be blocked by default", PairedComp->IsInputBlocked());
 
-	// Simulate paired animation start (sets bBlockCombatInput)
-	// We'll directly set the flag since BeginPairedAnimation requires valid data
-	PairedComp->bBlockCombatInput = true;
+	UPairedAnimationData* Data = NewObject<UPairedAnimationData>();
+	Data->bApplySlowMotion = false;
+	PairedComp->BeginPairedAnimation(Data, EPairedReactionType::Counter, false);
 
 	TestTrue("Input should be blocked during paired animation", PairedComp->IsInputBlocked());
+	TestEqual("Generic paired flow owns one input lease", PairedComp->PairedInputLeases.Num(), 1);
 
-	// Restore
-	PairedComp->bBlockCombatInput = false;
+	PairedComp->EndPairedAnimation();
 	TestFalse("Input should be restored after paired animation", PairedComp->IsInputBlocked());
+	TestEqual("Generic paired end releases its input lease", PairedComp->PairedInputLeases.Num(), 0);
 
 	World->DestroyActor(Player);
 	FCombatTestHelpers::DestroyTestWorld(World);
@@ -460,8 +461,8 @@ bool FActorTimeDilationTest::RunTest(const FString& Parameters)
 	TArray<AActor*> ActorsToFreeze = { Player, Enemy };
 	UCinematicEffectsUtilityLibrary::FreezeActors(ActorsToFreeze);
 
-	TestEqual("Player should be frozen", Player->CustomTimeDilation, 0.0f);
-	TestEqual("Enemy should be frozen", Enemy->CustomTimeDilation, 0.0f);
+	TestEqual("Player should be frozen", Player->CustomTimeDilation, 0.0001f);
+	TestEqual("Enemy should be frozen", Enemy->CustomTimeDilation, 0.0001f);
 
 	// Restore both
 	UCinematicEffectsUtilityLibrary::RestoreActors(ActorsToFreeze);
@@ -602,15 +603,19 @@ bool FPairedAnimationAllInputBlockedTest::RunTest(const FString& Parameters)
 	// Note: Test environment doesn't call BeginPlay, so we test PairedComp directly.
 	// In production, CombatComp->CanProcessInput() delegates to PairedComp->IsInputBlocked().
 
-	// Set blocking flag
-	PairedComp->bBlockCombatInput = true;
+	const FPairedSequenceLeaseHandle Independent =
+		PairedComp->AcquireInputOwnership(TEXT("IndependentOwner"), 11);
+	UPairedAnimationData* Data = NewObject<UPairedAnimationData>();
+	Data->bApplySlowMotion = false;
+	PairedComp->BeginPairedAnimation(Data, EPairedReactionType::Finisher, false);
+	TestTrue("Overlapping input owners block input", PairedComp->IsInputBlocked());
+	TestEqual("Both owners retain independent leases", PairedComp->PairedInputLeases.Num(), 2);
 
-	// Input should be blocked
-	TestTrue("Input blocked when bBlockCombatInput is true", PairedComp->IsInputBlocked());
-
-	// Unblock and verify
-	PairedComp->bBlockCombatInput = false;
-	TestFalse("Input unblocked when bBlockCombatInput is false", PairedComp->IsInputBlocked());
+	PairedComp->EndPairedAnimation();
+	TestTrue("Generic end cannot release another input owner", PairedComp->IsInputBlocked());
+	TestEqual("Independent input lease remains", PairedComp->PairedInputLeases.Num(), 1);
+	PairedComp->ReleaseInputOwnership(Independent);
+	TestFalse("Last exact owner release restores input", PairedComp->IsInputBlocked());
 
 	World->DestroyActor(Player);
 	FCombatTestHelpers::DestroyTestWorld(World);

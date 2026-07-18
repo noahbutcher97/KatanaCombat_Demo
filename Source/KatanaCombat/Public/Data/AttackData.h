@@ -13,6 +13,41 @@
 class UAnimMontage;
 class UPairedAnimationData;
 
+USTRUCT(BlueprintType)
+struct FDefenseAttackProfile
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense")
+	EAttackHeight Height = EAttackHeight::Middle;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense")
+	EIncomingAttackLane NominalLane = EIncomingAttackLane::Center;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense")
+	ESwingDirection SwingShape = ESwingDirection::Horizontal;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense")
+	FName SourceContactSocketOverride = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense")
+	FName DefenderTargetBoneFallback = NAME_None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense")
+	bool bOverrideBlockedImpactAudio = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense",
+		meta = (EditCondition = "bOverrideBlockedImpactAudio"))
+	FImpactAudioConfig BlockedImpactAudio;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense")
+	bool bOverrideBlockedImpactVFX = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense",
+		meta = (EditCondition = "bOverrideBlockedImpactVFX"))
+	FImpactVFXConfig BlockedImpactVFX;
+};
+
 /**
  * Defines a single attack's properties and behavior
  * Extended with combo chains, posture damage, and montage section support
@@ -94,6 +129,10 @@ public:
     /** VFX configuration for hit impacts [SCAFFOLD FOR U-16] */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|VFX")
     FImpactVFXConfig ImpactVFXConfig;
+
+	/** Authored defense semantics and optional blocked-impact overrides. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense")
+	FDefenseAttackProfile DefenseProfile;
 
     /** DEPRECATED: Posture system removed. Use StaggerPower instead. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deprecated", meta = (DeprecatedProperty, DeprecationMessage = "Use StaggerPower instead"))
@@ -344,6 +383,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Context|Tags",
         meta = (Categories = "Context"))
     FGameplayTagContainer RequiredContextTags;
+
+	/** Defense-profile target bone, falling back to the existing paired-animation contact bone. */
+	FName GetDefenseTargetBoneFallback() const;
 
     // ============================================================================
     // RUNTIME QUERIES (used by CombatComponent)

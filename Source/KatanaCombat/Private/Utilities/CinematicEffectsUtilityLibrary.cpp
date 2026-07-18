@@ -13,18 +13,78 @@
 #include "NiagaraComponent.h"
 #include "KatanaCombat.h"
 #include "Data/CombatFXData.h"
+#include "Subsystems/CombatEffectsWorldSubsystem.h"
+
+#if WITH_AUTOMATION_TESTS
+UCinematicEffectsUtilityLibrary::FOnImpactSoundPlaybackInvokedForTesting
+    UCinematicEffectsUtilityLibrary::OnImpactSoundPlaybackInvokedForTesting;
+UCinematicEffectsUtilityLibrary::FOnImpactVFXSpawnInvokedForTesting
+    UCinematicEffectsUtilityLibrary::OnImpactVFXSpawnInvokedForTesting;
+#endif
 
 namespace
 {
 	constexpr float HitstopFreezeDilation = 0.0001f;
+	constexpr double CompatibilityLeaseWatchdogSeconds = 10.0;
 
-	struct FActiveHitstopState
+	TMap<TWeakObjectPtr<UWorld>, FTimeDilationLeaseHandle> GCompatibilityWorldLeases;
+	TMap<TWeakObjectPtr<AActor>, FTimeDilationLeaseHandle> GCompatibilityActorLeases;
+	TMap<TWeakObjectPtr<AActor>, TArray<FTimeDilationLeaseHandle>> GCompatibilityFreezeLeases;
+	TMap<TWeakObjectPtr<AActor>, TArray<FTimeDilationLeaseHandle>> GCompatibilitySavedFreezeLeases;
+
+	template <typename TObjectType, typename TValueType>
+	void PruneInvalidCompatibilityKeys(TMap<TWeakObjectPtr<TObjectType>, TValueType>& Entries)
 	{
-		float RestoreDilation = 1.0f;
-		double EndTime = 0.0;
-	};
+		for (auto It = Entries.CreateIterator(); It; ++It)
+		{
+			if (!It.Key().IsValid())
+			{
+				It.RemoveCurrent();
+			}
+		}
+	}
 
-	TMap<TWeakObjectPtr<AActor>, FActiveHitstopState> GActiveHitstopStates;
+	void PruneInvalidCompatibilityEntries()
+	{
+		PruneInvalidCompatibilityKeys(GCompatibilityWorldLeases);
+		PruneInvalidCompatibilityKeys(GCompatibilityActorLeases);
+		PruneInvalidCompatibilityKeys(GCompatibilityFreezeLeases);
+		PruneInvalidCompatibilityKeys(GCompatibilitySavedFreezeLeases);
+	}
+
+	void PruneInactiveActorCompatibilityHandles(
+		AActor* Actor,
+		const UCombatEffectsWorldSubsystem* Effects,
+		TMap<TWeakObjectPtr<AActor>, TArray<FTimeDilationLeaseHandle>>& Entries)
+	{
+		if (!Actor || !Effects)
+		{
+			return;
+		}
+		const TWeakObjectPtr<AActor> ActorKey(Actor);
+		if (TArray<FTimeDilationLeaseHandle>* Handles = Entries.Find(ActorKey))
+		{
+			Handles->RemoveAll([Effects](const FTimeDilationLeaseHandle Handle)
+			{
+				return !Effects->IsLeaseActive(Handle);
+			});
+			if (Handles->IsEmpty())
+			{
+				Entries.Remove(ActorKey);
+			}
+		}
+	}
+
+	UCombatEffectsWorldSubsystem* GetEffectsSubsystem(UWorld* World)
+	{
+		PruneInvalidCompatibilityEntries();
+		return World ? World->GetSubsystem<UCombatEffectsWorldSubsystem>() : nullptr;
+	}
+
+	UCombatEffectsWorldSubsystem* GetEffectsSubsystem(AActor* Actor)
+	{
+		return Actor ? GetEffectsSubsystem(Actor->GetWorld()) : nullptr;
+	}
 }
 
 // ============================================================================
@@ -33,13 +93,14 @@ namespace
 
 bool UCinematicEffectsUtilityLibrary::ApplySlowMotion(UWorld* World, float Scale)
 {
-    if (!World)
+    if (!World || !FMath::IsFinite(Scale))
     {
         return false;
     }
 
-    AWorldSettings* WorldSettings = World->GetWorldSettings();
-    if (!WorldSettings)
+	AWorldSettings* WorldSettings = World->GetWorldSettings();
+	UCombatEffectsWorldSubsystem* Effects = GetEffectsSubsystem(World);
+	if (!WorldSettings || !Effects)
     {
         return false;
     }
@@ -62,7 +123,18 @@ bool UCinematicEffectsUtilityLibrary::ApplySlowMotion(UWorld* World, float Scale
         return false;
     }
 
-    WorldSettings->SetTimeDilation(ClampedScale);
+	const TWeakObjectPtr<UWorld> WorldKey(World);
+	const FTimeDilationLeaseHandle Existing = GCompatibilityWorldLeases.FindRef(WorldKey);
+	const FTimeDilationLeaseHandle Successor = Effects->AcquireWorldLease(
+		TEXT("CinematicEffects.LegacySlowMotion"),
+		ClampedScale,
+		CompatibilityLeaseWatchdogSeconds);
+	if (!Successor.IsValid())
+	{
+		return false;
+	}
+	GCompatibilityWorldLeases.Add(WorldKey, Successor);
+	Effects->ReleaseLease(Existing);
 
     UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Slow motion applied: Scale=%.2f (was %.2f)"),
         ClampedScale, CurrentDilation);
@@ -76,18 +148,19 @@ void UCinematicEffectsUtilityLibrary::RestoreTimeDilation(UWorld* World)
         return;
     }
 
-    AWorldSettings* WorldSettings = World->GetWorldSettings();
-    if (!WorldSettings)
+	UCombatEffectsWorldSubsystem* Effects = GetEffectsSubsystem(World);
+	if (!Effects)
     {
         return;
     }
 
-    // Only log if actually changing
-    if (WorldSettings->TimeDilation != 1.0f)
-    {
-        WorldSettings->SetTimeDilation(1.0f);
-        UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Time dilation restored to 1.0"));
-    }
+	const TWeakObjectPtr<UWorld> WorldKey(World);
+	FTimeDilationLeaseHandle Handle;
+	if (GCompatibilityWorldLeases.RemoveAndCopyValue(WorldKey, Handle))
+	{
+		Effects->ReleaseLease(Handle);
+		UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Released legacy world time-dilation lease"));
+	}
 }
 
 float UCinematicEffectsUtilityLibrary::GetTimeDilation(UWorld* World)
@@ -268,7 +341,7 @@ bool UCinematicEffectsUtilityLibrary::ApplyHitstop(
 
 bool UCinematicEffectsUtilityLibrary::ApplyHitstopToActors(const TArray<AActor*>& Actors, float Duration)
 {
-    if (Duration <= 0.0f)
+	if (!FMath::IsFinite(Duration) || Duration <= 0.0f)
     {
         return false;
     }
@@ -288,77 +361,19 @@ bool UCinematicEffectsUtilityLibrary::ApplyHitstopToActors(const TArray<AActor*>
         return false;
     }
 
-    TArray<TWeakObjectPtr<AActor>> ActorRefs;
-    ActorRefs.Reserve(UniqueActors.Num());
-
-    // ====================================================================
-    // PLATFORM TIME-BASED RESTORATION
-    // ====================================================================
-    // Identical pattern to AnimNotifyState_PairedAnimationSync (lines 188-219).
-    // FPlatformTime::Seconds() ensures wall-clock accuracy regardless of any
-    // world or actor time dilation currently in effect.
-
-    const double HitstopEndTime = FPlatformTime::Seconds()
-        + static_cast<double>(Duration);
-
-    for (AActor* Actor : UniqueActors)
-    {
-        const TWeakObjectPtr<AActor> ActorKey(Actor);
-        FActiveHitstopState& State = GActiveHitstopStates.FindOrAdd(ActorKey);
-
-        // Preserve the first pre-hitstop value. Overlapping hitstops must not
-        // overwrite this with HitstopFreezeDilation, or the actor can stay frozen.
-        if (State.EndTime <= 0.0)
-        {
-            State.RestoreDilation = Actor->CustomTimeDilation;
-        }
-
-        State.EndTime = FMath::Max(State.EndTime, HitstopEndTime);
-        Actor->CustomTimeDilation = HitstopFreezeDilation;
-        ActorRefs.Add(ActorKey);
-    }
-
-    FTSTicker::GetCoreTicker().AddTicker(
-        FTickerDelegate::CreateLambda(
-            [ActorRefs](float DeltaTime) -> bool
-            {
-                bool bAnyActorStillStopped = false;
-                const double CurrentTime = FPlatformTime::Seconds();
-
-                for (const TWeakObjectPtr<AActor>& ActorRef : ActorRefs)
-                {
-                    FActiveHitstopState* State = GActiveHitstopStates.Find(ActorRef);
-                    if (!State)
-                    {
-                        continue;
-                    }
-
-                    AActor* Actor = ActorRef.Get();
-                    if (!Actor)
-                    {
-                        GActiveHitstopStates.Remove(ActorRef);
-                        continue;
-                    }
-
-                    if (CurrentTime >= State->EndTime)
-                    {
-                        Actor->CustomTimeDilation = State->RestoreDilation;
-                        GActiveHitstopStates.Remove(ActorRef);
-
-                        UE_LOG(LogKatanaCombat, Verbose, TEXT("[HITSTOP] Restored %s to %.4f"),
-                            *Actor->GetName(), Actor->CustomTimeDilation);
-                    }
-                    else
-                    {
-                        bAnyActorStillStopped = true;
-                    }
-                }
-
-                return bAnyActorStillStopped;
-            })
-    );
-
-    return true;
+	bool bAcquiredAny = false;
+	for (AActor* Actor : UniqueActors)
+	{
+		if (UCombatEffectsWorldSubsystem* Effects = GetEffectsSubsystem(Actor))
+		{
+			bAcquiredAny |= Effects->AcquireActorLease(
+				Actor,
+				TEXT("CinematicEffects.Hitstop"),
+				HitstopFreezeDilation,
+				static_cast<double>(Duration)).IsValid();
+		}
+	}
+	return bAcquiredAny;
 }
 
 // ============================================================================
@@ -406,6 +421,14 @@ bool UCinematicEffectsUtilityLibrary::PlayImpactSound(
         nullptr,    // Sound attenuation (use sound's default)
         nullptr,    // Concurrency settings
         Attacker);  // Owner for attenuation override
+
+#if WITH_AUTOMATION_TESTS
+    OnImpactSoundPlaybackInvokedForTesting.Broadcast(
+        World,
+        SoundToPlay,
+        ImpactLocation,
+        Attacker);
+#endif
 
     UE_LOG(LogKatanaCombat, Verbose, TEXT("[AUDIO] Impact sound played: %s (Vol: %.2f, Pitch: %.2f) at %s"),
         *SoundToPlay->GetName(), FinalVolume, FinalPitch, *ImpactLocation.ToString());
@@ -567,6 +590,10 @@ bool UCinematicEffectsUtilityLibrary::SpawnImpactVFX(
 
     if (SpawnedVFX)
     {
+#if WITH_AUTOMATION_TESTS
+        OnImpactVFXSpawnInvokedForTesting.Broadcast(
+            World, VFXToSpawn, ImpactLocation, BoneName);
+#endif
         UE_LOG(LogCombatFX, Verbose, TEXT("[VFX] Impact VFX spawned: %s at %s (scale: %.2f, aligned: %s)"),
             *VFXToSpawn->GetName(),
             *ImpactLocation.ToString(),
@@ -692,7 +719,24 @@ void UCinematicEffectsUtilityLibrary::SetActorTimeDilation(AActor* Actor, float 
         return;
     }
 
-    Actor->CustomTimeDilation = FMath::Max(0.0001f, TimeDilation);
+	UCombatEffectsWorldSubsystem* Effects = GetEffectsSubsystem(Actor);
+	if (!Effects || !FMath::IsFinite(TimeDilation))
+	{
+		return;
+	}
+	const TWeakObjectPtr<AActor> ActorKey(Actor);
+	const FTimeDilationLeaseHandle Existing = GCompatibilityActorLeases.FindRef(ActorKey);
+	const FTimeDilationLeaseHandle Successor = Effects->AcquireActorLease(
+		Actor,
+		TEXT("CinematicEffects.LegacyActorDilation"),
+		FMath::Max(HitstopFreezeDilation, TimeDilation),
+		CompatibilityLeaseWatchdogSeconds);
+	if (!Successor.IsValid())
+	{
+		return;
+	}
+	GCompatibilityActorLeases.Add(ActorKey, Successor);
+	Effects->ReleaseLease(Existing);
 
     UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Actor %s time dilation set to: %.2f"),
         *Actor->GetName(), Actor->CustomTimeDilation);
@@ -705,22 +749,34 @@ void UCinematicEffectsUtilityLibrary::RestoreActorTimeDilation(AActor* Actor)
         return;
     }
 
-    if (Actor->CustomTimeDilation != 1.0f)
-    {
-        Actor->CustomTimeDilation = 1.0f;
-        UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Actor %s time dilation restored to 1.0"),
-            *Actor->GetName());
-    }
+	if (UCombatEffectsWorldSubsystem* Effects = GetEffectsSubsystem(Actor))
+	{
+		FTimeDilationLeaseHandle Handle;
+		if (GCompatibilityActorLeases.RemoveAndCopyValue(Actor, Handle))
+		{
+			Effects->ReleaseLease(Handle);
+		}
+	}
 }
 
 void UCinematicEffectsUtilityLibrary::FreezeActors(const TArray<AActor*>& Actors)
 {
-    for (AActor* Actor : Actors)
-    {
-        if (Actor)
-        {
-            Actor->CustomTimeDilation = 0.0001f;
-        }
+	for (AActor* Actor : Actors)
+	{
+		if (UCombatEffectsWorldSubsystem* Effects = GetEffectsSubsystem(Actor))
+		{
+			PruneInactiveActorCompatibilityHandles(
+				Actor, Effects, GCompatibilityFreezeLeases);
+			const FTimeDilationLeaseHandle Handle = Effects->AcquireActorLease(
+				Actor,
+				TEXT("CinematicEffects.LegacyFreeze"),
+				HitstopFreezeDilation,
+				CompatibilityLeaseWatchdogSeconds);
+			if (Handle.IsValid())
+			{
+				GCompatibilityFreezeLeases.FindOrAdd(Actor).Add(Handle);
+			}
+		}
     }
 
     UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Froze %d actors"), Actors.Num());
@@ -728,12 +784,24 @@ void UCinematicEffectsUtilityLibrary::FreezeActors(const TArray<AActor*>& Actors
 
 void UCinematicEffectsUtilityLibrary::RestoreActors(const TArray<AActor*>& Actors)
 {
-    for (AActor* Actor : Actors)
-    {
-        if (Actor)
-        {
-            Actor->CustomTimeDilation = 1.0f;
-        }
+	for (AActor* Actor : Actors)
+	{
+		if (UCombatEffectsWorldSubsystem* Effects = GetEffectsSubsystem(Actor))
+		{
+			PruneInactiveActorCompatibilityHandles(
+				Actor, Effects, GCompatibilityFreezeLeases);
+			if (TArray<FTimeDilationLeaseHandle>* Handles = GCompatibilityFreezeLeases.Find(Actor))
+			{
+				if (!Handles->IsEmpty())
+				{
+					Effects->ReleaseLease(Handles->Pop(EAllowShrinking::No));
+				}
+				if (Handles->IsEmpty())
+				{
+					GCompatibilityFreezeLeases.Remove(Actor);
+				}
+			}
+		}
     }
 
     UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Restored %d actors"), Actors.Num());
@@ -743,13 +811,30 @@ TMap<TWeakObjectPtr<AActor>, float> UCinematicEffectsUtilityLibrary::FreezeActor
 {
     TMap<TWeakObjectPtr<AActor>, float> SavedDilations;
     SavedDilations.Reserve(Actors.Num());
+	TSet<TWeakObjectPtr<AActor>> SeenActors;
+	SeenActors.Reserve(Actors.Num());
 
     for (AActor* Actor : Actors)
     {
-        if (Actor)
-        {
-            SavedDilations.Add(Actor, Actor->CustomTimeDilation);
-            Actor->CustomTimeDilation = 0.0001f;
+		if (!Actor || SeenActors.Contains(Actor))
+		{
+			continue;
+		}
+		SeenActors.Add(Actor);
+		if (UCombatEffectsWorldSubsystem* Effects = GetEffectsSubsystem(Actor))
+		{
+			PruneInactiveActorCompatibilityHandles(
+				Actor, Effects, GCompatibilitySavedFreezeLeases);
+			SavedDilations.Add(Actor, Actor->CustomTimeDilation);
+			const FTimeDilationLeaseHandle Handle = Effects->AcquireActorLease(
+				Actor,
+				TEXT("CinematicEffects.LegacySavedFreeze"),
+				HitstopFreezeDilation,
+				CompatibilityLeaseWatchdogSeconds);
+			if (Handle.IsValid())
+			{
+				GCompatibilitySavedFreezeLeases.FindOrAdd(Actor).Add(Handle);
+			}
         }
     }
 
@@ -760,13 +845,27 @@ TMap<TWeakObjectPtr<AActor>, float> UCinematicEffectsUtilityLibrary::FreezeActor
 void UCinematicEffectsUtilityLibrary::RestoreActorsFromSaved(const TMap<TWeakObjectPtr<AActor>, float>& SavedDilations)
 {
     int32 RestoredCount = 0;
-    for (const auto& Pair : SavedDilations)
-    {
-        if (AActor* Actor = Pair.Key.Get())
-        {
-            Actor->CustomTimeDilation = Pair.Value;
-            RestoredCount++;
-        }
+	for (const auto& Pair : SavedDilations)
+	{
+		if (AActor* Actor = Pair.Key.Get())
+		{
+			if (UCombatEffectsWorldSubsystem* Effects = GetEffectsSubsystem(Actor))
+			{
+				PruneInactiveActorCompatibilityHandles(
+					Actor, Effects, GCompatibilitySavedFreezeLeases);
+				if (TArray<FTimeDilationLeaseHandle>* Handles = GCompatibilitySavedFreezeLeases.Find(Actor))
+				{
+					if (!Handles->IsEmpty() && Effects->ReleaseLease(Handles->Pop(EAllowShrinking::No)))
+					{
+						++RestoredCount;
+					}
+					if (Handles->IsEmpty())
+					{
+						GCompatibilitySavedFreezeLeases.Remove(Actor);
+					}
+				}
+			}
+		}
     }
 
     UE_LOG(LogKatanaCombat, Verbose, TEXT("[CINEMATIC] Restored %d actors from saved dilations"), RestoredCount);

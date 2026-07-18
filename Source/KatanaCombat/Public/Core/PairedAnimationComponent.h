@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Containers/Ticker.h"
 #include "CombatTypes.h"
 #include "Data/PairedAnimationTypes.h"
 #include "PairedAnimationComponent.generated.h"
@@ -54,18 +55,23 @@ class KATANACOMBAT_API UPairedAnimationComponent : public UActorComponent
 	friend class FCounter_AC3HitInfoMarkedAsCounter;
 	friend class FCounter_AC3SpecificCounterDataFallbackDamage;
 	friend class FCounter_AC3NullAttackerFails;
-	friend class FCounter_ChainParryTransition;
-	friend class FCounter_ChainCancelResetsState;
 	friend class FCounter_CancelNoopWhenNone;
 	friend class FCounter_CounterAttackRequiresWindow;
-	friend class FCounter_ChainParryStaggersEnemy;
 	friend class FCounter_ChainNullAttackerFails;
+	friend class FDefenseInput_ChainPreflightFailureExpires;
+	friend class FDefenseChainMarkerIdentityTest;
+	friend class FDefenseChainRetainedStageLifecycleTest;
+	friend class FDefenseChainPartialStartRollbackTest;
+	friend class FDefenseChainRetryableFinisherTest;
+	friend struct FDefenseChainFixture;
 
 	// Paired animation tests
 	friend class FPairedAnim_PartnerTracking;
 	friend class FPairedAnim_InputBlocking;
 	friend class FPairedAnim_EffectLifecycle;
 	friend class FPairedAnimationRejectsFriendlyTargetTest;
+	friend class FPairedAnimationInputBlockingTest;
+	friend class FPairedAnimationAllInputBlockedTest;
 
 public:
 	UPairedAnimationComponent();
@@ -223,9 +229,58 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	bool IsChainCounterWaitingForAttack() const { return ChainState == EChainCounterState::CounterWindow; }
 
+	/** True while Light/Heavy must route only to a retained Chain response. */
+	bool IsChainWaitingForResponse() const
+	{
+		return ChainState == EChainCounterState::CounterWindow
+			|| ChainState == EChainCounterState::FinisherReady;
+	}
+
 	/** True while Chain mode has a retained parried target for follow-up counter/finisher steps. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	bool HasActiveChainTarget() const { return ActiveChainTarget.IsValid(); }
+
+	/**
+	 * Start presentation ownership for an already committed perfect parry.
+	 * Presentation failure never rewrites the resolution or reopens its consumed attack.
+	 */
+	bool BeginDefenseSequence(const FDefenseResolution& Resolution);
+
+	/** Current identity-bearing defense sequence, if one owns the Chain state. */
+	const FDefenseSequenceContext& GetActiveDefenseSequenceContext() const
+	{
+		return ActiveDefenseSequence;
+	}
+
+	/** Consume an exact runtime marker after role, interaction, generation, and source validation. */
+	void HandleChainStageTransition(
+		EChainStageTransitionType Transition,
+		int32 MontageInstanceId,
+		FAnimNotifyRuntimeSourceId NotifySourceId);
+
+	/** Stateless compatibility adapter entry points used by the paired collision notify. */
+	bool BeginPairedCollisionNotify(
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId,
+		bool bUseTrackedPartnersOnly,
+		bool bDisablePawnCollision,
+		bool bDisableCapsulePhysics,
+		bool bDisableMovement,
+		bool bScanForDynamicObstructions,
+		float DynamicObstructionRadius);
+	void TickPairedCollisionNotify(
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId);
+	void EndPairedCollisionNotify(
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId);
+	int32 GetActivePairedStateLeaseCount() const { return PairedStateLeases.Num(); }
+
+	/** Route an owner montage callback through generation-aware Chain lifecycle rules. */
+	bool HandleOwnerPairedMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+	/** Commit stage-end damage before victim death presentation consumes montage blend-out. */
+	bool HandleOwnerPairedMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted);
 
 	/** Resolve whether paired animation data should be treated as lethal for this reaction type. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
@@ -257,7 +312,7 @@ public:
 	 * Supports multi-partner scenarios like double takedowns or group finishers.
 	 *
 	 * Managed via AddPairedPartner/RemovePairedPartner/ClearPairedPartners API.
-	 * AnimNotifyState_PairedAnimationCollision reads this to know which actors to ignore.
+	 * Paired state leases snapshot this list when they acquire targeted collision ownership.
 	 */
 	UPROPERTY()
 	TArray<TWeakObjectPtr<AActor>> PairedAnimationPartners;
@@ -285,7 +340,7 @@ public:
 	/**
 	 * Clear all paired animation partners.
 	 * Called when paired animation ends or is interrupted.
-	 * Does NOT restore collision - that's handled by AnimNotifyState_PairedAnimationCollision.
+	 * Does not release collision or movement leases; their exact owners do that separately.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void ClearPairedPartners();
@@ -421,7 +476,7 @@ protected:
 	/** True when a paired animation may legally start against TargetActor. */
 	bool IsValidPairedTarget(AActor* TargetActor) const;
 
-	/** Chain mode step 1: Parry the enemy's attack, opening a counter window on the player. */
+	/** Retired Chain entry primitive retained only for null-safety compatibility tests. */
 	bool TryCounter_ChainMode(const FCounterContext& Context);
 
 	/** Chain mode step 2: Execute counter attack during the player's counter window. */
@@ -436,8 +491,86 @@ protected:
 	/** Clear retained Chain context without running animation or combat side effects. */
 	void ClearChainContext();
 
-	/** Handle chain timeout expiration */
-	void OnChainTimeout();
+	/** Validate a paired bridge without mutating either participant. */
+	bool PreflightDefenseBridge(
+		const FDefenseResolution& Resolution,
+		const FDefensePresentationPayload& Presentation,
+		FString& OutFailureReason) const;
+
+	/** Open CounterWindow only for the currently owned defense-stage generation. */
+	bool EnterDefenseCounterWindow(int32 ExpectedStageGeneration);
+
+	/** Schedule and receive the no-montage parry bridge. */
+	bool ScheduleNoMontageDefenseBridge(int32 ExpectedStageGeneration);
+	void HandleNoMontageDefenseBridgeElapsed(
+		int32 ExpectedStageGeneration,
+		FDefenseAsyncHandle AsyncHandle);
+	void HandleChainStageTransitionFromActor(
+		AActor* ReportingActor,
+		EChainStageTransitionType Transition,
+		int32 MontageInstanceId,
+		const FAnimNotifyRuntimeSourceId& NotifySourceId);
+	bool HandleDefenseAutoContinueMarker(int32 ExpectedStageGeneration);
+	UPairedAnimationComponent* FindDefenseSequenceOwner() const;
+	bool TryStartDefenseChainStage(
+		UPairedAnimationData* PairedAnimData,
+		EPairedReactionType ReactionType,
+		EChainCounterState SuccessState);
+	bool HandleSourcePairedMontageEnded(
+		AActor* ReportingSource,
+		UAnimMontage* Montage,
+		bool bInterrupted);
+	bool HandleSourcePairedMontageBlendingOut(
+		AActor* ReportingSource,
+		UAnimMontage* Montage,
+		bool bInterrupted);
+	void ScheduleSourceMontageEndVerification(
+		UAnimMontage* Montage,
+		EChainCounterState ExpectedState,
+		int32 ExpectedStageGeneration);
+	bool HandleSourceMontageEndVerification(
+		FDefenseInteractionId Interaction,
+		TWeakObjectPtr<UAnimMontage> Montage,
+		EChainCounterState ExpectedState,
+		int32 ExpectedStageGeneration,
+		FDefenseAsyncHandle AsyncHandle,
+		float DeltaTime);
+	bool PreflightDefenseChainStage(
+		UPairedAnimationData* PairedAnimData,
+		EPairedReactionType ReactionType,
+		FString& OutFailureReason) const;
+	int32 AllocateDefenseStageGeneration();
+	bool ApplyActivePairedDamageOnce();
+	bool IsExpectedDefenseFinisherSourceDeath(const AActor* Source) const;
+	UFUNCTION()
+	void HandleDefenseOwnerDying(AActor* Killer);
+	UFUNCTION()
+	void HandleDefenseSourceDying(AActor* Killer);
+	UFUNCTION()
+	void HandleDefenseOwnerDestroyed(AActor* DestroyedActor);
+	UFUNCTION()
+	void HandleDefenseSourceDestroyed(AActor* DestroyedActor);
+	void CleanupDefenseSequence(int32 ExpectedStageGeneration, float BlendOutTime, FName Reason);
+	void ScheduleChainResponseDeadline(
+		EChainCounterState ResponseState,
+		float Duration,
+		int32 ExpectedStageGeneration,
+		double PreservedDeadline = 0.0);
+	void CancelDefenseAsyncHandle(FDefenseAsyncHandle Handle);
+	FDefenseAsyncHandle AllocateDefenseAsyncHandle();
+	bool HandleChainResponseDeadline(
+		FDefenseInteractionId Interaction,
+		EChainCounterState ExpectedState,
+		int32 ExpectedStageGeneration,
+		FDefenseAsyncHandle AsyncHandle,
+		float DeltaTime);
+	FPairedSequenceLeaseHandle AcquireInputOwnership(FName Owner, int32 StageGeneration);
+	void ReleaseInputOwnership(FPairedSequenceLeaseHandle Handle);
+	void ReleaseAllInputOwnership();
+	void RecomputeInputOwnership();
+	void RetireOwnerMontageCallback(UAnimMontage* Montage);
+	void CancelRetiredOwnerMontageCallback(UAnimMontage* Montage);
+	bool ConsumeRetiredOwnerMontageCallback(UAnimMontage* Montage);
 
 	// ============================================================================
 	// COUNTER/PARRY WINDOW STATE
@@ -475,9 +608,6 @@ protected:
 	UPROPERTY()
 	TObjectPtr<UAttackData> ActiveChainAttackData = nullptr;
 
-	/** True when a Chain counter paired animation should continue into finisher handling on completion. */
-	bool bContinueChainAfterCounterPairedAnimation = false;
-
 	/** Allows legacy notify-provided counter data to fill in when selected AttackData has no CounterData. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Counter")
 	bool bAllowNotifyCounterDataFallback = false;
@@ -486,8 +616,91 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Counter")
 	bool bAllowLethalCounterPairedData = false;
 
-	/** Timer handle for chain mode timeout */
-	FTimerHandle ChainTimeoutHandle;
+	/** Identity-bearing context retained from perfect parry through Chain stages. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
+	FDefenseSequenceContext ActiveDefenseSequence;
+
+	/** Monotonic stage generation; zero is never issued. */
+	int32 NextDefenseStageGeneration = 0;
+
+	TMap<FDefenseAsyncHandle, FTSTicker::FDelegateHandle> DefenseResponseTickers;
+	TMap<FDefenseAsyncHandle, FTimerHandle> DefenseSimulationTimers;
+	TMap<TWeakObjectPtr<UAnimMontage>, int32> RetiredOwnerMontageCallbacks;
+	uint64 NextDefenseAsyncId = 0;
+
+	struct FPairedInputLeaseRecord
+	{
+		FName Owner = NAME_None;
+		int32 StageGeneration = 0;
+	};
+	TMap<FPairedSequenceLeaseHandle, FPairedInputLeaseRecord> PairedInputLeases;
+	uint64 NextPairedInputLeaseId = 0;
+	FPairedSequenceLeaseHandle LegacyPairedInputLease;
+	bool bDefenseSequenceCleanupInProgress = false;
+
+#if WITH_AUTOMATION_TESTS
+	TFunction<bool(EPairedAnimationRole, const UPairedAnimationData*, int32&)>
+		DefenseStagePlaybackOverrideForTesting;
+#endif
+
+	struct FPairedNotifyLeaseKey
+	{
+		FAnimNotifyRuntimeSourceId NotifySource;
+		int32 MontageInstanceId = INDEX_NONE;
+
+		bool operator==(const FPairedNotifyLeaseKey& Other) const
+		{
+			return NotifySource == Other.NotifySource
+				&& MontageInstanceId == Other.MontageInstanceId;
+		}
+
+		friend uint32 GetTypeHash(const FPairedNotifyLeaseKey& Key)
+		{
+			return HashCombineFast(GetTypeHash(Key.NotifySource), GetTypeHash(Key.MontageInstanceId));
+		}
+	};
+
+	struct FPairedStateLeaseRecord
+	{
+		FName Owner = NAME_None;
+		int32 StageGeneration = 0;
+		bool bUseTrackedPartnersOnly = true;
+		bool bDisablePawnCollision = true;
+		bool bDisableCapsulePhysics = false;
+		bool bDisableMovement = true;
+		bool bScanForDynamicObstructions = false;
+		float DynamicObstructionRadius = 150.0f;
+		TSet<TWeakObjectPtr<AActor>> IgnoredActors;
+	};
+
+	FPairedSequenceLeaseHandle AcquirePairedStateLease(
+		FName Owner,
+		int32 StageGeneration,
+		bool bUseTrackedPartnersOnly,
+		bool bDisablePawnCollision,
+		bool bDisableCapsulePhysics,
+		bool bDisableMovement,
+		bool bScanForDynamicObstructions,
+		float DynamicObstructionRadius);
+	void ReleasePairedStateLease(FPairedSequenceLeaseHandle Handle);
+	void ReleasePairedStateLeasesForGeneration(int32 StageGeneration);
+	void RekeyPairedStateLeasesGeneration(int32 PreviousGeneration, int32 SuccessorGeneration);
+	void ReleaseAllPairedStateLeases();
+	void RecomputePairedState();
+	void ScanPairedStateLease(FPairedSequenceLeaseHandle Handle);
+
+	TMap<FPairedNotifyLeaseKey, FPairedSequenceLeaseHandle> PairedNotifyLeases;
+	TMap<FPairedSequenceLeaseHandle, FPairedStateLeaseRecord> PairedStateLeases;
+	TSet<TWeakObjectPtr<AActor>> BaselineMoveIgnoredActors;
+	TSet<TWeakObjectPtr<AActor>> AppliedIgnoredActors;
+	uint64 NextPairedStateLeaseId = 0;
+	bool bMoveIgnoreBaselineCaptured = false;
+	bool bPawnCollisionBaselineCaptured = false;
+	bool bCapsuleCollisionBaselineCaptured = false;
+	bool bMovementBaselineCaptured = false;
+	TEnumAsByte<ECollisionResponse> BaselinePawnCollisionResponse = ECR_Block;
+	TEnumAsByte<ECollisionEnabled::Type> BaselineCollisionEnabled = ECollisionEnabled::QueryAndPhysics;
+	TEnumAsByte<EMovementMode> BaselineMovementMode = MOVE_Walking;
 
 	// ============================================================================
 	// PAIRED ANIMATION INTERNAL STATE
@@ -495,6 +708,9 @@ protected:
 
 	/** Timer handle for slow-motion restoration (safeguard against permanent slow-mo on interrupt) */
 	FTimerHandle SlowMotionRestoreHandle;
+
+	/** Exact world-time lease owned by the legacy non-Chain paired flow. */
+	FTimeDilationLeaseHandle LegacyPairedTimeDilationLease;
 
 	/** Cached reaction type for active paired animation (used by EndPairedAnimation for delegate broadcast) */
 	EPairedReactionType ActivePairedReactionType = EPairedReactionType::None;
@@ -513,6 +729,7 @@ protected:
 	 * Called after SlowMotionDuration expires (safeguard against permanent slow-mo).
 	 */
 	void OnSlowMotionTimerExpired();
+	void ReleaseLegacyPairedTimeDilation();
 
 private:
 	// ============================================================================

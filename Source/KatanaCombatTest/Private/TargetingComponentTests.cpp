@@ -4,6 +4,76 @@
 #include "Core/TargetingComponent.h"
 #include "Characters/PlayerCharacter.h"
 #include "Characters/EnemyCharacter.h"
+#include "Components/SkeletalMeshComponent.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTargetingAuthoredRootMotionTelemetryBasisTest,
+	"KatanaCombat.Targeting.Alignment.AuthoredRootMotionUsesMeshBasis",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTargetingAuthoredRootMotionTelemetryBasisTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector::ZeroVector);
+	if (!TestNotNull(TEXT("Player fixture"), Player)
+		|| !TestNotNull(TEXT("Player mesh"), Player ? Player->GetMesh() : nullptr))
+	{
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Player->SetActorRotation(FRotator(0.0f, 180.0f, 0.0f));
+	Player->GetMesh()->SetRelativeRotation(FRotator(0.0f, -90.0f, 0.0f));
+	Player->GetMesh()->UpdateComponentToWorld();
+	const FVector MeshLocalTranslation(20.0f, 0.0f, 0.0f);
+	const FVector Expected = Player->GetMesh()->GetComponentQuat().RotateVector(
+		MeshLocalTranslation);
+	const FVector ActorOnly = Player->GetActorQuat().RotateVector(
+		MeshLocalTranslation);
+	const FVector Actual = UTargetingComponent::TransformAuthoredRootMotionTranslation(
+		Player, MeshLocalTranslation);
+
+	TestTrue(TEXT("Fixture distinguishes actor and skeletal-mesh bases"),
+		!Expected.Equals(ActorOnly, KINDA_SMALL_NUMBER));
+	TestTrue(TEXT("Authored root motion uses the skeletal-mesh component basis"),
+		Actual.Equals(Expected, KINDA_SMALL_NUMBER));
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FTargetingBlockedRootMotionTelemetryTest,
+	"KatanaCombat.Targeting.Alignment.BlockedRootMotionIsNotUnexpectedDisplacement",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FTargetingBlockedRootMotionTelemetryTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FVector Authored(10.0f, 0.0f, 0.0f);
+
+	TestTrue(TEXT("Fully blocked authored root motion has no unexpected displacement"),
+		UTargetingComponent::CalculateUnexpectedRootDisplacement(
+			FVector::ZeroVector, Authored).IsNearlyZero());
+	TestTrue(TEXT("Partially applied authored root motion has no unexpected displacement"),
+		UTargetingComponent::CalculateUnexpectedRootDisplacement(
+			FVector(4.0f, 0.0f, 0.0f), Authored).IsNearlyZero());
+	TestEqual(TEXT("Lateral displacement remains unexpected"),
+		UTargetingComponent::CalculateUnexpectedRootDisplacement(
+			FVector(4.0f, 3.0f, 0.0f), Authored),
+		FVector(0.0f, 3.0f, 0.0f));
+	TestEqual(TEXT("Root-motion overrun remains unexpected"),
+		UTargetingComponent::CalculateUnexpectedRootDisplacement(
+			FVector(15.0f, 0.0f, 0.0f), Authored),
+		FVector(5.0f, 0.0f, 0.0f));
+	TestEqual(TEXT("Reverse displacement remains unexpected"),
+		UTargetingComponent::CalculateUnexpectedRootDisplacement(
+			FVector(-2.0f, 0.0f, 0.0f), Authored),
+		FVector(-2.0f, 0.0f, 0.0f));
+	return true;
+}
 
 /**
  * Test: FindBestTargetForDirection - Enemy in Front

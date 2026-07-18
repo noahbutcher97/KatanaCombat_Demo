@@ -1,31 +1,89 @@
 # Headless Asset Migrations
 
-Use `KatanaAssetMigration` for repeatable editor-only asset migration passes. Start in `Audit` or `Plan` mode. Do not run `ApplyAndSave` unless the exact target list has been reviewed. Relative `-TargetsFile` and `-ReportPath` values resolve from the project directory.
+Use `KatanaAssetMigration` for repeatable editor-only asset migration passes. Start in `Audit` or `Plan` mode. Do not run `ApplyAndSave` until the exact target list or fixed authoring recipe has been reviewed. Relative `-TargetsFile` and `-ReportPath` values resolve from the project directory.
+
+## Defense Proof Migration
+
+`DefenseProofMigration` validates and repairs one reviewed defense manifest without scanning unrelated content. Defense manifests use `schemaVersion: 2` and must declare a nonempty, duplicate-free `proofCases` array; Audit emits one row for every declared case so runtime proof cannot silently omit a requirement. The target file must contain exactly one non-comment line, such as:
+
+```text
+Tools/Codex/manifests/defense-gate-a.json
+```
+
+Run read-only Audit and Plan passes first:
+
+```powershell
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=Audit -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-audit.json" -unattended -nopause -NullRHI -nosplash -stdout
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=Plan -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-plan.json" -unattended -nopause -NullRHI -nosplash -stdout
+```
+
+Review every proposed change and package-ledger entry. Apply modes require the unchanged schema-v2 Plan report and its exact `plan_fingerprint`:
+
+```powershell
+$planPath = "Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-plan.json"
+$fingerprint = (Get-Content $planPath -Raw | ConvertFrom-Json).plan_fingerprint
+& "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofMigration -Mode=Apply -TargetsFile="Config/AssetMigrations/DefenseGateATargets.txt" "-ApprovedPlanReport=$planPath" "-ApprovedPlanFingerprint=$fingerprint" -AllowTimingMutation -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-apply.json" -unattended -nopause -NullRHI -nosplash -stdout
+```
+
+Close the Editor and inspect `git status --short` before saving. Change `-Mode=Apply` to `-Mode=ApplyAndSave`, add `-AllowPackageSave`, and use a distinct save report. Keep `-AllowTimingMutation` only when the reviewed Plan includes parry-window edits. Do not use `-AllowDirtyPackages` unless the initial dirty state was separately reviewed. The operation rejects manifest or asset drift, changed-package mismatches, unregistered tags, unsupported block keys, unresolved assets, non-idempotent apply, and post-save Audit failures.
+
+### Gate A Proof Asset Authoring
+
+`DefenseProofAuthoring` owns the versioned, deterministic Gate A recipe. It has a fixed destination set and does not accept a target list or discover packages globally. Use it to create missing proof assets, rewrite recipe-owned montages, and validate existing paired/configuration/Guard assets. A mismatch in those validated assets fails closed instead of repairing them. Run `DefenseProofMigration` afterward to validate the manifest and dependency closure.
+
+```powershell
+$editor = "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+$plan = "Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-authoring-plan.json"
+& $editor "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofAuthoring -Mode=Plan "-ReportPath=$plan" -unattended -nopause -NullRHI -nosplash -stdout
+$fingerprint = (Get-Content $plan -Raw | ConvertFrom-Json).plan_fingerprint
+& $editor "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofAuthoring -Mode=Apply "-ApprovedPlanReport=$plan" "-ApprovedPlanFingerprint=$fingerprint" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-authoring-apply.json" -unattended -nopause -NullRHI -nosplash -stdout
+```
+
+Review the Plan row and ledger before Apply. Version 4 binds the exact recipe constants, direct source packages and animation skeletons, current destination packages, canonical Gate A manifest, planned additions, and package ledger. A loaded dirty source or destination package invalidates approval even when the destination does not yet have an on-disk file. Close the Editor before persistence, rerun with `-Mode=ApplyAndSave -AllowPackageSave`, then run a fresh `-Mode=Audit`. Success requires exactly the approved packages to save/reload and the post-save Audit to report `Unchanged`. Any bound recipe, dependency, destination, manifest, or plan drift invalidates the old fingerprint.
+
+### Gate B Defense Matrix Authoring
+
+`DefenseMatrixAuthoring` owns the fixed, deterministic Gate B recipe. It rejects `-TargetsFile` and `-AllowGlobalScan`. Recipe V11 creates three logical height families, each with distinct Left, Center, and Right AttackData variants; lane variants must never share one AttackData asset. V11 also binds `spine_01` to `Middle`.
+
+```powershell
+$editor = "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+$plan = "Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-b-authoring-plan.json"
+& $editor "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseMatrixAuthoring -Mode=Audit -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-b-authoring-audit.json" -unattended -nopause -NullRHI -nosplash -stdout
+& $editor "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseMatrixAuthoring -Mode=Plan "-ReportPath=$plan" -unattended -nopause -NullRHI -nosplash -stdout
+$fingerprint = (Get-Content $plan -Raw | ConvertFrom-Json).plan_fingerprint
+& $editor "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseMatrixAuthoring -Mode=Apply "-ApprovedPlanReport=$plan" "-ApprovedPlanFingerprint=$fingerprint" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-b-authoring-apply.json" -unattended -nopause -NullRHI -nosplash -stdout
+```
+
+Close the Editor, inspect the Plan ledger and `git status --short`, then rerun the approved Apply command with `-Mode=ApplyAndSave -AllowPackageSave` and a distinct report path. Run a fresh `DefenseMatrixAuthoring -Mode=Audit`, followed by `DefenseProofMigration -Mode=Audit -TargetsFile="Config/AssetMigrations/DefenseGateBTargets.txt"`. Both audits must report `Unchanged` before runtime proof. The accepted V11 run used fingerprint `5AD2313E317B118CE2148AD8257C9C59E0A8237B`; this is historical evidence, not a reusable approval token. Always read the fingerprint from a fresh reviewed Plan because recipe or asset drift invalidates prior approval.
 
 ## AttackData Notify Migration
 
-Audit all AttackData assets:
+Audit an explicit reviewed target list. Global scan is intentionally unsupported:
 
 ```powershell
-&"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=AttackDataNotifyMigration -Mode=Audit -AllowGlobalScan -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/attackdata-notify-audit.json" -unattended -nopause -NullRHI -nosplash -stdout
+$editor = "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+$targets = "Config/AssetMigrations/AttackDataNotifyTargets.txt"
+$plan = "Saved/Logs/Commandlets/KatanaAssetMigration/attackdata-notify-plan.json"
+& $editor "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=AttackDataNotifyMigration -Mode=Audit "-TargetsFile=$targets" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/attackdata-notify-audit.json" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
 Plan a reviewed target list:
 
 ```powershell
-&"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=AttackDataNotifyMigration -Mode=Plan -TargetsFile="Config/AssetMigrations/AttackDataNotifyTargets.txt" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/attackdata-notify-plan.json" -unattended -nopause -NullRHI -nosplash -stdout
+& $editor "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=AttackDataNotifyMigration -Mode=Plan "-TargetsFile=$targets" "-ReportPath=$plan" -unattended -nopause -NullRHI -nosplash -stdout
+$fingerprint = (Get-Content $plan -Raw | ConvertFrom-Json).plan_fingerprint
 ```
 
 Apply in memory without saving:
 
 ```powershell
-&"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=AttackDataNotifyMigration -Mode=Apply -TargetsFile="Config/AssetMigrations/AttackDataNotifyTargets.txt" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/attackdata-notify-apply.json" -unattended -nopause -NullRHI -nosplash -stdout
+& $editor "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=AttackDataNotifyMigration -Mode=Apply "-TargetsFile=$targets" "-ApprovedPlanReport=$plan" "-ApprovedPlanFingerprint=$fingerprint" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/attackdata-notify-apply.json" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
 Apply and save only reviewed targets:
 
 ```powershell
-&"C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe" "D:\UnrealProjects\5.6\KatanaCombat\KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=AttackDataNotifyMigration -Mode=ApplyAndSave -TargetsFile="Config/AssetMigrations/AttackDataNotifyTargets.txt" -AllowPackageSave -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/attackdata-notify-save.json" -unattended -nopause -NullRHI -nosplash -stdout
+& $editor "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=AttackDataNotifyMigration -Mode=ApplyAndSave "-TargetsFile=$targets" "-ApprovedPlanReport=$plan" "-ApprovedPlanFingerprint=$fingerprint" -AllowPackageSave -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/attackdata-notify-save.json" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
 For the paired-animation branch, the remaining reviewed notify candidates live in `Config/AssetMigrations/AttackDataNotifyRemainingTargets.txt`. Use a distinct report path such as `attackdata-notify-remaining-save.json` so the original accepted-save proof and remaining-candidate save proof stay separate.

@@ -1,0 +1,196 @@
+{
+  "schemaVersion": 2,
+  "gate": "A",
+  "map": "/Game/ProjectFiles/Levels/Lvl_ThirdPerson1.Lvl_ThirdPerson1",
+  "defenseConfiguration": "/Game/ProjectFiles/Data/PDA/Defense/GateA/DA_DefenseConfiguration_GateA.DA_DefenseConfiguration_GateA",
+  "fixture": {
+    "playerBlueprint": "/Game/ProjectFiles/Core/Actors/Character/BP_Player.BP_Player",
+    "playerCombatSettings": "/Game/ProjectFiles/Data/PDA/Settings/DA_CombatSettings_Default.DA_CombatSettings_Default",
+    "enemyBlueprints": [
+      "/Game/ProjectFiles/Core/Actors/Character/BP_EnemyCharacter.BP_EnemyCharacter"
+    ],
+    "enemyCombatSettings": [
+      "/Game/ProjectFiles/Data/PDA/Settings/DA_CombatSettings_Default.DA_CombatSettings_Default"
+    ],
+    "inputAction": "/Game/ProjectFiles/Input/Actions/IA_Block.IA_Block",
+    "inputMappingContext": "/Game/ProjectFiles/Input/IMC_Combat.IMC_Combat",
+    "blockKey": "ThumbMouseButton",
+    "guardAnimBlueprint": "/Game/ProjectFiles/Animation/ABP_SamuraiCharacter.ABP_SamuraiCharacter",
+    "reviewed": true
+  },
+  "combatSettings": [
+    "/Game/ProjectFiles/Data/PDA/Settings/DA_CombatSettings_Default.DA_CombatSettings_Default"
+  ],
+  "supportingAssets": [
+    "/Game/Assets/Animations/CombatMasterAnimBundle/Animations/DynamicAxeAnims/Manny_UE5/RootMotion/CommboAttack/Anim_DA_Combo_B3_RM.Anim_DA_Combo_B3_RM",
+    "/Game/Assets/Animations/CombatMasterAnimBundle/Animations/DynamicAxeAnims/Manny_UE5/RootMotion/CommboAttack/Anim_DA_Combo_C1_RM.Anim_DA_Combo_C1_RM",
+    "/Game/Assets/Animations/CombatMasterAnimBundle/Animations/DynamicAxeAnims/Manny_UE5/RootMotion/CommboAttack/Anim_DA_Combo_C2_RM.Anim_DA_Combo_C2_RM",
+    "/Game/Assets/Animations/DynamicKatana/AS_Block_Hit_Break_Seq.AS_Block_Hit_Break_Seq",
+    "/Game/Assets/Animations/DynamicKatana/AS_Block_Hit_Seq.AS_Block_Hit_Seq",
+    "/Game/Assets/Animations/DynamicKatana/AS_Block_Loop_Seq.AS_Block_Loop_Seq",
+    "/Game/Assets/Animations/DynamicKatana/AS_Execution_01_Seq.AS_Execution_01_Seq",
+    "/Game/Assets/Animations/DynamicKatana/AS_Execution_Target_01_Seq.AS_Execution_Target_01_Seq",
+    "/Game/Assets/Animations/DynamicKatana/AS_Hit_Large_F_Seq.AS_Hit_Large_F_Seq",
+    "/Game/Assets/Animations/DynamicKatana/AS_Parry_Counter_Attack_L_Seq.AS_Parry_Counter_Attack_L_Seq",
+    "/Game/Assets/Animations/DynamicKatana/AS_Parry_R_Seq.AS_Parry_R_Seq",
+    "/Game/Assets/Characters/Mannequins/Anims/Unarmed/BS_Idle_Walk_Run.BS_Idle_Walk_Run",
+    "/Game/Assets/Characters/Mannequins/Anims/Unarmed/MM_Idle.MM_Idle",
+    "/Game/Assets/SFX/Combat_SFX_Bundle/Cues/Combat_Sounds_Weapons_And_Spells/Impact_Sword_Parry_01_Cue.Impact_Sword_Parry_01_Cue",
+    "/Game/Assets/VFX/GoodFXImpactUE5/FX/NiagaraSystem/Yellow/NS_GFXI_Yellow_Parry.NS_GFXI_Yellow_Parry",
+    "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_Block_Middle_Center.AM_Block_Middle_Center",
+    "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_Parry_Fallback_Middle_Center.AM_Parry_Fallback_Middle_Center",
+    "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_ParryStagger_Fallback_Middle_Center.AM_ParryStagger_Fallback_Middle_Center",
+    "/Game/ProjectFiles/Data/PDA/Paired/Counters/Counter_LightAttack_1.Counter_LightAttack_1",
+    "/Game/ProjectFiles/Data/PDA/Paired/Finishers/Finisher_A.Finisher_A"
+  ],
+  "attacks": [
+    {
+      "name": "LightAttack_1",
+      "attackData": "/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1.LightAttack_1",
+      "montage": "/Game/ProjectFiles/Animation/Montages/Katana/Light/AM_Light_Combo_1.AM_Light_Combo_1",
+      "section": "Attack_1",
+      "expectedHeight": "Middle",
+      "expectedLane": "Center",
+      "expectedSwing": "Horizontal",
+      "expectedSourceSocket": "weapon_end",
+      "expectedTargetBone": "spine_03",
+      "requiresBlockedImpactAudio": true,
+      "requiresBlockedImpactVFX": true,
+      "expectedTags": [
+        "Attack.Defense.Parryable"
+      ],
+      "parryWindow": {
+        "basis": "SectionRelative",
+        "startSeconds": 0.2,
+        "endSeconds": 0.3,
+        "reviewed": true
+      }
+    }
+  ],
+  "presentations": [
+    {
+      "name": "NormalBlockMiddleCenter",
+      "outcome": "NormalBlock",
+      "attackerResponse": "Continue",
+      "defenderRow": "NormalBlockGeneric",
+      "attackerRow": "ContinueGeneric",
+      "requiresDefenderMontage": true,
+      "requiresAttackerMontage": false,
+      "requiresImpactAudio": true,
+      "requiresImpactVFX": true,
+      "expectedSourceSocket": "weapon_end",
+      "expectedTargetBone": "spine_03",
+      "reviewed": true
+    },
+    {
+      "name": "PerfectParryMiddleCenter",
+      "outcome": "PerfectParry",
+      "attackerResponse": "ParryStagger",
+      "defenderRow": "PerfectParryGeneric",
+      "attackerRow": "ParryStaggerGeneric",
+      "requiresDefenderMontage": true,
+      "requiresAttackerMontage": true,
+      "requiresImpactAudio": true,
+      "requiresImpactVFX": true,
+      "expectedSourceSocket": "weapon_end",
+      "expectedTargetBone": "spine_03",
+      "reviewed": true
+    }
+  ],
+  "pairedDependencies": [
+    {
+      "name": "ParryBridge",
+      "role": "Bridge",
+      "pairedData": "/Game/ProjectFiles/Data/PDA/Defense/GateA/DA_ParryBridge_GateA.DA_ParryBridge_GateA",
+      "attackerMontage": "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_ParryBridge_Defender.AM_ParryBridge_Defender",
+      "attackerSection": "Bridge",
+      "victimMontage": "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_ParryBridge_Attacker.AM_ParryBridge_Attacker",
+      "victimSection": "Bridge",
+      "driverRole": "Attacker",
+      "driverMarker": "CounterReady",
+      "attackerWarpTarget": "PairedTarget",
+      "victimWarpTarget": "PairedTarget",
+      "attackerReadySection": "CounterReady",
+      "victimReadySection": "CounterReady",
+      "attackerTerminalPoseCompatible": false,
+      "victimTerminalPoseCompatible": false,
+      "reviewed": true
+    },
+    {
+      "name": "Counter",
+      "role": "Counter",
+      "pairedData": "/Game/ProjectFiles/Data/PDA/Defense/GateA/DA_Counter_GateA.DA_Counter_GateA",
+      "attackerMontage": "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_Counter_Defender.AM_Counter_Defender",
+      "attackerSection": "Counter",
+      "victimMontage": "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_Counter_Attacker.AM_Counter_Attacker",
+      "victimSection": "Counter",
+      "driverRole": "Attacker",
+      "driverMarker": "FinisherReady",
+      "attackerWarpTarget": "PairedTarget",
+      "victimWarpTarget": "PairedTarget",
+      "attackerReadySection": null,
+      "victimReadySection": null,
+      "attackerTerminalPoseCompatible": true,
+      "victimTerminalPoseCompatible": true,
+      "reviewed": true
+    },
+    {
+      "name": "Finisher",
+      "role": "Finisher",
+      "pairedData": "/Game/ProjectFiles/Data/PDA/Defense/GateA/DA_Finisher_GateA.DA_Finisher_GateA",
+      "attackerMontage": "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_Finisher_Defender.AM_Finisher_Defender",
+      "attackerSection": "Finisher",
+      "victimMontage": "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_Finisher_Attacker.AM_Finisher_Attacker",
+      "victimSection": "Finisher",
+      "driverRole": null,
+      "driverMarker": null,
+      "attackerWarpTarget": "PairedTarget",
+      "victimWarpTarget": "PairedTarget",
+      "attackerReadySection": null,
+      "victimReadySection": null,
+      "attackerTerminalPoseCompatible": false,
+      "victimTerminalPoseCompatible": false,
+      "reviewed": true
+    }
+  ],
+  "proofCases": [
+    "MapFixture",
+    "HandsOffMapPlayable",
+    "HeldGuardWithoutThreat",
+    "NormalBlockMiddleCenter",
+    "NormalAttackRecovery",
+    "SameEnemyReattackWithoutRangeReset",
+    "FourEnemyTokenAndFriendlyFirePolicy",
+    "OutOfHardConeContact",
+    "PerfectTimingInsufficientAlignment",
+    "PerfectParryBridge",
+    "CounterToFinisherContinuity",
+    "PerfectParryCounterFinisher"
+  ],
+  "expectedCases": [
+    {
+      "name": "NormalBlockMiddleCenter",
+      "attack": "LightAttack_1",
+      "outcome": "NormalBlock",
+      "reason": "None",
+      "attackerResponse": "Continue",
+      "presentation": "NormalBlockMiddleCenter",
+      "pairedDependencies": [],
+      "reviewed": true
+    },
+    {
+      "name": "PerfectParryMiddleCenter",
+      "attack": "LightAttack_1",
+      "outcome": "PerfectParry",
+      "reason": "None",
+      "attackerResponse": "ParryStagger",
+      "presentation": "PerfectParryMiddleCenter",
+      "pairedDependencies": [
+        "ParryBridge",
+        "Counter",
+        "Finisher"
+      ],
+      "reviewed": true
+    }
+  ]
+}

@@ -13,6 +13,56 @@ class USoundBase;
 class UNiagaraSystem;
 class UMaterialInterface;
 
+/** Chain handoff policy owned by one paired-animation data asset. */
+USTRUCT(BlueprintType)
+struct KATANACOMBAT_API FPairedChainTransitionPolicy
+{
+    GENERATED_BODY()
+
+    /** Only this runtime role may drive RequiredMarker. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
+    EPairedAnimationRole DriverRole = EPairedAnimationRole::Attacker;
+
+    /** Marker name authored on the driver montage. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
+    FName RequiredMarker = NAME_None;
+
+    /** Optional hold section used by the attacker role while awaiting input. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
+    FName AttackerReadySection = NAME_None;
+
+    /** Optional hold section used by the victim role while awaiting input. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
+    FName VictimReadySection = NAME_None;
+
+    /** The attacker montage terminal pose was reviewed as safe to retain. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
+    bool bAttackerTerminalPoseCompatible = false;
+
+    /** The victim montage terminal pose was reviewed as safe to retain. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
+    bool bVictimTerminalPoseCompatible = false;
+
+    /** Positive values override the configured response window. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain", meta = (ClampMin = "0.0"))
+    float ResponseWindowOverride = 0.0f;
+
+    /** A driver AutoContinue marker should start the retained finisher stage. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
+    bool bAutoContinue = false;
+
+    /** A failed finisher start may remain in FinisherReady for another physical input. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
+    bool bFinisherRetryable = true;
+
+    bool HasRetainableReadyPose() const
+    {
+        const bool bAttackerReady = !AttackerReadySection.IsNone() || bAttackerTerminalPoseCompatible;
+        const bool bVictimReady = !VictimReadySection.IsNone() || bVictimTerminalPoseCompatible;
+        return bAttackerReady && bVictimReady;
+    }
+};
+
 /**
  * Data asset defining a paired animation sequence (finisher, counter, throw, etc.)
  * Contains configuration for both attacker and victim animations with sync points
@@ -66,6 +116,10 @@ public:
     /** Section within victim montage to play (NAME_None = entire montage) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation")
     FName VictimMontageSection = NAME_None;
+
+    /** Authored marker/pose policy for retained defense-chain stages. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Chain")
+    FPairedChainTransitionPolicy ChainTransitionPolicy;
 
     // ========================================================================
     // SYNC CONFIGURATION

@@ -1,9 +1,12 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
+#include "CombatEventRecorder.h"
 #include "CombatTestHelpers.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Characters/PlayerCharacter.h"
 #include "Characters/EnemyCharacter.h"
+#include "Animation/AnimMontage.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Core/WeaponComponent.h"
 #include "Core/CombatComponent.h"
 #include "Data/AttackData.h"
@@ -353,12 +356,14 @@ bool FGetSocketLocationFallbackTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	// Get location for non-existent socket
+	// The invalid-socket path deliberately emits an error because gameplay traces
+	// using this fallback are inaccurate. The test owns that expected diagnostic.
+	AddExpectedErrorPlain(TEXT("Socket 'nonexistent_socket_12345' not found"),
+		EAutomationExpectedErrorFlags::Contains, 1);
 	const FVector Location = WeaponComp->GetSocketLocation(TEXT("nonexistent_socket_12345"));
 
-	// Should fall back to character location (not crash)
-	// The exact value depends on character position, just verify it's not zero (unless at origin)
-	TestTrue("GetSocketLocation should not crash for invalid socket", true); // If we got here, no crash
+	TestEqual(TEXT("Invalid socket falls back to the owning character location"),
+		Location, Player->GetActorLocation());
 
 	World->DestroyActor(Player);
 	FCombatTestHelpers::DestroyTestWorld(World);
@@ -691,6 +696,479 @@ bool FMultipleWeaponsIndependentTest::RunTest(const FString& Parameters)
 
 	World->DestroyActor(Player1);
 	World->DestroyActor(Player2);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FWeaponTraceTickOrderTest,
+	"KatanaCombat.Weapon.HitDetection.TickOrder.AfterSkeletalPose",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FWeaponTraceTickOrderTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	UWeaponComponent* Weapon = Player ? Player->WeaponComponent.Get() : nullptr;
+	USkeletalMeshComponent* Mesh = Player ? Player->GetMesh() : nullptr;
+	if (!World || !Player || !Weapon || !Mesh)
+	{
+		AddError(TEXT("Failed to create weapon tick-order fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	const bool bRunsAfterSkeletalPose =
+		Weapon->PrimaryComponentTick.GetPrerequisites().ContainsByPredicate(
+			[Mesh](const FTickPrerequisite& Prerequisite)
+			{
+				return Prerequisite.Get() == &Mesh->PrimaryComponentTick;
+			});
+	TestTrue(TEXT("Weapon tracing runs after skeletal pose evaluation"),
+		bRunsAfterSkeletalPose);
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FWeaponTraceBoneRefreshPolicyTest,
+	"KatanaCombat.Weapon.HitDetection.BoneRefresh.ActiveWindowOwnership",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FWeaponTraceBoneRefreshPolicyTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector::ZeroVector, false);
+	UWeaponComponent* Weapon = Player ? Player->WeaponComponent.Get() : nullptr;
+	USkeletalMeshComponent* Mesh = Player ? Player->GetMesh() : nullptr;
+	if (!World || !Player || !Weapon || !Mesh)
+	{
+		AddError(TEXT("Failed to create weapon bone-refresh fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	const EVisibilityBasedAnimTickOption PriorPolicy =
+		EVisibilityBasedAnimTickOption::OnlyTickMontagesWhenNotRendered;
+	Mesh->VisibilityBasedAnimTickOption = PriorPolicy;
+	AddExpectedError(TEXT("Socket 'weapon_start' not found"),
+		EAutomationExpectedErrorFlags::Contains, 1);
+	AddExpectedError(TEXT("Socket 'weapon_end' not found"),
+		EAutomationExpectedErrorFlags::Contains, 1);
+	Weapon->EnableHitDetection();
+	TestEqual(TEXT("Active traces force evaluated weapon sockets offscreen"),
+		Mesh->VisibilityBasedAnimTickOption,
+		EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones);
+
+	Weapon->DisableHitDetection();
+	TestEqual(TEXT("Trace close restores the exact prior mesh policy"),
+		Mesh->VisibilityBasedAnimTickOption, PriorPolicy);
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FWeaponTraceAttackPhaseBoneRefreshPolicyTest,
+	"KatanaCombat.Weapon.HitDetection.BoneRefresh.AttackPhaseOwnership",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FWeaponTraceAttackPhaseBoneRefreshPolicyTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	UWeaponComponent* Weapon = Player ? Player->WeaponComponent.Get() : nullptr;
+	UCombatComponent* Combat = Player ? Player->CombatComponent.Get() : nullptr;
+	USkeletalMeshComponent* Mesh = Player ? Player->GetMesh() : nullptr;
+	if (!World || !Player || !Weapon || !Combat || !Mesh)
+	{
+		AddError(TEXT("Failed to create weapon attack-phase bone-refresh fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	const EVisibilityBasedAnimTickOption PriorPolicy =
+		EVisibilityBasedAnimTickOption::OnlyTickMontagesWhenNotRendered;
+	Mesh->VisibilityBasedAnimTickOption = PriorPolicy;
+	Combat->OnPhaseChanged.Broadcast(EAttackPhase::None, EAttackPhase::Windup);
+	TestEqual(TEXT("Windup acquires offscreen bone refresh before Active"),
+		Mesh->VisibilityBasedAnimTickOption,
+		EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones);
+	TestTrue(TEXT("Windup enables source-socket trajectory sampling before Active"),
+		Weapon->IsComponentTickEnabled());
+
+	Combat->OnPhaseChanged.Broadcast(EAttackPhase::Windup, EAttackPhase::Recovery);
+	TestEqual(TEXT("Recovery restores the exact pre-attack mesh policy"),
+		Mesh->VisibilityBasedAnimTickOption, PriorPolicy);
+	TestFalse(TEXT("Recovery disables source-socket trajectory sampling"),
+		Weapon->IsComponentTickEnabled());
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+// ============================================================================
+// RICH DEFENSE CONTACT ACCOUNTING TESTS
+// ============================================================================
+
+namespace
+{
+FHitResult MakeWeaponBudgetContactHit(AActor* Target, const FVector& TraceStart)
+{
+	FHitResult Hit(Target, Cast<UPrimitiveComponent>(Target ? Target->GetRootComponent() : nullptr),
+		Target ? Target->GetActorLocation() : FVector::ZeroVector, FVector::BackwardVector);
+	Hit.TraceStart = TraceStart;
+	Hit.TraceEnd = Target ? Target->GetActorLocation() : FVector::ZeroVector;
+	Hit.ImpactPoint = Hit.TraceEnd;
+	Hit.ImpactNormal = FVector::BackwardVector;
+	Hit.BoneName = TEXT("spine_03");
+	return Hit;
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseWeaponContactVelocityTest,
+	"KatanaCombat.Defense.Contact.WeaponVelocity.SourceSocketPrecedence",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseWeaponContactVelocityTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(-100.0f, 0.0f, 0.0f));
+	APlayerCharacter* Target = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector::ZeroVector);
+	UWeaponComponent* Weapon = Source ? Source->WeaponComponent.Get() : nullptr;
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	if (!World || !Source || !Target || !Weapon || !Attack)
+	{
+		AddError(TEXT("Failed to create accepted-sweep velocity fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	FHitResult Hit = MakeWeaponBudgetContactHit(Target, FVector(-20.0f, -10.0f, 50.0f));
+	Hit.TraceEnd = FVector(10.0f, 30.0f, 55.0f);
+	const FVector SourceSocketVelocity(-900.0f, 200.0f, 50.0f);
+	const FVector RateNormalizedTrajectory(100.0f, -200.0f, 25.0f);
+	const FVector AcceptedSweepVelocity(600.0f, 800.0f, 100.0f);
+	UAnimMontage* Montage = NewObject<UAnimMontage>();
+	Weapon->ResetDefenseTrajectoryHistoryForTesting();
+	Weapon->RecordDefenseTrajectorySampleForTesting(
+		Montage, 0.0f, FVector::ZeroVector);
+	Weapon->RecordDefenseTrajectorySampleForTesting(
+		Montage, 1.0f / 30.0f, RateNormalizedTrajectory);
+	Weapon->SetWeaponTipVelocityForTesting(SourceSocketVelocity);
+	const FDefenseContactRequest SourceSocketRequest =
+		Weapon->BuildDefenseContactRequestForTesting(
+		Hit, Attack, AcceptedSweepVelocity);
+
+	TestEqual(TEXT("Rate-normalized source trajectory has first defense precedence"),
+		SourceSocketRequest.IncomingTrajectory, RateNormalizedTrajectory);
+	TestTrue(TEXT("Rate-normalized trajectory provenance remains explicit"),
+		SourceSocketRequest.bIncomingTrajectoryRateNormalized);
+	TestEqual(TEXT("Rich contact prefers the declared source socket velocity"),
+		SourceSocketRequest.HitInfo.WeaponVelocity, SourceSocketVelocity);
+	TestEqual(TEXT("Hit direction opposes the declared source socket velocity"),
+		SourceSocketRequest.HitInfo.HitDirection, -SourceSocketVelocity.GetSafeNormal());
+	TestEqual(TEXT("Accepted trace start remains available as fallback evidence"),
+		SourceSocketRequest.TraceStart, Hit.TraceStart);
+	TestEqual(TEXT("Accepted trace end remains available as fallback evidence"),
+		SourceSocketRequest.TraceEnd, Hit.TraceEnd);
+
+	Attack->DefenseProfile.SourceContactSocketOverride = TEXT("weapon_top");
+	const FDefenseContactRequest AuthoredSocketRequest =
+		Weapon->BuildDefenseContactRequestForTesting(
+			Hit, Attack, AcceptedSweepVelocity);
+	TestEqual(TEXT("Authored contact socket drives actual source sampling"),
+		AuthoredSocketRequest.ActiveSourceSocket, FName(TEXT("weapon_top")));
+	TestEqual(TEXT("Authored contact socket remains identical in the query snapshot"),
+		AuthoredSocketRequest.Query.Attack.SourceSocket, FName(TEXT("weapon_top")));
+	Attack->DefenseProfile.SourceContactSocketOverride = NAME_None;
+
+	Weapon->ResetDefenseTrajectoryHistoryForTesting();
+	const FDefenseContactRequest InstantaneousFallbackRequest =
+		Weapon->BuildDefenseContactRequestForTesting(
+			Hit, Attack, AcceptedSweepVelocity);
+	TestEqual(TEXT("Instantaneous source velocity is the normalized-trajectory fallback"),
+		InstantaneousFallbackRequest.IncomingTrajectory, SourceSocketVelocity);
+	TestFalse(TEXT("Instantaneous source velocity is not labeled rate-normalized"),
+		InstantaneousFallbackRequest.bIncomingTrajectoryRateNormalized);
+
+	Weapon->SetWeaponTipVelocityForTesting(FVector::ZeroVector);
+	const FDefenseContactRequest SweepFallbackRequest =
+		Weapon->BuildDefenseContactRequestForTesting(
+			Hit, Attack, AcceptedSweepVelocity);
+	TestEqual(TEXT("Accepted sweep is the source-trajectory fallback"),
+		SweepFallbackRequest.IncomingTrajectory, AcceptedSweepVelocity);
+	TestEqual(TEXT("Accepted swept blade point velocity is the source-socket fallback"),
+		SweepFallbackRequest.HitInfo.WeaponVelocity, AcceptedSweepVelocity);
+	TestEqual(TEXT("Fallback hit direction opposes the accepted swept velocity"),
+		SweepFallbackRequest.HitInfo.HitDirection,
+		-AcceptedSweepVelocity.GetSafeNormal());
+
+	const FDefenseContactRequest TraceOnlyFallbackRequest =
+		Weapon->BuildDefenseContactRequestForTesting(
+			Hit, Attack, FVector::ZeroVector);
+	TestTrue(TEXT("Missing measured blade motion does not invent a source trajectory"),
+		TraceOnlyFallbackRequest.IncomingTrajectory.IsNearlyZero());
+	TestTrue(TEXT("Missing measured blade motion does not invent weapon velocity"),
+		TraceOnlyFallbackRequest.HitInfo.WeaponVelocity.IsNearlyZero());
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseWeaponDuplicateEnablePreservesBudgetTest,
+	"KatanaCombat.Defense.Contact.WeaponBudget.DuplicateEnablePreservesBudget",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseWeaponDuplicateEnablePreservesBudgetTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(-100.0f, 0.0f, 0.0f));
+	APlayerCharacter* FirstTarget = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector::ZeroVector);
+	APlayerCharacter* SecondTarget = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector(100.0f, 0.0f, 0.0f));
+	UWeaponComponent* Weapon = Source ? Source->WeaponComponent.Get() : nullptr;
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	if (!World || !Source || !FirstTarget || !SecondTarget || !Weapon || !Attack)
+	{
+		AddError(TEXT("Failed to create duplicate-enable budget fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Attack->BaseDamage = 20.0f;
+	Attack->MaxHitCount = 1;
+	Weapon->EnableHitDetection();
+	Weapon->ProcessHitForTesting(
+		MakeWeaponBudgetContactHit(FirstTarget, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("First accepted target consumes the only hit"),
+		Weapon->GetAcceptedHitCountForTesting(), 1);
+
+	const float SecondHealthBefore = SecondTarget->CurrentHealth;
+	Weapon->EnableHitDetection();
+	Weapon->ProcessHitForTesting(
+		MakeWeaponBudgetContactHit(SecondTarget, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Duplicate enable cannot reset the source-wide hit budget"),
+		Weapon->GetAcceptedHitCountForTesting(), 1);
+	TestEqual(TEXT("Second target is rejected after duplicate enable"),
+		SecondTarget->CurrentHealth, SecondHealthBefore);
+
+	Weapon->DisableHitDetection();
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseWeaponTrajectoryHistoryTest,
+	"KatanaCombat.Defense.Contact.WeaponVelocity.RateNormalizedHistory",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseWeaponTrajectoryHistoryTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(World);
+	UWeaponComponent* Weapon = Source ? Source->WeaponComponent.Get() : nullptr;
+	UAnimMontage* MontageA = NewObject<UAnimMontage>();
+	UAnimMontage* MontageB = NewObject<UAnimMontage>();
+	if (!World || !Source || !Weapon || !MontageA || !MontageB)
+	{
+		AddError(TEXT("Failed to create rate-normalized trajectory fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	const FVector MotionPerMontageSecond(3000.0f, 1500.0f, 0.0f);
+	const FVector ExpectedTrajectory = MotionPerMontageSecond / 30.0f;
+	const FVector ExpectedShortTrajectory = MotionPerMontageSecond / 60.0f;
+	auto VerifySampling = [this, Weapon, MontageA, MotionPerMontageSecond,
+		ExpectedTrajectory, ExpectedShortTrajectory](
+		const TCHAR* Label,
+		const TArray<float>& Positions)
+	{
+		Weapon->ResetDefenseTrajectoryHistoryForTesting();
+		for (const float Position : Positions)
+		{
+			Weapon->RecordDefenseTrajectorySampleForTesting(
+				MontageA, Position, MotionPerMontageSecond * Position);
+		}
+		FVector Trajectory = FVector::ZeroVector;
+		TestTrue(FString::Printf(TEXT("%s produces a normalized trajectory"), Label),
+			Weapon->TryGetRateNormalizedDefenseTrajectoryForTesting(Trajectory));
+		TestTrue(FString::Printf(TEXT("%s preserves the montage-space motion direction"), Label),
+			Trajectory.Equals(ExpectedTrajectory, 0.01f));
+		FVector ShortTrajectory = FVector::ZeroVector;
+		TestTrue(FString::Printf(TEXT("%s supports a shorter fixed montage-time query"), Label),
+			Weapon->TryGetDefenseTrajectoryForWindowForTesting(
+				1.0f / 60.0f, ShortTrajectory));
+		TestTrue(FString::Printf(TEXT("%s resolves the shorter fixed trajectory"), Label),
+			ShortTrajectory.Equals(ExpectedShortTrajectory, 0.01f));
+	};
+
+	VerifySampling(TEXT("Sparse sampling"), {0.0f, 0.05f, 0.1f});
+	VerifySampling(TEXT("Exact sampling"), {0.0f, 1.0f / 30.0f, 2.0f / 30.0f, 0.1f});
+	VerifySampling(TEXT("Dense sampling"),
+		{0.0f, 1.0f / 60.0f, 2.0f / 60.0f, 3.0f / 60.0f,
+		 4.0f / 60.0f, 5.0f / 60.0f, 0.1f});
+
+	Weapon->ResetDefenseTrajectoryHistoryForTesting();
+	Weapon->RecordDefenseTrajectorySampleForTesting(MontageA, 0.09f, FVector(90.0f, 0.0f, 0.0f));
+	Weapon->RecordDefenseTrajectorySampleForTesting(MontageA, 0.1f, FVector(100.0f, 0.0f, 0.0f));
+	FVector Trajectory = FVector::ZeroVector;
+	TestFalse(TEXT("Insufficient montage history falls back without inventing a trajectory"),
+		Weapon->TryGetRateNormalizedDefenseTrajectoryForTesting(Trajectory));
+
+	Weapon->ResetDefenseTrajectoryHistoryForTesting();
+	Weapon->RecordDefenseTrajectorySampleForTesting(MontageA, 0.0f, FVector::ZeroVector);
+	Weapon->RecordDefenseTrajectorySampleForTesting(MontageA, 0.1f, MotionPerMontageSecond * 0.1f);
+	Weapon->RecordDefenseTrajectorySampleForTesting(MontageB, 0.2f, FVector(1000.0f, 0.0f, 0.0f));
+	TestFalse(TEXT("A montage switch clears the prior swing trajectory"),
+		Weapon->TryGetRateNormalizedDefenseTrajectoryForTesting(Trajectory));
+
+	Weapon->ResetDefenseTrajectoryHistoryForTesting();
+	Weapon->RecordDefenseTrajectorySampleForTesting(MontageA, 0.0f, FVector::ZeroVector);
+	Weapon->RecordDefenseTrajectorySampleForTesting(MontageA, 0.1f, MotionPerMontageSecond * 0.1f);
+	Weapon->RecordDefenseTrajectorySampleForTesting(MontageA, 0.08f, FVector(2000.0f, 0.0f, 0.0f));
+	TestFalse(TEXT("A montage reversal clears the prior swing trajectory"),
+		Weapon->TryGetRateNormalizedDefenseTrajectoryForTesting(Trajectory));
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseWeaponBudgetAccountingTest,
+	"KatanaCombat.Defense.Contact.WeaponBudget.AcceptedContactsOnly",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseWeaponBudgetAccountingTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(-100.0f, 0.0f, 0.0f));
+	AEnemyCharacter* Friendly = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector::ZeroVector);
+	APlayerCharacter* Hostile = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector(100.0f, 0.0f, 0.0f));
+	UWeaponComponent* Weapon = Source->WeaponComponent;
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	Attack->BaseDamage = 20.0f;
+	Attack->MaxHitCount = 1;
+
+	UCombatEventRecorder* Recorder = NewObject<UCombatEventRecorder>();
+	Recorder->ObservedWeapon = Weapon;
+	Hostile->HitReactionComponent->OnDamageReceived.AddDynamic(
+		Recorder, &UCombatEventRecorder::HandleDamageReceived);
+
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Friendly, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Friendly does not consume budget"), Weapon->GetAcceptedHitCountForTesting(), 0);
+	TestEqual(TEXT("Friendly is not added to rich dedupe list"), Weapon->GetHitActorCount(), 0);
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Friendly, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Cached friendly repeat does not consume budget"), Weapon->GetAcceptedHitCountForTesting(), 0);
+	TestEqual(TEXT("Cached friendly repeat remains outside rich dedupe list"), Weapon->GetHitActorCount(), 0);
+
+	const float HostileHealth = Hostile->CurrentHealth;
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Hostile, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Later hostile hit consumes budget"), Weapon->GetAcceptedHitCountForTesting(), 1);
+	TestEqual(TEXT("Later hostile hit is deduped"), Weapon->GetHitActorCount(), 1);
+	TestEqual(TEXT("Later hostile hit applies damage"), Hostile->CurrentHealth, HostileHealth - 20.0f);
+	TestEqual(TEXT("Damage listener observes coherent weapon accounting"),
+		Recorder->AcceptedHitCountObservedDuringDamage, 1);
+
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Hostile, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Accepted duplicate does not consume again"), Weapon->GetAcceptedHitCountForTesting(), 1);
+	TestEqual(TEXT("Accepted duplicate does not replay damage"), Recorder->DamageReceivedCount, 1);
+
+	World->DestroyActor(Source);
+	World->DestroyActor(Friendly);
+	World->DestroyActor(Hostile);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseWeaponInvulnerableBudgetTest,
+	"KatanaCombat.Defense.Contact.WeaponBudget.InvulnerableThenHostile",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseWeaponInvulnerableBudgetTest::RunTest(const FString& Parameters)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Source = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector(-100.0f, 0.0f, 0.0f));
+	AEnemyCharacter* Invulnerable = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector::ZeroVector);
+	AEnemyCharacter* Hostile = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(100.0f, 0.0f, 0.0f));
+	Invulnerable->HitReactionComponent->bIsInvulnerable = true;
+	UWeaponComponent* Weapon = Source->WeaponComponent;
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	Attack->BaseDamage = 25.0f;
+	Attack->MaxHitCount = 1;
+
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Invulnerable, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Invulnerable target does not consume budget"), Weapon->GetAcceptedHitCountForTesting(), 0);
+	TestEqual(TEXT("Invulnerable target takes no damage"), Invulnerable->CurrentHealth, Invulnerable->MaxHealth);
+
+	Weapon->ProcessHitForTesting(MakeWeaponBudgetContactHit(Hostile, Source->GetActorLocation()), Attack);
+	TestEqual(TEXT("Hostile after invulnerable target consumes budget"),
+		Weapon->GetAcceptedHitCountForTesting(), 1);
+	TestEqual(TEXT("Hostile after invulnerable target takes damage"),
+		Hostile->CurrentHealth, Hostile->MaxHealth - 25.0f);
+
+	World->DestroyActor(Source);
+	World->DestroyActor(Invulnerable);
+	World->DestroyActor(Hostile);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseWeaponCallbackLifetimeTest,
+	"KatanaCombat.Defense.Contact.WeaponCallbackLifetime",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseWeaponCallbackLifetimeTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(-100.0f, 0.0f, 0.0f));
+	APlayerCharacter* Target = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector(100.0f, 0.0f, 0.0f));
+	UWeaponComponent* Weapon = Source ? Source->WeaponComponent.Get() : nullptr;
+	if (!World || !Source || !Target || !Weapon)
+	{
+		AddError(TEXT("Failed to create weapon callback lifetime fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	Attack->BaseDamage = 20.0f;
+	Attack->MaxHitCount = 1;
+	Weapon->OnRichContactAccountedForTesting.AddLambda(
+		[Source](AActor*, const FContactInstanceId&, int32)
+		{
+			Source->Destroy();
+		});
+
+	Weapon->ProcessHitForTesting(
+		MakeWeaponBudgetContactHit(Target, Source->GetActorLocation()), Attack);
+	TestTrue(TEXT("The test callback destroys the source during accounting"),
+		Source->IsActorBeingDestroyed());
+	TestEqual(TEXT("Gameplay commit remains exactly once before callback teardown"),
+		Target->CurrentHealth, Target->MaxHealth - 20.0f);
+	TestEqual(TEXT("A destroyed source cannot enter stale impact finalization"),
+		Source->GetResolvedWeaponImpactAttemptCountForTesting(), 0);
+
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }
