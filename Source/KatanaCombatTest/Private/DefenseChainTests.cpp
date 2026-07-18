@@ -522,7 +522,12 @@ bool FDefenseChainSequenceOwnershipTimeoutTest::RunTest(const FString& Parameter
 		Fixture.Paired->GetActiveDefenseSequenceContext().OriginatingInteraction.IsValid());
 	TestFalse(TEXT("Terminal cleanup releases source AI suppression"),
 		SourceAI->IsDefenseChainSuppressed());
-	TestTrue(TEXT("Source AI can attack again after retained Chain cleanup"),
+	TestTrue(TEXT("Parry stagger remains active after retained Chain cleanup"),
+		Fixture.SourceAttacker->HitReactionComponent->IsStaggered());
+	TestFalse(TEXT("Released Chain suppression does not bypass active parry stagger"),
+		SourceAI->CanAttemptAttack());
+	Fixture.SourceAttacker->HitReactionComponent->EndStagger();
+	TestTrue(TEXT("Source AI can attack again after Chain and stagger cleanup"),
 		SourceAI->CanAttemptAttack());
 	TestFalse(TEXT("Timeout releases input ownership"), Fixture.Paired->IsInputBlocked());
 	TestFalse(TEXT("Timeout releases the context tag"), Fixture.DefenderCombat->HasActiveContextTag(

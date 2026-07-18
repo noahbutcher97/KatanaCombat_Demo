@@ -37,6 +37,15 @@ public:
         AActor*);
 
     static FOnImpactSoundPlaybackInvokedForTesting OnImpactSoundPlaybackInvokedForTesting;
+
+    DECLARE_MULTICAST_DELEGATE_FourParams(
+        FOnImpactVFXSpawnInvokedForTesting,
+        UWorld*,
+        UNiagaraSystem*,
+        const FVector&,
+        FName);
+
+    static FOnImpactVFXSpawnInvokedForTesting OnImpactVFXSpawnInvokedForTesting;
 #endif
 
     // ========================================================================

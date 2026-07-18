@@ -18,6 +18,8 @@
 #if WITH_AUTOMATION_TESTS
 UCinematicEffectsUtilityLibrary::FOnImpactSoundPlaybackInvokedForTesting
     UCinematicEffectsUtilityLibrary::OnImpactSoundPlaybackInvokedForTesting;
+UCinematicEffectsUtilityLibrary::FOnImpactVFXSpawnInvokedForTesting
+    UCinematicEffectsUtilityLibrary::OnImpactVFXSpawnInvokedForTesting;
 #endif
 
 namespace
@@ -588,6 +590,10 @@ bool UCinematicEffectsUtilityLibrary::SpawnImpactVFX(
 
     if (SpawnedVFX)
     {
+#if WITH_AUTOMATION_TESTS
+        OnImpactVFXSpawnInvokedForTesting.Broadcast(
+            World, VFXToSpawn, ImpactLocation, BoneName);
+#endif
         UE_LOG(LogCombatFX, Verbose, TEXT("[VFX] Impact VFX spawned: %s at %s (scale: %.2f, aligned: %s)"),
             *VFXToSpawn->GetName(),
             *ImpactLocation.ToString(),

@@ -8,6 +8,9 @@
 class KATANACOMBAT_API FDefenseResolver
 {
 public:
+	/** Canonical pure predicate used by selection and threat telemetry. */
+	static bool IsSelectableThreat(const FAttackExecutionSnapshot& Candidate);
+
 	static FDefenseThreatSelectionResult SelectThreat(
 		const TArray<FAttackExecutionSnapshot>& Candidates,
 		const FDefenseThreatSelectionContext& Context);

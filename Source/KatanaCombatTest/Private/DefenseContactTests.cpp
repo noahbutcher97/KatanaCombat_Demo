@@ -10,16 +10,46 @@
 #include "Core/WeaponComponent.h"
 #include "Data/AttackData.h"
 #include "Data/DefenseConfiguration.h"
+#include "Debug/DefenseTelemetry.h"
 #include "Animation/AnimMontage.h"
 #include "NiagaraSystem.h"
 #include "Sound/SoundWave.h"
 #include "Utilities/CombatGameplayTags.h"
 #include "Containers/Ticker.h"
+#include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
 #include "UObject/GarbageCollection.h"
 
 namespace
 {
+class FScopedDefenseDebug
+{
+public:
+	FScopedDefenseDebug()
+	{
+		Variable = IConsoleManager::Get().FindConsoleVariable(TEXT("Combat.Defense.Debug"));
+		if (Variable)
+		{
+			PreviousValue = Variable->GetInt();
+			Variable->SetWithCurrentPriority(1);
+		}
+	}
+
+	~FScopedDefenseDebug()
+	{
+		if (Variable)
+		{
+			Variable->SetWithCurrentPriority(PreviousValue);
+		}
+	}
+
+	bool IsValid() const { return Variable != nullptr; }
+
+private:
+	IConsoleVariable* Variable = nullptr;
+	int32 PreviousValue = 0;
+};
+
 FDefenseContactRequest MakeContactRequest(
 	ABaseCombatCharacter* Source,
 	ABaseCombatCharacter* Target,
@@ -465,6 +495,9 @@ bool FDefenseContactContextRetentionTest::RunTest(const FString& Parameters)
 	Target->CombatComponent->DefenseConfigurationOverride = Configuration;
 
 	FDefenseContactRequest Request = MakeContactRequest(Source, Target, Attack, 1);
+	Request.IncomingTrajectory = FVector(-100.0f, -100.0f, 0.0f);
+	Request.bIncomingTrajectoryRateNormalized = true;
+	Request.HitInfo.WeaponVelocity = FVector(-100.0f, 100.0f, 0.0f);
 	Request.HitInfo.AnimationTime = 0.42f;
 	Request.HitInfo.PhaseWhenHit = EAttackPhase::Active;
 	Request.HitInfo.SurfaceType = ECombatSurfaceType::Metal;
@@ -489,8 +522,10 @@ bool FDefenseContactContextRetentionTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Exact defender bone mapping controls actual height"), Actual.Height, EAttackHeight::High);
 	TestEqual(TEXT("Exact bone provenance is retained"),
 		Actual.HeightProvenance, EDefenseHeightProvenance::ExactBone);
-	TestEqual(TEXT("Actual trajectory resolves independently of authored lane"),
-		Actual.Lane, EIncomingAttackLane::Center);
+	TestEqual(TEXT("Rate-normalized trajectory takes precedence over opposing instantaneous weapon velocity"),
+		Actual.Lane, EIncomingAttackLane::Left);
+	TestTrue(TEXT("Actual contact retains rate-normalized trajectory provenance"),
+		Actual.bIncomingTrajectoryRateNormalized);
 	TestEqual(TEXT("Surface metadata is retained"), Actual.HitInfo.SurfaceType, ECombatSurfaceType::Metal);
 	TestEqual(TEXT("Animation time is retained"), Actual.HitInfo.AnimationTime, 0.42f);
 	TestEqual(TEXT("Attack phase is retained"), Actual.HitInfo.PhaseWhenHit, EAttackPhase::Active);
@@ -502,6 +537,45 @@ bool FDefenseContactContextRetentionTest::RunTest(const FString& Parameters)
 		Predicted.SourceSocket, FName(TEXT("predicted_socket")));
 	TestEqual(TEXT("Prediction lane is not overwritten"), Predicted.Lane, EIncomingAttackLane::Left);
 	TestEqual(TEXT("Prediction height is not overwritten"), Predicted.Height, EAttackHeight::Middle);
+
+	World->DestroyActor(Source);
+	World->DestroyActor(Target);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseContactCenterAverageUsesInstantaneousDirectionTest,
+	"KatanaCombat.Defense.Contact.CenterAverageUsesInstantaneousDirection",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseContactCenterAverageUsesInstantaneousDirectionTest::RunTest(
+	const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	ABaseCombatCharacter* Source = CreateDefenseTestCharacter(
+		World, ETeamId::Player, FVector(100.0f, 0.0f, 0.0f));
+	AEnemyCharacter* Target = FCombatTestHelpers::CreateTestEnemyCharacter(World);
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	if (!World || !Source || !Target || !Attack)
+	{
+		AddError(TEXT("Failed to create center-average contact fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Attack->DefenseProfile.NominalLane = EIncomingAttackLane::Center;
+	FDefenseContactRequest Request = MakeContactRequest(Source, Target, Attack, 1);
+	Request.IncomingTrajectory = FVector(-100.0f, 0.0f, 0.0f);
+	Request.bIncomingTrajectoryRateNormalized = true;
+	Request.HitInfo.WeaponVelocity = FVector(-100.0f, 100.0f, 0.0f);
+
+	const FDefenseContactReceipt Receipt = ResolveAndFinalize(Source, Target, Request);
+	TestEqual(TEXT("Directional source velocity refines a center averaged trajectory"),
+		Receipt.Resolution.ActualContact.Lane, EIncomingAttackLane::Right);
+	TestFalse(TEXT("Instantaneous refinement does not claim normalized provenance"),
+		Receipt.Resolution.ActualContact.bIncomingTrajectoryRateNormalized);
 
 	World->DestroyActor(Source);
 	World->DestroyActor(Target);
@@ -728,6 +802,10 @@ bool FDefenseContactBlockMatrixTest::RunTest(const FString& Parameters)
 		Source->HitReactionComponent->GetAttackerResponseAttemptCountForTesting(), 1);
 
 	Attack->AttackTags.AddTag(KatanaCombatGameplayTags::AttackPropertyUnblockable());
+	FScopedDefenseDebug DefenseDebug;
+	TestTrue(TEXT("Defense telemetry is available for unblockable presentation proof"),
+		DefenseDebug.IsValid());
+	Target->CombatComponent->ClearDefenseTelemetry();
 	const FDefenseContactReceipt Unblockable = ResolveAndFinalize(
 		Source, Target, MakeContactRequest(Source, Target, Attack, 2));
 	TestEqual(TEXT("Unblockable semantics override held guard"),
@@ -738,6 +816,20 @@ bool FDefenseContactBlockMatrixTest::RunTest(const FString& Parameters)
 		Source->GetResolvedWeaponImpactAttemptCountForTesting(), 2);
 	TestEqual(TEXT("Unblockable hit emits damage exactly once"), Recorder->DamageReceivedCount, 1);
 	TestEqual(TEXT("Unblockable hit emits health exactly once"), Recorder->HealthChangedCount, 1);
+	int32 ResolutionEvents = 0;
+	int32 PresentationEvents = 0;
+	for (const FDefenseTelemetryRecord& Record : Target->CombatComponent->GetDefenseTelemetry())
+	{
+		if (Record.InteractionId == Unblockable.Resolution.InteractionId)
+		{
+			ResolutionEvents += Record.Event == EDefenseTelemetryEvent::Resolution ? 1 : 0;
+			PresentationEvents += Record.Event == EDefenseTelemetryEvent::PresentationStart ? 1 : 0;
+		}
+	}
+	TestEqual(TEXT("Unblockable hit emits one committed resolution telemetry row"),
+		ResolutionEvents, 1);
+	TestEqual(TEXT("Unblockable hit emits one committed hit-reaction presentation row"),
+		PresentationEvents, 1);
 
 	World->DestroyActor(Source);
 	World->DestroyActor(Target);

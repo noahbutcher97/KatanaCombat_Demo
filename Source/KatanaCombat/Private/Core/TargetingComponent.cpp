@@ -550,7 +550,8 @@ void UTargetingComponent::ReleaseCounterLock()
 bool UTargetingComponent::SetupAttackWarp(AActor* Target, const FRotator& TargetRotation, const FAttackWarpConfig& Config)
 {
     ReleaseActiveAttackWarp();
-    if (!EnsureAlignmentDependencies() || !Config.bEnableWarp)
+    if (!EnsureAlignmentDependencies() || !Config.bEnableWarp
+		|| Config.TargetRelativeOffset.ContainsNaN())
     {
         return false;
     }
@@ -604,15 +605,17 @@ bool UTargetingComponent::SetupAttackWarp(AActor* Target, const FRotator& Target
 
     if (Target)
     {
-        const FVector TargetLocation = Target->GetActorLocation();
+		const FVector TargetLocation = Target->GetActorLocation()
+			+ Target->GetActorRotation().RotateVector(Config.TargetRelativeOffset);
         const float Distance = FVector::Dist(OwnerLocation, TargetLocation);
         const bool bUseTranslation = Distance >= FMath::Max(0.0f, Config.MinWarpDistance);
         Spec.WarpTargetName = bUseTranslation ? Config.TargetWarpName : Config.RotationWarpName;
         Spec.bWarpTranslation = bUseTranslation;
+		Spec.TargetRelativeOffset = Config.TargetRelativeOffset;
         Spec.MaximumTranslation = bUseTranslation && FMath::IsFinite(Config.MaxWarpDistance)
             ? FMath::Max(0.0f, Config.MaxWarpDistance)
             : 0.0f;
-        Spec.DesiredRotation = (TargetLocation - OwnerLocation).Rotation();
+		Spec.DesiredRotation = (Target->GetActorLocation() - OwnerLocation).Rotation();
     }
     else
     {
@@ -1305,8 +1308,8 @@ void UTargetingComponent::ReconcileAlignmentModifierFrame(
 			RuntimeModifier->Animation.Get(),
 			Record.LastAnimationStartPosition,
 			Record.LastAnimationEndPosition);
-		ExpectedAuthoredDisplacement = OwnerCharacter->GetActorQuat().RotateVector(
-			AuthoredRootMotion.GetTranslation());
+		ExpectedAuthoredDisplacement = TransformAuthoredRootMotionTranslation(
+			OwnerCharacter, AuthoredRootMotion.GetTranslation());
 		if (FMath::IsFinite(Record.LastObservedPlayRate)
 			&& Record.LastObservedPlayRate > SmallRate)
 		{
@@ -1349,7 +1352,8 @@ void UTargetingComponent::ReconcileAlignmentModifierFrame(
 			: FVector::ZeroVector;
 		Telemetry.UnexpectedDisplacement = RuntimeModifier->bWarpTranslation
 			? FVector::ZeroVector
-			: FrameDisplacement - ExpectedAuthoredDisplacement;
+			: CalculateUnexpectedRootDisplacement(
+				FrameDisplacement, ExpectedAuthoredDisplacement);
 		if (Record.bHasPelvisBaseline && bHasCurrentPelvis)
 		{
 			Telemetry.PelvisDelta =
@@ -1368,6 +1372,38 @@ void UTargetingComponent::ReconcileAlignmentModifierFrame(
 	Record.bHasAnimationRange = FMath::IsFinite(RuntimeModifier->PreviousPosition)
 		&& FMath::IsFinite(RuntimeModifier->CurrentPosition)
 		&& FMath::IsFinite(RuntimeModifier->PlayRate);
+}
+
+FVector UTargetingComponent::TransformAuthoredRootMotionTranslation(
+	const ACharacter* Character,
+	const FVector& MeshLocalTranslation)
+{
+	if (!Character)
+	{
+		return FVector::ZeroVector;
+	}
+	const USkeletalMeshComponent* Mesh = Character->GetMesh();
+	return (Mesh ? Mesh->GetComponentQuat() : Character->GetActorQuat())
+		.RotateVector(MeshLocalTranslation);
+}
+
+FVector UTargetingComponent::CalculateUnexpectedRootDisplacement(
+	const FVector& FrameDisplacement,
+	const FVector& ExpectedAuthoredDisplacement)
+{
+	const double ExpectedSizeSquared = ExpectedAuthoredDisplacement.SizeSquared();
+	if (ExpectedSizeSquared <= UE_DOUBLE_SMALL_NUMBER)
+	{
+		return FrameDisplacement;
+	}
+
+	// Collision may suppress root motion without introducing an unapproved jump.
+	const double AppliedFraction = FMath::Clamp(
+		FVector::DotProduct(FrameDisplacement, ExpectedAuthoredDisplacement)
+			/ ExpectedSizeSquared,
+		0.0,
+		1.0);
+	return FrameDisplacement - ExpectedAuthoredDisplacement * AppliedFraction;
 }
 
 void UTargetingComponent::ResetAlignmentModifierFrameBaselines(

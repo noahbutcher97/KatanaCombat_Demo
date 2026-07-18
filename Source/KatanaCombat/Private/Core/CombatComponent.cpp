@@ -1391,6 +1391,31 @@ bool UCombatComponent::ConsumeActiveAttack(
 	return ConsumeActiveAttackInternal(AttackId, Reason, {});
 }
 
+bool UCombatComponent::AbortActiveAttack(const FAttackInstanceId& AttackId)
+{
+	FAttackInstanceId CurrentAttack;
+	CurrentAttack.Attacker = GetOwner();
+	CurrentAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
+	if (!AttackId.IsValid()
+		|| !(AttackId == CurrentAttack)
+		|| !CurrentAttackData
+		|| CurrentPhase == EAttackPhase::None)
+	{
+		return false;
+	}
+
+	SetPhase(EAttackPhase::None);
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		if (UWeaponComponent* Weapon = Character->WeaponComponent.Get();
+			Weapon && Weapon->IsHitDetectionEnabled())
+		{
+			Weapon->DisableHitDetection();
+		}
+	}
+	return true;
+}
+
 bool UCombatComponent::ConsumeActiveAttackInternal(
 	const FAttackInstanceId& AttackId,
 	const EAttackConsumeReason Reason,
@@ -1931,6 +1956,14 @@ FDefenseThreatSelectionResult UCombatComponent::SelectDefenseThreat(double Simul
 	Context.MaximumHighConfidencePredictionAge = MaximumPredictionAge;
 
 	Result = FDefenseResolver::SelectThreat(Candidates, Context);
+	const bool bPreviousThreatStillCandidate = PreviousLockedThreatId.IsValid()
+		&& Candidates.ContainsByPredicate(
+			[&](const FAttackExecutionSnapshot& Candidate)
+			{
+				return Candidate.StableId == PreviousLockedThreatId
+					&& Candidate.AttackInstance == LockedDefenseThreat.AttackInstance
+					&& FDefenseResolver::IsSelectableThreat(Candidate);
+			});
 	bGuardThreatCandidatesExist = Result.bFound;
 	if (!Result.bFound)
 	{
@@ -1988,7 +2021,9 @@ FDefenseThreatSelectionResult UCombatComponent::SelectDefenseThreat(double Simul
 		? TEXT("InitialLock")
 		: PreviousLockedThreatId == Result.SelectedThreat.StableId
 			? TEXT("LockRetained")
-			: TEXT("EarlierDeadline");
+			: bPreviousThreatStillCandidate
+				? TEXT("EarlierDeadline")
+				: TEXT("CurrentInvalid");
 	Telemetry.PredictedHeight = Result.SelectedThreat.PredictedContact.Height;
 	Telemetry.PredictedLane = Result.SelectedThreat.PredictedContact.Lane;
 	Telemetry.PredictedSwing = Result.SelectedThreat.SwingShape;
@@ -2589,6 +2624,34 @@ bool UCombatComponent::TryCommitPerfectParry(
 	Receipt.Resolution = CommittedResolution;
 	Receipt.CommitStatus = EDefenseCommitStatus::NewCommit;
 	FinalizeDefenseInteraction(InteractionId, Receipt);
+	auto ArePresentationParticipantsCurrent = [&]()
+	{
+		UCombatComponent* DefenderCombat = WeakDefenderCombat.Get();
+		ABaseCombatCharacter* Defender = WeakDefender.Get();
+		ABaseCombatCharacter* Source = WeakSourceCharacter.Get();
+		UCombatComponent* CurrentSourceCombat = WeakSourceCombat.Get();
+		if (!DefenderCombat
+			|| DefenderCombat != this
+			|| !IsValid(Defender)
+			|| Defender->IsDeadOrDying()
+			|| Defender->CombatComponent.Get() != DefenderCombat
+			|| !IsValid(Source)
+			|| Source->IsDeadOrDying()
+			|| !CurrentSourceCombat
+			|| Source->CombatComponent.Get() != CurrentSourceCombat
+			|| !CurrentSourceCombat->IsAttackConsumed(Query.Attack.AttackInstance)
+			|| DefenderCombat->LastInputDefenseResolution.InteractionId != InteractionId)
+		{
+			return false;
+		}
+
+		const FDefenseInteractionCacheRecord* FinalizedRecord =
+			DefenderCombat->DefenseInteractionCache.Find(InteractionId.Key);
+		return FinalizedRecord
+			&& FinalizedRecord->bFinalized
+			&& FinalizedRecord->Id == InteractionId
+			&& FinalizedRecord->Receipt.Resolution.InteractionId == InteractionId;
+	};
 
 	UPairedAnimationComponent* DefenseSequence = CachedPairedAnimComp;
 	if (!DefenseSequence && GetOwner())
@@ -2599,6 +2662,10 @@ bool UCombatComponent::TryCommitPerfectParry(
 	const bool bDefenseSequenceStarted = DefenseSequence
 		&& DefenseSequence->BeginDefenseSequence(CommittedResolution);
 	DefenseSequence = WeakDefenseSequence.Get();
+	if (!ArePresentationParticipantsCurrent())
+	{
+		return true;
+	}
 	const bool bPairedBridgeStarted = bDefenseSequenceStarted
 		&& DefenseSequence
 		&& DefenseSequence->IsPairedAnimationActive();
@@ -2617,6 +2684,10 @@ bool UCombatComponent::TryCommitPerfectParry(
 			Defender->HitReactionComponent->PlayDefensePresentation(DirectPresentationResolution);
 		}
 	}
+	if (!ArePresentationParticipantsCurrent())
+	{
+		return true;
+	}
 	SurvivingSourceCharacter = WeakSourceCharacter.Get();
 	if (IsValid(SurvivingSourceCharacter) && SurvivingSourceCharacter->HitReactionComponent)
 	{
@@ -2626,6 +2697,10 @@ bool UCombatComponent::TryCommitPerfectParry(
 			bPairedBridgeStarted
 			|| SurvivingSourceCharacter->HitReactionComponent->PlayAttackerResponse(
 				DirectPresentationResolution);
+		if (!ArePresentationParticipantsCurrent())
+		{
+			return true;
+		}
 		if (UHitReactionComponent* SourceHitReaction = WeakSourceHitReaction.Get())
 		{
 			SourceHitReaction->ApplyStagger(
@@ -3521,7 +3596,10 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 
 	// BLEND-IN: Play new montage with blend settings
 	// Note: OnMontageEnded delegate already bound in BeginPlay() for event-driven phase management
-	const float PlayRate = 1.0f;
+	float PlayRate = 1.0f;
+#if WITH_AUTOMATION_TESTS
+	PlayRate = AttackMontagePlayRateForTesting;
+#endif
 	const float StartPosition = 0.0f;
 
 	if (BlendInTime > 0.0f)
@@ -4896,8 +4974,16 @@ void UCombatComponent::SetupAttackWarp(UAttackData* AttackData)
 		{
 			return;
 		}
+		if (AttackData->WarpConfig.TargetRelativeOffset.ContainsNaN())
+		{
+			InvalidateAttackThreatPrediction(EThreatInvalidationReason::PathChanged);
+			return;
+		}
 
-		const FVector Path = Target->GetActorLocation() - Character->GetActorLocation();
+		const FVector PredictedContactPoint = Target->GetActorLocation()
+			+ Target->GetActorRotation().RotateVector(
+				AttackData->WarpConfig.TargetRelativeOffset);
+		const FVector Path = PredictedContactPoint - Character->GetActorLocation();
 		if (Path.IsNearlyZero())
 		{
 			return;
@@ -4907,7 +4993,7 @@ void UCombatComponent::SetupAttackWarp(UAttackData* AttackData)
 		Prediction.IntendedTarget = Target;
 		Prediction.PathOrigin = Character->GetActorLocation();
 		Prediction.PathDirection = Path.GetSafeNormal();
-		Prediction.PredictedContactPoint = Target->GetActorLocation();
+		Prediction.PredictedContactPoint = PredictedContactPoint;
 		Prediction.SourceSocket = AttackData->DefenseProfile.SourceContactSocketOverride.IsNone()
 			? AttackData->AttackHand
 			: AttackData->DefenseProfile.SourceContactSocketOverride;

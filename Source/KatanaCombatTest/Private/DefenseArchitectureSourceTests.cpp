@@ -210,7 +210,7 @@ bool FDefenseWeaponReceiptOrderingSourceTest::RunTest(const FString& Parameters)
 
 	FString WrapperBody;
 	if (!TestTrue(TEXT("Weapon ProcessHit has an extractable body"), ExtractFunctionBody(
-		Source, TEXT("UWeaponComponent::ProcessHit(const FHitResult& Hit)"), WrapperBody)))
+		Source, TEXT("UWeaponComponent::ProcessHit("), WrapperBody)))
 	{
 		return false;
 	}

@@ -11,6 +11,8 @@
 #include "Data/DefenseConfiguration.h"
 #include "Data/PairedAnimationData.h"
 #include "Data/TargetingSettings.h"
+#include "Sound/SoundWave.h"
+#include "Utilities/CinematicEffectsUtilityLibrary.h"
 #include "Utilities/CombatGameplayTags.h"
 #include "TimerManager.h"
 
@@ -311,6 +313,50 @@ bool FDefenseParry_ConsumeCallbackInvalidatesSource::RunTest(const FString& Para
 		CachedReceipt.Resolution.Decision.Outcome, EDefenseOutcome::IgnoredInvalid);
 	TestEqual(TEXT("Cached invalidation preserves the terminal reason"),
 		CachedReceipt.Resolution.Decision.Reason, EDefenseReason::InvalidParticipant);
+
+	Fixture.Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseParry_DefenderPresentationInvalidatesParticipants,
+	"KatanaCombat.Defense.Parry.DefenderPresentationInvalidatesParticipants",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseParry_DefenderPresentationInvalidatesParticipants::RunTest(
+	const FString& Parameters)
+{
+	(void)Parameters;
+	FPerfectParryFixture Fixture;
+	if (!Fixture.Initialize())
+	{
+		AddError(TEXT("Failed to create presentation invalidation fixture"));
+		Fixture.Destroy();
+		return false;
+	}
+
+	Fixture.DefenseConfig->DefaultParryImpactAudio.ImpactSound =
+		NewObject<USoundWave>(Fixture.DefenseConfig);
+	const FDelegateHandle DestroyHandle =
+		UCinematicEffectsUtilityLibrary::OnImpactSoundPlaybackInvokedForTesting.AddLambda(
+			[&Fixture](UWorld*, USoundBase*, const FVector&, AActor*)
+			{
+				if (Fixture.World && IsValid(Fixture.Defender))
+				{
+					Fixture.World->DestroyActor(Fixture.Defender);
+				}
+			});
+
+	Fixture.DefenderCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
+	UCinematicEffectsUtilityLibrary::OnImpactSoundPlaybackInvokedForTesting.Remove(
+		DestroyHandle);
+	TestFalse(TEXT("Defender presentation callback destroys the committed defender"),
+		IsValid(Fixture.Defender));
+	TestEqual(TEXT("Invalid defender prevents stale attacker presentation"),
+		Fixture.Attacker->HitReactionComponent->GetAttackerResponseAttemptCountForTesting(),
+		0);
+	TestFalse(TEXT("Invalid defender prevents stale stagger application"),
+		Fixture.Attacker->HitReactionComponent->IsStaggered());
 
 	Fixture.Destroy();
 	return true;

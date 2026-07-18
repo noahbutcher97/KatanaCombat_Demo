@@ -6,6 +6,7 @@
 #include "Data/AttackData.h"
 #include "Interfaces/CombatInterface.h"
 #include "Core/CombatComponent.h"
+#include "Core/HitReactionComponent.h"
 #include "Core/TargetingComponent.h"
 #include "GameFramework/Character.h"
 #include "Animation/AnimInstance.h"
@@ -139,6 +140,48 @@ void UEnemyCombatAIComponent::CancelQueuedAttackRequest()
 	{
 		SelectedAttack = nullptr;
 	}
+}
+
+void UEnemyCombatAIComponent::AbortAttack()
+{
+	CancelQueuedAttackRequest();
+	if (CurrentState == EEnemyAIState::Dying)
+	{
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(RecoveryTimerHandle);
+	}
+
+	const bool bOwnsLiveAttack = CurrentState == EEnemyAIState::Attacking
+		&& ActiveAttackInstance.IsValid()
+		&& !bAttackTerminationCommitted;
+	if (bOwnsLiveAttack)
+	{
+		TerminateActiveAttack(
+			true,
+			CombatTarget.IsValid() ? EEnemyAIState::Circling : EEnemyAIState::Idle,
+			-1.0f,
+			true);
+	}
+	else
+	{
+		UnbindAttackConsumption();
+		if (const ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner()))
+		{
+			if (UTargetingComponent* Targeting = OwnerCharacter->GetTargetingComponent())
+			{
+				Targeting->ReleaseActiveAttackWarp();
+			}
+		}
+		ReleaseTokenAndCleanup();
+		ReturnToReadyState();
+	}
+
+	ActiveAttackInstance = {};
+	bAttackTerminationCommitted = true;
 }
 
 bool UEnemyCombatAIComponent::ExecuteAttack()
@@ -417,6 +460,13 @@ bool UEnemyCombatAIComponent::CanAttemptAttack() const
 	{
 		return false;
 	}
+	if (const ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner());
+		OwnerCharacter
+		&& OwnerCharacter->HitReactionComponent
+		&& OwnerCharacter->HitReactionComponent->IsStaggered())
+	{
+		return false;
+	}
 
 	// Can only initiate attack from Circling or Idle states
 	if (CurrentState != EEnemyAIState::Circling && CurrentState != EEnemyAIState::Idle)
@@ -588,10 +638,11 @@ void UEnemyCombatAIComponent::HandleAttackConsumedInternal(
 	}
 
 	LastConsumedAttackInstance = Event.AttackInstance;
+	const bool bPerfectParry = Event.Reason == EAttackConsumeReason::PerfectParry;
 	TerminateActiveAttack(
 		true,
-		EEnemyAIState::Recovering,
-		PostAttackRecoveryTime,
+		bPerfectParry ? EEnemyAIState::Staggered : EEnemyAIState::Recovering,
+		bPerfectParry ? StaggerRecoveryTime : PostAttackRecoveryTime,
 		true);
 }
 
@@ -610,6 +661,10 @@ bool UEnemyCombatAIComponent::TerminateActiveAttack(
 	UnbindAttackConsumption();
 	if (const ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner()))
 	{
+		if (UCombatComponent* Combat = OwnerCharacter->CombatComponent.Get())
+		{
+			Combat->AbortActiveAttack(ActiveAttackInstance);
+		}
 		if (UTargetingComponent* Targeting = OwnerCharacter->GetTargetingComponent())
 		{
 			Targeting->ReleaseActiveAttackWarp();

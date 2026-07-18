@@ -15,6 +15,8 @@ class ACharacter;
 class USkeletalMeshComponent;
 class UStaticMeshComponent;
 class ABaseCombatCharacter;
+class UAnimMontage;
+enum class EVisibilityBasedAnimTickOption : uint8;
 
 /**
  * Handles weapon-based hit detection via socket tracing
@@ -266,13 +268,54 @@ public:
 		int32);
 
 	FOnRichContactAccountedForTesting OnRichContactAccountedForTesting;
+	DECLARE_MULTICAST_DELEGATE_ThreeParams(
+		FOnTraceFrameForTesting,
+		const TArray<FVector>&,
+		const TArray<FVector>&,
+		float);
+	FOnTraceFrameForTesting OnTraceFrameForTesting;
 	int32 GetAcceptedHitCountForTesting() const { return AcceptedHitCount; }
 	const FContactInstanceId& GetActiveContactIdForTesting() const { return ActiveContactId; }
+	void SetWeaponTipVelocityForTesting(const FVector& Velocity)
+	{
+		CachedWeaponTipVelocity = Velocity;
+		CachedDefenseSourceSocketVelocity = Velocity;
+	}
+	void ResetDefenseTrajectoryHistoryForTesting()
+	{
+		ResetDefenseTrajectoryHistory();
+	}
+	void RecordDefenseTrajectorySampleForTesting(
+		UAnimMontage* Montage,
+		float MontagePosition,
+		const FVector& TipWorldLocation)
+	{
+		RecordDefenseTrajectorySample(Montage, MontagePosition, TipWorldLocation);
+	}
+	bool TryGetRateNormalizedDefenseTrajectoryForTesting(FVector& OutTrajectory) const
+	{
+		OutTrajectory = CachedRateNormalizedDefenseTrajectory;
+		return bHasRateNormalizedDefenseTrajectory;
+	}
+	bool TryGetDefenseTrajectoryForWindowForTesting(
+		float WindowAnimationSeconds,
+		FVector& OutTrajectory) const
+	{
+		return TryResolveDefenseTrajectory(
+			WindowAnimationSeconds, OutTrajectory);
+	}
 	FDefenseContactRequest BuildDefenseContactRequestForTesting(
 		const FHitResult& Hit,
 		UAttackData* AttackData) const
 	{
 		return BuildDefenseContactRequest(Hit, AttackData);
+	}
+	FDefenseContactRequest BuildDefenseContactRequestForTesting(
+		const FHitResult& Hit,
+		UAttackData* AttackData,
+		const FVector& AcceptedSweepVelocity) const
+	{
+		return BuildDefenseContactRequest(Hit, AttackData, AcceptedSweepVelocity);
 	}
 	void ProcessHitForTesting(const FHitResult& Hit, UAttackData* AttackData)
 	{
@@ -318,6 +361,8 @@ public:
     FOnWeaponHit OnWeaponHit;
 
 protected:
+    virtual void OnRegister() override;
+    virtual void OnUnregister() override;
     virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
@@ -364,6 +409,26 @@ private:
     /** Cached weapon tip velocity (units/sec), computed per-frame from position delta */
     FVector CachedWeaponTipVelocity = FVector::ZeroVector;
 
+	struct FDefenseTrajectorySample
+	{
+		TWeakObjectPtr<UAnimMontage> Montage;
+		float MontagePosition = 0.0f;
+		FVector TipWorldLocation = FVector::ZeroVector;
+	};
+
+	/** Short source-socket history used only to classify the incoming defense lane. */
+	TArray<FDefenseTrajectorySample> DefenseTrajectoryHistory;
+	FVector CachedRateNormalizedDefenseTrajectory = FVector::ZeroVector;
+	bool bHasRateNormalizedDefenseTrajectory = false;
+	FName DefenseTrajectorySourceSocket = NAME_None;
+	FVector PreviousDefenseSourceSocketLocation = FVector::ZeroVector;
+	FVector CachedDefenseSourceSocketVelocity = FVector::ZeroVector;
+	bool bHasPreviousDefenseSourceSocketLocation = false;
+
+	static constexpr float DefenseTrajectoryMontageInterval = 1.0f / 30.0f;
+	static constexpr float MaxDefenseTrajectoryMontageStep = 0.25f;
+	static constexpr int32 MaxDefenseTrajectoryHistorySamples = 64;
+
     /** Cached DeltaTime from last TickComponent for velocity computation */
     float LastDeltaTime = 0.0f;
 
@@ -391,6 +456,10 @@ private:
     UPROPERTY()
     TObjectPtr<USkeletalMeshComponent> OwnerMesh;
 
+	/** Exact mesh policy replaced while traces require offscreen bone refresh. */
+	EVisibilityBasedAnimTickOption PreviousOwnerMeshTickOption;
+	bool bOwnerMeshTickOptionOverridden = false;
+
     // ============================================================================
     // INTERNAL HELPERS
     // ============================================================================
@@ -401,19 +470,43 @@ private:
      * Called every tick when hit detection is enabled.
      */
     void PerformWeaponTrace();
+	void ResetDefenseTrajectoryHistory();
+	void ResetDefenseSourceSampling();
+	void UpdateDefenseSourceSampling(
+		FName SourceSocket,
+		const FVector& SourceWorldLocation,
+		float DeltaTime);
+	void UpdateDefenseTrajectoryHistory(const FVector& TipWorldLocation);
+	void RecordDefenseTrajectorySample(
+		UAnimMontage* Montage,
+		float MontagePosition,
+		const FVector& TipWorldLocation);
+	bool TryResolveDefenseTrajectory(
+		float WindowAnimationSeconds,
+		FVector& OutTrajectory) const;
+	FName ResolveDefenseSourceSocket(const UAttackData* AttackData) const;
 
     /**
      * Process a hit result
      * Checks if actor is damageable/hostile, adds to list, broadcasts event
      * @param Hit - Hit result from trace
      */
-    void ProcessHit(const FHitResult& Hit);
-	void ProcessHitWithAttackData(const FHitResult& Hit, UAttackData* AttackData);
+	void ProcessHit(const FHitResult& Hit, const FVector& AcceptedSweepVelocity);
+	void ProcessHitWithAttackData(
+		const FHitResult& Hit,
+		UAttackData* AttackData,
+		const FVector& AcceptedSweepVelocity = FVector::ZeroVector);
 	FDefenseContactRequest BuildDefenseContactRequest(
 		const FHitResult& Hit,
-		UAttackData* AttackData) const;
+		UAttackData* AttackData,
+		const FVector& AcceptedSweepVelocity = FVector::ZeroVector) const;
 	void NotifyRichContactSourceTerminal();
 	void EnsureActiveContactInstance();
+	void AcquireOwnerMeshBoneRefresh();
+	void RestoreOwnerMeshBoneRefresh();
+
+	UFUNCTION()
+	void HandleOwnerAttackPhaseChanged(EAttackPhase OldPhase, EAttackPhase NewPhase);
 
     /**
      * Returns true when the trace should ignore this actor before it is counted

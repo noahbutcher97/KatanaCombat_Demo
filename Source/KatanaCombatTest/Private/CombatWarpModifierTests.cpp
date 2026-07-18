@@ -11,6 +11,8 @@
 #include "MotionWarpingComponent.h"
 #include "RootMotionModifier.h"
 
+#include <limits>
+
 namespace
 {
 FAlignmentRequestSpec MakeOwnedWarpSpec(
@@ -420,6 +422,8 @@ bool FCombatWarp_SetupAttackWarpOwnedLifecycle::RunTest(const FString& Parameter
 	Config.MinWarpDistance = 50.0f;
 	Config.MaxWarpDistance = 400.0f;
 	Config.RotationSpeed = 720.0f;
+	Config.TargetRelativeOffset = FVector(25.0f, -40.0f, 0.0f);
+	Enemy->SetActorRotation(FRotator(0.0f, 90.0f, 0.0f));
 
 	Combat->SetPhase(EAttackPhase::Windup);
 	TestTrue(TEXT("Targeted attack warp acquires arbiter ownership"),
@@ -435,8 +439,25 @@ bool FCombatWarp_SetupAttackWarpOwnedLifecycle::RunTest(const FString& Parameter
 		ActiveSpec.RemainingTurnBudget, 70.0f, 0.1f);
 	TestEqual(TEXT("Attack warp uses its explicit arbiter priority"),
 		ActiveSpec.Priority, EDefenseAlignmentPriority::ActiveAttackWarp);
-	TestNotNull(TEXT("Owned targeted request publishes its target"),
-		Player->MotionWarpingComponent->FindWarpTarget(Config.TargetWarpName));
+	TestTrue(TEXT("Attack warp preserves the authored target-relative contact offset"),
+		ActiveSpec.TargetRelativeOffset.Equals(Config.TargetRelativeOffset, 0.01f));
+	const FMotionWarpingTarget* PublishedTarget =
+		Player->MotionWarpingComponent->FindWarpTarget(Config.TargetWarpName);
+	TestNotNull(TEXT("Owned targeted request publishes its target"), PublishedTarget);
+	if (PublishedTarget)
+	{
+		const FVector ExpectedContactPoint = Enemy->GetActorLocation()
+			+ Enemy->GetActorRotation().RotateVector(Config.TargetRelativeOffset);
+		TestTrue(TEXT("Published warp target rotates the local offset into world X"),
+			FMath::IsNearlyEqual(PublishedTarget->Location.X, ExpectedContactPoint.X, 0.01));
+		TestTrue(TEXT("Published warp target rotates the local offset into world Y"),
+			FMath::IsNearlyEqual(PublishedTarget->Location.Y, ExpectedContactPoint.Y, 0.01));
+		const double ExpectedFacingYaw =
+			(Enemy->GetActorLocation() - Player->GetActorLocation()).Rotation().Yaw;
+		TestTrue(TEXT("Contact offset does not skew attacker facing away from the target actor"),
+			FMath::Abs(FMath::FindDeltaAngleDegrees(
+				PublishedTarget->Rotation.Yaw, ExpectedFacingYaw)) <= 0.01);
+	}
 
 	Config.RotationSpeed = 90.0f;
 	TestTrue(TEXT("A replacement rotation-only warp releases the previous owner"),
@@ -457,6 +478,14 @@ bool FCombatWarp_SetupAttackWarpOwnedLifecycle::RunTest(const FString& Parameter
 		Targeting->GetAlignmentRequestCountForTesting(), 0);
 	TestNull(TEXT("Canonical attack termination removes the owned target"),
 		Player->MotionWarpingComponent->FindWarpTarget(Config.RotationWarpName));
+
+	Config.TargetRelativeOffset.X = std::numeric_limits<float>::quiet_NaN();
+	TestFalse(TEXT("A non-finite contact offset cannot acquire attack-warp ownership"),
+		Targeting->SetupAttackWarp(Enemy, FRotator::ZeroRotator, Config));
+	TestEqual(TEXT("Rejected contact offset leaves no alignment request"),
+		Targeting->GetAlignmentRequestCountForTesting(), 0);
+	TestNull(TEXT("Rejected contact offset publishes no warp target"),
+		Player->MotionWarpingComponent->FindWarpTarget(Config.TargetWarpName));
 
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;

@@ -11,6 +11,7 @@
 #include "Data/DefenseConfiguration.h"
 #include "Data/TargetingSettings.h"
 #include "Defense/DefenseResolver.h"
+#include "HAL/IConsoleManager.h"
 #include "Utilities/CombatGameplayTags.h"
 
 namespace
@@ -662,6 +663,13 @@ bool FDefenseThreat_ComponentSelectionOwnership::RunTest(const FString& Paramete
 	DefenseConfig->GuardedThreatRefreshSeconds = 0.05f;
 	DefenseConfig->MaximumHighConfidencePredictionAge = 0.10f;
 	DefenderCombat->DefenseConfigurationOverride = DefenseConfig;
+	IConsoleVariable* DefenseDebug = IConsoleManager::Get().FindConsoleVariable(
+		TEXT("Combat.Defense.Debug"));
+	const int32 PreviousDefenseDebug = DefenseDebug ? DefenseDebug->GetInt() : 0;
+	if (DefenseDebug)
+	{
+		DefenseDebug->SetWithCurrentPriority(1);
+	}
 
 	FCombatantStableId IdA;
 	IdA.Value = 20;
@@ -694,10 +702,20 @@ bool FDefenseThreat_ComponentSelectionOwnership::RunTest(const FString& Paramete
 	};
 
 	PublishThreat(CombatA, EnemyA, StartTime + 0.30, StartTime, EDefensePredictionConfidence::High);
-	PublishThreat(CombatB, EnemyB, StartTime + 0.50, StartTime, EDefensePredictionConfidence::High);
+	PublishThreat(CombatB, EnemyB, StartTime + 0.30, StartTime, EDefensePredictionConfidence::High);
 	Targeting->ResetAllTargetsInRangeCallCountForTesting();
 	FDefenseThreatSelectionResult Result = DefenderCombat->SelectDefenseThreat(StartTime);
 	TestTrue(TEXT("Initial selection finds an active hostile threat"), Result.bFound);
+	TestEqual(TEXT("Exact deadline and geometry ties use the smaller stable ID"),
+		Result.SelectedThreat.StableId.Value, IdB.Value);
+	TestEqual(TEXT("Stable-ID tie selection enumerates candidates once"),
+		Targeting->GetAllTargetsInRangeCallCountForTesting(), 1);
+
+	DefenderCombat->ClearGuardThreat(EThreatClearReason::NoCandidates);
+	PublishThreat(CombatA, EnemyA, StartTime + 0.30, StartTime, EDefensePredictionConfidence::High);
+	PublishThreat(CombatB, EnemyB, StartTime + 0.50, StartTime, EDefensePredictionConfidence::High);
+	Targeting->ResetAllTargetsInRangeCallCountForTesting();
+	Result = DefenderCombat->SelectDefenseThreat(StartTime);
 	TestEqual(TEXT("Earlier contact wins initial selection"), Result.SelectedThreat.StableId.Value, IdA.Value);
 	TestEqual(TEXT("One selection opportunity enumerates candidates once"),
 		Targeting->GetAllTargetsInRangeCallCountForTesting(), 1);
@@ -709,16 +727,35 @@ bool FDefenseThreat_ComponentSelectionOwnership::RunTest(const FString& Paramete
 		Result.SelectedThreat.StableId.Value, IdA.Value);
 	PublishThreat(CombatA, EnemyA, StartTime + 0.50, StartTime + 0.15,
 		EDefensePredictionConfidence::High);
-	PublishThreat(CombatB, EnemyB, StartTime + 0.20, StartTime + 0.15,
+	PublishThreat(CombatB, EnemyB, StartTime + 0.45, StartTime + 0.15,
 		EDefensePredictionConfidence::High);
 	Result = DefenderCombat->SelectDefenseThreat(StartTime + 0.16);
+	TestEqual(TEXT("Insufficient deadline lead retains the current threat after minimum age"),
+		Result.SelectedThreat.StableId.Value, IdA.Value);
+	PublishThreat(CombatA, EnemyA, StartTime + 0.50, StartTime + 0.16,
+		EDefensePredictionConfidence::High);
+	PublishThreat(CombatB, EnemyB, StartTime + 0.20, StartTime + 0.16,
+		EDefensePredictionConfidence::High);
+	Result = DefenderCombat->SelectDefenseThreat(StartTime + 0.17);
 	TestEqual(TEXT("Earlier threat replaces lock after minimum age"),
 		Result.SelectedThreat.StableId.Value, IdB.Value);
 
 	CombatB->CurrentPhase = EAttackPhase::None;
-	Result = DefenderCombat->SelectDefenseThreat(StartTime + 0.17);
+	Result = DefenderCombat->SelectDefenseThreat(StartTime + 0.18);
 	TestEqual(TEXT("Invalid current threat switches immediately inside lock minimum"),
 		Result.SelectedThreat.StableId.Value, IdA.Value);
+	const TArray<FDefenseTelemetryRecord>& ThreatTelemetry =
+		DefenderCombat->GetDefenseTelemetry();
+	const int32 InvalidSwitchTelemetryIndex =
+		ThreatTelemetry.FindLastByPredicate([](const FDefenseTelemetryRecord& Record)
+		{
+			return Record.Event == EDefenseTelemetryEvent::ThreatSelection;
+		});
+	TestEqual(TEXT("Invalid current threat has an explicit switch reason"),
+		ThreatTelemetry.IsValidIndex(InvalidSwitchTelemetryIndex)
+			? ThreatTelemetry[InvalidSwitchTelemetryIndex].ThreatSwitchReason
+			: NAME_None,
+		FName(TEXT("CurrentInvalid")));
 
 	DefenderCombat->ClearGuardThreat(EThreatClearReason::NoCandidates);
 	PublishThreat(CombatA, EnemyA, StartTime + 0.60, StartTime + 0.16,
@@ -797,6 +834,10 @@ bool FDefenseThreat_ComponentSelectionOwnership::RunTest(const FString& Paramete
 		DefenderCombat->LockedDefenseThreatId.Value, IdA.Value);
 	DefenderCombat->EndBlock();
 
+	if (DefenseDebug)
+	{
+		DefenseDebug->SetWithCurrentPriority(PreviousDefenseDebug);
+	}
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

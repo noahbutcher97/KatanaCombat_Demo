@@ -312,7 +312,6 @@ bool FAttackWindowIdentity_StaleRecoveryCannotTransitionNewAttack::RunTest(const
 		FCombatTestHelpers::DestroyTestWorld(World);
 		return false;
 	}
-
 	Combat->SeedAttackWindowStateForTesting(Attack, EAttackPhase::Windup, 31);
 	TestTrue(
 		TEXT("First attack opens its contextual Active transition"),

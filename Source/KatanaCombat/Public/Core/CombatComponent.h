@@ -164,6 +164,9 @@ public:
 		const FAttackInstanceId& AttackId,
 		EAttackConsumeReason Reason);
 
+	/** Immediately retire only the exact current attack generation. */
+	bool AbortActiveAttack(const FAttackInstanceId& AttackId);
+
 	bool IsAttackConsumed(const FAttackInstanceId& AttackId) const
 	{
 		return AttackId.IsValid() && ConsumedAttackInstance == AttackId;
@@ -207,6 +210,14 @@ public:
 
 #if WITH_AUTOMATION_TESTS
 	void SetCombatantStableIdForTesting(FCombatantStableId StableId) { CombatantStableId = StableId; }
+	void SetAttackMontagePlayRateForTesting(float PlayRate)
+	{
+		AttackMontagePlayRateForTesting = FMath::Max(UE_SMALL_NUMBER, PlayRate);
+	}
+	float GetAttackMontagePlayRateForTesting() const
+	{
+		return AttackMontagePlayRateForTesting;
+	}
 	void SetDefenseManualYawInputForTesting(float NormalizedYawInput, double UnscaledNow);
 	void SeedAttackWindowStateForTesting(UAttackData* Attack, EAttackPhase Phase, int32 Generation)
 	{
@@ -749,6 +760,7 @@ public:
 
 #if WITH_AUTOMATION_TESTS
 	int32 ClearQueueCallCountForTesting = 0;
+	float AttackMontagePlayRateForTesting = 1.0f;
 #endif
 
 	/** Timer checkpoints for current montage */

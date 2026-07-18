@@ -22,9 +22,50 @@
 DEFINE_LOG_CATEGORY_STATIC(LogWeaponComponent, Log, All);
 
 UWeaponComponent::UWeaponComponent()
+	: PreviousOwnerMeshTickOption(
+		EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones)
 {
     PrimaryComponentTick.bCanEverTick = true;
-    PrimaryComponentTick.bStartWithTickEnabled = false; // Only tick when hit detection enabled
+    PrimaryComponentTick.bStartWithTickEnabled = false; // Enabled for windup sampling and active tracing.
+}
+
+void UWeaponComponent::OnRegister()
+{
+	Super::OnRegister();
+
+	OwnerCharacter = Cast<ACharacter>(GetOwner());
+	OwnerMesh = OwnerCharacter ? OwnerCharacter->GetMesh() : nullptr;
+	if (OwnerMesh)
+	{
+		AddTickPrerequisiteComponent(OwnerMesh);
+	}
+	if (UCombatComponent* Combat = GetOwner()
+		? GetOwner()->FindComponentByClass<UCombatComponent>()
+		: nullptr)
+	{
+		Combat->OnPhaseChanged.AddUniqueDynamic(
+			this, &UWeaponComponent::HandleOwnerAttackPhaseChanged);
+	}
+}
+
+void UWeaponComponent::OnUnregister()
+{
+	if (UCombatComponent* Combat = GetOwner()
+		? GetOwner()->FindComponentByClass<UCombatComponent>()
+		: nullptr)
+	{
+		Combat->OnPhaseChanged.RemoveDynamic(
+			this, &UWeaponComponent::HandleOwnerAttackPhaseChanged);
+	}
+	RestoreOwnerMeshBoneRefresh();
+	if (OwnerMesh)
+	{
+		RemoveTickPrerequisiteComponent(OwnerMesh);
+	}
+	OwnerMesh = nullptr;
+	OwnerCharacter = nullptr;
+
+	Super::OnUnregister();
 }
 
 void UWeaponComponent::BeginPlay()
@@ -77,6 +118,7 @@ void UWeaponComponent::BeginPlay()
 void UWeaponComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	NotifyRichContactSourceTerminal();
+	RestoreOwnerMeshBoneRefresh();
 	Super::EndPlay(EndPlayReason);
 }
 
@@ -84,12 +126,188 @@ void UWeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-    LastDeltaTime = DeltaTime;
+	LastDeltaTime = DeltaTime;
+	const FName DefenseSourceSocket = ResolveDefenseSourceSocket(GetCurrentAttackData());
+	FVector DefenseSourceWorldLocation = FVector::ZeroVector;
+	if (TryGetSocketLocation(DefenseSourceSocket, DefenseSourceWorldLocation))
+	{
+		UpdateDefenseSourceSampling(
+			DefenseSourceSocket,
+			DefenseSourceWorldLocation,
+			DeltaTime);
+	}
+	else
+	{
+		ResetDefenseSourceSampling();
+	}
 
     if (bHitDetectionEnabled)
     {
         PerformWeaponTrace();
     }
+}
+
+void UWeaponComponent::ResetDefenseTrajectoryHistory()
+{
+	DefenseTrajectoryHistory.Reset();
+	CachedRateNormalizedDefenseTrajectory = FVector::ZeroVector;
+	bHasRateNormalizedDefenseTrajectory = false;
+}
+
+void UWeaponComponent::ResetDefenseSourceSampling()
+{
+	ResetDefenseTrajectoryHistory();
+	DefenseTrajectorySourceSocket = NAME_None;
+	PreviousDefenseSourceSocketLocation = FVector::ZeroVector;
+	CachedDefenseSourceSocketVelocity = FVector::ZeroVector;
+	bHasPreviousDefenseSourceSocketLocation = false;
+}
+
+void UWeaponComponent::UpdateDefenseSourceSampling(
+	const FName SourceSocket,
+	const FVector& SourceWorldLocation,
+	const float DeltaTime)
+{
+	if (SourceSocket.IsNone() || SourceWorldLocation.ContainsNaN())
+	{
+		ResetDefenseSourceSampling();
+		return;
+	}
+
+	if (DefenseTrajectorySourceSocket != SourceSocket)
+	{
+		ResetDefenseSourceSampling();
+		DefenseTrajectorySourceSocket = SourceSocket;
+	}
+
+	CachedDefenseSourceSocketVelocity = bHasPreviousDefenseSourceSocketLocation
+		&& FMath::IsFinite(DeltaTime)
+		&& DeltaTime > UE_SMALL_NUMBER
+		? (SourceWorldLocation - PreviousDefenseSourceSocketLocation) / DeltaTime
+		: FVector::ZeroVector;
+	PreviousDefenseSourceSocketLocation = SourceWorldLocation;
+	bHasPreviousDefenseSourceSocketLocation = true;
+	UpdateDefenseTrajectoryHistory(SourceWorldLocation);
+}
+
+void UWeaponComponent::UpdateDefenseTrajectoryHistory(const FVector& TipWorldLocation)
+{
+	UAnimInstance* AnimInstance = OwnerMesh ? OwnerMesh->GetAnimInstance() : nullptr;
+	UAnimMontage* Montage = AnimInstance ? AnimInstance->GetCurrentActiveMontage() : nullptr;
+	if (!Montage)
+	{
+		ResetDefenseTrajectoryHistory();
+		return;
+	}
+
+	RecordDefenseTrajectorySample(
+		Montage,
+		AnimInstance->Montage_GetPosition(Montage),
+		TipWorldLocation);
+}
+
+void UWeaponComponent::RecordDefenseTrajectorySample(
+	UAnimMontage* Montage,
+	const float MontagePosition,
+	const FVector& TipWorldLocation)
+{
+	CachedRateNormalizedDefenseTrajectory = FVector::ZeroVector;
+	bHasRateNormalizedDefenseTrajectory = false;
+	if (!Montage || !FMath::IsFinite(MontagePosition) || TipWorldLocation.ContainsNaN())
+	{
+		ResetDefenseTrajectoryHistory();
+		return;
+	}
+
+	if (!DefenseTrajectoryHistory.IsEmpty())
+	{
+		const FDefenseTrajectorySample& Last = DefenseTrajectoryHistory.Last();
+		const float PositionDelta = MontagePosition - Last.MontagePosition;
+		if (Last.Montage.Get() != Montage
+			|| PositionDelta < -KINDA_SMALL_NUMBER
+			|| PositionDelta > MaxDefenseTrajectoryMontageStep)
+		{
+			ResetDefenseTrajectoryHistory();
+		}
+	}
+
+	if (!DefenseTrajectoryHistory.IsEmpty()
+		&& FMath::IsNearlyEqual(
+			DefenseTrajectoryHistory.Last().MontagePosition,
+			MontagePosition,
+			KINDA_SMALL_NUMBER))
+	{
+		DefenseTrajectoryHistory.Last().TipWorldLocation = TipWorldLocation;
+	}
+	else
+	{
+		FDefenseTrajectorySample& Sample = DefenseTrajectoryHistory.AddDefaulted_GetRef();
+		Sample.Montage = Montage;
+		Sample.MontagePosition = MontagePosition;
+		Sample.TipWorldLocation = TipWorldLocation;
+	}
+
+	if (DefenseTrajectoryHistory.Num() > MaxDefenseTrajectoryHistorySamples)
+	{
+		DefenseTrajectoryHistory.RemoveAt(
+			0,
+			DefenseTrajectoryHistory.Num() - MaxDefenseTrajectoryHistorySamples,
+			EAllowShrinking::No);
+	}
+
+	bHasRateNormalizedDefenseTrajectory = TryResolveDefenseTrajectory(
+		DefenseTrajectoryMontageInterval,
+		CachedRateNormalizedDefenseTrajectory);
+}
+
+bool UWeaponComponent::TryResolveDefenseTrajectory(
+	const float WindowAnimationSeconds,
+	FVector& OutTrajectory) const
+{
+	OutTrajectory = FVector::ZeroVector;
+	if (!FMath::IsFinite(WindowAnimationSeconds)
+		|| WindowAnimationSeconds <= 0.0f
+		|| DefenseTrajectoryHistory.Num() < 2)
+	{
+		return false;
+	}
+
+	const FDefenseTrajectorySample& Latest = DefenseTrajectoryHistory.Last();
+	const float TargetPosition = Latest.MontagePosition - WindowAnimationSeconds;
+	if (!Latest.Montage.IsValid()
+		|| TargetPosition < DefenseTrajectoryHistory[0].MontagePosition
+			- KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	for (int32 Index = 1; Index < DefenseTrajectoryHistory.Num(); ++Index)
+	{
+		const FDefenseTrajectorySample& Before = DefenseTrajectoryHistory[Index - 1];
+		const FDefenseTrajectorySample& After = DefenseTrajectoryHistory[Index];
+		if (Before.Montage != Latest.Montage || After.Montage != Latest.Montage
+			|| TargetPosition > After.MontagePosition + KINDA_SMALL_NUMBER)
+		{
+			continue;
+		}
+
+		const float SampleSpan = After.MontagePosition - Before.MontagePosition;
+		if (SampleSpan <= KINDA_SMALL_NUMBER)
+		{
+			continue;
+		}
+
+		const float Alpha = FMath::Clamp(
+			(TargetPosition - Before.MontagePosition) / SampleSpan,
+			0.0f,
+			1.0f);
+		OutTrajectory = Latest.TipWorldLocation - FMath::Lerp(
+			Before.TipWorldLocation,
+			After.TipWorldLocation,
+			Alpha);
+		return !OutTrajectory.ContainsNaN() && !OutTrajectory.IsNearlyZero();
+	}
+	return false;
 }
 
 // ============================================================================
@@ -98,13 +316,24 @@ void UWeaponComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 
 void UWeaponComponent::EnableHitDetection()
 {
-	NotifyRichContactSourceTerminal();
 	const UCombatComponent* Combat = GetOwner()
 		? GetOwner()->FindComponentByClass<UCombatComponent>()
 		: nullptr;
 	const FAttackWindowInstanceId HitWindow = Combat
 		? Combat->GetActiveAttackWindow(EAttackWindowKind::Hit)
 		: FAttackWindowInstanceId();
+	const bool bSameCanonicalContact = HitWindow.IsValid()
+		&& ActiveContactId.bUsesAttackWindow
+		&& ActiveContactId.AttackWindow == HitWindow;
+	const bool bSameCompatibilityContact = !HitWindow.IsValid()
+		&& !ActiveContactId.bUsesAttackWindow
+		&& ActiveContactId.CompatibilityTrace.IsValid();
+	if (bHitDetectionEnabled && (bSameCanonicalContact || bSameCompatibilityContact))
+	{
+		return;
+	}
+
+	NotifyRichContactSourceTerminal();
 	if (HitWindow.IsValid())
 	{
 		ActiveContactId = FContactInstanceId::FromAttackWindow(HitWindow);
@@ -118,6 +347,7 @@ void UWeaponComponent::EnableHitDetection()
 		ActiveContactId = FContactInstanceId::FromCompatibilityTrace(TraceId);
 	}
 	AcceptedHitCount = 0;
+	AcquireOwnerMeshBoneRefresh();
 
     // Always clear hit actors for the new attack, even if already enabled.
     // During combo blends, the new montage's Active phase notify fires BEFORE
@@ -126,8 +356,8 @@ void UWeaponComponent::EnableHitDetection()
 
     // Initialize blade trace points at current socket positions.
     // This anchors the first tick's sweep to real weapon movement only.
-    PreviousTracePoints = ComputeCurrentTracePoints();
-    CachedWeaponTipVelocity = FVector::ZeroVector;
+	PreviousTracePoints = ComputeCurrentTracePoints();
+	CachedWeaponTipVelocity = FVector::ZeroVector;
 
     if (bHitDetectionEnabled)
     {
@@ -180,8 +410,9 @@ void UWeaponComponent::DisableHitDetection()
 
 	NotifyRichContactSourceTerminal();
 
-    bHitDetectionEnabled = false;
-    SetComponentTickEnabled(false);
+	bHitDetectionEnabled = false;
+	SetComponentTickEnabled(false);
+	RestoreOwnerMeshBoneRefresh();
 
     // Clear hit actors when attack's hit window ends.
     // Previously HitActors persisted after DisableHitDetection, causing:
@@ -191,6 +422,68 @@ void UWeaponComponent::DisableHitDetection()
 
     // Clear cached velocity so external consumers don't read stale data between attacks
 	CachedWeaponTipVelocity = FVector::ZeroVector;
+	ResetDefenseSourceSampling();
+}
+
+void UWeaponComponent::AcquireOwnerMeshBoneRefresh()
+{
+	if (!OwnerMesh || bOwnerMeshTickOptionOverridden)
+	{
+		return;
+	}
+
+	const EVisibilityBasedAnimTickOption RequiredPolicy =
+		EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+	if (OwnerMesh->VisibilityBasedAnimTickOption == RequiredPolicy)
+	{
+		return;
+	}
+
+	PreviousOwnerMeshTickOption = OwnerMesh->VisibilityBasedAnimTickOption;
+	OwnerMesh->VisibilityBasedAnimTickOption = RequiredPolicy;
+	bOwnerMeshTickOptionOverridden = true;
+}
+
+void UWeaponComponent::RestoreOwnerMeshBoneRefresh()
+{
+	if (!OwnerMesh || !bOwnerMeshTickOptionOverridden)
+	{
+		return;
+	}
+
+	if (OwnerMesh->VisibilityBasedAnimTickOption
+		== EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones)
+	{
+		OwnerMesh->VisibilityBasedAnimTickOption = PreviousOwnerMeshTickOption;
+	}
+	bOwnerMeshTickOptionOverridden = false;
+}
+
+void UWeaponComponent::HandleOwnerAttackPhaseChanged(
+	const EAttackPhase OldPhase,
+	const EAttackPhase NewPhase)
+{
+	(void)OldPhase;
+	if (NewPhase == EAttackPhase::Windup)
+	{
+		ResetDefenseSourceSampling();
+		SetComponentTickEnabled(true);
+		AcquireOwnerMeshBoneRefresh();
+	}
+	else if (NewPhase == EAttackPhase::Active)
+	{
+		SetComponentTickEnabled(true);
+		AcquireOwnerMeshBoneRefresh();
+	}
+	else if (NewPhase == EAttackPhase::Recovery || NewPhase == EAttackPhase::None)
+	{
+		if (!bHitDetectionEnabled)
+		{
+			SetComponentTickEnabled(false);
+			ResetDefenseSourceSampling();
+		}
+		RestoreOwnerMeshBoneRefresh();
+	}
 }
 
 bool UWeaponComponent::DisableHitDetectionForAttack(const FAttackWindowInstanceId& HitWindow)
@@ -275,6 +568,13 @@ bool UWeaponComponent::TryGetSocketLocation(FName SocketName, FVector& OutLocati
 	return false;
 }
 
+FName UWeaponComponent::ResolveDefenseSourceSocket(const UAttackData* AttackData) const
+{
+	return AttackData && !AttackData->DefenseProfile.SourceContactSocketOverride.IsNone()
+		? AttackData->DefenseProfile.SourceContactSocketOverride
+		: GetEffectiveEndSocket();
+}
+
 // ============================================================================
 // HIT QUERIES
 // ============================================================================
@@ -306,12 +606,13 @@ void UWeaponComponent::PerformWeaponTrace()
     // ========================================================================
     const TArray<FVector> CurrentTracePoints = ComputeCurrentTracePoints();
 
-    if (CurrentTracePoints.Num() == 0 || PreviousTracePoints.Num() != CurrentTracePoints.Num())
-    {
-        // Mismatch (e.g., WeaponData changed mid-attack) — reinitialize
-        PreviousTracePoints = CurrentTracePoints;
-        return;
-    }
+	if (CurrentTracePoints.Num() == 0 || PreviousTracePoints.Num() != CurrentTracePoints.Num())
+	{
+		// Mismatch (e.g., WeaponData changed mid-attack) — reinitialize
+		PreviousTracePoints = CurrentTracePoints;
+		ResetDefenseTrajectoryHistory();
+		return;
+	}
 
     // Cache tip velocity for external consumers (knockback, VFX alignment)
     if (CurrentTracePoints.Num() > 0 && PreviousTracePoints.Num() > 0)
@@ -354,6 +655,10 @@ void UWeaponComponent::PerformWeaponTrace()
     }
 
     const float EffectiveRadius = GetEffectiveTraceRadius();
+#if WITH_AUTOMATION_TESTS
+    OnTraceFrameForTesting.Broadcast(
+        PreviousTracePoints, CurrentTracePoints, EffectiveRadius);
+#endif
     bool bAnyHit = false;
     FHitResult FirstHit;
 
@@ -368,6 +673,9 @@ void UWeaponComponent::PerformWeaponTrace()
     {
         const float Alpha0 = static_cast<float>(Step) / static_cast<float>(NumSubsteps);
         const float Alpha1 = static_cast<float>(Step + 1) / static_cast<float>(NumSubsteps);
+		const float SubstepDeltaTime = NumSubsteps > 0
+			? LastDeltaTime / static_cast<float>(NumSubsteps)
+			: LastDeltaTime;
 
         for (int32 PointIdx = 0; PointIdx < CurrentTracePoints.Num(); ++PointIdx)
         {
@@ -379,6 +687,9 @@ void UWeaponComponent::PerformWeaponTrace()
             {
                 continue;
             }
+			const FVector AcceptedSweepVelocity =
+				UWeaponTraceLibrary::ComputeTracePointVelocity(
+					PrevPos, CurrPos, SubstepDeltaTime);
 
             TArray<FHitResult> HitResults;
             const bool bHit = TraceWorld->SweepMultiByChannel(
@@ -404,7 +715,7 @@ void UWeaponComponent::PerformWeaponTrace()
                     AActor* HitActor = Hit.GetActor();
                     if (HitActor && HitActor != OwnerCharacter)
                     {
-                        ProcessHit(Hit);
+						ProcessHit(Hit, AcceptedSweepVelocity);
 
                         // Update ignored actors for subsequent sweeps this frame
                         if (WasActorAlreadyHit(HitActor))
@@ -449,12 +760,17 @@ void UWeaponComponent::PerformWeaponTrace()
     PreviousTracePoints = CurrentTracePoints;
 }
 
-void UWeaponComponent::ProcessHit(const FHitResult& Hit)
+void UWeaponComponent::ProcessHit(
+	const FHitResult& Hit,
+	const FVector& AcceptedSweepVelocity)
 {
-	ProcessHitWithAttackData(Hit, GetCurrentAttackData());
+	ProcessHitWithAttackData(Hit, GetCurrentAttackData(), AcceptedSweepVelocity);
 }
 
-void UWeaponComponent::ProcessHitWithAttackData(const FHitResult& Hit, UAttackData* AttackData)
+void UWeaponComponent::ProcessHitWithAttackData(
+	const FHitResult& Hit,
+	UAttackData* AttackData,
+	const FVector& AcceptedSweepVelocity)
 {
     AActor* HitActor = Hit.GetActor();
 
@@ -477,7 +793,8 @@ void UWeaponComponent::ProcessHitWithAttackData(const FHitResult& Hit, UAttackDa
 			return;
 		}
 
-		const FDefenseContactRequest Request = BuildDefenseContactRequest(Hit, AttackData);
+		const FDefenseContactRequest Request = BuildDefenseContactRequest(
+			Hit, AttackData, AcceptedSweepVelocity);
 		if (Request.ContactId.IsValid())
 		{
 			RichContactParticipants.Add(RichTarget, Request.ContactId);
@@ -549,13 +866,14 @@ void UWeaponComponent::ProcessHitWithAttackData(const FHitResult& Hit, UAttackDa
 
 FDefenseContactRequest UWeaponComponent::BuildDefenseContactRequest(
 	const FHitResult& Hit,
-	UAttackData* AttackData) const
+	UAttackData* AttackData,
+	const FVector& AcceptedSweepVelocity) const
 {
 	FDefenseContactRequest Request;
 	Request.ContactId = ActiveContactId;
 	Request.TraceStart = Hit.TraceStart;
 	Request.TraceEnd = Hit.TraceEnd;
-	Request.ActiveSourceSocket = GetEffectiveEndSocket();
+	Request.ActiveSourceSocket = ResolveDefenseSourceSocket(AttackData);
 
 	ABaseCombatCharacter* Source = Cast<ABaseCombatCharacter>(OwnerCharacter.Get());
 	if (!Source)
@@ -612,15 +930,30 @@ FDefenseContactRequest UWeaponComponent::BuildDefenseContactRequest(
 	HitInfo.BoneName = Hit.BoneName;
 	HitInfo.SurfaceType = UWeaponTraceLibrary::MapPhysicalMaterialToSurfaceType(Hit.PhysMaterial.Get());
 
-	if (!CachedWeaponTipVelocity.IsNearlyZero())
+	const bool bSourceSocketVelocityUsable = !CachedDefenseSourceSocketVelocity.ContainsNaN()
+		&& !CachedDefenseSourceSocketVelocity.IsNearlyZero();
+	const bool bAcceptedSweepVelocityUsable = !AcceptedSweepVelocity.ContainsNaN()
+		&& !AcceptedSweepVelocity.IsNearlyZero();
+	const FVector ContactVelocity = bSourceSocketVelocityUsable
+		? CachedDefenseSourceSocketVelocity
+		: bAcceptedSweepVelocityUsable
+			? AcceptedSweepVelocity
+			: FVector::ZeroVector;
+	const bool bRateNormalizedTrajectoryUsable = bHasRateNormalizedDefenseTrajectory
+		&& !CachedRateNormalizedDefenseTrajectory.ContainsNaN()
+		&& !CachedRateNormalizedDefenseTrajectory.IsNearlyZero();
+	Request.IncomingTrajectory = bRateNormalizedTrajectoryUsable
+		? CachedRateNormalizedDefenseTrajectory
+		: ContactVelocity;
+	Request.bIncomingTrajectoryRateNormalized = bRateNormalizedTrajectoryUsable;
+	if (!ContactVelocity.ContainsNaN() && !ContactVelocity.IsNearlyZero())
 	{
-		HitInfo.HitDirection = -CachedWeaponTipVelocity.GetSafeNormal();
-		HitInfo.WeaponVelocity = CachedWeaponTipVelocity;
+		HitInfo.HitDirection = -ContactVelocity.GetSafeNormal();
+		HitInfo.WeaponVelocity = ContactVelocity;
 	}
 	else if (Source && Target)
 	{
 		HitInfo.HitDirection = (Source->GetActorLocation() - Target->GetActorLocation()).GetSafeNormal();
-		HitInfo.WeaponVelocity = -HitInfo.HitDirection * HitInfo.Damage;
 	}
 
 	if (Target && Source)
@@ -653,7 +986,7 @@ FDefenseContactRequest UWeaponComponent::BuildDefenseContactRequest(
 		&& EffectiveMesh->DoesSocketExist(GetEffectiveEndSocket()))
 	{
 		HitInfo.HitConfidence = UWeaponTraceLibrary::ComputeHitConfidence(
-			CachedWeaponTipVelocity,
+			ContactVelocity,
 			Hit.ImpactPoint,
 			EffectiveMesh->GetSocketLocation(GetEffectiveStartSocket()),
 			EffectiveMesh->GetSocketLocation(GetEffectiveEndSocket()));

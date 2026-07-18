@@ -14,6 +14,7 @@
 #include "Data/WeaponData.h"
 #include "Data/CombatSettings.h"
 #include "Data/CombatFXData.h"
+#include "Debug/DefenseTelemetry.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
 #include "MotionWarpingComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -570,7 +571,13 @@ FActualDefenseContact ABaseCombatCharacter::BuildActualDefenseContact(
 		: FVector::ZeroVector;
 	Contact.TraceStart = Request.TraceStart;
 	Contact.TraceEnd = Request.TraceEnd;
-	Contact.IncomingTrajectory = Request.HitInfo.WeaponVelocity;
+	const bool bRequestedTrajectoryUsable = IsUsableDefenseVector(Request.IncomingTrajectory)
+		&& !Request.IncomingTrajectory.IsNearlyZero();
+	Contact.IncomingTrajectory = bRequestedTrajectoryUsable
+		? Request.IncomingTrajectory
+		: Request.HitInfo.WeaponVelocity;
+	Contact.bIncomingTrajectoryRateNormalized = bRequestedTrajectoryUsable
+		&& Request.bIncomingTrajectoryRateNormalized;
 	if (!IsUsableDefenseVector(Contact.IncomingTrajectory)
 		|| Contact.IncomingTrajectory.IsNearlyZero())
 	{
@@ -593,16 +600,38 @@ FActualDefenseContact ABaseCombatCharacter::BuildActualDefenseContact(
 	const EIncomingAttackLane AuthoredLane = Request.HitInfo.AttackData
 		? Request.HitInfo.AttackData->DefenseProfile.NominalLane
 		: Request.Query.Attack.NominalLane;
-	const FDefenseLaneResolution Lane = FDefenseResolver::ResolveIncomingLane(
-		Request.HitInfo.WeaponVelocity,
+	FDefenseLaneResolution Lane = FDefenseResolver::ResolveIncomingLane(
+		Contact.IncomingTrajectory,
 		Request.TraceStart,
 		Request.TraceEnd,
 		AuthoredLane,
 		GetActorTransform(),
 		Configuration ? Configuration->CenterLaneHalfAngle : 12.0f);
+	if (Contact.bIncomingTrajectoryRateNormalized
+		&& Lane.Lane == EIncomingAttackLane::Center
+		&& IsUsableDefenseVector(Request.HitInfo.WeaponVelocity)
+		&& !Request.HitInfo.WeaponVelocity.IsNearlyZero())
+	{
+		const FDefenseLaneResolution InstantaneousLane =
+			FDefenseResolver::ResolveIncomingLane(
+				Request.HitInfo.WeaponVelocity,
+				FVector::ZeroVector,
+				FVector::ZeroVector,
+				AuthoredLane,
+				GetActorTransform(),
+				Configuration ? Configuration->CenterLaneHalfAngle : 12.0f);
+		if (InstantaneousLane.Provenance == EDefenseLaneProvenance::WeaponVelocity
+			&& InstantaneousLane.Lane != EIncomingAttackLane::Center)
+		{
+			Lane = InstantaneousLane;
+			Contact.bIncomingTrajectoryRateNormalized = false;
+		}
+	}
 	Contact.Lane = Lane.Lane;
 	Contact.LaneProvenance = Lane.Provenance;
 	Contact.IncomingTrajectory = Lane.IncomingTrajectory;
+	Contact.bIncomingTrajectoryRateNormalized = Contact.bIncomingTrajectoryRateNormalized
+		&& Lane.Provenance == EDefenseLaneProvenance::WeaponVelocity;
 
 	const EAttackHeight AuthoredHeight = Request.HitInfo.AttackData
 		? Request.HitInfo.AttackData->DefenseProfile.Height
@@ -1017,6 +1046,14 @@ void ABaseCombatCharacter::FlushCommittedDefenseContact(
 		DamageCommit.ResolvedDamage = Commit.ResolvedDamage;
 		DamageCommit.bShouldNotify = true;
 		DamageCommit.bShouldPlayReaction = Commit.bPlayHitReaction;
+		if (Commit.bPlayHitReaction && CombatComponent && DefenseTelemetry::IsEnabled())
+		{
+			FDefenseTelemetryRecord Presentation = DefenseTelemetry::FromResolution(
+				Commit.Receipt.Resolution,
+				EDefenseTelemetryEvent::PresentationStart);
+			Presentation.CacheDisposition = TEXT("CommittedHitReaction");
+			CombatComponent->AppendDefenseTelemetry(MoveTemp(Presentation));
+		}
 		HitReactionComponent->PlayCommittedDamageReaction(DamageCommit);
 		if (!IsDefenseDispatchValid(&InteractionId))
 		{

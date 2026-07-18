@@ -1504,11 +1504,6 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 	ActiveChainTarget = SourceAttacker;
 	ActiveChainAttackData = nullptr;
 	ChainState = EChainCounterState::ParryActive;
-	AppendDefenseSequenceTelemetry(
-		DefenderCombat,
-		ActiveDefenseSequence,
-		EDefenseTelemetryEvent::StageStart,
-		EChainCounterState::ParryActive);
 
 	if (bUsePairedBridge)
 	{
@@ -1544,6 +1539,11 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 			TEXT("BridgeFallbackScheduleFailed"));
 		return false;
 	}
+	AppendDefenseSequenceTelemetry(
+		DefenderCombat,
+		ActiveDefenseSequence,
+		EDefenseTelemetryEvent::StageStart,
+		EChainCounterState::ParryActive);
 	return true;
 }
 
@@ -3047,14 +3047,6 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 		&& NewDefenderAlignment.IsValid()
 		&& NewSourceAlignment.IsValid()
 		&& (!PairedAnimData->bApplySlowMotion || bAcquiredNewTimeLease);
-	if (bOwnershipReady)
-	{
-		AppendDefenseSequenceTelemetry(
-			DefenderCombat,
-			ActiveDefenseSequence,
-			EDefenseTelemetryEvent::StageStart,
-			SuccessState);
-	}
 	bool bDefenderStarted = false;
 	bool bSourceStarted = false;
 	bool bUsedPlaybackOverride = false;
@@ -3281,6 +3273,11 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 	ActiveDefenseSequence.TimeDilationLease = NewTimeLease;
 	ActiveDefenseSequence.ChainState = SuccessState;
 	ChainState = SuccessState;
+	AppendDefenseSequenceTelemetry(
+		DefenderCombat,
+		ActiveDefenseSequence,
+		EDefenseTelemetryEvent::StageStart,
+		SuccessState);
 
 	ReleasePairedStateLeasesForGeneration(Previous.StageGeneration);
 	SourcePaired->ReleasePairedStateLeasesForGeneration(Previous.StageGeneration);

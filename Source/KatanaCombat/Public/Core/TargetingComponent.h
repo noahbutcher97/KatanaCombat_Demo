@@ -573,6 +573,12 @@ private:
 	void ReconcileAlignmentModifierFrame(
 		FRegisteredAlignmentModifier& Record,
 		URootMotionModifier_Warp* RuntimeModifier);
+	static FVector TransformAuthoredRootMotionTranslation(
+		const ACharacter* Character,
+		const FVector& MeshLocalTranslation);
+	static FVector CalculateUnexpectedRootDisplacement(
+		const FVector& FrameDisplacement,
+		const FVector& ExpectedAuthoredDisplacement);
 	void ResetAlignmentModifierFrameBaselines(FRegisteredAlignmentModifier& Record);
     void RemoveRegisteredAlignmentModifiersForHandle(FAlignmentRequestHandle Handle);
     void UnregisterAlignmentModifier(URootMotionModifier_Warp* Modifier, bool bMarkForRemoval);
@@ -581,7 +587,10 @@ private:
     void RemoveAlignmentWarpTarget(const FAlignmentRequestRecord& Record);
     void ConfigureAlignmentWarpTarget(const FAlignmentRequestRecord& Record);
     FRotator ResolveAlignmentRotation(const FAlignmentRequestSpec& Spec) const;
-    bool IsAlignmentWarpTargetOwned(FName WarpTargetName) const;
+	bool IsAlignmentWarpTargetOwned(FName WarpTargetName) const;
+
+	friend class FTargetingAuthoredRootMotionTelemetryBasisTest;
+	friend class FTargetingBlockedRootMotionTelemetryTest;
 
     UFUNCTION()
     void OnAlignmentModifierUpdated(

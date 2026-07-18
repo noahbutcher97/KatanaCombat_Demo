@@ -1121,6 +1121,11 @@ struct FAttackWarpConfig
         meta = (EditCondition = "bEnableWarp", ClampMin = "0.0", ClampMax = "1000.0"))
     float MaxWarpDistance = 400.0f;
 
+	/** Contact-alignment offset in the target actor's local space. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion Warp|Target",
+		meta = (EditCondition = "bEnableWarp"))
+	FVector TargetRelativeOffset = FVector::ZeroVector;
+
     /** Minimum distance before warping kicks in (prevents micro-warps when already close) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion Warp|Target",
         meta = (EditCondition = "bEnableWarp", ClampMin = "0.0", ClampMax = "200.0"))
@@ -2190,6 +2195,10 @@ struct FActualDefenseContact
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	FVector IncomingTrajectory = FVector::ZeroVector;
 
+	/** True when IncomingTrajectory spans a fixed interval of source montage time. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bIncomingTrajectoryRateNormalized = false;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	FVector TraceStart = FVector::ZeroVector;
 
@@ -2989,6 +2998,14 @@ struct FDefenseContactRequest
 
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	FName ActiveSourceSocket = NAME_None;
+
+	/** Preferred contact trajectory for defense classification. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	FVector IncomingTrajectory = FVector::ZeroVector;
+
+	/** True when IncomingTrajectory spans a fixed interval of source montage time. */
+	UPROPERTY(BlueprintReadOnly, Category = "Defense")
+	bool bIncomingTrajectoryRateNormalized = false;
 };
 
 USTRUCT(BlueprintType)

@@ -63,7 +63,7 @@ EDefensePredictionConfidence GetEffectivePredictionConfidence(
 		: EDefensePredictionConfidence::Low;
 }
 
-bool IsSelectableThreat(const FAttackExecutionSnapshot& Candidate)
+bool IsSelectableThreatInternal(const FAttackExecutionSnapshot& Candidate)
 {
 	return Candidate.StableId.IsValid()
 		&& Candidate.AttackInstance.IsValid()
@@ -373,6 +373,11 @@ FDefenseDecision ResolveContact(const FDefenseQuery& Query)
 	}
 	return Decision;
 }
+}
+
+bool FDefenseResolver::IsSelectableThreat(const FAttackExecutionSnapshot& Candidate)
+{
+	return IsSelectableThreatInternal(Candidate);
 }
 
 FDefenseThreatSelectionResult FDefenseResolver::SelectThreat(

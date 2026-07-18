@@ -106,6 +106,13 @@ public:
 	void CancelQueuedAttackRequest();
 
 	/**
+	 * Abort queued, approaching, active, or recovering attack ownership and return to a ready state.
+	 * Safe to call repeatedly; active attacks broadcast one interrupted end event.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "AI|Combat")
+	void AbortAttack();
+
+	/**
 	 * Execute the selected attack (called when in range)
 	 * Plays attack montage with CounterWindow notify
 	 * @return True if attack execution started
