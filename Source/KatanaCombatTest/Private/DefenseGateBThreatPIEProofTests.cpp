@@ -37,9 +37,9 @@ namespace
 {
 constexpr TCHAR GateBThreatMapPackage[] =
 	TEXT("/Game/ProjectFiles/Levels/Test/Lvl_DefenseMatrix");
-constexpr TCHAR PlayerFixtureTag[] = TEXT("DefenseMatrix.Player");
-const FName LeftAnchorTag = TEXT("DefenseMatrix.Anchor.Left");
-const FName RightAnchorTag = TEXT("DefenseMatrix.Anchor.Right");
+constexpr TCHAR ThreatPlayerFixtureTag[] = TEXT("DefenseMatrix.Player");
+const FName ThreatLeftAnchorTag = TEXT("DefenseMatrix.Anchor.Left");
+const FName ThreatRightAnchorTag = TEXT("DefenseMatrix.Anchor.Right");
 const FName FirstThreatCase = TEXT("NormalBlockMiddleLeft");
 const FName SecondThreatCase = TEXT("NormalBlockMiddleRight");
 
@@ -159,7 +159,7 @@ private:
 		TArray<ADefenseMatrixProofDirector*> Directors;
 		for (TActorIterator<APlayerCharacter> It(PIEWorld); It; ++It)
 		{
-			if (It->ActorHasTag(PlayerFixtureTag))
+			if (It->ActorHasTag(ThreatPlayerFixtureTag))
 			{
 				Players.Add(*It);
 			}
@@ -227,8 +227,8 @@ private:
 			Fail(TEXT("director rejected the reviewed two-threat pair"));
 			return false;
 		}
-		FirstEnemy = Director->GetFixtureEnemy(LeftAnchorTag);
-		SecondEnemy = Director->GetFixtureEnemy(RightAnchorTag);
+		FirstEnemy = Director->GetFixtureEnemy(ThreatLeftAnchorTag);
+		SecondEnemy = Director->GetFixtureEnemy(ThreatRightAnchorTag);
 		FirstCombat = FirstEnemy.IsValid() ? FirstEnemy->GetCombatComponent() : nullptr;
 		SecondCombat = SecondEnemy.IsValid() ? SecondEnemy->GetCombatComponent() : nullptr;
 		FirstAI = FirstEnemy.IsValid() ? FirstEnemy->GetCombatAIComponent() : nullptr;
