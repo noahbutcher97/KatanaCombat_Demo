@@ -7,6 +7,7 @@
 #include "AI/EnemyCombatAIComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Characters/BaseCombatCharacter.h"
 #include "Characters/EnemyCharacter.h"
 #include "Characters/PlayerCharacter.h"
 #include "Components/ActorComponent.h"
@@ -152,7 +153,7 @@ enum class EGateAProofStage : uint8
 	Done
 };
 
-const TCHAR* StageName(const EGateAProofStage Stage)
+const TCHAR* GateAStageName(const EGateAProofStage Stage)
 {
 	switch (Stage)
 	{
@@ -186,7 +187,7 @@ const TCHAR* StageName(const EGateAProofStage Stage)
 	}
 }
 
-FString EnumName(const UEnum* Enum, const int64 Value)
+FString GateAEnumName(const UEnum* Enum, const int64 Value)
 {
 	return Enum ? Enum->GetNameStringByValue(Value) : TEXT("Unknown");
 }
@@ -202,6 +203,46 @@ FHitResult MakeProofHit(AActor* Target, const FVector& SourceLocation)
 	Hit.ImpactNormal = (SourceLocation - Hit.TraceEnd).GetSafeNormal();
 	Hit.BoneName = TEXT("spine_03");
 	return Hit;
+}
+
+struct FGateAStageHandoffSample
+{
+	EChainCounterState FromState = EChainCounterState::None;
+	EChainCounterState ToState = EChainCounterState::None;
+	double SimulationTimestamp = 0.0;
+	float SimulationDelta = 0.0f;
+	uint64 InteractionEpoch = 0;
+	int32 AttackGeneration = 0;
+	FString Defender;
+	FString Attacker;
+	float DefenderActorDisplacementCm = 0.0f;
+	float AttackerActorDisplacementCm = 0.0f;
+	float DefenderPelvisDiscontinuityCm = 0.0f;
+	float AttackerPelvisDiscontinuityCm = 0.0f;
+	float DefenderOutgoingMontageRate = 0.0f;
+	float DefenderIncomingMontageRate = 0.0f;
+	float AttackerOutgoingMontageRate = 0.0f;
+	float AttackerIncomingMontageRate = 0.0f;
+};
+
+bool ReadPelvisLocation(ABaseCombatCharacter* Character, FVector& OutLocation)
+{
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	if (!Mesh || !Mesh->DoesSocketExist(TEXT("pelvis")))
+	{
+		return false;
+	}
+	OutLocation = Mesh->GetSocketLocation(TEXT("pelvis"));
+	return !OutLocation.ContainsNaN();
+}
+
+float ReadActiveMontageRate(ABaseCombatCharacter* Character)
+{
+	UAnimInstance* AnimInstance = Character && Character->GetMesh()
+		? Character->GetMesh()->GetAnimInstance()
+		: nullptr;
+	UAnimMontage* Montage = AnimInstance ? AnimInstance->GetCurrentActiveMontage() : nullptr;
+	return Montage ? AnimInstance->Montage_GetPlayRate(Montage) : 0.0f;
 }
 
 class FDefenseGateAPIEProofCommand final : public IAutomationLatentCommand
@@ -241,10 +282,11 @@ public:
 		{
 			Fail(TEXT("PIE world became invalid during Gate A proof"));
 		}
+		SampleStageHandoff();
 
 		if (ShouldCaptureContinuousFrame())
 		{
-			CaptureFrame(StageName(Stage));
+			CaptureFrame(GateAStageName(Stage));
 		}
 
 		switch (Stage)
@@ -542,6 +584,15 @@ private:
 			}
 		}
 		ResetCharacterCombat(Player.Get());
+		for (const TWeakObjectPtr<AEnemyCharacter>& Enemy : Enemies)
+		{
+			if (Enemy.IsValid() && Enemy->GetCombatComponent())
+			{
+				Enemy->GetCombatComponent()->OnReviewedAttackPredictionPublishedForTesting.AddRaw(
+					this, &FDefenseGateAPIEProofCommand::HandleReviewedAttackPredictionPublished);
+			}
+		}
+		bAttackWindowBinding = true;
 		PlayerCombat->OnDefenseResolvedNative.AddRaw(
 			this, &FDefenseGateAPIEProofCommand::HandleDefenseResolved);
 		bResolutionBound = true;
@@ -823,7 +874,7 @@ private:
 		RecordCase(TEXT("FourEnemyTokenAndFriendlyFirePolicy"), bOneToken && bFriendlyIgnored,
 			FString::Printf(TEXT("active=%d queue=%d friendly_outcome=%s"),
 				TokenSubsystem->GetActiveAttackerCount(), TokenSubsystem->GetQueueLength(),
-				*EnumName(StaticEnum<EDefenseOutcome>(), static_cast<int64>(FriendlyOutcome))));
+				*GateAEnumName(StaticEnum<EDefenseOutcome>(), static_cast<int64>(FriendlyOutcome))));
 		CaptureOpponent = EnemyAt(0);
 		CaptureFrame(TEXT("four_enemy_token_policy"));
 
@@ -845,6 +896,7 @@ private:
 		PrepareControlledPair(Enemy, 180.0f);
 		OutOfConeInitialHealth = Player->CurrentHealth;
 		ResetResolutionCapture();
+		bOutOfConeWindowInputCommitted = false;
 		if (!StartEnemyAttack(Enemy))
 		{
 			Fail(TEXT("Out-of-cone enemy could not start attack"));
@@ -857,8 +909,7 @@ private:
 
 	bool UpdateOutOfConeAwaitParry()
 	{
-		AEnemyCharacter* Enemy = EnemyAt(1);
-		if (!HasFreshParryWindow(Enemy))
+		if (!bOutOfConeWindowInputCommitted)
 		{
 			if (StageElapsed() > 3.0)
 			{
@@ -866,8 +917,6 @@ private:
 			}
 			return false;
 		}
-		PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
-		OutOfConeInputResolution = PlayerCombat->GetLastInputDefenseResolutionForTesting();
 		const bool bDowngraded = OutOfConeInputResolution.Decision.Outcome == EDefenseOutcome::GuardEntered
 			&& OutOfConeInputResolution.Decision.Reason == EDefenseReason::OutsideHardCone;
 		Test->TestTrue(TEXT("Out-of-hard-cone parry attempt remains guard only"), bDowngraded);
@@ -905,8 +954,8 @@ private:
 		Test->TestTrue(TEXT("Out-of-hard-cone contact applies damage"), bDamaged);
 		RecordCase(TEXT("OutOfHardConeContact"), bHit && bDamaged,
 			FString::Printf(TEXT("outcome=%s reason=%s damage=%.2f"),
-				*EnumName(StaticEnum<EDefenseOutcome>(), static_cast<int64>(LastResolution.Decision.Outcome)),
-				*EnumName(StaticEnum<EDefenseReason>(), static_cast<int64>(LastResolution.Decision.Reason)),
+				*GateAEnumName(StaticEnum<EDefenseOutcome>(), static_cast<int64>(LastResolution.Decision.Outcome)),
+				*GateAEnumName(StaticEnum<EDefenseReason>(), static_cast<int64>(LastResolution.Decision.Reason)),
 				OutOfConeInitialHealth - Player->CurrentHealth));
 		CaptureFrame(TEXT("out_of_cone_hit"));
 		PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Release);
@@ -928,6 +977,7 @@ private:
 		AEnemyCharacter* Enemy = EnemyAt(2);
 		PrepareControlledPair(Enemy, 30.0f);
 		ResetResolutionCapture();
+		bAlignmentWindowInputCommitted = false;
 		if (!StartEnemyAttack(Enemy))
 		{
 			Fail(TEXT("Alignment-downgrade enemy could not start attack"));
@@ -940,8 +990,7 @@ private:
 
 	bool UpdateAlignmentDowngradeAwaitParry()
 	{
-		AEnemyCharacter* Enemy = EnemyAt(2);
-		if (!HasFreshParryWindow(Enemy))
+		if (!bAlignmentWindowInputCommitted)
 		{
 			if (StageElapsed() > 3.0)
 			{
@@ -949,8 +998,6 @@ private:
 			}
 			return false;
 		}
-		PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
-		AlignmentDowngradeResolution = PlayerCombat->GetLastInputDefenseResolutionForTesting();
 		SetStage(EGateAProofStage::AlignmentDowngradeObserve);
 		return false;
 	}
@@ -968,7 +1015,7 @@ private:
 			FString::Printf(TEXT("yaw=%.2f available_turn=%.2f reason=%s"),
 				AlignmentDowngradeResolution.Decision.MeasuredYawDegrees,
 				AlignmentDowngradeResolution.Decision.AvailableTurnDegrees,
-				*EnumName(StaticEnum<EDefenseReason>(),
+				*GateAEnumName(StaticEnum<EDefenseReason>(),
 					static_cast<int64>(AlignmentDowngradeResolution.Decision.Reason))));
 		CaptureFrame(TEXT("alignment_downgrade"));
 		PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Release);
@@ -992,6 +1039,7 @@ private:
 		ResetResolutionCapture();
 		PerfectEnemyInitialHealth = Enemy->CurrentHealth;
 		PerfectTokenReleaseBefore = EnemyAI(3)->GetTokenReleaseCountForTesting();
+		bPerfectWindowInputCommitted = false;
 		if (!StartEnemyAttack(Enemy))
 		{
 			Fail(TEXT("Perfect-parry enemy could not start attack"));
@@ -1006,7 +1054,7 @@ private:
 	bool UpdatePerfectParryAwaitWindow()
 	{
 		AEnemyCharacter* Enemy = EnemyAt(3);
-		if (!HasFreshParryWindow(Enemy))
+		if (!bPerfectWindowInputCommitted)
 		{
 			if (StageElapsed() > 3.0)
 			{
@@ -1014,10 +1062,6 @@ private:
 			}
 			return false;
 		}
-		BridgeDefenderStart = Player->GetActorLocation();
-		BridgeAttackerStart = Enemy->GetActorLocation();
-		PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
-		PerfectResolution = PlayerCombat->GetLastInputDefenseResolutionForTesting();
 		const bool bPerfect = PerfectResolution.Decision.Outcome == EDefenseOutcome::PerfectParry;
 		const bool bParryActive = PlayerPaired->GetChainState() == EChainCounterState::ParryActive;
 		const bool bConsumed = Enemy->CombatComponent->IsAttackConsumed(
@@ -1193,8 +1237,78 @@ private:
 		StageStart = FPlatformTime::Seconds();
 		if (bCapture)
 		{
-			CaptureFrame(StageName(NewStage));
+			CaptureFrame(GateAStageName(NewStage));
 		}
+	}
+
+	void SampleStageHandoff()
+	{
+		if (!World.IsValid() || !Player.IsValid() || !PlayerPaired.IsValid())
+		{
+			bHasStageHandoffBaseline = false;
+			return;
+		}
+
+		const EChainCounterState CurrentState = PlayerPaired->GetChainState();
+		const FDefenseSequenceContext& Sequence =
+			PlayerPaired->GetActiveDefenseSequenceContext();
+		ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(
+			Sequence.SourceAttacker.Get());
+		FVector DefenderPelvis = FVector::ZeroVector;
+		FVector AttackerPelvis = FVector::ZeroVector;
+		const bool bCanSample = CurrentState != EChainCounterState::None
+			&& Sequence.OriginatingInteraction.IsValid()
+			&& SourceAttacker
+			&& ReadPelvisLocation(Player.Get(), DefenderPelvis)
+			&& ReadPelvisLocation(SourceAttacker, AttackerPelvis);
+		if (!bCanSample)
+		{
+			bHasStageHandoffBaseline = false;
+			return;
+		}
+
+		const double SimulationNow = World->GetTimeSeconds();
+		const bool bSameSequence = bHasStageHandoffBaseline
+			&& LastStageHandoffInteraction == Sequence.OriginatingInteraction
+			&& LastStageHandoffAttacker.Get() == SourceAttacker;
+		if (bSameSequence && CurrentState != LastSampledChainState)
+		{
+			FGateAStageHandoffSample& Sample = StageHandoffSamples.AddDefaulted_GetRef();
+			Sample.FromState = LastSampledChainState;
+			Sample.ToState = CurrentState;
+			Sample.SimulationTimestamp = SimulationNow;
+			Sample.SimulationDelta = static_cast<float>(FMath::Max(
+				0.0, SimulationNow - LastStageHandoffSimulationTime));
+			Sample.InteractionEpoch = Sequence.OriginatingInteraction.Epoch;
+			Sample.AttackGeneration =
+				Sequence.OriginatingInteraction.Key.AttackInstance.AttackGeneration;
+			Sample.Defender = Player->GetName();
+			Sample.Attacker = SourceAttacker->GetName();
+			Sample.DefenderActorDisplacementCm = FVector::Dist2D(
+				LastStageHandoffDefenderLocation, Player->GetActorLocation());
+			Sample.AttackerActorDisplacementCm = FVector::Dist2D(
+				LastStageHandoffAttackerLocation, SourceAttacker->GetActorLocation());
+			Sample.DefenderPelvisDiscontinuityCm = FVector::Distance(
+				LastStageHandoffDefenderPelvis, DefenderPelvis);
+			Sample.AttackerPelvisDiscontinuityCm = FVector::Distance(
+				LastStageHandoffAttackerPelvis, AttackerPelvis);
+			Sample.DefenderOutgoingMontageRate = LastStageHandoffDefenderMontageRate;
+			Sample.DefenderIncomingMontageRate = ReadActiveMontageRate(Player.Get());
+			Sample.AttackerOutgoingMontageRate = LastStageHandoffAttackerMontageRate;
+			Sample.AttackerIncomingMontageRate = ReadActiveMontageRate(SourceAttacker);
+		}
+
+		bHasStageHandoffBaseline = true;
+		LastSampledChainState = CurrentState;
+		LastStageHandoffInteraction = Sequence.OriginatingInteraction;
+		LastStageHandoffAttacker = SourceAttacker;
+		LastStageHandoffSimulationTime = SimulationNow;
+		LastStageHandoffDefenderLocation = Player->GetActorLocation();
+		LastStageHandoffAttackerLocation = SourceAttacker->GetActorLocation();
+		LastStageHandoffDefenderPelvis = DefenderPelvis;
+		LastStageHandoffAttackerPelvis = AttackerPelvis;
+		LastStageHandoffDefenderMontageRate = ReadActiveMontageRate(Player.Get());
+		LastStageHandoffAttackerMontageRate = ReadActiveMontageRate(SourceAttacker);
 	}
 
 	double StageElapsed() const
@@ -1209,7 +1323,7 @@ private:
 			bFatalFailure = true;
 			Test->AddError(Message);
 			RecordCase(TEXT("FatalFailure"), false,
-				FString::Printf(TEXT("stage=%s message=%s"), StageName(Stage), *Message));
+				FString::Printf(TEXT("stage=%s message=%s"), GateAStageName(Stage), *Message));
 		}
 		if (Stage != EGateAProofStage::FinalCaptureWait && Stage != EGateAProofStage::Done)
 		{
@@ -1242,6 +1356,71 @@ private:
 		LastResolution = Resolution;
 		bHasResolution = true;
 		++ResolutionCount;
+	}
+
+	void HandleReviewedAttackPredictionPublished(const FAttackWindowInstanceId& Window)
+	{
+		if (Window.Kind != EAttackWindowKind::Parry || !PlayerCombat.IsValid())
+		{
+			return;
+		}
+
+		int32 EnemyIndex = INDEX_NONE;
+		bool bInputAlreadyCommitted = false;
+		switch (Stage)
+		{
+		case EGateAProofStage::OutOfConeAwaitParry:
+			EnemyIndex = 1;
+			bInputAlreadyCommitted = bOutOfConeWindowInputCommitted;
+			break;
+		case EGateAProofStage::AlignmentDowngradeAwaitParry:
+			EnemyIndex = 2;
+			bInputAlreadyCommitted = bAlignmentWindowInputCommitted;
+			break;
+		case EGateAProofStage::PerfectParryAwaitWindow:
+			EnemyIndex = 3;
+			bInputAlreadyCommitted = bPerfectWindowInputCommitted;
+			break;
+		default:
+			return;
+		}
+
+		AEnemyCharacter* Enemy = EnemyAt(EnemyIndex);
+		if (bInputAlreadyCommitted
+			|| !Enemy
+			|| !Enemy->CombatComponent
+			|| Window.AttackInstance.Attacker.Get() != Enemy
+			|| !HasFreshParryWindow(Enemy)
+			|| !(Enemy->CombatComponent->BuildAttackExecutionSnapshot().ActiveParryWindow == Window))
+		{
+			return;
+		}
+
+		if (Stage == EGateAProofStage::PerfectParryAwaitWindow)
+		{
+			BridgeDefenderStart = Player->GetActorLocation();
+			BridgeAttackerStart = Enemy->GetActorLocation();
+		}
+		PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
+		const FDefenseResolution Resolution =
+			PlayerCombat->GetLastInputDefenseResolutionForTesting();
+		switch (Stage)
+		{
+		case EGateAProofStage::OutOfConeAwaitParry:
+			OutOfConeInputResolution = Resolution;
+			bOutOfConeWindowInputCommitted = true;
+			break;
+		case EGateAProofStage::AlignmentDowngradeAwaitParry:
+			AlignmentDowngradeResolution = Resolution;
+			bAlignmentWindowInputCommitted = true;
+			break;
+		case EGateAProofStage::PerfectParryAwaitWindow:
+			PerfectResolution = Resolution;
+			bPerfectWindowInputCommitted = true;
+			break;
+		default:
+			break;
+		}
 	}
 
 	void HandleNormalContactAccounted(
@@ -1310,6 +1489,17 @@ private:
 	void RemoveProofBindings()
 	{
 		RemoveResolutionBinding();
+		if (bAttackWindowBinding)
+		{
+			for (const TWeakObjectPtr<AEnemyCharacter>& Enemy : Enemies)
+			{
+				if (Enemy.IsValid() && Enemy->GetCombatComponent())
+				{
+					Enemy->GetCombatComponent()->OnReviewedAttackPredictionPublishedForTesting.RemoveAll(this);
+				}
+			}
+		}
+		bAttackWindowBinding = false;
 		if (bNormalContactBinding)
 		{
 			if (AEnemyCharacter* Enemy = EnemyAt(0);
@@ -1634,7 +1824,7 @@ private:
 		Case->SetStringField(TEXT("name"), Name);
 		Case->SetBoolField(TEXT("passed"), bPassed);
 		Case->SetStringField(TEXT("details"), Details);
-		Case->SetStringField(TEXT("stage"), StageName(Stage));
+		Case->SetStringField(TEXT("stage"), GateAStageName(Stage));
 		Cases.Add(MakeShared<FJsonValueObject>(Case));
 	}
 
@@ -1662,7 +1852,7 @@ private:
 
 		float MaxYawOverBudget = 0.0f;
 		float MaxUnexpectedDisplacement = 0.0f;
-		float MaxPelvisDelta = 0.0f;
+		float MaxAlignmentPelvisFrameDelta = 0.0f;
 		int32 AlignmentFrameCount = 0;
 		bool bNormalResolutionTelemetry = false;
 		bool bNormalPresentationTelemetry = false;
@@ -1711,8 +1901,53 @@ private:
 			}
 			MaxUnexpectedDisplacement = FMath::Max(
 				MaxUnexpectedDisplacement, Record.UnexpectedDisplacement.Size2D());
-			MaxPelvisDelta = FMath::Max(MaxPelvisDelta, Record.PelvisDelta);
+			MaxAlignmentPelvisFrameDelta = FMath::Max(
+				MaxAlignmentPelvisFrameDelta, Record.PelvisDelta);
 		}
+		float MaxStageHandoffActorDisplacement = 0.0f;
+		float MaxStageHandoffPelvisDiscontinuity = 0.0f;
+		bool bStageHandoffIdentityValid = !StageHandoffSamples.IsEmpty();
+		bool bStageHandoffDeltasAdjacent = !StageHandoffSamples.IsEmpty();
+		bool bParryReadyHandoff = false;
+		bool bCounterStartHandoff = false;
+		bool bCounterExitHandoff = false;
+		bool bFinisherStartHandoff = false;
+		for (const FGateAStageHandoffSample& Sample : StageHandoffSamples)
+		{
+			MaxStageHandoffActorDisplacement = FMath::Max3(
+				MaxStageHandoffActorDisplacement,
+				Sample.DefenderActorDisplacementCm,
+				Sample.AttackerActorDisplacementCm);
+			MaxStageHandoffPelvisDiscontinuity = FMath::Max3(
+				MaxStageHandoffPelvisDiscontinuity,
+				Sample.DefenderPelvisDiscontinuityCm,
+				Sample.AttackerPelvisDiscontinuityCm);
+			bStageHandoffIdentityValid = bStageHandoffIdentityValid
+				&& Sample.InteractionEpoch > 0 && Sample.AttackGeneration > 0
+				&& !Sample.Defender.IsEmpty() && !Sample.Attacker.IsEmpty();
+			bStageHandoffDeltasAdjacent = bStageHandoffDeltasAdjacent
+				&& FMath::IsFinite(Sample.SimulationDelta)
+				&& Sample.SimulationDelta >= 0.0f
+				&& Sample.SimulationDelta <= 0.1f;
+			bParryReadyHandoff = bParryReadyHandoff
+				|| (Sample.FromState == EChainCounterState::ParryActive
+					&& Sample.ToState == EChainCounterState::CounterWindow);
+			bCounterStartHandoff = bCounterStartHandoff
+				|| (Sample.FromState == EChainCounterState::CounterWindow
+					&& Sample.ToState == EChainCounterState::CounterActive);
+			bCounterExitHandoff = bCounterExitHandoff
+				|| (Sample.FromState == EChainCounterState::CounterActive
+					&& (Sample.ToState == EChainCounterState::FinisherReady
+						|| Sample.ToState == EChainCounterState::FinisherActive));
+			bFinisherStartHandoff = bFinisherStartHandoff
+				|| Sample.ToState == EChainCounterState::FinisherActive;
+		}
+		const bool bCompleteStageHandoffLedger = bParryReadyHandoff
+			&& bCounterStartHandoff && bCounterExitHandoff && bFinisherStartHandoff;
+		const bool bStageHandoffContinuity = bCompleteStageHandoffLedger
+			&& bStageHandoffIdentityValid && bStageHandoffDeltasAdjacent
+			&& MaxStageHandoffActorDisplacement <= 10.0f + KINDA_SMALL_NUMBER
+			&& MaxStageHandoffPelvisDiscontinuity <= 15.0f + KINDA_SMALL_NUMBER;
 		bool bCompleteCaseLedger = !ExpectedCaseNames.IsEmpty()
 			&& RecordedCaseNames.Num() == ExpectedCaseNames.Num();
 		for (const FString& ExpectedCase : ExpectedCaseNames)
@@ -1743,8 +1978,16 @@ private:
 				MaxYawOverBudget <= 0.1f + KINDA_SMALL_NUMBER);
 			Test->TestTrue(TEXT("Unexpected per-frame displacement stays within 10 cm"),
 				MaxUnexpectedDisplacement <= 10.0f + KINDA_SMALL_NUMBER);
-			Test->TestTrue(TEXT("Pelvis discontinuity stays within 15 cm"),
-				MaxPelvisDelta <= 15.0f + KINDA_SMALL_NUMBER);
+			Test->TestTrue(TEXT("Gate A records every required adjacent stage handoff"),
+				bCompleteStageHandoffLedger);
+			Test->TestTrue(TEXT("Stage handoffs retain interaction and participant identity"),
+				bStageHandoffIdentityValid);
+			Test->TestTrue(TEXT("Stage-handoff samples are adjacent evaluated frames"),
+				bStageHandoffDeltasAdjacent);
+			Test->TestTrue(TEXT("Stage-handoff actor displacement stays within 10 cm"),
+				MaxStageHandoffActorDisplacement <= 10.0f + KINDA_SMALL_NUMBER);
+			Test->TestTrue(TEXT("Stage-handoff pelvis discontinuity stays within 15 cm"),
+				MaxStageHandoffPelvisDiscontinuity <= 15.0f + KINDA_SMALL_NUMBER);
 		}
 
 		FString ResolvedTelemetryPath;
@@ -1807,13 +2050,16 @@ private:
 				bRenderedFrameFramingComplete);
 		}
 		TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
-		Root->SetNumberField(TEXT("schema_version"), 2);
+		Root->SetNumberField(TEXT("schema_version"), 3);
 		Root->SetStringField(TEXT("gate"), TEXT("A"));
 		Root->SetStringField(TEXT("map"), GateAMapPackage);
 		Root->SetStringField(TEXT("attack"), GateAAttackPath);
 		Root->SetBoolField(TEXT("fatal_failure"), bFatalFailure);
 		Root->SetBoolField(TEXT("complete_case_ledger"), bCompleteCaseLedger);
-		Root->SetBoolField(TEXT("all_cases_passed"), bCompleteCaseLedger && bAllCasesPassed);
+		Root->SetBoolField(TEXT("all_cases_passed"),
+			bCompleteCaseLedger && bAllCasesPassed && bStageHandoffContinuity);
+		Root->SetBoolField(TEXT("stage_handoff_contract_passed"),
+			bStageHandoffContinuity);
 		Root->SetStringField(TEXT("proof_case_authority"), GateAManifestRelativePath);
 		Root->SetNumberField(TEXT("manifest_proof_case_count"), ExpectedCaseNames.Num());
 		Root->SetStringField(TEXT("execution_mode"),
@@ -1830,6 +2076,39 @@ private:
 		Root->SetStringField(TEXT("normal_contact_transport"), TEXT("physical weapon trace"));
 		Root->SetArrayField(TEXT("cases"), Cases);
 		Root->SetArrayField(TEXT("frames"), CapturedFrames);
+		TArray<TSharedPtr<FJsonValue>> StageHandoffs;
+		for (const FGateAStageHandoffSample& Sample : StageHandoffSamples)
+		{
+			TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("from_state"), GateAEnumName(
+				StaticEnum<EChainCounterState>(), static_cast<int64>(Sample.FromState)));
+			Entry->SetStringField(TEXT("to_state"), GateAEnumName(
+				StaticEnum<EChainCounterState>(), static_cast<int64>(Sample.ToState)));
+			Entry->SetNumberField(TEXT("simulation_timestamp"), Sample.SimulationTimestamp);
+			Entry->SetNumberField(TEXT("simulation_delta"), Sample.SimulationDelta);
+			Entry->SetNumberField(TEXT("interaction_epoch"), Sample.InteractionEpoch);
+			Entry->SetNumberField(TEXT("attack_generation"), Sample.AttackGeneration);
+			Entry->SetStringField(TEXT("defender"), Sample.Defender);
+			Entry->SetStringField(TEXT("attacker"), Sample.Attacker);
+			Entry->SetNumberField(TEXT("defender_actor_displacement_cm"),
+				Sample.DefenderActorDisplacementCm);
+			Entry->SetNumberField(TEXT("attacker_actor_displacement_cm"),
+				Sample.AttackerActorDisplacementCm);
+			Entry->SetNumberField(TEXT("defender_pelvis_discontinuity_cm"),
+				Sample.DefenderPelvisDiscontinuityCm);
+			Entry->SetNumberField(TEXT("attacker_pelvis_discontinuity_cm"),
+				Sample.AttackerPelvisDiscontinuityCm);
+			Entry->SetNumberField(TEXT("defender_outgoing_montage_rate"),
+				Sample.DefenderOutgoingMontageRate);
+			Entry->SetNumberField(TEXT("defender_incoming_montage_rate"),
+				Sample.DefenderIncomingMontageRate);
+			Entry->SetNumberField(TEXT("attacker_outgoing_montage_rate"),
+				Sample.AttackerOutgoingMontageRate);
+			Entry->SetNumberField(TEXT("attacker_incoming_montage_rate"),
+				Sample.AttackerIncomingMontageRate);
+			StageHandoffs.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+		Root->SetArrayField(TEXT("stage_handoffs"), StageHandoffs);
 
 		TSharedPtr<FJsonObject> Metrics = MakeShared<FJsonObject>();
 		Metrics->SetNumberField(TEXT("normal_block_drift_cm"), NormalBlockDriftCm);
@@ -1837,7 +2116,13 @@ private:
 		Metrics->SetNumberField(TEXT("bridge_attacker_distance_cm"), BridgeAttackerDistanceCm);
 		Metrics->SetNumberField(TEXT("max_yaw_over_budget_degrees"), MaxYawOverBudget);
 		Metrics->SetNumberField(TEXT("max_unexpected_displacement_cm"), MaxUnexpectedDisplacement);
-		Metrics->SetNumberField(TEXT("max_pelvis_delta_cm"), MaxPelvisDelta);
+		Metrics->SetNumberField(TEXT("max_alignment_pelvis_frame_delta_cm"),
+			MaxAlignmentPelvisFrameDelta);
+		Metrics->SetNumberField(TEXT("stage_handoff_count"), StageHandoffSamples.Num());
+		Metrics->SetNumberField(TEXT("max_stage_handoff_actor_displacement_cm"),
+			MaxStageHandoffActorDisplacement);
+		Metrics->SetNumberField(TEXT("max_stage_handoff_pelvis_discontinuity_cm"),
+			MaxStageHandoffPelvisDiscontinuity);
 		Metrics->SetNumberField(TEXT("alignment_frame_count"), AlignmentFrameCount);
 		Metrics->SetNumberField(TEXT("counter_stage_damage_events"), CounterDamageEvents);
 		Metrics->SetNumberField(TEXT("finisher_stage_damage_events"), FinisherDamageEvents);
@@ -1869,6 +2154,7 @@ private:
 	TWeakObjectPtr<UCombatTokenSubsystem> TokenSubsystem;
 	TWeakObjectPtr<AEnemyCharacter> ExpectedResolutionAttacker;
 	TWeakObjectPtr<AEnemyCharacter> CaptureOpponent;
+	TWeakObjectPtr<ABaseCombatCharacter> LastStageHandoffAttacker;
 	FVector BaseLocation = FVector::ZeroVector;
 	FDefenseResolution LastResolution;
 	FDefenseResolution OutOfConeInputResolution;
@@ -1878,6 +2164,7 @@ private:
 	FDefenseInteractionId NormalInteractionId;
 	bool bHasResolution = false;
 	bool bResolutionBound = false;
+	bool bAttackWindowBinding = false;
 	bool bNormalContactBinding = false;
 	bool bImpactSoundBinding = false;
 	bool bDefenseDebugOverridden = false;
@@ -1891,6 +2178,10 @@ private:
 	bool bNormalDuplicateSameWindow = false;
 	bool bNormalObserved = false;
 	bool bAllCasesPassed = true;
+	bool bHasStageHandoffBaseline = false;
+	bool bOutOfConeWindowInputCommitted = false;
+	bool bAlignmentWindowInputCommitted = false;
+	bool bPerfectWindowInputCommitted = false;
 	float NormalInitialHealth = 0.0f;
 	float OutOfConeInitialHealth = 0.0f;
 	float PerfectEnemyInitialHealth = 0.0f;
@@ -1898,6 +2189,8 @@ private:
 	float NormalBlockDriftCm = 0.0f;
 	float BridgeDefenderDistanceCm = 0.0f;
 	float BridgeAttackerDistanceCm = 0.0f;
+	float LastStageHandoffDefenderMontageRate = 0.0f;
+	float LastStageHandoffAttackerMontageRate = 0.0f;
 	int32 NormalAcceptedBeforeDuplicate = 0;
 	int32 NormalAcceptedAfterDuplicate = 0;
 	int32 HandsOffConfiguredEnemyCount = 0;
@@ -1917,15 +2210,23 @@ private:
 	int32 PerfectTokenReleaseBefore = 0;
 	int32 ResolutionCount = 0;
 	int32 RequestedFrameCount = 0;
+	double LastStageHandoffSimulationTime = 0.0;
 	FVector NormalBlockStartLocation = FVector::ZeroVector;
 	FVector BridgeDefenderStart = FVector::ZeroVector;
 	FVector BridgeAttackerStart = FVector::ZeroVector;
+	FVector LastStageHandoffDefenderLocation = FVector::ZeroVector;
+	FVector LastStageHandoffAttackerLocation = FVector::ZeroVector;
+	FVector LastStageHandoffDefenderPelvis = FVector::ZeroVector;
+	FVector LastStageHandoffAttackerPelvis = FVector::ZeroVector;
+	EChainCounterState LastSampledChainState = EChainCounterState::None;
+	FDefenseInteractionId LastStageHandoffInteraction;
 	TWeakObjectPtr<UAnimMontage> NormalBlockMontage;
 	TWeakObjectPtr<USoundBase> NormalPlayedSound;
 	FString EvidenceDirectory;
 	FString FramesDirectory;
 	TArray<TSharedPtr<FJsonValue>> Cases;
 	TArray<TSharedPtr<FJsonValue>> CapturedFrames;
+	TArray<FGateAStageHandoffSample> StageHandoffSamples;
 	TArray<FString> ExpectedCaseNames;
 	TSet<FString> RecordedCaseNames;
 };
