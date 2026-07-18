@@ -38,7 +38,8 @@ public:
 		const FString& CanonicalManifest,
 		const FDefenseProofAssetSet& Assets,
 		FDefenseProofMigrationPlan& OutPlan,
-		TArray<FString>& OutErrors);
+		TArray<FString>& OutErrors,
+		bool bRejectDirtyApprovalPackages = true);
 
 	static bool ApplyLoadedPlan(
 		const FDefenseProofMigrationPlan& Plan,
@@ -52,6 +53,11 @@ public:
 		const FDefenseProofMigrationPlan& CurrentPlan,
 		TArray<FString>& OutErrors);
 
+	static void BuildPlanReport(
+		const FString& ManifestPath,
+		const FDefenseProofMigrationPlan& Plan,
+		FKatanaAssetMigrationReport& OutReport);
+
 	static bool ValidateChangedPackageSet(
 		const FDefenseProofMigrationPlan& Plan,
 		const TSet<FString>& ChangedPackages,
@@ -61,6 +67,14 @@ public:
 		const FDefenseProofMigrationPlan& Plan,
 		bool bAllowDirtyPackages,
 		TArray<FString>& OutErrors);
+
+	static bool ChangeTargetsValidationRow(
+		const FString& Change,
+		const FDefenseAssetValidationRow& ValidationRow);
+
+	static bool FindingTargetsValidationRow(
+		const FString& FindingContext,
+		const FDefenseAssetValidationRow& ValidationRow);
 
 	bool Run(
 		const FString& ManifestPath,

@@ -464,6 +464,255 @@ bool IsNamedGuardState(const FString& Name)
 		|| Name.Contains(TEXT("Guard"), ESearchCase::IgnoreCase);
 }
 
+FName ExpectedSourceSocketOverride(const FDefenseProofAttackEntry& Entry)
+{
+	return Entry.SourceSocketBasis == TEXT("ActiveWeapon")
+		? NAME_None
+		: FName(*Entry.ExpectedSourceSocket);
+}
+
+void ValidateGateBManifestContract(
+	const FDefenseProofManifest& Manifest,
+	TArray<FString>& Errors)
+{
+	if (Manifest.Gate != TEXT("B"))
+	{
+		return;
+	}
+
+	TMap<FString, const FDefenseProofAttackEntry*> AttacksByName;
+	for (const FDefenseProofAttackEntry& Attack : Manifest.Attacks)
+	{
+		AttacksByName.Add(Attack.Name, &Attack);
+	}
+	TMap<FString, const FDefenseProofPresentationEntry*> PresentationsByName;
+	for (const FDefenseProofPresentationEntry& Presentation : Manifest.Presentations)
+	{
+		PresentationsByName.Add(Presentation.Name, &Presentation);
+	}
+
+	const TArray<FString> Heights = {TEXT("High"), TEXT("Middle"), TEXT("Low")};
+	const TArray<FString> Lanes = {TEXT("Left"), TEXT("Center"), TEXT("Right")};
+	TMap<FString, int32> MatrixCellCounts;
+	for (const FString& Height : Heights)
+	{
+		for (const FString& Lane : Lanes)
+		{
+			MatrixCellCounts.Add(Height + TEXT("/") + Lane, 0);
+		}
+	}
+
+	bool bHasBlockInterruptibleRecoil = false;
+	bool bHasBlockableContinue = false;
+	bool bHasUnblockableContinue = false;
+	TMap<FString, TSet<FString>> OutcomesByAttack;
+	TMap<FString, TSet<FString>> MatrixFamilyLanes;
+	TMap<FString, TSet<FString>> MatrixFamilyAttacks;
+	TSet<FString> MatrixAttackNames;
+	for (const FDefenseProofExpectedCaseEntry& Case : Manifest.ExpectedCases)
+	{
+		const FString Context = FString::Printf(TEXT("expectedCases.%s"), *Case.Name);
+		if (!Manifest.ProofCases.Contains(Case.Name))
+		{
+			AddError(Errors, Context,
+				TEXT("Gate B expected case must also appear in proofCases"));
+		}
+		if (!Case.bHasExpectedHeight || !Case.bHasExpectedLane
+			|| !Case.bHasExpectedSwing || !Case.bHasExpectedLaneProvenance)
+		{
+			AddError(Errors, Context,
+				TEXT("Gate B expected cases require expectedHeight, expectedLane, expectedSwing, and expectedLaneProvenance"));
+			continue;
+		}
+
+		const FDefenseProofAttackEntry* const* AttackPtr = AttacksByName.Find(Case.Attack);
+		const FDefenseProofAttackEntry* Attack = AttackPtr ? *AttackPtr : nullptr;
+		if (!Attack)
+		{
+			continue;
+		}
+		OutcomesByAttack.FindOrAdd(Case.Attack).Add(Case.Outcome);
+		if (Case.ExpectedHeight != Attack->ExpectedHeight)
+		{
+			AddError(Errors, Context,
+				TEXT("expectedHeight must match the referenced attack height"));
+		}
+		if (Case.ExpectedSwing != Attack->ExpectedSwing)
+		{
+			AddError(Errors, Context,
+				TEXT("expectedSwing must match the referenced attack swing"));
+		}
+
+		const bool bBlockInterruptible = Attack->ExpectedTags.Contains(
+			TEXT("Attack.Defense.BlockInterruptible"));
+		const bool bUnblockable = Attack->ExpectedTags.Contains(
+			TEXT("Attack.Property.Unblockable"));
+		const bool bParryable = Attack->ExpectedTags.Contains(
+			TEXT("Attack.Defense.Parryable"));
+		if (Case.Outcome == TEXT("NormalBlock"))
+		{
+			MatrixAttackNames.Add(Attack->Name);
+			if (!Attack->bHasMatrixFamily)
+			{
+				AddError(Errors, Context,
+					TEXT("Gate B NormalBlock attacks require matrixFamily"));
+			}
+			else
+			{
+				if (Attack->MatrixFamily != Attack->ExpectedHeight)
+				{
+					AddError(Errors, Context,
+						TEXT("matrixFamily must match the referenced attack height"));
+				}
+				MatrixFamilyLanes.FindOrAdd(Attack->MatrixFamily).Add(Case.ExpectedLane);
+				MatrixFamilyAttacks.FindOrAdd(Attack->MatrixFamily).Add(Attack->Name);
+			}
+			if (Case.ExpectedLane != Attack->ExpectedLane)
+			{
+				AddError(Errors, Context,
+					TEXT("expectedLane must match the referenced matrix attack lane"));
+			}
+			const FDefenseProofPresentationEntry* const* PresentationPtr =
+				PresentationsByName.Find(Case.Presentation);
+			const FDefenseProofPresentationEntry* Presentation = PresentationPtr
+				? *PresentationPtr : nullptr;
+			if (!Presentation || !Presentation->bHasMaxContactTargetVerticalDeltaCm)
+			{
+				AddError(Errors, Context,
+					TEXT("Gate B NormalBlock presentation requires maxContactTargetVerticalDeltaCm"));
+			}
+			const FString Cell = Case.ExpectedHeight + TEXT("/") + Case.ExpectedLane;
+			if (int32* Count = MatrixCellCounts.Find(Cell))
+			{
+				++(*Count);
+			}
+			else
+			{
+				AddError(Errors, Context,
+					TEXT("NormalBlock case is outside the Gate B High/Middle/Low by Left/Center/Right matrix"));
+			}
+			if (Case.ExpectedLaneProvenance != TEXT("WeaponVelocity"))
+			{
+				AddError(Errors, Context,
+					TEXT("Gate B NormalBlock matrix cases must use WeaponVelocity lane provenance"));
+			}
+			if (bUnblockable)
+			{
+				AddError(Errors, Context,
+					TEXT("NormalBlock cannot be backed by an Attack.Property.Unblockable attack"));
+			}
+			if (Case.AttackerResponse == TEXT("Recoil"))
+			{
+				if (!bBlockInterruptible)
+				{
+					AddError(Errors, Context,
+						TEXT("NormalBlock/Recoil requires Attack.Defense.BlockInterruptible"));
+				}
+				bHasBlockInterruptibleRecoil |= bBlockInterruptible && !bUnblockable;
+			}
+			else if (Case.AttackerResponse == TEXT("Continue"))
+			{
+				if (bBlockInterruptible)
+				{
+					AddError(Errors, Context,
+						TEXT("NormalBlock/Continue requires a non-BlockInterruptible attack"));
+				}
+				bHasBlockableContinue |= !bBlockInterruptible && !bUnblockable;
+			}
+		}
+		else if (Case.Outcome == TEXT("UnblockableHit"))
+		{
+			if (!bUnblockable)
+			{
+				AddError(Errors, Context,
+					TEXT("UnblockableHit requires Attack.Property.Unblockable"));
+			}
+			if (Case.AttackerResponse != TEXT("Continue"))
+			{
+				AddError(Errors, Context,
+					TEXT("Gate B UnblockableHit requires Continue"));
+			}
+			bHasUnblockableContinue |= bUnblockable
+				&& Case.AttackerResponse == TEXT("Continue");
+		}
+		else if (Case.Outcome == TEXT("PerfectParry") && !bParryable)
+		{
+			AddError(Errors, Context,
+				TEXT("PerfectParry requires Attack.Defense.Parryable"));
+		}
+	}
+
+	for (const FString& Height : Heights)
+	{
+		for (const FString& Lane : Lanes)
+		{
+			const FString Cell = Height + TEXT("/") + Lane;
+			const int32 Count = MatrixCellCounts.FindRef(Cell);
+			if (Count != 1)
+			{
+				AddError(Errors, TEXT("manifest.gateBMatrix"), FString::Printf(
+					TEXT("Gate B matrix cell %s must be declared exactly once; found %d"),
+					*Cell, Count));
+			}
+		}
+		const TSet<FString>* FamilyLanes = MatrixFamilyLanes.Find(Height);
+		const TSet<FString>* FamilyAttacks = MatrixFamilyAttacks.Find(Height);
+		if (!FamilyLanes || FamilyLanes->Num() != Lanes.Num()
+			|| !FamilyAttacks || FamilyAttacks->Num() != Lanes.Num())
+		{
+			AddError(Errors, TEXT("manifest.gateBMatrix"), FString::Printf(
+				TEXT("matrixFamily %s must contain three distinct Left/Center/Right attack variants"),
+				*Height));
+		}
+	}
+	if (MatrixFamilyAttacks.Num() != Heights.Num())
+	{
+		AddError(Errors, TEXT("manifest.gateBMatrix"),
+			TEXT("Gate B must declare exactly the High, Middle, and Low matrixFamily values"));
+	}
+	for (const FDefenseProofAttackEntry& Attack : Manifest.Attacks)
+	{
+		if (Attack.bHasMatrixFamily && !MatrixAttackNames.Contains(Attack.Name))
+		{
+			AddError(Errors, FString::Printf(TEXT("attack.%s"), *Attack.Name),
+				TEXT("matrixFamily is reserved for Gate B NormalBlock matrix attacks"));
+		}
+	}
+	if (!bHasBlockInterruptibleRecoil)
+	{
+		AddError(Errors, TEXT("manifest.gateBSemantics"),
+			TEXT("Gate B requires NormalBlock/Recoil backed by Attack.Defense.BlockInterruptible"));
+	}
+	if (!bHasBlockableContinue)
+	{
+		AddError(Errors, TEXT("manifest.gateBSemantics"),
+			TEXT("Gate B requires NormalBlock/Continue backed by a blockable non-BlockInterruptible attack"));
+	}
+	if (!bHasUnblockableContinue)
+	{
+		AddError(Errors, TEXT("manifest.gateBSemantics"),
+			TEXT("Gate B requires UnblockableHit/Continue backed by Attack.Property.Unblockable"));
+	}
+
+	for (const FDefenseProofAttackEntry& Attack : Manifest.Attacks)
+	{
+		const bool bMixedUnblockableParryable = Attack.ExpectedTags.Contains(
+			TEXT("Attack.Property.Unblockable"))
+			&& Attack.ExpectedTags.Contains(TEXT("Attack.Defense.Parryable"));
+		if (!bMixedUnblockableParryable)
+		{
+			continue;
+		}
+		const TSet<FString>* Outcomes = OutcomesByAttack.Find(Attack.Name);
+		if (!Outcomes || !Outcomes->Contains(TEXT("UnblockableHit"))
+			|| !Outcomes->Contains(TEXT("PerfectParry")))
+		{
+			AddError(Errors, FString::Printf(TEXT("attack.%s"), *Attack.Name),
+				TEXT("an attack tagged Unblockable and Parryable requires explicit UnblockableHit and PerfectParry cases"));
+		}
+	}
+}
+
 void ValidateGuardAnimBlueprint(
 	const FDefenseProofFixture& Fixture,
 	UObject* GuardObject,
@@ -738,20 +987,50 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 			}
 			const TSharedPtr<FJsonObject> Object = Value->AsObject();
 			RejectUnknownFields(Object,
-				{TEXT("name"), TEXT("attackData"), TEXT("montage"), TEXT("section"),
+				{TEXT("name"), TEXT("matrixFamily"), TEXT("attackData"), TEXT("montage"), TEXT("section"),
 				 TEXT("expectedHeight"), TEXT("expectedLane"), TEXT("expectedSwing"),
+				 TEXT("sourceSocketBasis"),
 				 TEXT("expectedSourceSocket"), TEXT("expectedTargetBone"),
 				 TEXT("requiresBlockedImpactAudio"), TEXT("requiresBlockedImpactVFX"),
 				 TEXT("expectedTags"), TEXT("parryWindow")},
 				Context, OutErrors);
 			FDefenseProofAttackEntry Entry;
 			ReadRequiredString(Object, TEXT("name"), Context, Entry.Name, OutErrors);
+			if (Object->Values.Contains(TEXT("matrixFamily")))
+			{
+				Entry.bHasMatrixFamily = ReadRequiredString(
+					Object, TEXT("matrixFamily"), Context, Entry.MatrixFamily, OutErrors);
+				if (Entry.bHasMatrixFamily
+					&& Entry.MatrixFamily != TEXT("High")
+					&& Entry.MatrixFamily != TEXT("Middle")
+					&& Entry.MatrixFamily != TEXT("Low"))
+				{
+					AddError(OutErrors, Context,
+						TEXT("matrixFamily must be High, Middle, or Low"));
+				}
+			}
 			ReadRequiredString(Object, TEXT("attackData"), Context, Entry.AttackData, OutErrors);
 			ReadRequiredString(Object, TEXT("montage"), Context, Entry.Montage, OutErrors);
 			ReadRequiredString(Object, TEXT("section"), Context, Entry.Section, OutErrors);
 			ReadRequiredString(Object, TEXT("expectedHeight"), Context, Entry.ExpectedHeight, OutErrors);
 			ReadRequiredString(Object, TEXT("expectedLane"), Context, Entry.ExpectedLane, OutErrors);
 			ReadRequiredString(Object, TEXT("expectedSwing"), Context, Entry.ExpectedSwing, OutErrors);
+			if (Object->Values.Contains(TEXT("sourceSocketBasis")))
+			{
+				ReadRequiredString(Object, TEXT("sourceSocketBasis"), Context,
+					Entry.SourceSocketBasis, OutErrors);
+			}
+			else if (OutManifest.Gate == TEXT("B"))
+			{
+				AddError(OutErrors, Context,
+					TEXT("Gate B attacks require sourceSocketBasis"));
+			}
+			if (Entry.SourceSocketBasis != TEXT("ActiveWeapon")
+				&& Entry.SourceSocketBasis != TEXT("AttackOverride"))
+			{
+				AddError(OutErrors, Context,
+					TEXT("sourceSocketBasis must be ActiveWeapon or AttackOverride"));
+			}
 			ReadRequiredString(Object, TEXT("expectedSourceSocket"), Context,
 				Entry.ExpectedSourceSocket, OutErrors);
 			ReadRequiredString(Object, TEXT("expectedTargetBone"), Context,
@@ -876,10 +1155,12 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 			const TSharedPtr<FJsonObject> Object = Value->AsObject();
 			RejectUnknownFields(Object,
 				{TEXT("name"), TEXT("outcome"), TEXT("attackerResponse"),
-				 TEXT("defenderRow"), TEXT("attackerRow"),
-				 TEXT("requiresDefenderMontage"), TEXT("requiresAttackerMontage"),
-				 TEXT("requiresImpactAudio"), TEXT("requiresImpactVFX"),
-				 TEXT("expectedSourceSocket"), TEXT("expectedTargetBone"), TEXT("reviewed")},
+				 TEXT("defenderRow"), TEXT("expectedDefenderFallbackRow"),
+				 TEXT("attackerRow"), TEXT("expectedAttackerFallbackRow"),
+					 TEXT("requiresDefenderMontage"), TEXT("requiresAttackerMontage"),
+					 TEXT("requiresImpactAudio"), TEXT("requiresImpactVFX"),
+					 TEXT("expectedSourceSocket"), TEXT("expectedTargetBone"),
+					 TEXT("maxContactTargetVerticalDeltaCm"), TEXT("reviewed")},
 				Context, OutErrors);
 			FDefenseProofPresentationEntry Entry;
 			ReadRequiredString(Object, TEXT("name"), Context, Entry.Name, OutErrors);
@@ -888,8 +1169,20 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 				Entry.AttackerResponse, OutErrors);
 			ReadRequiredNullableString(Object, TEXT("defenderRow"), Context,
 				Entry.DefenderRow, Entry.bHasDefenderRow, OutErrors);
+			if (Object->Values.Contains(TEXT("expectedDefenderFallbackRow")))
+			{
+				ReadRequiredNullableString(Object, TEXT("expectedDefenderFallbackRow"), Context,
+					Entry.ExpectedDefenderFallbackRow,
+					Entry.bHasExpectedDefenderFallbackRow, OutErrors);
+			}
 			ReadRequiredNullableString(Object, TEXT("attackerRow"), Context,
 				Entry.AttackerRow, Entry.bHasAttackerRow, OutErrors);
+			if (Object->Values.Contains(TEXT("expectedAttackerFallbackRow")))
+			{
+				ReadRequiredNullableString(Object, TEXT("expectedAttackerFallbackRow"), Context,
+					Entry.ExpectedAttackerFallbackRow,
+					Entry.bHasExpectedAttackerFallbackRow, OutErrors);
+			}
 			ReadRequiredBool(Object, TEXT("requiresDefenderMontage"), Context,
 				Entry.bRequiresDefenderMontage, OutErrors);
 			ReadRequiredBool(Object, TEXT("requiresAttackerMontage"), Context,
@@ -902,6 +1195,18 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 				Entry.ExpectedSourceSocket, OutErrors);
 			ReadRequiredString(Object, TEXT("expectedTargetBone"), Context,
 				Entry.ExpectedTargetBone, OutErrors);
+			if (Object->Values.Contains(TEXT("maxContactTargetVerticalDeltaCm")))
+			{
+				Entry.bHasMaxContactTargetVerticalDeltaCm = ReadRequiredNumber(
+					Object, TEXT("maxContactTargetVerticalDeltaCm"), Context,
+					Entry.MaxContactTargetVerticalDeltaCm, OutErrors);
+				if (Entry.bHasMaxContactTargetVerticalDeltaCm
+					&& Entry.MaxContactTargetVerticalDeltaCm <= 0.0)
+				{
+					AddError(OutErrors, Context,
+						TEXT("maxContactTargetVerticalDeltaCm must be greater than zero"));
+				}
+			}
 			ReadRequiredBool(Object, TEXT("reviewed"), Context, Entry.bReviewed, OutErrors);
 			if (!Entry.bReviewed)
 			{
@@ -924,6 +1229,18 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 			{
 				AddError(OutErrors, Context,
 					TEXT("requiresAttackerMontage requires an attackerRow"));
+			}
+			if (OutManifest.Gate == TEXT("B") && Entry.bHasDefenderRow
+				&& !Entry.bHasExpectedDefenderFallbackRow)
+			{
+				AddError(OutErrors, Context,
+					TEXT("Gate B presentation with defenderRow requires expectedDefenderFallbackRow"));
+			}
+			if (OutManifest.Gate == TEXT("B") && Entry.bHasAttackerRow
+				&& !Entry.bHasExpectedAttackerFallbackRow)
+			{
+				AddError(OutErrors, Context,
+					TEXT("Gate B presentation with attackerRow requires expectedAttackerFallbackRow"));
 			}
 			RejectDuplicateName(Entry, Names, Context, OutErrors);
 			OutManifest.Presentations.Add(MoveTemp(Entry));
@@ -1048,12 +1365,35 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 			}
 			const TSharedPtr<FJsonObject> Object = Value->AsObject();
 			RejectUnknownFields(Object,
-				{TEXT("name"), TEXT("attack"), TEXT("outcome"), TEXT("reason"), TEXT("attackerResponse"),
+				{TEXT("name"), TEXT("attack"), TEXT("expectedHeight"), TEXT("expectedLane"),
+				 TEXT("expectedSwing"), TEXT("expectedLaneProvenance"),
+				 TEXT("outcome"), TEXT("reason"), TEXT("attackerResponse"),
 				 TEXT("presentation"), TEXT("pairedDependencies"), TEXT("reviewed")},
 				Context, OutErrors);
 			FDefenseProofExpectedCaseEntry Entry;
 			ReadRequiredString(Object, TEXT("name"), Context, Entry.Name, OutErrors);
 			ReadRequiredString(Object, TEXT("attack"), Context, Entry.Attack, OutErrors);
+			if (Object->Values.Contains(TEXT("expectedHeight")))
+			{
+				Entry.bHasExpectedHeight = ReadRequiredString(Object, TEXT("expectedHeight"),
+					Context, Entry.ExpectedHeight, OutErrors);
+			}
+			if (Object->Values.Contains(TEXT("expectedLane")))
+			{
+				Entry.bHasExpectedLane = ReadRequiredString(Object, TEXT("expectedLane"),
+					Context, Entry.ExpectedLane, OutErrors);
+			}
+			if (Object->Values.Contains(TEXT("expectedSwing")))
+			{
+				Entry.bHasExpectedSwing = ReadRequiredString(Object, TEXT("expectedSwing"),
+					Context, Entry.ExpectedSwing, OutErrors);
+			}
+			if (Object->Values.Contains(TEXT("expectedLaneProvenance")))
+			{
+				Entry.bHasExpectedLaneProvenance = ReadRequiredString(Object,
+					TEXT("expectedLaneProvenance"), Context,
+					Entry.ExpectedLaneProvenance, OutErrors);
+			}
 			ReadRequiredString(Object, TEXT("outcome"), Context, Entry.Outcome, OutErrors);
 			ReadRequiredString(Object, TEXT("reason"), Context, Entry.Reason, OutErrors);
 			ReadRequiredString(Object, TEXT("attackerResponse"), Context,
@@ -1079,6 +1419,27 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 			{
 				AddError(OutErrors, Context, TEXT("attackerResponse is unknown"));
 			}
+			if (Entry.bHasExpectedHeight
+				&& !IsNamedEnumValue(StaticEnum<EAttackHeight>(), Entry.ExpectedHeight))
+			{
+				AddError(OutErrors, Context, TEXT("expectedHeight is unknown"));
+			}
+			if (Entry.bHasExpectedLane
+				&& !IsNamedEnumValue(StaticEnum<EIncomingAttackLane>(), Entry.ExpectedLane))
+			{
+				AddError(OutErrors, Context, TEXT("expectedLane is unknown"));
+			}
+			if (Entry.bHasExpectedSwing
+				&& !IsNamedEnumValue(StaticEnum<ESwingDirection>(), Entry.ExpectedSwing))
+			{
+				AddError(OutErrors, Context, TEXT("expectedSwing is unknown"));
+			}
+			if (Entry.bHasExpectedLaneProvenance
+				&& !IsNamedEnumValue(StaticEnum<EDefenseLaneProvenance>(),
+					Entry.ExpectedLaneProvenance))
+			{
+				AddError(OutErrors, Context, TEXT("expectedLaneProvenance is unknown"));
+			}
 			if (Entry.Outcome == TEXT("PerfectParry") && Entry.PairedDependencies.IsEmpty())
 			{
 				AddError(OutErrors, Context,
@@ -1103,7 +1464,12 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 	}
 
 	TSet<FString> AttackNames;
-	for (const FDefenseProofAttackEntry& Entry : OutManifest.Attacks) AttackNames.Add(Entry.Name);
+	TMap<FString, const FDefenseProofAttackEntry*> AttacksByName;
+	for (const FDefenseProofAttackEntry& Entry : OutManifest.Attacks)
+	{
+		AttackNames.Add(Entry.Name);
+		AttacksByName.Add(Entry.Name, &Entry);
+	}
 	TMap<FString, const FDefenseProofPresentationEntry*> PresentationsByName;
 	for (const FDefenseProofPresentationEntry& Entry : OutManifest.Presentations)
 	{
@@ -1122,6 +1488,7 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 		{
 			AddError(OutErrors, Context, TEXT("attack reference does not exist"));
 		}
+		const FDefenseProofAttackEntry* const* Attack = AttacksByName.Find(Entry.Attack);
 		const FDefenseProofPresentationEntry* const* Presentation = Entry.bHasPresentation
 			? PresentationsByName.Find(Entry.Presentation)
 			: nullptr;
@@ -1135,6 +1502,13 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 		{
 			AddError(OutErrors, Context,
 				TEXT("referenced presentation outcome/attackerResponse does not match the expected case"));
+		}
+		if (Presentation && Attack
+			&& ((*Presentation)->ExpectedSourceSocket != (*Attack)->ExpectedSourceSocket
+				|| (*Presentation)->ExpectedTargetBone != (*Attack)->ExpectedTargetBone))
+		{
+			AddError(OutErrors, Context,
+				TEXT("referenced presentation contact socket/target bone does not match the attack"));
 		}
 		if (!Entry.bHasPresentation
 			&& (Entry.Outcome == TEXT("NormalBlock") || Entry.Outcome == TEXT("PerfectParry")))
@@ -1170,6 +1544,7 @@ bool FDefenseAssetValidationService::ParseManifestJson(
 			}
 		}
 	}
+	ValidateGateBManifestContract(OutManifest, OutErrors);
 	return OutErrors.IsEmpty();
 }
 
@@ -1279,6 +1654,34 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 		Row.Facts.Add(TEXT("declared"), TEXT("true"));
 		Row.Facts.Add(TEXT("gate"), Manifest.Gate);
 		OutResult.Rows.Add(MoveTemp(Row));
+	}
+	if (Manifest.Gate == TEXT("B"))
+	{
+		for (const FDefenseProofExpectedCaseEntry& Case : Manifest.ExpectedCases)
+		{
+			if (Case.Outcome == TEXT("NormalBlock"))
+			{
+				FDefenseAssetValidationRow MatrixRow;
+				MatrixRow.Kind = TEXT("GateBMatrix");
+				MatrixRow.Name = Case.ExpectedHeight + TEXT("/") + Case.ExpectedLane;
+				MatrixRow.Facts.Add(TEXT("case"), Case.Name);
+				MatrixRow.Facts.Add(TEXT("attack"), Case.Attack);
+				MatrixRow.Facts.Add(TEXT("swing"), Case.ExpectedSwing);
+				MatrixRow.Facts.Add(TEXT("lane_provenance"), Case.ExpectedLaneProvenance);
+				MatrixRow.Facts.Add(TEXT("attacker_response"), Case.AttackerResponse);
+				OutResult.Rows.Add(MoveTemp(MatrixRow));
+			}
+			if (Case.Outcome == TEXT("NormalBlock") || Case.Outcome == TEXT("UnblockableHit"))
+			{
+				FDefenseAssetValidationRow SemanticRow;
+				SemanticRow.Kind = TEXT("GateBSemantic");
+				SemanticRow.Name = Case.Name;
+				SemanticRow.Facts.Add(TEXT("outcome"), Case.Outcome);
+				SemanticRow.Facts.Add(TEXT("attacker_response"), Case.AttackerResponse);
+				SemanticRow.Facts.Add(TEXT("attack"), Case.Attack);
+				OutResult.Rows.Add(MoveTemp(SemanticRow));
+			}
+		}
 	}
 
 	const UWorld* ProofWorld = FindTypedObject<UWorld>(
@@ -1587,9 +1990,12 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 			Row.Facts.Add(TEXT("attack_data"), Entry.AttackData);
 			Row.Facts.Add(TEXT("montage"), Entry.Montage);
 			Row.Facts.Add(TEXT("section"), Entry.Section);
+			Row.Facts.Add(TEXT("matrix_family"), Entry.bHasMatrixFamily
+				? Entry.MatrixFamily : TEXT("None"));
 			Row.Facts.Add(TEXT("height"), Entry.ExpectedHeight);
 			Row.Facts.Add(TEXT("lane"), Entry.ExpectedLane);
 			Row.Facts.Add(TEXT("swing"), Entry.ExpectedSwing);
+			Row.Facts.Add(TEXT("source_socket_basis"), Entry.SourceSocketBasis);
 			Row.Facts.Add(TEXT("loaded"), TEXT("false"));
 			OutResult.Rows.Add(MoveTemp(Row));
 		}
@@ -1653,7 +2059,7 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 			ValidatePresentationEntry(Entry,
 				AttackEntry ? **AttackEntry : FDefenseProofAttackEntry(),
 				AttackData ? *AttackData : nullptr,
-				Configuration, Configuration, OutResult);
+				Configuration, Configuration, OutResult, ReferencingCase);
 		}
 	}
 
@@ -1666,12 +2072,85 @@ void FDefenseAssetValidationService::ValidateManifestObjects(
 		Row.Facts.Add(TEXT("outcome"), Case.Outcome);
 		Row.Facts.Add(TEXT("reason"), Case.Reason);
 		Row.Facts.Add(TEXT("attacker_response"), Case.AttackerResponse);
+		Row.Facts.Add(TEXT("height"), Case.bHasExpectedHeight
+			? Case.ExpectedHeight : TEXT("AttackDefault"));
+		Row.Facts.Add(TEXT("lane"), Case.bHasExpectedLane
+			? Case.ExpectedLane : TEXT("AttackDefault"));
+		Row.Facts.Add(TEXT("swing"), Case.bHasExpectedSwing
+			? Case.ExpectedSwing : TEXT("AttackDefault"));
+		Row.Facts.Add(TEXT("lane_provenance"), Case.bHasExpectedLaneProvenance
+			? Case.ExpectedLaneProvenance : TEXT("Unspecified"));
 
 		const FDefenseProofAttackEntry* const* AttackEntry = AttackEntries.Find(Case.Attack);
 		const UAttackData* const* AttackData = AttackAssets.Find(Case.Attack);
 		const FDefenseProofPresentationEntry* const* Presentation = Case.bHasPresentation
 			? PresentationEntries.Find(Case.Presentation)
 			: nullptr;
+		if (Presentation && AttackEntry && AttackData && *AttackData && Configuration)
+		{
+			FDefensePresentationSelectionContext SelectionContext;
+			SelectionContext.Outcome = ParseCheckedEnum<EDefenseOutcome>(Case.Outcome);
+			SelectionContext.AttackerResponse =
+				ParseCheckedEnum<EAttackerResponse>(Case.AttackerResponse);
+			SelectionContext.Height = ParseCheckedEnum<EAttackHeight>(Case.bHasExpectedHeight
+				? Case.ExpectedHeight : (*AttackEntry)->ExpectedHeight);
+			SelectionContext.Lane = ParseCheckedEnum<EIncomingAttackLane>(Case.bHasExpectedLane
+				? Case.ExpectedLane : (*AttackEntry)->ExpectedLane);
+			SelectionContext.SwingShape = ParseCheckedEnum<ESwingDirection>(Case.bHasExpectedSwing
+				? Case.ExpectedSwing : (*AttackEntry)->ExpectedSwing);
+			SelectionContext.AttackTags = (*AttackData)->AttackTags;
+			SelectionContext.bPairedBridgeUsable = true;
+
+			const FTableDefensePresentationSelector Selector;
+			const FDefensePresentationSelectionResult Defender =
+				Selector.SelectDefender(SelectionContext, Configuration);
+			const FDefensePresentationSelectionResult Attacker =
+				Selector.SelectAttacker(SelectionContext, Configuration);
+			const FDefensePresentationSelectionResult DefenderFallback =
+				Selector.SelectGenericDefender(SelectionContext, Configuration);
+			const FDefensePresentationSelectionResult AttackerFallback =
+				Selector.SelectGenericAttacker(SelectionContext, Configuration);
+			if ((*Presentation)->bHasDefenderRow
+				&& (!Defender.bFound || Defender.bAmbiguous
+					|| Defender.RowName != FName(*(*Presentation)->DefenderRow)))
+			{
+				OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+					TEXT("ExpectedCasePresentationMismatch"), Case.Name,
+					TEXT("defender row selection differs from the expected case presentation"));
+			}
+			if ((*Presentation)->bHasAttackerRow
+				&& (!Attacker.bFound || Attacker.bAmbiguous
+					|| Attacker.RowName != FName(*(*Presentation)->AttackerRow)))
+			{
+				OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+					TEXT("ExpectedCasePresentationMismatch"), Case.Name,
+					TEXT("attacker row selection differs from the expected case presentation"));
+			}
+			if ((*Presentation)->bHasExpectedDefenderFallbackRow
+				&& (!DefenderFallback.bFound || DefenderFallback.bAmbiguous
+					|| DefenderFallback.RowName
+						!= FName(*(*Presentation)->ExpectedDefenderFallbackRow)))
+			{
+				OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+					TEXT("ExpectedCaseFallbackProvenanceMismatch"), Case.Name,
+					TEXT("defender fallback selection differs from the manifest provenance"));
+			}
+			if ((*Presentation)->bHasExpectedAttackerFallbackRow
+				&& (!AttackerFallback.bFound || AttackerFallback.bAmbiguous
+					|| AttackerFallback.RowName
+						!= FName(*(*Presentation)->ExpectedAttackerFallbackRow)))
+			{
+				OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+					TEXT("ExpectedCaseFallbackProvenanceMismatch"), Case.Name,
+					TEXT("attacker fallback selection differs from the manifest provenance"));
+			}
+			Row.Facts.Add(TEXT("selected_defender_row"), Defender.RowName.ToString());
+			Row.Facts.Add(TEXT("selected_attacker_row"), Attacker.RowName.ToString());
+			Row.Facts.Add(TEXT("selected_defender_fallback"),
+				DefenderFallback.RowName.ToString());
+			Row.Facts.Add(TEXT("selected_attacker_fallback"),
+				AttackerFallback.RowName.ToString());
+		}
 		TMap<FString, const UPairedAnimationData*> PairedByRole;
 		for (const FString& DependencyName : Case.PairedDependencies)
 		{
@@ -1850,7 +2329,7 @@ void FDefenseAssetValidationService::ValidateAttackEntry(
 	if (AttackData->DefenseProfile.Height != ExpectedHeight
 		|| AttackData->DefenseProfile.NominalLane != ExpectedLane
 		|| AttackData->DefenseProfile.SwingShape != ExpectedSwing
-		|| AttackData->DefenseProfile.SourceContactSocketOverride != FName(*Entry.ExpectedSourceSocket)
+		|| AttackData->DefenseProfile.SourceContactSocketOverride != ExpectedSourceSocketOverride(Entry)
 		|| AttackData->GetDefenseTargetBoneFallback() != FName(*Entry.ExpectedTargetBone))
 	{
 		OutResult.AddFinding(EDefenseAssetValidationSeverity::Error, TEXT("AttackProfileMismatch"),
@@ -1941,10 +2420,20 @@ void FDefenseAssetValidationService::ValidateAttackEntry(
 			TEXT("Attack.Defense.Parryable and the canonical section window do not agree"));
 	}
 
+	Row.Facts.Add(TEXT("matrix_family"), Entry.bHasMatrixFamily
+		? Entry.MatrixFamily : TEXT("None"));
 	Row.Facts.Add(TEXT("height"), Entry.ExpectedHeight);
 	Row.Facts.Add(TEXT("lane"), Entry.ExpectedLane);
 	Row.Facts.Add(TEXT("swing"), Entry.ExpectedSwing);
-	Row.Facts.Add(TEXT("source_socket"), Entry.ExpectedSourceSocket);
+	Row.Facts.Add(TEXT("source_socket_basis"), Entry.SourceSocketBasis);
+	const bool bRuntimeActiveWeaponSocket =
+		Entry.SourceSocketBasis == TEXT("ActiveWeapon");
+	Row.Facts.Add(TEXT("expected_source_socket"), Entry.ExpectedSourceSocket);
+	Row.Facts.Add(TEXT("source_socket"), bRuntimeActiveWeaponSocket
+		? TEXT("RuntimeUnverified")
+		: AttackData->DefenseProfile.SourceContactSocketOverride.ToString());
+	Row.Facts.Add(TEXT("source_socket_static_validation"),
+		bRuntimeActiveWeaponSocket ? TEXT("RuntimeRequired") : TEXT("Validated"));
 	Row.Facts.Add(TEXT("target_bone"), Entry.ExpectedTargetBone);
 	Row.Facts.Add(TEXT("parry_windows_in_section"), LexToString(WindowsInSection));
 	Row.Facts.Add(TEXT("parry_windows_crossing_section"), LexToString(WindowsCrossingSectionBoundary));
@@ -1963,7 +2452,8 @@ void FDefenseAssetValidationService::ValidatePresentationEntry(
 	const UAttackData* AttackData,
 	const UDefenseConfiguration* DefenderConfiguration,
 	const UDefenseConfiguration* AttackerConfiguration,
-	FDefenseAssetValidationResult& OutResult)
+	FDefenseAssetValidationResult& OutResult,
+	const FDefenseProofExpectedCaseEntry* ExpectedCase)
 {
 	const FString Context = FString::Printf(TEXT("presentation.%s"), *Entry.Name);
 	FDefenseAssetValidationRow Row;
@@ -1981,9 +2471,15 @@ void FDefenseAssetValidationService::ValidatePresentationEntry(
 	FDefensePresentationSelectionContext SelectionContext;
 	SelectionContext.Outcome = ParseCheckedEnum<EDefenseOutcome>(Entry.Outcome);
 	SelectionContext.AttackerResponse = ParseCheckedEnum<EAttackerResponse>(Entry.AttackerResponse);
-	SelectionContext.Height = ParseCheckedEnum<EAttackHeight>(AttackEntry.ExpectedHeight);
-	SelectionContext.Lane = ParseCheckedEnum<EIncomingAttackLane>(AttackEntry.ExpectedLane);
-	SelectionContext.SwingShape = ParseCheckedEnum<ESwingDirection>(AttackEntry.ExpectedSwing);
+	SelectionContext.Height = ParseCheckedEnum<EAttackHeight>(ExpectedCase
+		&& ExpectedCase->bHasExpectedHeight
+			? ExpectedCase->ExpectedHeight : AttackEntry.ExpectedHeight);
+	SelectionContext.Lane = ParseCheckedEnum<EIncomingAttackLane>(ExpectedCase
+		&& ExpectedCase->bHasExpectedLane
+			? ExpectedCase->ExpectedLane : AttackEntry.ExpectedLane);
+	SelectionContext.SwingShape = ParseCheckedEnum<ESwingDirection>(ExpectedCase
+		&& ExpectedCase->bHasExpectedSwing
+			? ExpectedCase->ExpectedSwing : AttackEntry.ExpectedSwing);
 	SelectionContext.AttackTags = AttackData->AttackTags;
 	SelectionContext.bPairedBridgeUsable = true;
 
@@ -2023,6 +2519,13 @@ void FDefenseAssetValidationService::ValidatePresentationEntry(
 				TEXT("MissingGenericFallback"), Context,
 				TEXT("defender presentation lacks one deterministic generic fallback"));
 		}
+		else if (Entry.bHasExpectedDefenderFallbackRow
+			&& Generic.RowName != FName(*Entry.ExpectedDefenderFallbackRow))
+		{
+			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+				TEXT("FallbackProvenanceMismatch"), Context,
+				TEXT("selected defender generic fallback differs from the manifest"));
+		}
 	}
 	if (Entry.bHasAttackerRow)
 	{
@@ -2033,6 +2536,13 @@ void FDefenseAssetValidationService::ValidatePresentationEntry(
 			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
 				TEXT("MissingGenericFallback"), Context,
 				TEXT("attacker presentation lacks one deterministic generic fallback"));
+		}
+		else if (Entry.bHasExpectedAttackerFallbackRow
+			&& Generic.RowName != FName(*Entry.ExpectedAttackerFallbackRow))
+		{
+			OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
+				TEXT("FallbackProvenanceMismatch"), Context,
+				TEXT("selected attacker generic fallback differs from the manifest"));
 		}
 	}
 
@@ -2076,18 +2586,37 @@ void FDefenseAssetValidationService::ValidatePresentationEntry(
 			TEXT("no concrete blocked/parry Niagara effect is reachable"));
 	}
 
+	const bool bUsesRuntimeActiveWeaponSocket =
+		Defender.Payload.SourceSocketOverride.IsNone()
+		&& AttackData->DefenseProfile.SourceContactSocketOverride.IsNone()
+		&& AttackEntry.SourceSocketBasis == TEXT("ActiveWeapon");
 	const FName ResolvedSocket = !Defender.Payload.SourceSocketOverride.IsNone()
 		? Defender.Payload.SourceSocketOverride
-		: AttackData->DefenseProfile.SourceContactSocketOverride;
+		: !AttackData->DefenseProfile.SourceContactSocketOverride.IsNone()
+			? AttackData->DefenseProfile.SourceContactSocketOverride
+			: NAME_None;
 	const FName ResolvedBone = !Defender.Payload.TargetBoneOverride.IsNone()
 		? Defender.Payload.TargetBoneOverride
 		: AttackData->GetDefenseTargetBoneFallback();
-	if (ResolvedSocket != FName(*Entry.ExpectedSourceSocket)
-		|| ResolvedBone != FName(*Entry.ExpectedTargetBone))
+	const bool bSocketMismatch = !bUsesRuntimeActiveWeaponSocket
+		&& ResolvedSocket != FName(*Entry.ExpectedSourceSocket);
+	const bool bBoneMismatch = ResolvedBone != FName(*Entry.ExpectedTargetBone);
+	if (bSocketMismatch || bBoneMismatch)
 	{
+		const bool bSocketCorrectedByAttackProfile = bSocketMismatch
+			&& Defender.Payload.SourceSocketOverride.IsNone();
+		const bool bBoneCorrectedByAttackProfile = bBoneMismatch
+			&& Defender.Payload.TargetBoneOverride.IsNone();
+		const bool bAttackProfileIsSoleMismatchSource =
+			(!bSocketMismatch || bSocketCorrectedByAttackProfile)
+			&& (!bBoneMismatch || bBoneCorrectedByAttackProfile);
 		OutResult.AddFinding(EDefenseAssetValidationSeverity::Error,
-			TEXT("PresentationContactMismatch"), Context,
+			bAttackProfileIsSoleMismatchSource
+				? TEXT("PresentationContactAttackProfileMismatch")
+				: TEXT("PresentationContactMismatch"), Context,
 			TEXT("resolved presentation socket or target bone differs from the manifest"));
+		Row.Facts.Add(TEXT("contact_mismatch_provenance"),
+			bAttackProfileIsSoleMismatchSource ? TEXT("AttackProfile") : TEXT("PresentationOverride"));
 	}
 
 	if (SelectionContext.Outcome == EDefenseOutcome::NormalBlock && Defender.Payload.Montage)
@@ -2112,6 +2641,10 @@ void FDefenseAssetValidationService::ValidatePresentationEntry(
 
 	Row.Facts.Add(TEXT("defender_row"), Defender.RowName.ToString());
 	Row.Facts.Add(TEXT("attacker_row"), Attacker.RowName.ToString());
+	Row.Facts.Add(TEXT("expected_defender_fallback"),
+		Entry.bHasExpectedDefenderFallbackRow ? Entry.ExpectedDefenderFallbackRow : TEXT("Unspecified"));
+	Row.Facts.Add(TEXT("expected_attacker_fallback"),
+		Entry.bHasExpectedAttackerFallbackRow ? Entry.ExpectedAttackerFallbackRow : TEXT("Unspecified"));
 	Row.Facts.Add(TEXT("defender_montage"), Defender.Payload.Montage
 		? Defender.Payload.Montage->GetPathName() : TEXT("None"));
 	Row.Facts.Add(TEXT("attacker_montage"), Attacker.Payload.Montage
@@ -2122,8 +2655,21 @@ void FDefenseAssetValidationService::ValidatePresentationEntry(
 		? Defender.Payload.ImpactAudio.ImpactSound->GetPathName() : TEXT("None"));
 	Row.Facts.Add(TEXT("impact_vfx"), Defender.Payload.ImpactVFX.ImpactVFX
 		? Defender.Payload.ImpactVFX.ImpactVFX->GetPathName() : TEXT("None"));
-	Row.Facts.Add(TEXT("source_socket"), ResolvedSocket.ToString());
+	Row.Facts.Add(TEXT("expected_source_socket"), Entry.ExpectedSourceSocket);
+	Row.Facts.Add(TEXT("source_socket"), bUsesRuntimeActiveWeaponSocket
+		? TEXT("RuntimeUnverified") : ResolvedSocket.ToString());
+	Row.Facts.Add(TEXT("source_socket_authority"), bUsesRuntimeActiveWeaponSocket
+		? TEXT("ActiveWeaponRuntime") : TEXT("AuthoredOverride"));
+	Row.Facts.Add(TEXT("source_socket_static_validation"),
+		bUsesRuntimeActiveWeaponSocket ? TEXT("RuntimeRequired") : TEXT("Validated"));
 	Row.Facts.Add(TEXT("target_bone"), ResolvedBone.ToString());
+	if (Entry.bHasMaxContactTargetVerticalDeltaCm)
+	{
+		Row.Facts.Add(TEXT("max_contact_target_vertical_delta_cm"),
+			LexToString(Entry.MaxContactTargetVerticalDeltaCm));
+		Row.Facts.Add(TEXT("contact_vertical_delta_validation"),
+			TEXT("RuntimeRequired"));
+	}
 	Row.Facts.Add(TEXT("concrete_audio"), LexToString(bHasConcreteAudio));
 	Row.Facts.Add(TEXT("concrete_vfx"), LexToString(bHasConcreteVFX));
 	OutResult.Rows.Add(MoveTemp(Row));

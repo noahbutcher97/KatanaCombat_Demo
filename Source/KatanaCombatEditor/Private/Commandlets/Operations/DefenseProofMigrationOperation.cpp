@@ -196,6 +196,13 @@ bool AttackTagsMatch(const UAttackData* AttackData, const FDefenseProofAttackEnt
 	return SortedTagNames(AttackData->AttackTags) == Expected;
 }
 
+FName ExpectedSourceSocketOverride(const FDefenseProofAttackEntry& Entry)
+{
+	return Entry.SourceSocketBasis == TEXT("ActiveWeapon")
+		? NAME_None
+		: FName(*Entry.ExpectedSourceSocket);
+}
+
 bool GetSectionBounds(
 	const UAnimMontage* Montage,
 	const FName Section,
@@ -311,7 +318,8 @@ void AppendPackageByteFact(
 	const FString& ObjectPath,
 	const UObject* Object,
 	TArray<FString>& OutFacts,
-	TArray<FString>& OutErrors)
+	TArray<FString>& OutErrors,
+	const bool bRejectDirtyPackages)
 {
 	const FString PackageName = FPackageName::ObjectPathToPackageName(ObjectPath);
 	const UPackage* ObjectPackage = Object ? Object->GetOutermost() : nullptr;
@@ -320,7 +328,7 @@ void AppendPackageByteFact(
 		&& ObjectPackage->GetName() == PackageName;
 	const bool bDirty = (LoadedPackage && LoadedPackage->IsDirty())
 		|| (bObjectUsesDeclaredPackage && ObjectPackage->IsDirty());
-	if (bDirty)
+	if (bDirty && bRejectDirtyPackages)
 	{
 		OutErrors.Add(FString::Printf(
 			TEXT("approval package has unsaved in-memory changes: %s"), *PackageName));
@@ -360,13 +368,14 @@ void AddValidationFacts(
 	const FDefenseProofAssetSet& Assets,
 	const FDefenseAssetValidationResult& Validation,
 	FString& OutFacts,
-	TArray<FString>& OutErrors)
+	TArray<FString>& OutErrors,
+	const bool bRejectDirtyPackages)
 {
 	TArray<FString> Facts;
 	for (const FString& Path : FDefenseAssetValidationService::CollectExplicitObjectPaths(Manifest))
 	{
 		const UObject* Object = Assets.Find(Path);
-		AppendPackageByteFact(Path, Object, Facts, OutErrors);
+		AppendPackageByteFact(Path, Object, Facts, OutErrors, bRejectDirtyPackages);
 		Facts.Add(FString::Printf(TEXT("object|%s|%s|dirty=%s"), *Path,
 			Object ? *Object->GetClass()->GetPathName() : TEXT("Missing"),
 			Object && Object->GetOutermost()
@@ -552,7 +561,8 @@ bool IsCorrectableFinding(const FString& Code)
 		TEXT("PairedRotationWarpConfigMismatch"),
 		TEXT("FinisherMarkerUnexpected"),
 		TEXT("AttackCounterReferenceMismatch"),
-		TEXT("AttackFinisherReferenceMismatch")};
+		TEXT("AttackFinisherReferenceMismatch"),
+		TEXT("PresentationContactAttackProfileMismatch")};
 	return CorrectableCodes.Contains(Code);
 }
 
@@ -564,14 +574,6 @@ bool HasUncorrectableErrors(const FDefenseProofMigrationPlan& Plan)
 			return Finding.Severity == EDefenseAssetValidationSeverity::Error
 				&& !IsCorrectableFinding(Finding.Code);
 		});
-}
-
-bool ChangeMentionsRow(
-	const FString& Change,
-	const FDefenseAssetValidationRow& ValidationRow)
-{
-	return (!ValidationRow.Name.IsEmpty() && Change.Contains(ValidationRow.Name))
-		|| (!ValidationRow.AssetPath.IsEmpty() && Change.Contains(ValidationRow.AssetPath));
 }
 
 void PopulateReportFromPlan(
@@ -650,7 +652,7 @@ void PopulateReportFromPlan(
 		Row.Details.Add(TEXT("name"), ValidationRow.Name);
 		for (const FString& Change : Plan.ProposedChanges)
 		{
-			if (ChangeMentionsRow(Change, ValidationRow))
+			if (FDefenseProofMigrationOperation::ChangeTargetsValidationRow(Change, ValidationRow))
 			{
 				Row.PlannedAdditions.Add(Change);
 			}
@@ -664,9 +666,8 @@ void PopulateReportFromPlan(
 			: EKatanaAssetMigrationStatus::Unchanged;
 		for (const FDefenseAssetValidationFinding& Finding : Plan.Validation.Findings)
 		{
-			if ((!ValidationRow.Name.IsEmpty() && Finding.Context.Contains(ValidationRow.Name))
-				|| (!ValidationRow.AssetPath.IsEmpty()
-					&& Finding.Context.Contains(ValidationRow.AssetPath)))
+			if (FDefenseProofMigrationOperation::FindingTargetsValidationRow(
+				Finding.Context, ValidationRow))
 			{
 				const FString Message = FString::Printf(TEXT("%s|%s"),
 					*Finding.Code, *Finding.Message);
@@ -686,6 +687,29 @@ void PopulateReportFromPlan(
 	}
 	FKatanaAssetMigrationRunner::Summarize(OutReport);
 }
+}
+
+bool FDefenseProofMigrationOperation::ChangeTargetsValidationRow(
+	const FString& Change,
+	const FDefenseAssetValidationRow& ValidationRow)
+{
+	TArray<FString> Tokens;
+	Change.ParseIntoArray(Tokens, TEXT("|"), false);
+	return (!ValidationRow.Name.IsEmpty() && Tokens.Contains(ValidationRow.Name))
+		|| (!ValidationRow.AssetPath.IsEmpty() && Tokens.Contains(ValidationRow.AssetPath));
+}
+
+bool FDefenseProofMigrationOperation::FindingTargetsValidationRow(
+	const FString& FindingContext,
+	const FDefenseAssetValidationRow& ValidationRow)
+{
+	if (!ValidationRow.AssetPath.IsEmpty() && FindingContext == ValidationRow.AssetPath)
+	{
+		return true;
+	}
+	TArray<FString> ContextSegments;
+	FindingContext.ParseIntoArray(ContextSegments, TEXT("."), false);
+	return !ValidationRow.Name.IsEmpty() && ContextSegments.Contains(ValidationRow.Name);
 }
 
 bool FDefenseProofMigrationOperation::CanonicalizeJson(
@@ -759,7 +783,8 @@ bool FDefenseProofMigrationOperation::BuildLoadedPlan(
 	const FString& CanonicalManifest,
 	const FDefenseProofAssetSet& Assets,
 	FDefenseProofMigrationPlan& OutPlan,
-	TArray<FString>& OutErrors)
+	TArray<FString>& OutErrors,
+	const bool bRejectDirtyApprovalPackages)
 {
 	OutPlan = FDefenseProofMigrationPlan();
 	OutPlan.Manifest = Manifest;
@@ -877,7 +902,7 @@ bool FDefenseProofMigrationOperation::BuildLoadedPlan(
 				StaticEnum<EIncomingAttackLane>()->GetValueByNameString(Entry.ExpectedLane))
 			|| Attack->DefenseProfile.SwingShape != static_cast<ESwingDirection>(
 				StaticEnum<ESwingDirection>()->GetValueByNameString(Entry.ExpectedSwing))
-			|| Attack->DefenseProfile.SourceContactSocketOverride != FName(*Entry.ExpectedSourceSocket)
+			|| Attack->DefenseProfile.SourceContactSocketOverride != ExpectedSourceSocketOverride(Entry)
 			|| Attack->GetDefenseTargetBoneFallback() != FName(*Entry.ExpectedTargetBone)
 			|| !AttackTagsMatch(Attack, Entry);
 		if (bDefinitionMismatch)
@@ -969,7 +994,8 @@ bool FDefenseProofMigrationOperation::BuildLoadedPlan(
 		return Left.PackageName < Right.PackageName;
 	});
 	AddValidationFacts(
-		Manifest, Assets, OutPlan.Validation, OutPlan.CanonicalAssetFacts, OutErrors);
+		Manifest, Assets, OutPlan.Validation, OutPlan.CanonicalAssetFacts, OutErrors,
+		bRejectDirtyApprovalPackages);
 	OutPlan.Fingerprint = ComputePlanFingerprint(
 		OutPlan.CanonicalManifest, OutPlan.CanonicalAssetFacts,
 		OutPlan.ProposedChanges, OutPlan.PackageLedger);
@@ -1175,7 +1201,7 @@ bool FDefenseProofMigrationOperation::ApplyLoadedPlan(
 				StaticEnum<EIncomingAttackLane>()->GetValueByNameString(Entry.ExpectedLane))
 			|| Attack->DefenseProfile.SwingShape != static_cast<ESwingDirection>(
 				StaticEnum<ESwingDirection>()->GetValueByNameString(Entry.ExpectedSwing))
-			|| Attack->DefenseProfile.SourceContactSocketOverride != FName(*Entry.ExpectedSourceSocket)
+			|| Attack->DefenseProfile.SourceContactSocketOverride != ExpectedSourceSocketOverride(Entry)
 			|| Attack->GetDefenseTargetBoneFallback() != FName(*Entry.ExpectedTargetBone)
 			|| !AttackTagsMatch(Attack, Entry))
 		{
@@ -1188,7 +1214,7 @@ bool FDefenseProofMigrationOperation::ApplyLoadedPlan(
 				StaticEnum<EIncomingAttackLane>()->GetValueByNameString(Entry.ExpectedLane));
 			Attack->DefenseProfile.SwingShape = static_cast<ESwingDirection>(
 				StaticEnum<ESwingDirection>()->GetValueByNameString(Entry.ExpectedSwing));
-			Attack->DefenseProfile.SourceContactSocketOverride = FName(*Entry.ExpectedSourceSocket);
+			Attack->DefenseProfile.SourceContactSocketOverride = ExpectedSourceSocketOverride(Entry);
 			Attack->DefenseProfile.DefenderTargetBoneFallback = FName(*Entry.ExpectedTargetBone);
 			Attack->AttackTags.Reset();
 			for (const FString& TagName : Entry.ExpectedTags)
@@ -1369,6 +1395,8 @@ bool FDefenseProofMigrationOperation::ValidateApprovedPlanBinding(
 	FString Operation;
 	FString ReportFingerprint;
 	FString Mode;
+	FString ManifestPath;
+	FString Gate;
 	double SchemaVersion = 0.0;
 	if (!Root->TryGetNumberField(TEXT("schema_version"), SchemaVersion)
 		|| SchemaVersion != 2.0
@@ -1376,6 +1404,8 @@ bool FDefenseProofMigrationOperation::ValidateApprovedPlanBinding(
 		|| Operation != OperationName
 		|| !Root->TryGetStringField(TEXT("mode"), Mode)
 		|| Mode != TEXT("Plan")
+		|| !Root->TryGetStringField(TEXT("manifest_path"), ManifestPath)
+		|| !Root->TryGetStringField(TEXT("gate"), Gate)
 		|| !Root->TryGetStringField(TEXT("plan_fingerprint"), ReportFingerprint))
 	{
 		OutErrors.Add(TEXT("approved report must be a schema-v2 DefenseProofMigration Plan report"));
@@ -1385,6 +1415,35 @@ bool FDefenseProofMigrationOperation::ValidateApprovedPlanBinding(
 		|| ReportFingerprint != CurrentPlan.Fingerprint)
 	{
 		OutErrors.Add(TEXT("approved report fingerprint, argument, and current plan do not agree"));
+	}
+	const FString ResolvedManifestPath =
+		FKatanaAssetMigrationRunner::ResolveProjectRelativeFilePath(ManifestPath);
+	if (Gate != CurrentPlan.Manifest.Gate
+		|| CurrentPlan.Manifest.SourcePath.IsEmpty()
+		|| !FPaths::IsSamePath(ResolvedManifestPath, CurrentPlan.Manifest.SourcePath))
+	{
+		OutErrors.Add(TEXT("approved report manifest identity differs from the current plan"));
+	}
+
+	FKatanaAssetMigrationReport ExpectedReport;
+	BuildPlanReport(ManifestPath, CurrentPlan, ExpectedReport);
+	FString ExpectedJson;
+	TArray<FString> SerializationErrors;
+	if (!FKatanaAssetMigrationRunner::SerializeReport(
+		ExpectedReport, ExpectedJson, SerializationErrors))
+	{
+		OutErrors.Append(SerializationErrors);
+		return false;
+	}
+	FString CanonicalApprovedReport;
+	FString CanonicalExpectedReport;
+	FString CanonicalError;
+	if (!CanonicalizeJson(Json, CanonicalApprovedReport, CanonicalError)
+		|| !CanonicalizeJson(ExpectedJson, CanonicalExpectedReport, CanonicalError)
+		|| CanonicalApprovedReport != CanonicalExpectedReport)
+	{
+		OutErrors.Add(TEXT("approved report content differs from the current canonical Plan report"));
+		return false;
 	}
 
 	const TArray<TSharedPtr<FJsonValue>>* LedgerValues = nullptr;
@@ -1441,6 +1500,15 @@ bool FDefenseProofMigrationOperation::ValidateApprovedPlanBinding(
 		}
 	}
 	return OutErrors.IsEmpty();
+}
+
+void FDefenseProofMigrationOperation::BuildPlanReport(
+	const FString& ManifestPath,
+	const FDefenseProofMigrationPlan& Plan,
+	FKatanaAssetMigrationReport& OutReport)
+{
+	PopulateReportFromPlan(
+		ManifestPath, Plan, EKatanaAssetMigrationMode::Plan, nullptr, OutReport);
 }
 
 bool FDefenseProofMigrationOperation::ValidateChangedPackageSet(
@@ -1578,7 +1646,8 @@ bool FDefenseProofMigrationOperation::Run(
 
 	FDefenseProofMigrationPlan PostApplyPlan;
 	Errors.Reset();
-	if (!BuildLoadedPlan(Manifest, CanonicalManifest, Assets, PostApplyPlan, Errors))
+	if (!BuildLoadedPlan(
+		Manifest, CanonicalManifest, Assets, PostApplyPlan, Errors, false))
 	{
 		Plan.Validation.AddFinding(EDefenseAssetValidationSeverity::Error,
 			TEXT("ApplyValidationFailed"), ManifestPath,

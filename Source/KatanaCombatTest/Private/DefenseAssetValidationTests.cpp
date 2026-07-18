@@ -1,5 +1,8 @@
 #include "Misc/AutomationTest.h"
 
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+
 #include "Animation/AnimComposite.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_ChainStageTransition.h"
@@ -79,6 +82,7 @@ FString ValidManifest()
     "requiresImpactVFX": true,
     "expectedSourceSocket": "weapon_top",
     "expectedTargetBone": "spine_03",
+    "maxContactTargetVerticalDeltaCm": 30.0,
     "reviewed": true
   }],
   "pairedDependencies": [{
@@ -180,6 +184,13 @@ bool ErrorsContain(const TArray<FString>& Errors, const FString& Needle)
 	});
 }
 
+bool LoadGateBManifestJson(FString& OutJson)
+{
+	const FString ManifestPath = FPaths::ConvertRelativePathToFull(
+		FPaths::Combine(FPaths::ProjectDir(), TEXT("Tools/Codex/manifests/defense-gate-b.json")));
+	return FFileHelper::LoadFileToString(OutJson, *ManifestPath);
+}
+
 UAnimMontage* CreateSectionMontage(const FName Section = TEXT("Target"))
 {
 	UAnimMontage* Montage = NewObject<UAnimMontage>(GetTransientPackage());
@@ -217,6 +228,7 @@ FDefenseProofAttackEntry MakeAttackEntry()
 	Entry.ExpectedHeight = TEXT("Middle");
 	Entry.ExpectedLane = TEXT("Center");
 	Entry.ExpectedSwing = TEXT("Horizontal");
+	Entry.SourceSocketBasis = TEXT("AttackOverride");
 	Entry.ExpectedSourceSocket = TEXT("weapon_top");
 	Entry.ExpectedTargetBone = TEXT("spine_03");
 	Entry.bRequiresBlockedImpactAudio = true;
@@ -256,8 +268,12 @@ FDefenseProofPresentationEntry MakePresentationEntry()
 	Entry.AttackerResponse = TEXT("Recoil");
 	Entry.DefenderRow = TEXT("BlockExact");
 	Entry.bHasDefenderRow = true;
+	Entry.ExpectedDefenderFallbackRow = TEXT("BlockGeneric");
+	Entry.bHasExpectedDefenderFallbackRow = true;
 	Entry.AttackerRow = TEXT("RecoilExact");
 	Entry.bHasAttackerRow = true;
+	Entry.ExpectedAttackerFallbackRow = TEXT("RecoilGeneric");
+	Entry.bHasExpectedAttackerFallbackRow = true;
 	Entry.bRequiresDefenderMontage = true;
 	Entry.bRequiresAttackerMontage = true;
 	Entry.bRequiresImpactAudio = true;
@@ -555,6 +571,18 @@ bool FDefenseManifestReviewAndTimingTest::RunTest(const FString& Parameters)
 		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("reviewed")));
 	TestTrue(TEXT("Timing order failure should be explicit"),
 		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("endSeconds")));
+
+	FString InvalidContactToleranceJson = DefenseAssetValidationTests::ValidManifest();
+	InvalidContactToleranceJson.ReplaceInline(
+		TEXT("\"maxContactTargetVerticalDeltaCm\": 30.0"),
+		TEXT("\"maxContactTargetVerticalDeltaCm\": 0.0"));
+	Errors.Reset();
+	TestFalse(TEXT("A declared contact target tolerance must be positive"),
+		FDefenseAssetValidationService::ParseManifestJson(
+			InvalidContactToleranceJson, Manifest, Errors));
+	TestTrue(TEXT("Invalid contact target tolerance should be explicit"),
+		DefenseAssetValidationTests::ErrorsContain(
+			Errors, TEXT("maxContactTargetVerticalDeltaCm")));
 	return true;
 }
 
@@ -775,6 +803,165 @@ bool FDefenseManifestCasePresentationAgreementTest::RunTest(const FString& Param
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseManifestGateBMatrixContractTest,
+	"KatanaCombat.Editor.DefenseValidation.Manifest.GateBMatrixContract",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseManifestGateBMatrixContractTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FString Json;
+	if (!TestTrue(TEXT("The production Gate B manifest should be readable"),
+		DefenseAssetValidationTests::LoadGateBManifestJson(Json)))
+	{
+		return false;
+	}
+
+	FDefenseProofManifest Manifest;
+	TArray<FString> Errors;
+	TestTrue(TEXT("The reviewed Gate B matrix contract should parse"),
+		FDefenseAssetValidationService::ParseManifestJson(Json, Manifest, Errors));
+	TestEqual(TEXT("The Gate B contract should not emit parser errors"), Errors.Num(), 0);
+	TestEqual(TEXT("Gate B should declare eleven attacks"), Manifest.Attacks.Num(), 11);
+	TestEqual(TEXT("Gate B should declare five presentation contracts"), Manifest.Presentations.Num(), 5);
+	TestEqual(TEXT("Gate B should declare eleven behavioral cases"), Manifest.ExpectedCases.Num(), 11);
+	TMap<FString, TSet<FString>> MatrixFamilyLanes;
+	int32 MatrixFamilyMembers = 0;
+	for (const FDefenseProofAttackEntry& Attack : Manifest.Attacks)
+	{
+		if (!Attack.bHasMatrixFamily)
+		{
+			continue;
+		}
+		++MatrixFamilyMembers;
+		MatrixFamilyLanes.FindOrAdd(Attack.MatrixFamily).Add(Attack.ExpectedLane);
+		TestEqual(TEXT("A matrix variant's family must match its authored height"),
+			Attack.MatrixFamily, Attack.ExpectedHeight);
+	}
+	TestEqual(TEXT("Gate B should declare nine family-backed matrix variants"),
+		MatrixFamilyMembers, 9);
+	TestEqual(TEXT("Gate B should declare exactly three logical matrix families"),
+		MatrixFamilyLanes.Num(), 3);
+	for (const FString& Family : {FString(TEXT("High")), FString(TEXT("Middle")), FString(TEXT("Low"))})
+	{
+		const TSet<FString>* FamilyLanes = MatrixFamilyLanes.Find(Family);
+		TestTrue(*FString::Printf(TEXT("Gate B should declare the %s matrix family"), *Family),
+			FamilyLanes != nullptr);
+		if (FamilyLanes)
+		{
+			TestEqual(*FString::Printf(TEXT("The %s family should have Left/Center/Right variants"),
+				*Family), FamilyLanes->Num(), 3);
+		}
+	}
+	if (Manifest.Attacks.Num() == 11 && Manifest.Presentations.Num() == 5
+		&& Manifest.ExpectedCases.Num() == 11)
+	{
+		TestEqual(TEXT("Gate B should preserve active-weapon socket authority"),
+			Manifest.Attacks[0].SourceSocketBasis, FString(TEXT("ActiveWeapon")));
+		TestEqual(TEXT("Gate B should preserve deterministic defender fallback provenance"),
+			Manifest.Presentations[0].ExpectedDefenderFallbackRow,
+			FString(TEXT("NormalBlockGeneric")));
+		TestEqual(TEXT("Gate B should preserve the calibrated middle-center target"),
+			Manifest.Presentations[2].ExpectedTargetBone, FString(TEXT("spine_01")));
+		TestEqual(TEXT("Gate B should preserve case lane provenance"),
+			Manifest.ExpectedCases[0].ExpectedLaneProvenance,
+			FString(TEXT("WeaponVelocity")));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseManifestGateBAdversarialContractTest,
+	"KatanaCombat.Editor.DefenseValidation.Manifest.GateBAdversarialContract",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseManifestGateBAdversarialContractTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FString SourceJson;
+	if (!TestTrue(TEXT("The production Gate B manifest should be readable"),
+		DefenseAssetValidationTests::LoadGateBManifestJson(SourceJson)))
+	{
+		return false;
+	}
+
+	FDefenseProofManifest Manifest;
+	TArray<FString> Errors;
+
+	FString MissingCellJson = SourceJson;
+	TestTrue(TEXT("The matrix-cell mutation should apply"), MissingCellJson.ReplaceInline(
+		TEXT("\"name\": \"NormalBlockHighRight\",\n      \"attack\": \"GateB_HighRight\",\n      \"expectedHeight\": \"High\",\n      \"expectedLane\": \"Right\""),
+		TEXT("\"name\": \"NormalBlockHighRight\",\n      \"attack\": \"GateB_HighRight\",\n      \"expectedHeight\": \"High\",\n      \"expectedLane\": \"Center\"")) > 0);
+	TestFalse(TEXT("A duplicated axis assignment must leave the Gate B matrix incomplete"),
+		FDefenseAssetValidationService::ParseManifestJson(MissingCellJson, Manifest, Errors));
+	TestTrue(TEXT("The missing matrix cell should be named"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("matrix cell High/Right")));
+
+	FString FamilyDriftJson = SourceJson;
+	TestTrue(TEXT("The matrix-family mutation should apply"), FamilyDriftJson.ReplaceInline(
+		TEXT("\"name\": \"GateB_HighRight\",\n      \"matrixFamily\": \"High\""),
+		TEXT("\"name\": \"GateB_HighRight\",\n      \"matrixFamily\": \"Middle\"")) > 0);
+	Errors.Reset();
+	TestFalse(TEXT("A lane variant cannot migrate into a different logical height family"),
+		FDefenseAssetValidationService::ParseManifestJson(FamilyDriftJson, Manifest, Errors));
+	TestTrue(TEXT("Family drift should identify matrixFamily"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("matrixFamily")));
+
+	FString MissingFamilyJson = SourceJson;
+	TestTrue(TEXT("The missing-family mutation should apply"), MissingFamilyJson.ReplaceInline(
+		TEXT("\"name\": \"GateB_HighLeft\",\n      \"matrixFamily\": \"High\""),
+		TEXT("\"name\": \"GateB_HighLeft\"")) > 0);
+	Errors.Reset();
+	TestFalse(TEXT("Every Gate B normal-block variant must declare its logical family"),
+		FDefenseAssetValidationService::ParseManifestJson(MissingFamilyJson, Manifest, Errors));
+	TestTrue(TEXT("A missing family should identify matrixFamily"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("matrixFamily")));
+
+	FString InvalidProvenanceJson = SourceJson;
+	InvalidProvenanceJson.ReplaceInline(
+		TEXT("\"expectedLaneProvenance\": \"WeaponVelocity\""),
+		TEXT("\"expectedLaneProvenance\": \"AuthoredFallback\""));
+	Errors.Reset();
+	TestFalse(TEXT("Contact-driven Gate B matrix cases must not use authored lane fallback"),
+		FDefenseAssetValidationService::ParseManifestJson(InvalidProvenanceJson, Manifest, Errors));
+	TestTrue(TEXT("The required contact provenance should be explicit"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("WeaponVelocity")));
+
+	FString MissingSemanticsJson = SourceJson;
+	MissingSemanticsJson.ReplaceInline(TEXT("        \"Attack.Defense.BlockInterruptible\",\n"), TEXT(""));
+	MissingSemanticsJson.ReplaceInline(TEXT("        \"Attack.Property.Unblockable\",\n"), TEXT(""));
+	Errors.Reset();
+	TestFalse(TEXT("Gate B must prove both recoil and unblockable semantics"),
+		FDefenseAssetValidationService::ParseManifestJson(MissingSemanticsJson, Manifest, Errors));
+	TestTrue(TEXT("The missing recoil semantic should be named"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("BlockInterruptible")));
+	TestTrue(TEXT("The missing unblockable semantic should be named"),
+		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("Unblockable")));
+
+	FString MissingFallbackJson = SourceJson;
+	MissingFallbackJson.ReplaceInline(
+		TEXT("      \"expectedDefenderFallbackRow\": \"NormalBlockGeneric\",\n"), TEXT(""));
+	Errors.Reset();
+	TestFalse(TEXT("Every Gate B defender presentation must name its deterministic fallback"),
+		FDefenseAssetValidationService::ParseManifestJson(MissingFallbackJson, Manifest, Errors));
+	TestTrue(TEXT("The missing fallback provenance should be explicit"),
+		DefenseAssetValidationTests::ErrorsContain(
+			Errors, TEXT("requires expectedDefenderFallbackRow")));
+
+	FString MissingContactToleranceJson = SourceJson;
+	MissingContactToleranceJson.ReplaceInline(
+		TEXT("      \"maxContactTargetVerticalDeltaCm\": 30.0,\n"), TEXT(""));
+	Errors.Reset();
+	TestFalse(TEXT("Every Gate B normal-block presentation must declare a physical height tolerance"),
+		FDefenseAssetValidationService::ParseManifestJson(
+			MissingContactToleranceJson, Manifest, Errors));
+	TestTrue(TEXT("The missing physical height contract should be explicit"),
+		DefenseAssetValidationTests::ErrorsContain(
+			Errors, TEXT("maxContactTargetVerticalDeltaCm")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FDefenseAssetAttackAgreementTest,
 	"KatanaCombat.Editor.DefenseValidation.Assets.AttackProfileTagAndTimingAgreement",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
@@ -812,6 +999,53 @@ bool FDefenseAssetAttackProfileMismatchTest::RunTest(const FString& Parameters)
 		DefenseAssetValidationTests::MakeAttackEntry(), Attack, Montage, Result);
 	TestTrue(TEXT("Authored profile drift should be rejected"),
 		Result.HasFinding(TEXT("AttackProfileMismatch")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseAssetActiveWeaponSocketAuthorityTest,
+	"KatanaCombat.Editor.DefenseValidation.Assets.ActiveWeaponSocketAuthority",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseAssetActiveWeaponSocketAuthorityTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UAnimMontage* Montage = DefenseAssetValidationTests::CreateSectionMontage();
+	DefenseAssetValidationTests::AddParryWindow(Montage, 0.70f, 0.15f);
+	UAttackData* Attack = DefenseAssetValidationTests::CreateMatchingAttack(Montage);
+	Attack->DefenseProfile.SourceContactSocketOverride = NAME_None;
+	FDefenseProofAttackEntry Entry = DefenseAssetValidationTests::MakeAttackEntry();
+	Entry.SourceSocketBasis = TEXT("ActiveWeapon");
+
+	FDefenseAssetValidationResult ActiveWeaponResult;
+	FDefenseAssetValidationService::ValidateAttackEntry(
+		Entry, Attack, Montage, ActiveWeaponResult);
+	TestFalse(TEXT("ActiveWeapon authority should preserve a clear AttackData socket override"),
+		ActiveWeaponResult.HasFinding(TEXT("AttackProfileMismatch")));
+	const TArray<FDefenseAssetValidationRow> ActiveWeaponRows =
+		ActiveWeaponResult.FindRows(TEXT("Attack"));
+	TestEqual(TEXT("ActiveWeapon validation should emit one attack row"),
+		ActiveWeaponRows.Num(), 1);
+	if (ActiveWeaponRows.IsEmpty())
+	{
+		return false;
+	}
+	TestEqual(TEXT("ActiveWeapon static inventory must not substitute the expected socket"),
+		ActiveWeaponRows[0].Facts.FindRef(TEXT("source_socket")),
+		FString(TEXT("RuntimeUnverified")));
+	TestEqual(TEXT("ActiveWeapon socket identity requires runtime proof"),
+		ActiveWeaponRows[0].Facts.FindRef(TEXT("source_socket_static_validation")),
+		FString(TEXT("RuntimeRequired")));
+	TestEqual(TEXT("The expected runtime socket remains visible as a requirement"),
+		ActiveWeaponRows[0].Facts.FindRef(TEXT("expected_source_socket")),
+		FString(TEXT("weapon_top")));
+
+	Entry.SourceSocketBasis = TEXT("AttackOverride");
+	FDefenseAssetValidationResult AttackOverrideResult;
+	FDefenseAssetValidationService::ValidateAttackEntry(
+		Entry, Attack, Montage, AttackOverrideResult);
+	TestTrue(TEXT("AttackOverride authority should still require the manifest socket on AttackData"),
+		AttackOverrideResult.HasFinding(TEXT("AttackProfileMismatch")));
 	return true;
 }
 
@@ -894,6 +1128,119 @@ bool FDefenseAssetPresentationSelectionTest::RunTest(const FString& Parameters)
 		DefenseAssetValidationTests::MakeAttackEntry(), Attack, Defender, Attacker, Result);
 	TestFalse(TEXT("Exact rows with generic fallbacks and visible payloads should validate"),
 		Result.HasErrors());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseAssetPresentationContactProvenanceTest,
+	"KatanaCombat.Editor.DefenseValidation.Assets.PresentationContactMismatchProvenance",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseAssetPresentationContactProvenanceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UDefenseConfiguration* Defender = NewObject<UDefenseConfiguration>(GetTransientPackage());
+	UDefenseConfiguration* Attacker = NewObject<UDefenseConfiguration>(GetTransientPackage());
+	Defender->DefenderPresentationRows = {
+		DefenseAssetValidationTests::MakeDefenderRow(Defender, TEXT("BlockExact"), false),
+		DefenseAssetValidationTests::MakeDefenderRow(Defender, TEXT("BlockGeneric"), true)};
+	for (FDefensePresentationRow& Row : Defender->DefenderPresentationRows)
+	{
+		Row.Payload.SourceSocketOverride = NAME_None;
+		Row.Payload.TargetBoneOverride = NAME_None;
+	}
+	Attacker->AttackerResponseRows = {
+		DefenseAssetValidationTests::MakeAttackerRow(Attacker, TEXT("RecoilExact"), false),
+		DefenseAssetValidationTests::MakeAttackerRow(Attacker, TEXT("RecoilGeneric"), true)};
+	UAnimMontage* AttackMontage = DefenseAssetValidationTests::CreateSectionMontage();
+	UAttackData* Attack = DefenseAssetValidationTests::CreateMatchingAttack(AttackMontage);
+	Attack->DefenseProfile.DefenderTargetBoneFallback = TEXT("pelvis");
+
+	FDefenseAssetValidationResult AttackProfileResult;
+	FDefenseAssetValidationService::ValidatePresentationEntry(
+		DefenseAssetValidationTests::MakePresentationEntry(),
+		DefenseAssetValidationTests::MakeAttackEntry(), Attack, Defender, Attacker,
+		AttackProfileResult);
+	TestTrue(TEXT("Attack-sourced contact drift should have a correctable provenance code"),
+		AttackProfileResult.HasFinding(TEXT("PresentationContactAttackProfileMismatch")));
+	TestFalse(TEXT("Attack-sourced contact drift should not be classified as a row-override defect"),
+		AttackProfileResult.HasFinding(TEXT("PresentationContactMismatch")));
+
+	Attack->DefenseProfile.DefenderTargetBoneFallback = TEXT("spine_03");
+	for (FDefensePresentationRow& Row : Defender->DefenderPresentationRows)
+	{
+		Row.Payload.TargetBoneOverride = TEXT("pelvis");
+	}
+	FDefenseAssetValidationResult RowOverrideResult;
+	FDefenseAssetValidationService::ValidatePresentationEntry(
+		DefenseAssetValidationTests::MakePresentationEntry(),
+		DefenseAssetValidationTests::MakeAttackEntry(), Attack, Defender, Attacker,
+		RowOverrideResult);
+	TestTrue(TEXT("Presentation-row contact drift must remain uncorrectable"),
+		RowOverrideResult.HasFinding(TEXT("PresentationContactMismatch")));
+	TestFalse(TEXT("A row override must not be attributed to AttackData"),
+		RowOverrideResult.HasFinding(TEXT("PresentationContactAttackProfileMismatch")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseAssetPresentationRuntimeContactGateTest,
+	"KatanaCombat.Editor.DefenseValidation.Assets.ActiveWeaponContactRequiresRuntimeProof",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseAssetPresentationRuntimeContactGateTest::RunTest(
+	const FString& Parameters)
+{
+	(void)Parameters;
+	UDefenseConfiguration* Defender = NewObject<UDefenseConfiguration>(GetTransientPackage());
+	UDefenseConfiguration* Attacker = NewObject<UDefenseConfiguration>(GetTransientPackage());
+	Defender->DefenderPresentationRows = {
+		DefenseAssetValidationTests::MakeDefenderRow(
+			Defender, TEXT("BlockExact"), false),
+		DefenseAssetValidationTests::MakeDefenderRow(
+			Defender, TEXT("BlockGeneric"), true)};
+	for (FDefensePresentationRow& Row : Defender->DefenderPresentationRows)
+	{
+		Row.Payload.SourceSocketOverride = NAME_None;
+	}
+	Attacker->AttackerResponseRows = {
+		DefenseAssetValidationTests::MakeAttackerRow(
+			Attacker, TEXT("RecoilExact"), false),
+		DefenseAssetValidationTests::MakeAttackerRow(
+			Attacker, TEXT("RecoilGeneric"), true)};
+	UAnimMontage* AttackMontage = DefenseAssetValidationTests::CreateSectionMontage();
+	UAttackData* Attack = DefenseAssetValidationTests::CreateMatchingAttack(AttackMontage);
+	Attack->DefenseProfile.SourceContactSocketOverride = NAME_None;
+	FDefenseProofAttackEntry AttackEntry =
+		DefenseAssetValidationTests::MakeAttackEntry();
+	AttackEntry.SourceSocketBasis = TEXT("ActiveWeapon");
+	FDefenseProofPresentationEntry Presentation =
+		DefenseAssetValidationTests::MakePresentationEntry();
+	Presentation.bHasMaxContactTargetVerticalDeltaCm = true;
+	Presentation.MaxContactTargetVerticalDeltaCm = 30.0;
+
+	FDefenseAssetValidationResult Result;
+	FDefenseAssetValidationService::ValidatePresentationEntry(
+		Presentation, AttackEntry, Attack, Defender, Attacker, Result);
+	TestFalse(TEXT("An unresolved active-weapon socket is not a static mismatch"),
+		Result.HasFinding(TEXT("PresentationContactMismatch")));
+	const TArray<FDefenseAssetValidationRow> Rows =
+		Result.FindRows(TEXT("Presentation"));
+	TestEqual(TEXT("Runtime contact validation should emit one presentation row"),
+		Rows.Num(), 1);
+	if (Rows.IsEmpty())
+	{
+		return false;
+	}
+	TestEqual(TEXT("Static presentation report must not invent the runtime socket"),
+		Rows[0].Facts.FindRef(TEXT("source_socket")),
+		FString(TEXT("RuntimeUnverified")));
+	TestEqual(TEXT("Active weapon socket must be proven by runtime telemetry"),
+		Rows[0].Facts.FindRef(TEXT("source_socket_static_validation")),
+		FString(TEXT("RuntimeRequired")));
+	TestEqual(TEXT("Contact vertical tolerance must be labeled as a runtime gate"),
+		Rows[0].Facts.FindRef(TEXT("contact_vertical_delta_validation")),
+		FString(TEXT("RuntimeRequired")));
 	return true;
 }
 

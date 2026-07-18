@@ -84,12 +84,15 @@ struct FDefenseProofFixture
 struct FDefenseProofAttackEntry
 {
 	FString Name;
+	FString MatrixFamily;
+	bool bHasMatrixFamily = false;
 	FString AttackData;
 	FString Montage;
 	FString Section;
 	FString ExpectedHeight;
 	FString ExpectedLane;
 	FString ExpectedSwing;
+	FString SourceSocketBasis = TEXT("AttackOverride");
 	FString ExpectedSourceSocket;
 	FString ExpectedTargetBone;
 	bool bRequiresBlockedImpactAudio = false;
@@ -105,14 +108,20 @@ struct FDefenseProofPresentationEntry
 	FString AttackerResponse;
 	FString DefenderRow;
 	bool bHasDefenderRow = false;
+	FString ExpectedDefenderFallbackRow;
+	bool bHasExpectedDefenderFallbackRow = false;
 	FString AttackerRow;
 	bool bHasAttackerRow = false;
+	FString ExpectedAttackerFallbackRow;
+	bool bHasExpectedAttackerFallbackRow = false;
 	bool bRequiresDefenderMontage = false;
 	bool bRequiresAttackerMontage = false;
 	bool bRequiresImpactAudio = false;
 	bool bRequiresImpactVFX = false;
 	FString ExpectedSourceSocket;
 	FString ExpectedTargetBone;
+	double MaxContactTargetVerticalDeltaCm = 0.0;
+	bool bHasMaxContactTargetVerticalDeltaCm = false;
 	bool bReviewed = false;
 };
 
@@ -144,6 +153,14 @@ struct FDefenseProofExpectedCaseEntry
 {
 	FString Name;
 	FString Attack;
+	FString ExpectedHeight;
+	bool bHasExpectedHeight = false;
+	FString ExpectedLane;
+	bool bHasExpectedLane = false;
+	FString ExpectedSwing;
+	bool bHasExpectedSwing = false;
+	FString ExpectedLaneProvenance;
+	bool bHasExpectedLaneProvenance = false;
 	FString Outcome;
 	FString Reason;
 	FString AttackerResponse;
@@ -219,7 +236,8 @@ public:
 		const UAttackData* AttackData,
 		const UDefenseConfiguration* DefenderConfiguration,
 		const UDefenseConfiguration* AttackerConfiguration,
-		FDefenseAssetValidationResult& OutResult);
+		FDefenseAssetValidationResult& OutResult,
+		const FDefenseProofExpectedCaseEntry* ExpectedCase = nullptr);
 
 	static void ValidatePairedDependency(
 		const FDefenseProofPairedDependencyEntry& Entry,

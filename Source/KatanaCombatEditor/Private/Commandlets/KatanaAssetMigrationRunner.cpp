@@ -2,17 +2,20 @@
 
 #include "Commandlets/KatanaAssetMigrationRunner.h"
 
+#include "Animation/AnimMontage.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Commandlets/Operations/AttackDataNotifyMigrationOperation.h"
 #include "Commandlets/Operations/AttackDataTimingMigrationOperation.h"
 #include "Commandlets/Operations/ContentReadinessAuditOperation.h"
 #include "Commandlets/Operations/CounterChainProofMigrationOperation.h"
+#include "Commandlets/Operations/DefenseMatrixAuthoringOperation.h"
 #include "Commandlets/Operations/DefenseProofAuthoringOperation.h"
 #include "Commandlets/Operations/DefenseProofMigrationOperation.h"
 #include "Commandlets/Operations/EnemyAIProofAssetsOperation.h"
 #include "Data/AttackData.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+#include "Editor.h"
 #include "Engine/Blueprint.h"
 #include "Engine/World.h"
 #include "HAL/FileManager.h"
@@ -29,6 +32,10 @@
 
 namespace
 {
+#if WITH_AUTOMATION_TESTS
+	FString GForcedSaveFailurePackage;
+#endif
+
 	// PackageTools sends this notification after loading replacements; FiB must release
 	// the old Blueprint path before replacement loading begins.
 	void PrepareBlueprintsForPackageReload(const TArray<UPackage*>& PackagesToReload)
@@ -47,6 +54,14 @@ namespace
 		}
 	}
 }
+
+#if WITH_AUTOMATION_TESTS
+void FKatanaAssetMigrationRunner::SetForcedSaveFailurePackageForTesting(
+	const FString& PackageName)
+{
+	GForcedSaveFailurePackage = PackageName;
+}
+#endif
 
 bool FKatanaAssetMigrationRunner::ParseOptions(const FString& Params, FKatanaAssetMigrationOptions& OutOptions, TArray<FString>& OutErrors)
 {
@@ -80,6 +95,7 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	else if (!Options.Operation.Equals(FAttackDataNotifyMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FAttackDataTimingMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FCounterChainProofMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
+		!Options.Operation.Equals(FDefenseMatrixAuthoringOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FDefenseProofAuthoringOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FDefenseProofMigrationOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FContentReadinessAuditOperation::OperationName, ESearchCase::IgnoreCase) &&
@@ -90,6 +106,13 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	else if (Options.Operation.Equals(FAttackDataNotifyMigrationOperation::OperationName, ESearchCase::IgnoreCase) && Options.bAllowTimingMutation)
 	{
 		OutErrors.Add(TEXT("-AllowTimingMutation is not supported by AttackDataNotifyMigration; fix AttackData timing explicitly before notify migration"));
+	}
+	else if (Options.Operation.Equals(
+		FAttackDataNotifyMigrationOperation::OperationName,
+		ESearchCase::IgnoreCase) && Options.bAllowGlobalScan)
+	{
+		OutErrors.Add(TEXT(
+			"AttackDataNotifyMigration requires an explicit TargetsFile; global scan is intentionally unsupported"));
 	}
 	else if (Options.Operation.Equals(FContentReadinessAuditOperation::OperationName, ESearchCase::IgnoreCase) &&
 		(Options.Mode == EKatanaAssetMigrationMode::Apply || Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave))
@@ -114,6 +137,11 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	{
 		OutErrors.Add(TEXT("DefenseProofAuthoring uses the fixed reviewed Gate A recipe and rejects scans or target files"));
 	}
+	else if (Options.Operation.Equals(FDefenseMatrixAuthoringOperation::OperationName, ESearchCase::IgnoreCase)
+		&& (Options.bAllowGlobalScan || !Options.TargetsFile.IsEmpty()))
+	{
+		OutErrors.Add(TEXT("DefenseMatrixAuthoring uses the fixed reviewed Gate B recipe and rejects scans or target files"));
+	}
 
 	if (Options.Operation.Equals(FDefenseProofMigrationOperation::OperationName, ESearchCase::IgnoreCase)
 		&& (Options.Mode == EKatanaAssetMigrationMode::Apply
@@ -122,6 +150,17 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	{
 		OutErrors.Add(TEXT("DefenseProofMigration Apply modes require -ApprovedPlanReport and -ApprovedPlanFingerprint"));
 	}
+	if (Options.Operation.Equals(
+		FAttackDataNotifyMigrationOperation::OperationName,
+		ESearchCase::IgnoreCase)
+		&& (Options.Mode == EKatanaAssetMigrationMode::Apply
+			|| Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
+		&& (Options.ApprovedPlanReport.IsEmpty()
+			|| Options.ApprovedPlanFingerprint.IsEmpty()))
+	{
+		OutErrors.Add(TEXT(
+			"AttackDataNotifyMigration Apply modes require -ApprovedPlanReport and -ApprovedPlanFingerprint"));
+	}
 	if (Options.Operation.Equals(FDefenseProofAuthoringOperation::OperationName, ESearchCase::IgnoreCase)
 		&& (Options.Mode == EKatanaAssetMigrationMode::Apply
 			|| Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
@@ -129,8 +168,16 @@ bool FKatanaAssetMigrationRunner::ValidateOptions(const FKatanaAssetMigrationOpt
 	{
 		OutErrors.Add(TEXT("DefenseProofAuthoring Apply modes require -ApprovedPlanReport and -ApprovedPlanFingerprint"));
 	}
+	if (Options.Operation.Equals(FDefenseMatrixAuthoringOperation::OperationName, ESearchCase::IgnoreCase)
+		&& (Options.Mode == EKatanaAssetMigrationMode::Apply
+			|| Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
+		&& (Options.ApprovedPlanReport.IsEmpty() || Options.ApprovedPlanFingerprint.IsEmpty()))
+	{
+		OutErrors.Add(TEXT("DefenseMatrixAuthoring Apply modes require -ApprovedPlanReport and -ApprovedPlanFingerprint"));
+	}
 
 	if (!Options.Operation.Equals(FEnemyAIProofAssetsOperation::OperationName, ESearchCase::IgnoreCase) &&
+		!Options.Operation.Equals(FDefenseMatrixAuthoringOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.Operation.Equals(FDefenseProofAuthoringOperation::OperationName, ESearchCase::IgnoreCase) &&
 		!Options.bAllowGlobalScan &&
 		Options.TargetsFile.IsEmpty())
@@ -280,14 +327,11 @@ static TArray<TSharedPtr<FJsonValue>> ToJsonArray(const TArray<FString>& Values)
 	return Result;
 }
 
-bool FKatanaAssetMigrationRunner::WriteReport(const FKatanaAssetMigrationReport& Report, const FString& ReportPath, TArray<FString>& OutErrors)
+bool FKatanaAssetMigrationRunner::SerializeReport(
+	const FKatanaAssetMigrationReport& Report,
+	FString& OutJson,
+	TArray<FString>& OutErrors)
 {
-	if (ReportPath.IsEmpty())
-	{
-		OutErrors.Add(TEXT("Report path is empty"));
-		return false;
-	}
-
 	TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
 	Root->SetNumberField(TEXT("schema_version"), Report.SchemaVersion);
 	Root->SetStringField(TEXT("operation"), Report.Operation);
@@ -385,12 +429,31 @@ bool FKatanaAssetMigrationRunner::WriteReport(const FKatanaAssetMigrationReport&
 	}
 	Root->SetArrayField(TEXT("package_ledger"), PackageLedger);
 
-	FString JsonText;
+	OutJson.Reset();
 	const TSharedRef<TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>> Writer =
-		TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&JsonText);
+		TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&OutJson);
 	if (!FJsonSerializer::Serialize(Root, Writer))
 	{
 		OutErrors.Add(TEXT("Failed to serialize JSON report"));
+		return false;
+	}
+	return true;
+}
+
+bool FKatanaAssetMigrationRunner::WriteReport(
+	const FKatanaAssetMigrationReport& Report,
+	const FString& ReportPath,
+	TArray<FString>& OutErrors)
+{
+	if (ReportPath.IsEmpty())
+	{
+		OutErrors.Add(TEXT("Report path is empty"));
+		return false;
+	}
+
+	FString JsonText;
+	if (!SerializeReport(Report, JsonText, OutErrors))
+	{
 		return false;
 	}
 
@@ -408,6 +471,31 @@ bool FKatanaAssetMigrationRunner::WriteReport(const FKatanaAssetMigrationReport&
 	}
 
 	return true;
+}
+
+bool FKatanaAssetMigrationRunner::RequiresFreshProcessAudit(
+	const FKatanaAssetMigrationReport& Report)
+{
+	return Report.PackageLedger.ContainsByPredicate(
+		[](const FKatanaAssetMigrationPackageLedgerEntry& Entry)
+		{
+			return Entry.PostSaveReloadResult
+				== TEXT("FreshProcessAuditRequired");
+		});
+}
+
+void FKatanaAssetMigrationRunner::AnnotateFreshProcessAuditRequirement(
+	FKatanaAssetMigrationReport& Report)
+{
+	if (!RequiresFreshProcessAudit(Report) || Report.Rows.IsEmpty())
+	{
+		return;
+	}
+	Report.Rows[0].Warnings.AddUnique(
+		TEXT("Saved map persistence is not verified in-process; run Audit in a new commandlet process"));
+	Report.Rows[0].Details.Add(
+		TEXT("post_save_persistence_verification"),
+		TEXT("FreshProcessAuditRequired"));
 }
 
 bool FKatanaAssetMigrationRunner::LoadTargetStrings(const FKatanaAssetMigrationOptions& Options, TArray<FString>& OutTargetStrings, TArray<FKatanaAssetMigrationRow>& OutFailedRows) const
@@ -507,16 +595,137 @@ bool FKatanaAssetMigrationRunner::LoadTargets(const FKatanaAssetMigrationOptions
 bool FKatanaAssetMigrationRunner::RunAttackDataNotifyMigration(const FKatanaAssetMigrationOptions& Options, const TArray<UAttackData*>& Targets, FKatanaAssetMigrationReport& OutReport) const
 {
 	FAttackDataNotifyMigrationOperation Operation;
-	OutReport.Operation = FAttackDataNotifyMigrationOperation::OperationName;
-	OutReport.Mode = Options.Mode;
-
-	for (UAttackData* Target : Targets)
+	if (Options.Mode == EKatanaAssetMigrationMode::Audit)
 	{
-		FKatanaAssetMigrationRow Row;
-		Operation.Run(Target, Options.Mode, Row);
-		OutReport.Rows.Add(Row);
+		OutReport = FKatanaAssetMigrationReport();
+		OutReport.Operation = FAttackDataNotifyMigrationOperation::OperationName;
+		OutReport.Mode = Options.Mode;
+		for (UAttackData* Target : Targets)
+		{
+			FKatanaAssetMigrationRow Row;
+			Operation.Run(Target, Options.Mode, Row);
+			OutReport.Rows.Add(MoveTemp(Row));
+		}
+		Summarize(OutReport);
+		return OutReport.Summary.Failed == 0;
 	}
 
+	FKatanaAssetMigrationReport CurrentPlanReport;
+	TArray<FString> PlanErrors;
+	if (!FAttackDataNotifyMigrationOperation::BuildPlanReport(
+		Options, Targets, CurrentPlanReport, PlanErrors))
+	{
+		OutReport = MoveTemp(CurrentPlanReport);
+		OutReport.Mode = Options.Mode;
+		Summarize(OutReport);
+		return false;
+	}
+	if (Options.Mode == EKatanaAssetMigrationMode::Plan)
+	{
+		OutReport = MoveTemp(CurrentPlanReport);
+		return true;
+	}
+
+	TArray<FString> ApprovalErrors;
+	if (!FAttackDataNotifyMigrationOperation::ValidateApprovedPlanBinding(
+		Options, CurrentPlanReport, ApprovalErrors))
+	{
+		OutReport = MoveTemp(CurrentPlanReport);
+		OutReport.Mode = Options.Mode;
+		FKatanaAssetMigrationRow FailureRow;
+		FailureRow.InputTarget = OutReport.ManifestPath;
+		FailureRow.AssetClass = TEXT("ApprovalContract");
+		FailureRow.Status = EKatanaAssetMigrationStatus::Failed;
+		FailureRow.Errors = MoveTemp(ApprovalErrors);
+		OutReport.Rows.Add(MoveTemp(FailureRow));
+		Summarize(OutReport);
+		return false;
+	}
+
+	struct FNotifyBatchSnapshot
+	{
+		TArray<FAnimNotifyEvent> Notifies;
+		bool bPackageWasDirty = false;
+	};
+	TMap<UAnimMontage*, FNotifyBatchSnapshot> Snapshots;
+	for (UAttackData* Target : Targets)
+	{
+		if (!Target || !Target->AttackMontage
+			|| Snapshots.Contains(Target->AttackMontage))
+		{
+			continue;
+		}
+		FNotifyBatchSnapshot Snapshot;
+		Snapshot.Notifies = Target->AttackMontage->Notifies;
+		Snapshot.bPackageWasDirty =
+			Target->AttackMontage->GetOutermost()->IsDirty();
+		Snapshots.Add(Target->AttackMontage, MoveTemp(Snapshot));
+	}
+
+	OutReport = CurrentPlanReport;
+	OutReport.Mode = Options.Mode;
+	OutReport.Rows.Reset();
+	TArray<UAttackData*> SortedTargets = Targets;
+	SortedTargets.Sort([](const UAttackData& Left, const UAttackData& Right)
+	{
+		return Left.GetPathName() < Right.GetPathName();
+	});
+	bool bApplyFailed = false;
+	for (UAttackData* Target : SortedTargets)
+	{
+		FKatanaAssetMigrationRow Row;
+		const bool bApplied = Operation.Run(Target, Options.Mode, Row);
+		if (const FKatanaAssetMigrationRow* PlanRow =
+			CurrentPlanReport.Rows.FindByPredicate(
+				[&Row](const FKatanaAssetMigrationRow& Candidate)
+				{
+					return Candidate.AttackData == Row.AttackData;
+				}))
+		{
+			for (const TPair<FString, FString>& Detail : PlanRow->Details)
+			{
+				if (Detail.Key.StartsWith(TEXT("approval_")))
+				{
+					Row.Details.Add(Detail.Key, Detail.Value);
+				}
+			}
+		}
+		OutReport.Rows.Add(MoveTemp(Row));
+		bApplyFailed |= !bApplied;
+		if (bApplyFailed)
+		{
+			break;
+		}
+	}
+
+	if (bApplyFailed)
+	{
+		for (const TPair<UAnimMontage*, FNotifyBatchSnapshot>& Pair : Snapshots)
+		{
+			Pair.Key->Notifies = Pair.Value.Notifies;
+			Pair.Key->RefreshCacheData();
+			Pair.Key->GetOutermost()->SetDirtyFlag(Pair.Value.bPackageWasDirty);
+		}
+		for (FKatanaAssetMigrationRow& Row : OutReport.Rows)
+		{
+			if (Row.Status == EKatanaAssetMigrationStatus::Changed)
+			{
+				Row.Status = EKatanaAssetMigrationStatus::Failed;
+				Row.Errors.Add(TEXT(
+					"notify-migration batch was rolled back after a later target failed"));
+			}
+		}
+		Summarize(OutReport);
+		return false;
+	}
+
+	for (FKatanaAssetMigrationPackageLedgerEntry& Entry : OutReport.PackageLedger)
+	{
+		if (Entry.PlannedAction == TEXT("Update"))
+		{
+			Entry.ActualAction = TEXT("UpdatedInMemory");
+		}
+	}
 	Summarize(OutReport);
 	return OutReport.Summary.Failed == 0;
 }
@@ -653,6 +862,13 @@ bool FKatanaAssetMigrationRunner::RunDefenseProofAuthoring(
 	return FDefenseProofAuthoringOperation().Run(Options, OutReport);
 }
 
+bool FKatanaAssetMigrationRunner::RunDefenseMatrixAuthoring(
+	const FKatanaAssetMigrationOptions& Options,
+	FKatanaAssetMigrationReport& OutReport) const
+{
+	return FDefenseMatrixAuthoringOperation().Run(Options, OutReport);
+}
+
 static void SnapshotInitiallyDirtyPackages(const TArray<UAttackData*>& Targets, TSet<FString>& OutDirtyPackages)
 {
 	for (const UAttackData* Target : Targets)
@@ -709,6 +925,7 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 	TSet<FString> PreflightedPackages;
 	TMap<FString, UPackage*> PackagesByName;
 	TMap<FString, FString> FilenamesByPackage;
+	TSet<FString> MapPackages;
 	for (FKatanaAssetMigrationRow& Row : Report.Rows)
 	{
 		if (Row.Status != EKatanaAssetMigrationStatus::Changed)
@@ -752,9 +969,23 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 				}
 				continue;
 			}
+			UObject* PackageAsset = Package->FindAssetInPackage();
+			if (!PackageAsset || !PackageAsset->HasAnyFlags(RF_Standalone))
+			{
+				Row.Errors.Add(FString::Printf(
+					TEXT("Package has no saveable standalone top-level asset: %s"),
+					*PackageName));
+				Row.Status = EKatanaAssetMigrationStatus::Failed;
+				if (LedgerEntry)
+				{
+					LedgerEntry->SaveResult = TEXT("UnsaveableTopLevel");
+				}
+				continue;
+			}
 
 			FString PackageFilename;
-			const FString PackageExtension = IsLoadedMapPackage(Package)
+			const bool bIsMapPackage = IsLoadedMapPackage(Package);
+			const FString PackageExtension = bIsMapPackage
 				? FPackageName::GetMapPackageExtension()
 				: FPackageName::GetAssetPackageExtension();
 			if (!FPackageName::TryConvertLongPackageNameToFilename(
@@ -771,6 +1002,10 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 			}
 			PackagesByName.Add(PackageName, Package);
 			FilenamesByPackage.Add(PackageName, MoveTemp(PackageFilename));
+			if (bIsMapPackage)
+			{
+				MapPackages.Add(PackageName);
+			}
 		}
 	}
 	Summarize(Report);
@@ -779,7 +1014,59 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 		return false;
 	}
 
+	struct FPackageFileBackup
+	{
+		FString PackageFilename;
+		FString BackupFilename;
+		bool bFileExisted = false;
+	};
+	TMap<FString, FPackageFileBackup> FileBackups;
+	for (const TPair<FString, FString>& Pair : FilenamesByPackage)
+	{
+		FPackageFileBackup Backup;
+		Backup.PackageFilename = Pair.Value;
+		Backup.bFileExisted = IFileManager::Get().FileExists(*Pair.Value);
+		if (Backup.bFileExisted)
+		{
+			Backup.BackupFilename = FPaths::CreateTempFilename(
+				*FPaths::ProjectSavedDir(), TEXT("KatanaMigrationBackup"), TEXT(".tmp"));
+			if (IFileManager::Get().Copy(
+				*Backup.BackupFilename, *Pair.Value, true, true) != COPY_OK)
+			{
+				if (!Report.Rows.IsEmpty())
+				{
+					Report.Rows[0].Errors.Add(FString::Printf(
+						TEXT("Failed to create rollback backup for package: %s"), *Pair.Key));
+					Report.Rows[0].Status = EKatanaAssetMigrationStatus::Failed;
+				}
+				for (const TPair<FString, FPackageFileBackup>& Existing : FileBackups)
+				{
+					if (!Existing.Value.BackupFilename.IsEmpty())
+					{
+						IFileManager::Get().Delete(
+							*Existing.Value.BackupFilename, false, true, true);
+					}
+				}
+				Summarize(Report);
+				return false;
+			}
+		}
+		FileBackups.Add(Pair.Key, MoveTemp(Backup));
+	}
+	const auto CleanupBackups = [&FileBackups]()
+	{
+		for (const TPair<FString, FPackageFileBackup>& Pair : FileBackups)
+		{
+			if (!Pair.Value.BackupFilename.IsEmpty())
+			{
+				IFileManager::Get().Delete(
+					*Pair.Value.BackupFilename, false, true, true);
+			}
+		}
+	};
+
 	TSet<FString> SavedThisRun;
+	TSet<FString> ReloadedPackageNames;
 	TArray<UPackage*> PackagesToReload;
 	bool bSaveFailed = false;
 	for (FKatanaAssetMigrationRow& Row : Report.Rows)
@@ -818,7 +1105,19 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 			FSavePackageArgs SaveArgs;
 			SaveArgs.TopLevelFlags = RF_Standalone;
 			SaveArgs.SaveFlags = SAVE_NoError;
-			if (!UPackage::SavePackage(Package, nullptr, *PackageFileName, SaveArgs))
+			UObject* PackageAsset = Package->FindAssetInPackage();
+			const bool bForcedSaveFailure =
+#if WITH_AUTOMATION_TESTS
+				GForcedSaveFailurePackage == PackageName;
+#else
+				false;
+#endif
+			const bool bSaved = !bForcedSaveFailure && (MapPackages.Contains(PackageName)
+				? GEditor && GEditor->SavePackage(
+					Package, PackageAsset, *PackageFileName, SaveArgs)
+				: UPackage::SavePackage(
+					Package, PackageAsset, *PackageFileName, SaveArgs));
+			if (!bSaved)
 			{
 				Row.Errors.Add(FString::Printf(TEXT("Failed to save package: %s"), *PackageName));
 				Row.Status = EKatanaAssetMigrationStatus::Failed;
@@ -832,10 +1131,21 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 
 			Row.SavedPackages.AddUnique(PackageName);
 			SavedThisRun.Add(PackageName);
-			PackagesToReload.AddUnique(Package);
 			if (LedgerEntry)
 			{
 				LedgerEntry->SaveResult = TEXT("Saved");
+			}
+			if (MapPackages.Contains(PackageName))
+			{
+				if (LedgerEntry)
+				{
+					LedgerEntry->PostSaveReloadResult = TEXT("FreshProcessAuditRequired");
+				}
+			}
+			else
+			{
+				PackagesToReload.AddUnique(Package);
+				ReloadedPackageNames.Add(PackageName);
 			}
 		}
 
@@ -848,13 +1158,64 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 	Summarize(Report);
 	if (bSaveFailed)
 	{
+		bool bRollbackSucceeded = true;
+		for (const FString& PackageName : SavedThisRun)
+		{
+			const FPackageFileBackup* Backup = FileBackups.Find(PackageName);
+			if (!Backup)
+			{
+				bRollbackSucceeded = false;
+				continue;
+			}
+			const bool bRestored = Backup->bFileExisted
+				? IFileManager::Get().Copy(
+					*Backup->PackageFilename, *Backup->BackupFilename, true, true) == COPY_OK
+				: IFileManager::Get().Delete(
+					*Backup->PackageFilename, false, true, true);
+			bRollbackSucceeded &= bRestored;
+			if (UPackage** Package = PackagesByName.Find(PackageName))
+			{
+				(*Package)->SetDirtyFlag(true);
+			}
+			if (FKatanaAssetMigrationPackageLedgerEntry* Entry =
+				Report.PackageLedger.FindByPredicate(
+					[&PackageName](const FKatanaAssetMigrationPackageLedgerEntry& Candidate)
+					{
+						return Candidate.PackageName == PackageName;
+					}))
+			{
+				Entry->SaveResult = bRestored ? TEXT("RolledBack") : TEXT("RollbackFailed");
+				Entry->PostSaveReloadResult = TEXT("RolledBackAfterSaveFailure");
+			}
+		}
+		for (FKatanaAssetMigrationRow& Row : Report.Rows)
+		{
+			if (Row.SavedPackages.ContainsByPredicate(
+				[&SavedThisRun](const FString& PackageName)
+				{
+					return SavedThisRun.Contains(PackageName);
+				}))
+			{
+				Row.SavedPackages.RemoveAll(
+					[&SavedThisRun](const FString& PackageName)
+					{
+						return SavedThisRun.Contains(PackageName);
+					});
+				Row.Errors.Add(bRollbackSucceeded
+					? TEXT("Package-save batch was rolled back after a later save failure")
+					: TEXT("Package-save batch rollback failed; inspect package files before retrying"));
+				Row.Status = EKatanaAssetMigrationStatus::Failed;
+			}
+		}
 		for (FKatanaAssetMigrationPackageLedgerEntry& Entry : Report.PackageLedger)
 		{
-			if (SavedThisRun.Contains(Entry.PackageName))
+			if (ReloadedPackageNames.Contains(Entry.PackageName))
 			{
 				Entry.PostSaveReloadResult = TEXT("SkippedAfterSaveFailure");
 			}
 		}
+		CleanupBackups();
+		Summarize(Report);
 		return false;
 	}
 	if (Report.Summary.Failed == 0 && !PackagesToReload.IsEmpty())
@@ -865,7 +1226,7 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 			PackagesToReload, ReloadError, EReloadPackagesInteractionMode::AssumePositive);
 		for (FKatanaAssetMigrationPackageLedgerEntry& Entry : Report.PackageLedger)
 		{
-			if (SavedThisRun.Contains(Entry.PackageName))
+			if (ReloadedPackageNames.Contains(Entry.PackageName))
 			{
 				Entry.PostSaveReloadResult = bReloaded ? TEXT("Reloaded") : TEXT("ReloadFailed");
 			}
@@ -884,8 +1245,66 @@ bool FKatanaAssetMigrationRunner::SaveChangedPackages(const FKatanaAssetMigratio
 				FailureRow->Status = EKatanaAssetMigrationStatus::Failed;
 			}
 			Summarize(Report);
+			bool bRollbackSucceeded = true;
+			for (const FString& PackageName : SavedThisRun)
+			{
+				const FPackageFileBackup* Backup = FileBackups.Find(PackageName);
+				if (!Backup)
+				{
+					bRollbackSucceeded = false;
+					continue;
+				}
+				const bool bRestored = Backup->bFileExisted
+					? IFileManager::Get().Copy(
+						*Backup->PackageFilename, *Backup->BackupFilename, true, true) == COPY_OK
+					: IFileManager::Get().Delete(
+						*Backup->PackageFilename, false, true, true);
+				bRollbackSucceeded &= bRestored;
+				if (UPackage** Package = PackagesByName.Find(PackageName))
+				{
+					(*Package)->SetDirtyFlag(true);
+				}
+				if (FKatanaAssetMigrationPackageLedgerEntry* Entry =
+					Report.PackageLedger.FindByPredicate(
+						[&PackageName](const FKatanaAssetMigrationPackageLedgerEntry& Candidate)
+						{
+							return Candidate.PackageName == PackageName;
+						}))
+				{
+					Entry->SaveResult = bRestored ? TEXT("RolledBack") : TEXT("RollbackFailed");
+					Entry->PostSaveReloadResult = TEXT("RolledBackAfterReloadFailure");
+				}
+			}
+			for (FKatanaAssetMigrationRow& Row : Report.Rows)
+			{
+				if (Row.SavedPackages.ContainsByPredicate(
+					[&SavedThisRun](const FString& PackageName)
+					{
+						return SavedThisRun.Contains(PackageName);
+					}))
+				{
+					Row.SavedPackages.RemoveAll(
+						[&SavedThisRun](const FString& PackageName)
+						{
+							return SavedThisRun.Contains(PackageName);
+						});
+					Row.Errors.Add(bRollbackSucceeded
+						? TEXT("Package-save batch was rolled back after reload failure")
+						: TEXT("Package-save batch rollback failed after reload failure"));
+					Row.Status = EKatanaAssetMigrationStatus::Failed;
+				}
+			}
+			if (!bRollbackSucceeded && FailureRow)
+			{
+				FailureRow->Errors.Add(
+					TEXT("Disk rollback failed after package reload failure"));
+			}
+			CleanupBackups();
+			Summarize(Report);
+			return false;
 		}
 	}
+	CleanupBackups();
 	return Report.Summary.Failed == 0;
 }
 
@@ -983,21 +1402,99 @@ EKatanaAssetMigrationExitCode FKatanaAssetMigrationRunner::Run(const FKatanaAsse
 		if (!bSaveFailed && bOperationSucceeded
 			&& Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
 		{
-			FKatanaAssetMigrationOptions AuditOptions = Options;
-			AuditOptions.Mode = EKatanaAssetMigrationMode::Audit;
-			AuditOptions.ApprovedPlanReport.Reset();
-			AuditOptions.ApprovedPlanFingerprint.Reset();
-			FKatanaAssetMigrationReport PostSaveAudit;
-			const bool bAuditSucceeded = RunDefenseProofMigration(AuditOptions, PostSaveAudit);
-			if (!bAuditSucceeded || PostSaveAudit.Summary.Failed > 0
-				|| PostSaveAudit.Summary.WouldChange > 0)
+			if (RequiresFreshProcessAudit(Report))
 			{
-				bSaveFailed = true;
-				if (!Report.Rows.IsEmpty())
+				AnnotateFreshProcessAuditRequirement(Report);
+			}
+			else
+			{
+				FKatanaAssetMigrationOptions AuditOptions = Options;
+				AuditOptions.Mode = EKatanaAssetMigrationMode::Audit;
+				AuditOptions.ApprovedPlanReport.Reset();
+				AuditOptions.ApprovedPlanFingerprint.Reset();
+				FKatanaAssetMigrationReport PostSaveAudit;
+				const bool bAuditSucceeded =
+					RunDefenseProofMigration(AuditOptions, PostSaveAudit);
+				if (!bAuditSucceeded || PostSaveAudit.Summary.Failed > 0
+					|| PostSaveAudit.Summary.WouldChange > 0)
 				{
-					Report.Rows[0].Errors.Add(TEXT("Post-save Audit did not return Unchanged"));
-					Report.Rows[0].Status = EKatanaAssetMigrationStatus::Failed;
-					Summarize(Report);
+					bSaveFailed = true;
+					if (!Report.Rows.IsEmpty())
+					{
+						Report.Rows[0].Errors.Add(
+							TEXT("Post-save Audit did not return Unchanged"));
+						Report.Rows[0].Status = EKatanaAssetMigrationStatus::Failed;
+						Summarize(Report);
+					}
+				}
+			}
+		}
+
+		bool bReportFailed = false;
+		if (!Options.ReportPath.IsEmpty())
+		{
+			TArray<FString> ReportErrors;
+			if (!WriteReport(Report, Options.ReportPath, ReportErrors))
+			{
+				bReportFailed = true;
+				for (const FString& ReportError : ReportErrors)
+				{
+					UE_LOG(LogTemp, Error, TEXT("%s"), *ReportError);
+				}
+			}
+		}
+		if (bSaveFailed)
+		{
+			return EKatanaAssetMigrationExitCode::SaveFailure;
+		}
+		return (!bOperationSucceeded || Report.Summary.Failed > 0 || bReportFailed)
+			? EKatanaAssetMigrationExitCode::RowFailure
+			: EKatanaAssetMigrationExitCode::Success;
+	}
+	if (Options.Operation.Equals(FDefenseMatrixAuthoringOperation::OperationName, ESearchCase::IgnoreCase))
+	{
+		FKatanaAssetMigrationReport Report;
+		const bool bOperationSucceeded = RunDefenseMatrixAuthoring(Options, Report);
+		TSet<FString> InitiallyDirtyPackages;
+		for (const FKatanaAssetMigrationPackageLedgerEntry& Entry : Report.PackageLedger)
+		{
+			if (Entry.bInitiallyDirty)
+			{
+				InitiallyDirtyPackages.Add(Entry.PackageName);
+			}
+		}
+
+		bool bSaveFailed = false;
+		if (bOperationSucceeded && Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
+		{
+			bSaveFailed = !SaveChangedPackages(Options, InitiallyDirtyPackages, Report);
+		}
+		if (!bSaveFailed && bOperationSucceeded
+			&& Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
+		{
+			if (RequiresFreshProcessAudit(Report))
+			{
+				AnnotateFreshProcessAuditRequirement(Report);
+			}
+			else
+			{
+				FKatanaAssetMigrationOptions AuditOptions = Options;
+				AuditOptions.Mode = EKatanaAssetMigrationMode::Audit;
+				AuditOptions.ApprovedPlanReport.Reset();
+				AuditOptions.ApprovedPlanFingerprint.Reset();
+				FKatanaAssetMigrationReport PostSaveAudit;
+				if (!RunDefenseMatrixAuthoring(AuditOptions, PostSaveAudit)
+					|| PostSaveAudit.Summary.Failed > 0
+					|| PostSaveAudit.Summary.WouldChange > 0)
+				{
+					bSaveFailed = true;
+					if (!Report.Rows.IsEmpty())
+					{
+						Report.Rows[0].Errors.Add(
+							TEXT("post-save DefenseMatrixAuthoring Audit did not return Unchanged"));
+						Report.Rows[0].Status = EKatanaAssetMigrationStatus::Failed;
+						Summarize(Report);
+					}
 				}
 			}
 		}
@@ -1044,21 +1541,29 @@ EKatanaAssetMigrationExitCode FKatanaAssetMigrationRunner::Run(const FKatanaAsse
 		if (!bSaveFailed && bOperationSucceeded
 			&& Options.Mode == EKatanaAssetMigrationMode::ApplyAndSave)
 		{
-			FKatanaAssetMigrationOptions AuditOptions = Options;
-			AuditOptions.Mode = EKatanaAssetMigrationMode::Audit;
-			AuditOptions.ApprovedPlanReport.Reset();
-			AuditOptions.ApprovedPlanFingerprint.Reset();
-			FKatanaAssetMigrationReport PostSaveAudit;
-			if (!RunDefenseProofAuthoring(AuditOptions, PostSaveAudit)
-				|| PostSaveAudit.Summary.Failed > 0
-				|| PostSaveAudit.Summary.WouldChange > 0)
+			if (RequiresFreshProcessAudit(Report))
 			{
-				bSaveFailed = true;
-				if (!Report.Rows.IsEmpty())
+				AnnotateFreshProcessAuditRequirement(Report);
+			}
+			else
+			{
+				FKatanaAssetMigrationOptions AuditOptions = Options;
+				AuditOptions.Mode = EKatanaAssetMigrationMode::Audit;
+				AuditOptions.ApprovedPlanReport.Reset();
+				AuditOptions.ApprovedPlanFingerprint.Reset();
+				FKatanaAssetMigrationReport PostSaveAudit;
+				if (!RunDefenseProofAuthoring(AuditOptions, PostSaveAudit)
+					|| PostSaveAudit.Summary.Failed > 0
+					|| PostSaveAudit.Summary.WouldChange > 0)
 				{
-					Report.Rows[0].Errors.Add(TEXT("post-save DefenseProofAuthoring Audit did not return Unchanged"));
-					Report.Rows[0].Status = EKatanaAssetMigrationStatus::Failed;
-					Summarize(Report);
+					bSaveFailed = true;
+					if (!Report.Rows.IsEmpty())
+					{
+						Report.Rows[0].Errors.Add(
+							TEXT("post-save DefenseProofAuthoring Audit did not return Unchanged"));
+						Report.Rows[0].Status = EKatanaAssetMigrationStatus::Failed;
+						Summarize(Report);
+					}
 				}
 			}
 		}
@@ -1128,18 +1633,26 @@ EKatanaAssetMigrationExitCode FKatanaAssetMigrationRunner::Run(const FKatanaAsse
 	SnapshotInitiallyDirtyPackages(Targets, InitiallyDirtyPackages);
 
 	FKatanaAssetMigrationReport Report;
-	Report.Operation = Options.Operation;
-	Report.Mode = Options.Mode;
-	Report.Rows.Append(FailedRows);
 
 	if (Options.Operation.Equals(FAttackDataNotifyMigrationOperation::OperationName, ESearchCase::IgnoreCase))
 	{
-		FKatanaAssetMigrationReport OperationReport;
-		RunAttackDataNotifyMigration(Options, Targets, OperationReport);
-		Report.Rows.Append(OperationReport.Rows);
+		if (!FailedRows.IsEmpty())
+		{
+			Report.SchemaVersion = 2;
+			Report.Operation = Options.Operation;
+			Report.Mode = Options.Mode;
+			Report.Rows = MoveTemp(FailedRows);
+		}
+		else
+		{
+			RunAttackDataNotifyMigration(Options, Targets, Report);
+		}
 	}
 	else if (Options.Operation.Equals(FAttackDataTimingMigrationOperation::OperationName, ESearchCase::IgnoreCase))
 	{
+		Report.Operation = Options.Operation;
+		Report.Mode = Options.Mode;
+		Report.Rows.Append(FailedRows);
 		FKatanaAssetMigrationReport OperationReport;
 		RunAttackDataTimingMigration(Options, Targets, OperationReport);
 		Report.Rows.Append(OperationReport.Rows);
