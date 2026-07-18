@@ -368,6 +368,14 @@ public:
 	/** Immediate source-side termination signal for AI and other native ownership systems. */
 	FOnAttackConsumedNative OnAttackConsumedInternal;
 
+#if WITH_AUTOMATION_TESTS
+	/** Fires after a reviewed high-confidence prediction and defender refresh are coherent. */
+	DECLARE_MULTICAST_DELEGATE_OneParam(
+		FOnReviewedAttackPredictionPublishedForTesting,
+		const FAttackWindowInstanceId&);
+	FOnReviewedAttackPredictionPublishedForTesting OnReviewedAttackPredictionPublishedForTesting;
+#endif
+
 	/** Add an active runtime context tag for C++ attack-resolution code. */
 	void AddActiveContextTag(FGameplayTag ContextTag);
 

@@ -1772,7 +1772,15 @@ bool UCombatComponent::PublishReviewedAttackWindowPrediction(
 			: EDefensePredictionConfidence::None;
 	Prediction.bPathIntersectsThreatVolume = bPathIntersectsThreatVolume;
 	PublishAttackThreatPrediction(Prediction);
-	return Prediction.Confidence == EDefensePredictionConfidence::High;
+	const bool bPublishedHighConfidence =
+		Prediction.Confidence == EDefensePredictionConfidence::High;
+#if WITH_AUTOMATION_TESTS
+	if (bPublishedHighConfidence)
+	{
+		OnReviewedAttackPredictionPublishedForTesting.Broadcast(Window);
+	}
+#endif
+	return bPublishedHighConfidence;
 }
 
 void UCombatComponent::InvalidateAttackThreatPrediction(EThreatInvalidationReason Reason)
