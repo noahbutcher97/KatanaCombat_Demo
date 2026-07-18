@@ -65,11 +65,9 @@ HoldWindow Starts:
         └─ NO → Continue normal combo
 ```
 
-### 5. Defense System (Current And Target)
+### 5. Defense System (Implemented)
 
-**Current runtime:** Block input and physical hit handling still use separate legacy paths, direct block-facing rotation, and pre-resolver Chain behavior. Existing tests prove that baseline only.
-
-**Reviewed target, not yet implemented:**
+Block input and physical contact converge through the centralized defense resolver. `UCombatComponent` captures stateful guard input and selects one immutable threat snapshot; target-owned contact authority commits damage disposition before observable presentation; `UPairedAnimationComponent` owns retained perfect-parry/Chain stages. Alignment uses scoped targeting/motion-warp ownership with bounded yaw rather than direct defense rotation writes.
 
 ```
 Defender Presses Block:
@@ -91,7 +89,7 @@ Central resolver returns one contact outcome
 window and `Attack.Defense.Parryable`; normal block remains available while
 guard is held regardless of parry timing.
 
-Guard entry, contact block, perfect-parry alignment, and counter start are distinct decisions. See `docs/superpowers/specs/2026-07-16-defense-interaction-design.md` for the accepted target two-stage matrix, rich-contact handoff, alignment policy, and retained sequence contract. The target is approved for implementation planning but is not runtime behavior until its slices land and pass their proof gates.
+Guard entry, contact block, perfect-parry alignment, and counter start are distinct decisions. See `docs/superpowers/specs/2026-07-16-defense-interaction-design.md` for the canonical two-stage matrix, rich-contact handoff, alignment policy, and retained sequence contract. Gate A provides rendered perfect-parry/Chain evidence with adjacent-frame handoff telemetry. Gate B provides physical proof for all nine High/Middle/Low x Left/Center/Right normal-block cells, recoil/continue responses, deterministic two-active-threat arbitration, unblockable contact, and the perfect-parry regression. Exact acceptance evidence and scope limits are in `docs/handoffs/2026-07-16-defense-gate-b-acceptance.md`.
 
 ### Target Chain Counter Ownership
 
@@ -104,7 +102,7 @@ Guard entry, contact block, perfect-parry alignment, and counter start are disti
 
 Authoring semantics use a deliberate split. Enums own closed runtime identities and state machines such as combat state, attack phase, input type, attack type, chain state, paired reaction type, and resolved outcomes. Booleans own local runtime latches or direct authored gates such as blocking, input blocking, parry/counter window state, and explicit counter/finisher readiness flags. Gameplay tags own open-ended authored capabilities, properties, style categories, and context requirements such as combo capability, unblockable attacks, parry-counter context, or `Attack.Defense.BlockInterruptible`. Data references own the concrete montage, paired animation, hit reaction, VFX, audio, or other payload.
 
-Gameplay-relevant tags must be consumed by runtime resolution and validation before designers rely on them. In current source, `RequiredContextTags` gates already-linked attack-resolution candidates and `Attack.Property.Unblockable` bypasses legacy normal block when concrete `AttackData` is present. Scoped `Context.ParryCounter`, rich-contact defense, and broader block/parry/recoil outcomes belong to the revised target design and must not be described as implemented yet.
+Gameplay-relevant tags must be consumed by runtime resolution and validation before designers rely on them. `RequiredContextTags` gates linked attack-resolution candidates; `Attack.Property.Unblockable`, `Attack.Defense.Parryable`, and `Attack.Defense.BlockInterruptible` feed the centralized resolver; scoped `Context.ParryCounter` records retained Chain ownership. Exact outcomes and presentation payloads remain typed data rather than tags.
 
 See `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md` for the canonical ownership policy.
 

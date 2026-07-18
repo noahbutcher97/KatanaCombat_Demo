@@ -1,6 +1,6 @@
 # Paired Animation System - Technical Specification
 
-> **Version**: 2.1 | **Date**: 2026-07-16 | **Status**: Implementation In Progress; defense integration target accepted for implementation planning
+> **Version**: 2.3 | **Date**: 2026-07-18 | **Status**: Runtime, Gate A, and scoped single-player Gate B accepted
 > **Reference Plan**: `.claude/plans/synthetic-painting-ritchie.md`
 
 ---
@@ -166,7 +166,7 @@ Posture depletion and posture-based guard break are deprecated compatibility beh
 
 ### 3.3 Chain Counter Runtime Contract
 
-Chain Counter is required behavior. It is not experimental and is not accepted through protected helper calls. The source-level flow below is implemented; asset authoring and visible runtime acceptance remain Gate A obligations.
+Chain Counter is required behavior. It is not experimental and is not accepted through protected helper calls. The source-level flow below is implemented; Gate A provides accepted rendered asset/runtime evidence for the canonical path.
 
 Runtime flow:
 1. Defender presses Block.
@@ -190,8 +190,8 @@ Canonical paired bridge and stage data must provide valid sections, named rotati
 - Counter damage is nonlethal by default and lethal only through explicit opt-in, covered by `KatanaCombat.CounterSystem.ChainCounterDamagePolicyNonLethalByDefault` and `KatanaCombat.Defense.Chain.LethalCounterOptIn`.
 - Attack input resolves selected `UAttackData` in `UCombatComponent` and advances through `UPairedAnimationComponent::TryAdvanceChainCounter(UAttackData*)`.
 - Counter data resolution remains selected `UAttackData::CounterData`, explicit notify fallback, then non-paired fallback.
-- Asset-backed montage proof remains separate from source-level automation. The 2026-07-01 `AttackDataNotifyMigration` audit/plan reports are read-only evidence and did not save packages.
-- Source automation does not prove authored marker timing, pose compatibility, final yaw, displacement, VFX/audio, or playable level wiring. Task 6/Gate A owns that evidence.
+- Asset-backed montage proof remains separate from source-level automation. Gate A evidence is recorded in `docs/handoffs/2026-07-17-defense-gate-a-evidence.md`; Gate B acceptance and residual limits are recorded in `docs/handoffs/2026-07-16-defense-gate-b-acceptance.md`.
+- Gate A rendered PIE proves the canonical bridge/counter/finisher path, marker handoff, bounded alignment, VFX/audio, damage staging, cleanup, and adjacent-frame continuity across `ParryActive -> CounterWindow -> CounterActive -> FinisherActive`. This does not generalize production-quality pose compatibility across the attack catalog.
 
 ### Chain Counter Semantics Ownership
 
@@ -199,13 +199,13 @@ Chain Counter keeps state and results explicit. `EChainCounterState` owns the ac
 
 Counter and finisher payloads are data references. The selected defender `UAttackData::CounterData` and `FinisherData` identify the paired animations to play. Booleans such as `bHasCounterVariant` and `bCanTriggerFinisher` are readiness gates and must be validated against those references.
 
-Attack and defense properties that are extensible across authored content belong in tags. `Attack.Property.Unblockable`, `Attack.Defense.Parryable`, and `Attack.Defense.BlockInterruptible` are target inputs to the centralized defense resolver, which returns an explicit enum decision before any montage, damage, VFX, or audio payload is executed.
+Attack and defense properties that are extensible across authored content belong in tags. `Attack.Property.Unblockable`, `Attack.Defense.Parryable`, and `Attack.Defense.BlockInterruptible` are implemented inputs to the centralized defense resolver, which returns an explicit enum decision before any montage, damage, VFX, or audio payload is executed.
 
 The ownership policy is defined in `docs/superpowers/specs/2026-07-02-combat-semantics-ownership-design.md`.
 The revised target defense outcome matrix, rich-contact handoff, attack identity,
 alignment, parry bridge, and retained counter-to-finisher transition contract are
 defined in `docs/superpowers/specs/2026-07-16-defense-interaction-design.md`. It
-is the accepted implementation authority for defense integration. Source slices 1-5 implement the runtime contracts; Task 6/Gate A still gates asset-backed and visible behavior claims.
+is the accepted implementation authority for defense integration. Source slices 1-5 implement the runtime contracts, Gate A accepts the canonical asset-backed Chain path, and Gate B accepts the scoped single-player matrix, attacker responses, simultaneous-threat arbitration, unblockable contact, and perfect-parry regression. Multiplayer ordering, production AI, and catalog-wide pose quality remain outside that acceptance.
 
 ---
 

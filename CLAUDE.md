@@ -486,14 +486,14 @@ Track ongoing work across sessions. This section provides detailed status of all
 #### Branch Acceptance Caveats
 | Area | Status | Requirement |
 |------|--------|-------------|
-| Defense interaction | Source slices implemented; Gate A pending | The accepted design is still authoritative. Source automation covers rich contact, alignment ownership, block/parry resolution, attack consumption, retained Chain stages, and scoped cleanup; assets and visible PIE behavior remain unproven until Task 6. |
-| Counter Chain Mode | Source contract implemented; content proof pending | Public Block/attack input, retained context, generation-safe handoff, `FinisherActive`, retry/cancel/death paths, and scoped ownership have automation coverage. Protected helper tests are not feature proof. |
+| Defense interaction | Gate A and Gate B accepted for scoped single-player behavior | Gate A proves held guard, normal block, perfect parry, bounded alignment, and adjacent-frame counter-to-finisher continuity. Gate B proves the nine-cell matrix, recoil/continue responses, two-active-threat arbitration, physical unblockable contact, and the perfect-parry regression. See `docs/handoffs/2026-07-16-defense-gate-b-acceptance.md`. |
+| Counter Chain Mode | Source and Gate A content proof accepted | Public Block/attack input, retained context, generation-safe handoff, `FinisherActive`, retry/cancel/death paths, and scoped ownership have automation and rendered Gate A evidence. Catalog-wide animation quality remains tuning work. |
 | SpecificCounterData Wiring | Implemented with explicit fallback gate | Resolve selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only when `bAllowNotifyCounterDataFallback` is enabled, then non-paired fallback. |
 
-#### Planned (Not Yet Started)
+#### Current Follow-On Work
 | Component | Priority | Blocker |
 |-----------|----------|---------|
-| Defense Gate A content | P1 | Select or create reviewed bridge/counter/finisher montages, exact markers/sections/warp targets, VFX/audio, and prove them in `Lvl_ThirdPerson1`. |
+| Defense catalog and animation tuning | P2 | Expand beyond the reviewed Gate A sequence and Gate B proof assets without weakening manifest, timing, trajectory, or continuity gates. |
 | Production Enemy AI | P2 | Minimal StateTree + `UCombatTokenSubsystem` combat proof is wired; perception, patrol, tactics, and production tuning remain future work. |
 
 #### Editor/Runtime Unification Gap (Needs Further Inquiry)

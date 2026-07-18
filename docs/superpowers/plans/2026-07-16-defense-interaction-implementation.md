@@ -400,7 +400,7 @@ TestEqual(TEXT("Attacker response"), Decision.AttackerResponse, Case.ExpectedRes
 
 Add deterministic threat tests with explicit `FCombatantStableId` values, equal deadlines/yaw/distance, and reversed candidate-array order. Both orders must select the same stable ID. Add reachability boundary tests for `abs(Y) == H`, `abs(Y) == F + AvailableTurn`, zero/negative deadline, and cumulative max-turn exhaustion.
 
-Add direction tests proving source bearing drives the cone while incoming trajectory drives defender-relative lane. Actual lane precedence is nonzero weapon velocity, accepted trace segment, then an explicitly flagged low-confidence nominal-lane fallback. Exact hit bone, mapped parent, and authored height remain distinct provenance values.
+Add direction tests proving source bearing drives the cone while incoming trajectory drives defender-relative lane. Actual lane precedence is fixed montage-time effective source-socket motion when directional, instantaneous effective source-socket motion, accepted swept blade-point motion or raw trace segment, then an explicitly flagged low-confidence nominal-lane fallback. A directional instantaneous sample may refine a fixed sample that resolves `Center`; source bearing may never synthesize trajectory. Exact hit bone, mapped parent, and authored height remain distinct provenance values.
 
 - [x] **Step 6: Write failing selector tests**
 
@@ -1194,7 +1194,7 @@ Evidence (2026-07-17 UTC): final focused runs completed `KatanaCombat.Defense` 1
 
 **Produces:** Reviewed High/Middle/Low x Left/Center/Right proof, semantic attacker-response coverage, two-active-threat evidence, broad automation/build evidence, and canonical documentation of implemented versus remaining behavior.
 
-- [ ] **Step 1: Inventory and select the smallest complete attack set**
+- [x] **Step 1: Inventory and select the smallest complete attack set**
 
 Use read-only commandlet reports and Editor review to select at least three authored attacks covering High, Middle, and Low. Each attack must support controlled Left, Center, and Right trajectories, yielding all nine matrix cells through exact or explicitly documented fallback rows.
 
@@ -1208,29 +1208,35 @@ The manifest must also name:
 
 Do not use HeavyAttack_1 through HeavyAttack_4 until their separate notify debt is resolved and their timing is reviewed.
 
-- [ ] **Step 2: Make Gate B coverage a commandlet invariant**
+- [x] **Step 2: Make Gate B coverage a commandlet invariant**
 
 Extend post-report validation to fail unless all nine height/lane cells exist, all required semantic response cases exist, every specialized row has deterministic fallback provenance, and the dependency manifest is closed. A report that merely loads assets is not success.
 
-- [ ] **Step 3: Create a dedicated playable proof map**
+- [x] **Step 3: Create a dedicated playable proof map**
 
 Use commandlet/UEMCP/Editor automation to create and save `Lvl_DefenseMatrix` with controlled attacker spawn anchors for Left/Center/Right and deterministic High/Middle/Low case selection. Create dedicated proof AI/combat-token settings allowing exactly two concurrent attackers for the multi-threat fixture; do not change the shipping/default one-attacker policy. The map must load and run without user wiring.
 
 Add a deterministic debug controller or existing StateTree configuration that starts named cases, records scripted predicted deadlines/stable IDs, and restores the fixture between cases. Do not add UI; console/debug controls are sufficient.
 
-- [ ] **Step 4: Plan, apply, save, and re-audit exact Gate B assets**
+- [x] **Step 4: Plan, apply, save, and re-audit exact Gate B assets**
 
 Use the same Audit -> Plan -> Apply -> ApplyAndSave -> Audit sequence as Gate A with distinct `defense-gate-b-*.json` reports. Require explicit timing/save gates. Review the changed-package set before save and before staging.
 
-- [ ] **Step 5: Prove multi-active-threat behavior**
+Evidence: the final V11 correction used `defense-gate-b-v11-bone-height-plan.json` and exact fingerprint `5AD2313E317B118CE2148AD8257C9C59E0A8237B`, saved only `DA_DefenseConfiguration_GateB`, and produced a clean post-save Audit. V11 binds three logical matrix families to three distinct lane-specific AttackData variants each and maps `spine_01` to `Middle`. `DefenseProofMigration` retains exact save provenance for the three approved existing AttackData packages. `defense-gate-b-final-audit-green.json` reports 82/82 unchanged targets, zero failures/mutations/saves, and an empty ledger.
+
+- [x] **Step 5: Prove multi-active-threat behavior**
 
 Automation and PIE must create two simultaneous valid active attacks with scripted deadlines. Prove stable-ID tie break, lock hysteresis, switch lead, current-threat invalidation, stale-prediction downgrade, one candidate enumeration per opportunity, and same selected identity across failed parry/guard fallback. Restore/reload the fixture after capture and verify default gameplay settings still allow only one attacker.
 
-- [ ] **Step 6: Execute all nine visible cases and semantic cases**
+Evidence: `KatanaCombat.Defense.GateB.ThreatPIEProof` passes in headless and rendered modes. `Saved/DefenseProof/GateB/Threat/{Headless,Rendered}/defense-gate-b-threat-evidence.json` records seven passing scenarios: stable tie, earlier initial deadline, minimum-lock retain, insufficient-lead retain, sufficient-lead switch, stale-prediction guard fallback, and current-threat invalidation. Each scenario records exact stable IDs/deadlines and one candidate enumeration; fixture state and the one-attacker default are restored.
+
+- [x] **Step 6: Execute all nine visible cases and semantic cases**
 
 Capture outcome/reason, selected/fallback row, contact bone, lane/height/swing, VFX/audio, damage, attacker response, yaw/displacement, stage continuity, and cleanup for each cell. Repeat at representative 0.5x, 1.0x, and 2.0x montage rates and under time dilation for cap parity. Any threshold breach, ambiguous row, repeated effect, friendly damage, stuck token, frozen pose, direct rotation, or incomplete cleanup blocks acceptance.
 
-- [ ] **Step 7: Run final automated verification**
+Evidence: fresh rendered and headless captures prove all nine normal-block cells across six rate/dilation combinations. Rendered evidence records 54/54 passing variants, 108/108 decoded nontrivial and fully framed frames, one VFX/audio invocation per variant, zero player damage/displacement, 18 recoil and 36 continue responses, and complete fixture restoration. `KatanaCombat.Defense.GateB.SemanticPIEProof` separately proves physical `UnblockableMiddleCenter` damage/outcome/cleanup and the Gate A perfect-parry consumption/transition regression in headless and rendered modes. Gate A schema-v3 evidence records all three adjacent-frame Chain handoffs below actor/pelvis continuity thresholds.
+
+- [x] **Step 7: Run final automated verification**
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "Tools\Codex\run-agent-baseline.ps1"
@@ -1241,15 +1247,21 @@ git status --short
 
 Expected: editor build succeeds, all `KatanaCombat` automation completes with zero failures/errors, commandlet post-audits are clean, and only reviewed source/docs/manifests/assets are changed.
 
-- [ ] **Step 8: Reconcile canonical documentation with proven state**
+Evidence: `Saved/Logs/Codex-Agent-Baseline-20260718-151218-*` regenerated and built `KatanaCombatEditor` with `-NoUBA -NoUBTMakefiles -MaxParallelActions=1`, compiled a committed `KatanaCombatTest` unity module without adaptive source exclusions, and completed 645/645 tests with zero failures/errors and the explicit success marker.
+
+- [x] **Step 8: Reconcile canonical documentation with proven state**
 
 Mark each contract as implemented only where automated and PIE evidence exists. Keep future replication, Chooser backend, Contextual Animation migration, and guard-break resource out of scope. Record exact report/telemetry/video paths and residual tuning debt in the Gate B handoff. Do not rewrite historical docs as though they had always described the final implementation.
 
-- [ ] **Step 9: Adversarial final review**
+Evidence (2026-07-18 UTC): `CLAUDE.md`, `ARCHITECTURE_QUICK.md`, `PAIRED_ANIMATION_SPEC.md`, the accepted design, this plan, the execution checkpoint, migration guide, and Gate B acceptance handoff now distinguish scoped proof from future multiplayer, production AI, catalog polish, Chooser, guard-break, and UI work. Historical checkpoints remain historical.
+
+- [x] **Step 9: Adversarial final review**
 
 Review for duplicate resolution, stale callback cleanup, cross-owner warp/time/context release, input fallthrough, mutable second reads, event reentrancy, first-commit ordering, terminal tombstone eviction, actor destruction, neutral-team compatibility, missing fallback assets, configuration precedence drift, root-motion cap bypass, and headless/PIE overclaim. Fix every high/medium finding and add a regression test before merge readiness.
 
-- [ ] **Step 10: Run the final intent-satisfaction and traceability audit**
+Evidence (2026-07-18 UTC): the final hostile diff review found no unresolved high/medium issue. It exposed an intermittent Gate A latent-window poll; an automation-only reviewed-prediction callback now acts only after high-confidence prediction and defender refresh are coherent, and four consecutive focused Gate A runs pass at authored timing. Rich-contact, consumption, AI termination, trajectory, alignment, proof-contamination, migration atomicity, direct-transform, callback cleanup, and unity-collision paths were re-read. `git diff --check` is clean. The final automation summary records 334 non-failing warnings, primarily expected test diagnostics and NullRHI presentation failures; missing project-package messages and the non-preferred Visual Studio toolchain warning remain pre-existing configuration debt.
+
+- [x] **Step 10: Run the final intent-satisfaction and traceability audit**
 
 Build a closure table in `docs/handoffs/2026-07-16-defense-gate-b-acceptance.md` with one row for every normative contract in the accepted spec. Each row records:
 
@@ -1263,13 +1275,17 @@ Use only `Proven`, `Partial`, `Not Implemented`, or `Out Of Scope` for status. S
 
 Compare the final branch diff to the Task 0/0A baseline and classify every changed source, config, manifest, and binary package as required, supporting evidence, or unrelated. Any in-scope `Partial`/`Not Implemented` row, unexplained package, stale canonical claim, or missing evidence blocks completion. Update the durable execution checkpoint with the final table location, remaining out-of-scope work, and exact merge-readiness decision.
 
-- [ ] **Step 11: Commit Gate B and prepare review**
+Evidence (2026-07-18 UTC): `docs/handoffs/2026-07-16-defense-gate-b-acceptance.md` contains the eight-column closure table required above. Every in-scope row is `Proven`; there is no `Partial` or `Not Implemented` row. The final 164 paths are classified as 59 runtime, 16 editor, 33 automation, 37 binary packages, 12 docs, and 7 config/manifest/tool files. All 37 changed binary packages are LFS-attributed and `git lfs fsck` passes. No unrelated package or premature UI dependency remains.
 
-Stage intentional paths only. Separate large binary content from source when that improves reviewability. Use an imperative commit such as:
+- [x] **Step 11: Commit Gate B and prepare review**
+
+Stage intentional paths only. Separate large binary content from source when that improves reviewability. Use imperative commit subjects.
 
 ```powershell
-git commit -m "Prove the full defense interaction matrix"
+git log --oneline --reverse main..HEAD
 ```
+
+Evidence: the implementation is split into 27 dependency-ordered commits before the final acceptance-doc commit. Runtime, editor migration, binary content, fixture/catalog, matrix, threat, semantic, automation-hook, and Gate A continuity areas are independently reviewable. Unity-collision repairs remain isolated commits. The acceptance handoff defines seven review passes and maps each pass to exact commit hashes and proof gates.
 
 ## Completion Definition
 

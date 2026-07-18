@@ -361,7 +361,7 @@ The following axes remain independent:
 
 `EAttackDirection` remains movement/targeting direction and must not be reused for incoming lane. Left and right are always defender-relative.
 
-Authored nominal lane is a fallback and validation hint. Runtime predicted lane is used before contact when confidence is sufficient. Lane is calculated from signed incoming trajectory in defender local space using the configured center dead zone; defensive-cone yaw is calculated separately from source bearing. Actual incoming trajectory uses nonzero weapon velocity first, the accepted trace segment second, and authored nominal lane only as a flagged low-confidence fallback. It never substitutes source bearing. Actual `FHitReactionInfo` point, normal, surface, confidence, and bone become authoritative for contact VFX and IK. Actual bone mapping may refine body height for contact presentation, while pre-contact presentation retains authored height. Predicted and actual records are retained together in the committed resolution so telemetry can measure prediction error without overwriting either source.
+Authored nominal lane is a fallback and validation hint. Runtime predicted lane is used before contact when confidence is sufficient. Lane is calculated from signed incoming trajectory in defender local space using the configured center dead zone; defensive-cone yaw is calculated separately from source bearing. Actual incoming trajectory prefers fixed montage-time effective source-socket motion when it resolves directionally, then instantaneous effective source-socket motion. A directional instantaneous sample may refine a fixed sample that resolves `Center`. If socket motion is unavailable, the accepted swept blade-point motion or raw trace segment is used before an explicitly flagged low-confidence authored nominal fallback. Source bearing never substitutes for trajectory. Actual `FHitReactionInfo` point, normal, surface, confidence, and bone become authoritative for contact VFX and IK. Actual bone mapping may refine body height for contact presentation, while pre-contact presentation retains authored height. Predicted and actual records are retained together in the committed resolution so telemetry can measure prediction error without overwriting either source.
 
 ## Authoring Model
 
@@ -590,6 +590,12 @@ Telemetry samples transforms immediately before each presentation/stage and afte
 At a stage handoff, unexpected root displacement is the horizontal actor-transform delta between adjacent evaluated frames minus authored/approved warp translation; its initial limit is 10 cm. Pelvis discontinuity is the world-space pelvis socket distance from the last evaluated outgoing pose to the first evaluated incoming pose at the same handoff; its initial limit is 15 cm. Measurements record simulation delta, montage rates, expected root/warp contribution, and both actor identities so results are comparable across frame rates.
 
 The standard build and full `KatanaCombat` automation suite remain required. Headless success cannot establish animation quality; final acceptance for each gate requires Editor/PIE capture, telemetry, and named asset evidence.
+
+### Implementation Acceptance Record (2026-07-18)
+
+Gate A and the scoped single-player Gate B fixture satisfy the contracts above. Gate A's rendered evidence records the three adjacent-frame Chain handoffs with a maximum pelvis discontinuity of `4.11 cm` against the `15 cm` limit. Gate B's rendered matrix passes 54/54 rate/dilation variants across all nine height/lane cells; separate rendered proofs cover seven deterministic two-threat scenarios, physical unblockable contact, and the perfect-parry regression. The final 82-target dependency audit is unchanged and the UBA-disabled `Codex-Agent-Baseline-20260718-151218` run completes 645/645 tests with zero failures/errors.
+
+The acceptance authority, evidence paths, traceability rows, and remaining out-of-scope work are recorded in `docs/handoffs/2026-07-16-defense-gate-b-acceptance.md`. Per-frame pelvis motion reported by the normal-block matrix is diagnostic; only adjacent outgoing/incoming stage samples satisfy the handoff measurement defined above.
 
 ## Review Closure Matrix
 

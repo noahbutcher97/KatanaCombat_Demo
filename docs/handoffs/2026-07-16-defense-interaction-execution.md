@@ -3,7 +3,8 @@
 Date: 2026-07-16
 Branch: `codex/defense-interaction-design`
 Pre-checkpoint HEAD: `108abf49` (`Harden defense interaction execution plan`)
-Status: `SLICE 5 COMPLETE - GO TO TASK 6`
+Implementation HEAD before this checkpoint update: `2949d3ff` (`Prove Gate A paired handoff continuity`)
+Status: `GATE B ACCEPTED - READY FOR REVIEW`
 
 ## Authority And Scope
 
@@ -279,3 +280,46 @@ The final adversarial pass found and fixed two ownership defects not exposed by 
 Final focused evidence is under `Saved/Logs/Defense-Slice5-PostAudit-20260717-060120-*`: Chain 17, CombatEffects 9, CounterSystem 13, and PairedAnimation 39, all green. The standard baseline at `Saved/Logs/Codex-Agent-Baseline-20260717-060225-*` built the editor and completed 543 tests with zero failures/errors. Static inspection confirms `bBlockCombatInput` is written only by lease recomputation, runtime time-dilation writes are confined to `UCombatEffectsWorldSubsystem`, stale Chain feature-test names are absent from canonical docs/tests, and `git diff --check` reports no whitespace errors.
 
 No asset, Blueprint, montage, map, input, or configuration package changed in Slice 5. Source automation does not prove authored timing, marker placement, ready-pose quality, root motion, final yaw, VFX/audio, or playable continuity. Task 6 must build the validation/manifest workflow and prove those Gate A obligations before the branch can claim visible defense behavior or merge readiness. `GO` for Task 6 after the Slice 5 commit.
+
+## Slice 6 Completion And Gate B Inventory
+
+Gate A is complete at commit `1b3170b8`. The final no-UBA baseline under `Saved/Logs/Codex-Agent-Baseline-20260717-164642` built the editor and passed all 609 discovered tests. Rendered PIE evidence remains under `Saved/DefenseProof/GateA/Rendered/`; the accepted asset and proof limits are summarized in `docs/handoffs/2026-07-17-defense-gate-a-evidence.md`.
+
+Task 7 Step 1 is active and remains read-only. `AttackDataNotify` audit report `Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-b-attackdata-inventory-v2.json` loaded all 20 AttackData assets, reported 16 unchanged and four would-change heavy attacks, and saved no packages. `HeavyAttack_1` through `HeavyAttack_4` remain excluded until their notify debt is separately reviewed. The report now records defense profile, tags, sockets/bones, paired dependencies, and montage source-segment provenance; focused regression `KatanaCombat.Editor.AssetMigration.AttackDataNotify.DefenseInventoryDetails` passes.
+
+The current non-heavy catalog has no authored High or Low profile and no authored Left or Right nominal lane: every serialized profile is Middle/Center/Horizontal. Only `LightAttack_1` has a parry window and `Attack.Defense.Parryable`; no catalog attack currently has `Attack.Defense.BlockInterruptible` or `Attack.Property.Unblockable`. Names and montage metadata are therefore insufficient to select the Gate B matrix.
+
+The rendered package-read-only catalog preview is now complete. `KatanaCombat.Defense.GateB.CatalogPreview` passed with 16 non-heavy attacks, 80/80 decoded nontrivial frames, exact source-animation provenance, full-body framing, valid weapon sockets, and nondegenerate Active-window trajectories. The accepted inventory ledger is `Saved/DefenseProof/GateB/Inventory/20260717-215508-005/defense-gate-b-catalog-preview.json`; it records zero package-save calls and explicitly does not claim contact acceptance.
+
+The reviewed smallest complete Gate B set is four attacks. Three remain blockable so every height/lane cell exercises normal-block presentation; a fourth carries the unblockable semantic without weakening the block matrix:
+
+| Attack | Matrix role | Intended profile | Intended semantic | Expected result |
+|---|---|---|---|---|
+| `LightAttack_7` | High x Left/Center/Right | High, Center fallback, Vertical, `head` | add `Attack.Defense.BlockInterruptible` | `NormalBlock` + `Recoil` |
+| `LightAttack_6` | Middle x Left/Center/Right | Middle, Center fallback, Horizontal, `spine_03` | no defense semantic tag | `NormalBlock` + `Continue` |
+| `LightAttack_2` | Low x Left/Center/Right | Low, Center fallback, Sweep, `pelvis` | no defense semantic tag | `NormalBlock` + `Continue` |
+| `LightAttack_11` | Separate unblockable case | Middle, Center fallback, Vertical, `spine_03` | add `Attack.Property.Unblockable` | `UnblockableHit` + `Continue` |
+
+No selected Gate B attack gains `Attack.Defense.Parryable` or a parry window. The deliberately authored unblockable-plus-parryable combination is absent. Gate A `LightAttack_1` remains the sole reviewed parry/Chain case.
+
+Lane feasibility uses each matrix attack's strongest sampled horizontal Active-window weapon-tip segment. For each attack, the fixture computes inward-facing actor anchors that rotate that real segment to defender-local signed angles `-30`, `0`, and `+30` degrees, then invokes the production `FDefenseResolver::ResolveIncomingLane` with the configured 12-degree center half-angle. All 9/9 cases resolved Left/Center/Right as expected with `WeaponVelocity` provenance and inward-facing dot `1.0`. This proves fixture geometry feasibility, not physical contact or animation acceptance; Task 7 Steps 3 and 6 own those claims.
+
+Gate B will reuse the reviewed Gate A `NormalBlockGeneric` fallback montage, block impact cue, Niagara impact, guard AnimBP, parry bridge, canonical Gate A counter, and canonical Gate A finisher. `ContinueGeneric` remains intentionally empty. The `RecoilGeneric` row will use a new standalone Gate B montage sourced from the already reviewed `AS_Hit_Large_F_Seq`; it must not reuse the paired counter montage or its notifies. Each selected attack's current `Counter_LightAttack_*` and `Finisher_A` references remain named load/closure dependencies but are not invoked by the nine normal-block cases. Source contact remains the active weapon `weapon_end` socket.
+
+Task 7 Step 1 is complete without asset mutation. The exact next action is Step 2: add the Gate B schema-v2 manifest and explicit target ledger, then drive commandlet post-report validation RED until it rejects missing matrix cells, missing semantic cases, unresolved fallback provenance, or an open dependency set. No AttackData, montage, configuration, map, Blueprint, or other package mutation is authorized before that invariant and a clean Plan report exist.
+
+## Gate B Execution Checkpoint
+
+Task 7 Steps 1-10 are complete. The schema-v2 manifest, exact target ledger, deterministic V11 authoring approval, dedicated `Lvl_DefenseMatrix` fixture, proof director, nine lane-specific AttackData variants across three logical families, three Gate B montages, defense configuration, proof combat settings, and fixture Blueprints are implemented. V11 binds `spine_01 -> Middle`; its approved Plan fingerprint is `5AD2313E317B118CE2148AD8257C9C59E0A8237B`. `defense-gate-b-final-audit-green.json` reports 82/82 unchanged targets, zero failures/mutations/saves, and an empty ledger. The three approved existing AttackData changes remain `LightAttack_7`, `LightAttack_2`, and `LightAttack_11`.
+
+Fresh matrix evidence is under `Saved/DefenseProof/GateB/{Headless,Rendered}/`. All 54 normal-block variants passed across nine height/lane cells, montage rates `0.5/1.0/2.0`, and world dilation `1.0/0.5`. All 108 rendered frames decoded as nontrivial, fully framed both capsules, and kept them non-overlapping; one VFX/audio plus resolution/presentation event and fixture restoration were recorded per variant. Player damage/displacement remained zero, and representative High/Middle/Low frames were visually inspected after disabling proof-camera motion blur.
+
+The separate threat proof under `Saved/DefenseProof/GateB/Threat/{Headless,Rendered}/` records seven deterministic tie/deadline/hysteresis/switch/stale/invalidation scenarios, one enumeration each, and default-policy restoration. The semantic proof under `Saved/DefenseProof/GateB/Semantic/{Headless,Rendered}/` records physical unblockable damage plus exact cleanup and a physical perfect-parry regression with attack consumption, token/end events, `ParryActive`, `CounterWindow`, identity continuity, and no player damage. Gate A schema-v3 evidence records adjacent-frame `ParryActive -> CounterWindow -> CounterActive -> FinisherActive` handoffs; rendered maximum pelvis discontinuity is `4.11 cm` against `15 cm`.
+
+The final UBA-disabled baseline is `Saved/Logs/Codex-Agent-Baseline-20260718-151218-*`: the regenerated editor build succeeded and 645/645 tests completed with zero failures/errors and the explicit success marker. Its build compiled a committed `KatanaCombatTest` unity module with no adaptive source exclusions. The summary records 334 non-failing warnings, dominated by expected test diagnostics and NullRHI presentation failures. Missing project-package load messages and the non-preferred Visual Studio 14.44 warning remain pre-existing configuration/toolchain debt, not Gate B regressions.
+
+The final adversarial pass re-read rich-contact commit/reentry, attack consumption, AI termination, threat selection, trajectory precedence, alignment ownership, root-motion telemetry, fixture restoration, and migration approval/rollback paths. It also exposed intermittent latent polling of the authored parry window; the proof now reacts to an automation-only callback after reviewed high-confidence prediction and defender refresh are coherent. Four consecutive Gate A focused runs pass at the authored play rate. Direct transforms remain confined to `DefenseMatrixProofDirector`; the production defense path remains alignment-owner driven. `git diff --check` is clean, and no unresolved high/medium finding remains.
+
+The closure table, review order, and exact accepted/out-of-scope boundaries are in `docs/handoffs/2026-07-16-defense-gate-b-acceptance.md`. Its 21 in-scope rows are all `Proven`. The final branch accounts for 164 paths relative to `main`: 59 runtime, 16 editor, 33 automation, 37 binary packages, 12 docs, and 7 config/manifest/tool files. All changed binary packages are LFS-attributed and `git lfs fsck` passes. No unrelated package or UI implementation is present.
+
+**Merge-readiness decision:** the implementation and evidence are committed in dependency order and ready for review. Task 7 Step 11 is complete after the final acceptance-doc commit. The next action is a commit-by-commit PR review using the acceptance handoff's seven review passes; do not flatten or squash the stack before review.
