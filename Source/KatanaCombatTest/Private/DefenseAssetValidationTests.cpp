@@ -3,6 +3,11 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
+#include "Dom/JsonObject.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Serialization/JsonWriter.h"
+
 #include "Animation/AnimComposite.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_ChainStageTransition.h"
@@ -189,6 +194,106 @@ bool LoadGateBManifestJson(FString& OutJson)
 	const FString ManifestPath = FPaths::ConvertRelativePathToFull(
 		FPaths::Combine(FPaths::ProjectDir(), TEXT("Tools/Codex/manifests/defense-gate-b.json")));
 	return FFileHelper::LoadFileToString(OutJson, *ManifestPath);
+}
+
+TSharedPtr<FJsonObject> FindNamedObject(
+	const TSharedRef<FJsonObject>& Root,
+	const FString& ArrayField,
+	const FString& Name)
+{
+	const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+	if (!Root->TryGetArrayField(ArrayField, Values) || !Values)
+	{
+		return nullptr;
+	}
+
+	for (const TSharedPtr<FJsonValue>& Value : *Values)
+	{
+		if (!Value.IsValid() || Value->Type != EJson::Object)
+		{
+			continue;
+		}
+
+		const TSharedPtr<FJsonObject> Object = Value->AsObject();
+		FString ObjectName;
+		if (Object.IsValid()
+			&& Object->TryGetStringField(TEXT("name"), ObjectName)
+			&& ObjectName == Name)
+		{
+			return Object;
+		}
+	}
+
+	return nullptr;
+}
+
+bool RemoveStringValueFromObjectArray(
+	const TSharedRef<FJsonObject>& Root,
+	const FString& ObjectArrayField,
+	const FString& ValueArrayField,
+	const FString& ValueToRemove)
+{
+	const TArray<TSharedPtr<FJsonValue>>* Objects = nullptr;
+	if (!Root->TryGetArrayField(ObjectArrayField, Objects) || !Objects)
+	{
+		return false;
+	}
+
+	bool bRemoved = false;
+	for (const TSharedPtr<FJsonValue>& ObjectValue : *Objects)
+	{
+		if (!ObjectValue.IsValid() || ObjectValue->Type != EJson::Object)
+		{
+			continue;
+		}
+
+		const TSharedPtr<FJsonObject> Object = ObjectValue->AsObject();
+		const TArray<TSharedPtr<FJsonValue>>* Values = nullptr;
+		if (!Object.IsValid() || !Object->TryGetArrayField(ValueArrayField, Values) || !Values)
+		{
+			continue;
+		}
+
+		TArray<TSharedPtr<FJsonValue>> FilteredValues;
+		FilteredValues.Reserve(Values->Num());
+		bool bRemovedFromObject = false;
+		for (const TSharedPtr<FJsonValue>& Value : *Values)
+		{
+			FString StringValue;
+			if (Value.IsValid() && Value->TryGetString(StringValue) && StringValue == ValueToRemove)
+			{
+				bRemovedFromObject = true;
+				continue;
+			}
+			FilteredValues.Add(Value);
+		}
+
+		if (bRemovedFromObject)
+		{
+			Object->SetArrayField(ValueArrayField, MoveTemp(FilteredValues));
+			bRemoved = true;
+		}
+	}
+
+	return bRemoved;
+}
+
+bool MutateManifestJson(
+	const FString& SourceJson,
+	const TFunctionRef<bool(const TSharedRef<FJsonObject>&)> Mutation,
+	FString& OutJson)
+{
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(SourceJson);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid()
+		|| !Mutation(Root.ToSharedRef()))
+	{
+		return false;
+	}
+
+	OutJson.Reset();
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutJson);
+	return FJsonSerializer::Serialize(Root.ToSharedRef(), Writer);
 }
 
 UAnimMontage* CreateSectionMontage(const FName Section = TEXT("Target"))
@@ -888,48 +993,98 @@ bool FDefenseManifestGateBAdversarialContractTest::RunTest(const FString& Parame
 	FDefenseProofManifest Manifest;
 	TArray<FString> Errors;
 
-	FString MissingCellJson = SourceJson;
-	TestTrue(TEXT("The matrix-cell mutation should apply"), MissingCellJson.ReplaceInline(
-		TEXT("\"name\": \"NormalBlockHighRight\",\n      \"attack\": \"GateB_HighRight\",\n      \"expectedHeight\": \"High\",\n      \"expectedLane\": \"Right\""),
-		TEXT("\"name\": \"NormalBlockHighRight\",\n      \"attack\": \"GateB_HighRight\",\n      \"expectedHeight\": \"High\",\n      \"expectedLane\": \"Center\"")) > 0);
+	FString MissingCellJson;
+	TestTrue(TEXT("The matrix-cell mutation should apply"),
+		DefenseAssetValidationTests::MutateManifestJson(SourceJson,
+			[](const TSharedRef<FJsonObject>& Root)
+			{
+				const TSharedPtr<FJsonObject> Case = DefenseAssetValidationTests::FindNamedObject(
+					Root, TEXT("expectedCases"), TEXT("NormalBlockHighRight"));
+				if (!Case.IsValid())
+				{
+					return false;
+				}
+				Case->SetStringField(TEXT("expectedLane"), TEXT("Center"));
+				return true;
+			}, MissingCellJson));
 	TestFalse(TEXT("A duplicated axis assignment must leave the Gate B matrix incomplete"),
 		FDefenseAssetValidationService::ParseManifestJson(MissingCellJson, Manifest, Errors));
 	TestTrue(TEXT("The missing matrix cell should be named"),
 		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("matrix cell High/Right")));
 
-	FString FamilyDriftJson = SourceJson;
-	TestTrue(TEXT("The matrix-family mutation should apply"), FamilyDriftJson.ReplaceInline(
-		TEXT("\"name\": \"GateB_HighRight\",\n      \"matrixFamily\": \"High\""),
-		TEXT("\"name\": \"GateB_HighRight\",\n      \"matrixFamily\": \"Middle\"")) > 0);
+	FString FamilyDriftJson;
+	TestTrue(TEXT("The matrix-family mutation should apply"),
+		DefenseAssetValidationTests::MutateManifestJson(SourceJson,
+			[](const TSharedRef<FJsonObject>& Root)
+			{
+				const TSharedPtr<FJsonObject> Attack = DefenseAssetValidationTests::FindNamedObject(
+					Root, TEXT("attacks"), TEXT("GateB_HighRight"));
+				if (!Attack.IsValid())
+				{
+					return false;
+				}
+				Attack->SetStringField(TEXT("matrixFamily"), TEXT("Middle"));
+				return true;
+			}, FamilyDriftJson));
 	Errors.Reset();
 	TestFalse(TEXT("A lane variant cannot migrate into a different logical height family"),
 		FDefenseAssetValidationService::ParseManifestJson(FamilyDriftJson, Manifest, Errors));
 	TestTrue(TEXT("Family drift should identify matrixFamily"),
 		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("matrixFamily")));
 
-	FString MissingFamilyJson = SourceJson;
-	TestTrue(TEXT("The missing-family mutation should apply"), MissingFamilyJson.ReplaceInline(
-		TEXT("\"name\": \"GateB_HighLeft\",\n      \"matrixFamily\": \"High\""),
-		TEXT("\"name\": \"GateB_HighLeft\"")) > 0);
+	FString MissingFamilyJson;
+	TestTrue(TEXT("The missing-family mutation should apply"),
+		DefenseAssetValidationTests::MutateManifestJson(SourceJson,
+			[](const TSharedRef<FJsonObject>& Root)
+			{
+				const TSharedPtr<FJsonObject> Attack = DefenseAssetValidationTests::FindNamedObject(
+					Root, TEXT("attacks"), TEXT("GateB_HighLeft"));
+				if (!Attack.IsValid() || !Attack->HasField(TEXT("matrixFamily")))
+				{
+					return false;
+				}
+				Attack->RemoveField(TEXT("matrixFamily"));
+				return true;
+			}, MissingFamilyJson));
 	Errors.Reset();
 	TestFalse(TEXT("Every Gate B normal-block variant must declare its logical family"),
 		FDefenseAssetValidationService::ParseManifestJson(MissingFamilyJson, Manifest, Errors));
 	TestTrue(TEXT("A missing family should identify matrixFamily"),
 		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("matrixFamily")));
 
-	FString InvalidProvenanceJson = SourceJson;
-	InvalidProvenanceJson.ReplaceInline(
-		TEXT("\"expectedLaneProvenance\": \"WeaponVelocity\""),
-		TEXT("\"expectedLaneProvenance\": \"AuthoredFallback\""));
+	FString InvalidProvenanceJson;
+	TestTrue(TEXT("The provenance mutation should apply"),
+		DefenseAssetValidationTests::MutateManifestJson(SourceJson,
+			[](const TSharedRef<FJsonObject>& Root)
+			{
+				const TSharedPtr<FJsonObject> Case = DefenseAssetValidationTests::FindNamedObject(
+					Root, TEXT("expectedCases"), TEXT("NormalBlockHighRight"));
+				if (!Case.IsValid())
+				{
+					return false;
+				}
+				Case->SetStringField(TEXT("expectedLaneProvenance"), TEXT("AuthoredFallback"));
+				return true;
+			}, InvalidProvenanceJson));
 	Errors.Reset();
 	TestFalse(TEXT("Contact-driven Gate B matrix cases must not use authored lane fallback"),
 		FDefenseAssetValidationService::ParseManifestJson(InvalidProvenanceJson, Manifest, Errors));
 	TestTrue(TEXT("The required contact provenance should be explicit"),
 		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("WeaponVelocity")));
 
-	FString MissingSemanticsJson = SourceJson;
-	MissingSemanticsJson.ReplaceInline(TEXT("        \"Attack.Defense.BlockInterruptible\",\n"), TEXT(""));
-	MissingSemanticsJson.ReplaceInline(TEXT("        \"Attack.Property.Unblockable\",\n"), TEXT(""));
+	FString MissingSemanticsJson;
+	TestTrue(TEXT("The semantic mutations should apply"),
+		DefenseAssetValidationTests::MutateManifestJson(SourceJson,
+			[](const TSharedRef<FJsonObject>& Root)
+			{
+				const bool bRemovedRecoil = DefenseAssetValidationTests::RemoveStringValueFromObjectArray(
+					Root, TEXT("attacks"), TEXT("expectedTags"),
+					TEXT("Attack.Defense.BlockInterruptible"));
+				const bool bRemovedUnblockable = DefenseAssetValidationTests::RemoveStringValueFromObjectArray(
+					Root, TEXT("attacks"), TEXT("expectedTags"),
+					TEXT("Attack.Property.Unblockable"));
+				return bRemovedRecoil && bRemovedUnblockable;
+			}, MissingSemanticsJson));
 	Errors.Reset();
 	TestFalse(TEXT("Gate B must prove both recoil and unblockable semantics"),
 		FDefenseAssetValidationService::ParseManifestJson(MissingSemanticsJson, Manifest, Errors));
@@ -938,9 +1093,21 @@ bool FDefenseManifestGateBAdversarialContractTest::RunTest(const FString& Parame
 	TestTrue(TEXT("The missing unblockable semantic should be named"),
 		DefenseAssetValidationTests::ErrorsContain(Errors, TEXT("Unblockable")));
 
-	FString MissingFallbackJson = SourceJson;
-	MissingFallbackJson.ReplaceInline(
-		TEXT("      \"expectedDefenderFallbackRow\": \"NormalBlockGeneric\",\n"), TEXT(""));
+	FString MissingFallbackJson;
+	TestTrue(TEXT("The fallback mutation should apply"),
+		DefenseAssetValidationTests::MutateManifestJson(SourceJson,
+			[](const TSharedRef<FJsonObject>& Root)
+			{
+				const TSharedPtr<FJsonObject> Presentation = DefenseAssetValidationTests::FindNamedObject(
+					Root, TEXT("presentations"), TEXT("NormalBlockHighRecoil"));
+				if (!Presentation.IsValid()
+					|| !Presentation->HasField(TEXT("expectedDefenderFallbackRow")))
+				{
+					return false;
+				}
+				Presentation->RemoveField(TEXT("expectedDefenderFallbackRow"));
+				return true;
+			}, MissingFallbackJson));
 	Errors.Reset();
 	TestFalse(TEXT("Every Gate B defender presentation must name its deterministic fallback"),
 		FDefenseAssetValidationService::ParseManifestJson(MissingFallbackJson, Manifest, Errors));
@@ -948,9 +1115,21 @@ bool FDefenseManifestGateBAdversarialContractTest::RunTest(const FString& Parame
 		DefenseAssetValidationTests::ErrorsContain(
 			Errors, TEXT("requires expectedDefenderFallbackRow")));
 
-	FString MissingContactToleranceJson = SourceJson;
-	MissingContactToleranceJson.ReplaceInline(
-		TEXT("      \"maxContactTargetVerticalDeltaCm\": 30.0,\n"), TEXT(""));
+	FString MissingContactToleranceJson;
+	TestTrue(TEXT("The contact-tolerance mutation should apply"),
+		DefenseAssetValidationTests::MutateManifestJson(SourceJson,
+			[](const TSharedRef<FJsonObject>& Root)
+			{
+				const TSharedPtr<FJsonObject> Presentation = DefenseAssetValidationTests::FindNamedObject(
+					Root, TEXT("presentations"), TEXT("NormalBlockHighRecoil"));
+				if (!Presentation.IsValid()
+					|| !Presentation->HasField(TEXT("maxContactTargetVerticalDeltaCm")))
+				{
+					return false;
+				}
+				Presentation->RemoveField(TEXT("maxContactTargetVerticalDeltaCm"));
+				return true;
+			}, MissingContactToleranceJson));
 	Errors.Reset();
 	TestFalse(TEXT("Every Gate B normal-block presentation must declare a physical height tolerance"),
 		FDefenseAssetValidationService::ParseManifestJson(
