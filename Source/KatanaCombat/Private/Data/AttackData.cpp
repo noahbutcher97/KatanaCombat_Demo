@@ -367,12 +367,22 @@ bool UAttackData::DetectCycles(TSet<const UAttackData*>& Visited, TArray<FText>&
     // Check if we've already visited this attack (cycle detected!)
     if (Visited.Contains(this))
     {
-        // Cycle detected - this attack references itself through its combo chain
-        // Only report the error ONCE at the point where the cycle closes
-        Errors.Add(FText::FromString(FString::Printf(
+        const FText CycleError = FText::FromString(FString::Printf(
             TEXT("%s: Circular reference detected! This attack is part of a combo cycle. Review NextComboAttack, HeavyComboAttack, and DirectionalFollowUps to break the cycle."),
             *GetName()
-        )));
+        ));
+
+        // Alternate graph paths can close the same cycle repeatedly during one
+        // root validation. Preserve full traversal while emitting one actionable
+        // error per affected asset.
+        if (!Errors.ContainsByPredicate([&CycleError](const FText& ExistingError)
+        {
+            return ExistingError.EqualTo(CycleError);
+        }))
+        {
+            Errors.Add(CycleError);
+        }
+
         return true;
     }
 
