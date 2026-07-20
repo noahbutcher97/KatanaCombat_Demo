@@ -40,6 +40,11 @@ public:
     /** Get current movement input for debug visualization */
     virtual FVector2D GetLastMovementInput() const override { return LastMovementInput; }
 
+    /** CharacterMovement yaw rate used while orienting locomotion to movement input. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Movement",
+        meta = (ClampMin = "1.0", ClampMax = "1080.0", UIMin = "1.0", UIMax = "1080.0", Units = "DegreesPerSecond"))
+    float LocomotionRotationRate = 540.0f;
+
     // ========================================================================
     // DEBUG WIDGET (Player-specific)
     // ========================================================================

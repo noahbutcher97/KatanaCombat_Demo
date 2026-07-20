@@ -113,6 +113,52 @@ enum class EActionState : uint8
 	Cancelled
 };
 
+/** Provenance for the immutable world-space facing captured on an attack edge. */
+UENUM(BlueprintType)
+enum class EAttackFacingIntentSource : uint8
+{
+	Programmatic,
+	CameraRelativeInput,
+	CharacterRelativeDirection,
+	CapturedFacing
+};
+
+/** Stable facing intent retained with a queued attack instead of resampling input later. */
+USTRUCT(BlueprintType)
+struct FAttackFacingIntent
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	FVector WorldDirection = FVector::ForwardVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	float DesiredYaw = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	float CapturedFacingYaw = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	EInputDirection BranchDirection = EInputDirection::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	EAttackFacingIntentSource Source = EAttackFacingIntentSource::Programmatic;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	double SimulationTimestamp = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	bool bHasWorldDirection = false;
+
+	bool IsFinite() const
+	{
+		return !WorldDirection.ContainsNaN()
+			&& FMath::IsFinite(DesiredYaw)
+			&& FMath::IsFinite(CapturedFacingYaw)
+			&& FMath::IsFinite(SimulationTimestamp);
+	}
+};
+
 /**
  * Window types for timer checkpoints
  */
@@ -161,6 +207,10 @@ struct FQueuedInputAction
 	/** Was this input during a combo window? */
 	UPROPERTY(BlueprintReadOnly, Category = "Input")
 	bool bInComboWindow = false;
+
+	/** World-space facing captured on this exact physical input edge. */
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	FAttackFacingIntent FacingIntent;
 
 	FQueuedInputAction() = default;
 

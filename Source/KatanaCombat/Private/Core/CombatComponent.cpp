@@ -21,6 +21,7 @@
 #include "Animation/AnimMontage.h"
 #include "DrawDebugHelpers.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Characters/BaseCombatCharacter.h"
@@ -42,6 +43,37 @@
 namespace
 {
 TAtomic<uint64> GNextCombatantStableId(1);
+
+bool IsCombatOwnerOperational(const UCombatComponent* CombatComponent)
+{
+	if (!IsValid(CombatComponent))
+	{
+		return false;
+	}
+
+	const ABaseCombatCharacter* Character = Cast<ABaseCombatCharacter>(CombatComponent->GetOwner());
+	return IsValid(Character) && !Character->IsDeadOrDying();
+}
+
+bool IsAttackStartupContextValid(
+	const UCombatComponent* CombatComponent,
+	const ABaseCombatCharacter* Character,
+	const USkeletalMeshComponent* Mesh,
+	const UAnimInstance* AnimInstance,
+	const UAttackData* AttackData,
+	const UAnimMontage* AttackMontage)
+{
+	return IsCombatOwnerOperational(CombatComponent)
+		&& IsValid(Character)
+		&& IsValid(Mesh)
+		&& IsValid(AnimInstance)
+		&& IsValid(AttackData)
+		&& IsValid(AttackMontage)
+		&& CombatComponent->GetOwner() == Character
+		&& Character->GetMesh() == Mesh
+		&& Mesh->GetAnimInstance() == AnimInstance
+		&& AttackData->AttackMontage.Get() == AttackMontage;
+}
 
 bool IsAttackTaggedUnblockable(const UAttackData* AttackData)
 {
@@ -833,8 +865,66 @@ void UCombatComponent::OnInputEventWithTransform(
 		0.2f  // Dead zone
 	);
 
-	// Delegate to core input handler with transformed direction
-	OnInputEvent(InputType, EventType, CharacterRelativeDirection);
+	const FAttackFacingIntent FacingIntent = BuildAttackFacingIntent(
+		CameraRelativeInput,
+		CameraRotation,
+		CharacterRotation,
+		CharacterRelativeDirection,
+		EAttackFacingIntentSource::CameraRelativeInput);
+	OnInputEventInternal(InputType, EventType, CharacterRelativeDirection, FacingIntent);
+}
+
+FAttackFacingIntent UCombatComponent::BuildAttackFacingIntent(
+	FVector2D CameraRelativeInput,
+	FRotator CameraRotation,
+	FRotator CharacterRotation,
+	EInputDirection BranchDirection,
+	EAttackFacingIntentSource Source) const
+{
+	FAttackFacingIntent Intent;
+	Intent.CapturedFacingYaw = FMath::IsFinite(static_cast<float>(CharacterRotation.Yaw))
+		? FRotator::NormalizeAxis(static_cast<float>(CharacterRotation.Yaw))
+		: 0.0f;
+	Intent.DesiredYaw = Intent.CapturedFacingYaw;
+	Intent.BranchDirection = BranchDirection;
+	Intent.Source = Source;
+	Intent.SimulationTimestamp = GetWorld()
+		? static_cast<double>(GetWorld()->GetTimeSeconds())
+		: 0.0;
+
+	if (!FMath::IsFinite(static_cast<float>(CameraRelativeInput.X))
+		|| !FMath::IsFinite(static_cast<float>(CameraRelativeInput.Y))
+		|| !FMath::IsFinite(static_cast<float>(CameraRotation.Yaw)))
+	{
+		Intent.Source = EAttackFacingIntentSource::CapturedFacing;
+		return Intent;
+	}
+
+	const float InputMagnitude = FMath::Min(CameraRelativeInput.Size(), 1.0f);
+	if (InputMagnitude <= 0.2f)
+	{
+		Intent.Source = EAttackFacingIntentSource::CapturedFacing;
+		return Intent;
+	}
+
+	const FVector2D NormalizedInput = CameraRelativeInput.GetSafeNormal();
+	const FRotator CameraYaw(0.0f, CameraRotation.Yaw, 0.0f);
+	const FVector CameraForward = FRotationMatrix(CameraYaw).GetUnitAxis(EAxis::X);
+	const FVector CameraRight = FRotationMatrix(CameraYaw).GetUnitAxis(EAxis::Y);
+	FVector WorldDirection = CameraForward * NormalizedInput.Y
+		+ CameraRight * NormalizedInput.X;
+	WorldDirection.Z = 0.0f;
+	WorldDirection = WorldDirection.GetSafeNormal();
+	if (WorldDirection.IsNearlyZero() || WorldDirection.ContainsNaN())
+	{
+		Intent.Source = EAttackFacingIntentSource::CapturedFacing;
+		return Intent;
+	}
+
+	Intent.WorldDirection = WorldDirection;
+	Intent.DesiredYaw = FRotator::NormalizeAxis(WorldDirection.Rotation().Yaw);
+	Intent.bHasWorldDirection = true;
+	return Intent;
 }
 
 void UCombatComponent::OnInputEventAuto(
@@ -889,7 +979,49 @@ void UCombatComponent::OnInputEventAuto(
 	}
 }
 
-void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection)
+void UCombatComponent::OnInputEvent(
+	EInputType InputType,
+	EInputEventType EventType,
+	EInputDirection InputDirection)
+{
+	FAttackFacingIntent FacingIntent;
+	FacingIntent.BranchDirection = InputDirection;
+	FacingIntent.SimulationTimestamp = GetWorld()
+		? static_cast<double>(GetWorld()->GetTimeSeconds())
+		: 0.0;
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		FacingIntent.CapturedFacingYaw = FRotator::NormalizeAxis(
+			Character->GetActorRotation().Yaw);
+		FacingIntent.DesiredYaw = FacingIntent.CapturedFacingYaw;
+		if (InputDirection != EInputDirection::None)
+		{
+			FVector WorldDirection = UCombatUtils::InputDirectionToWorldVector(
+				InputDirection, Character);
+			WorldDirection.Z = 0.0f;
+			WorldDirection = WorldDirection.GetSafeNormal();
+			if (!WorldDirection.IsNearlyZero() && !WorldDirection.ContainsNaN())
+			{
+				FacingIntent.WorldDirection = WorldDirection;
+				FacingIntent.DesiredYaw = FRotator::NormalizeAxis(
+					WorldDirection.Rotation().Yaw);
+				FacingIntent.bHasWorldDirection = true;
+				FacingIntent.Source = EAttackFacingIntentSource::CharacterRelativeDirection;
+			}
+		}
+		else
+		{
+			FacingIntent.Source = EAttackFacingIntentSource::CapturedFacing;
+		}
+	}
+	OnInputEventInternal(InputType, EventType, InputDirection, FacingIntent);
+}
+
+void UCombatComponent::OnInputEventInternal(
+	EInputType InputType,
+	EInputEventType EventType,
+	EInputDirection InputDirection,
+	const FAttackFacingIntent& FacingIntent)
 {
 	const uint64 InputSerial = CaptureCombatInput(InputType, EventType, InputDirection);
 	if (InputType == EInputType::Block && EventType == EInputEventType::Release)
@@ -1046,6 +1178,7 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 
 	// Create input action
 	FQueuedInputAction InputAction(InputType, EventType, CurrentTime, bComboWindowActive);
+	InputAction.FacingIntent = FacingIntent;
 
 	// Track press/release pairs
 	if (EventType == EInputEventType::Press)
@@ -3152,7 +3285,11 @@ void UCombatComponent::ProcessQueuedActions(EAttackPhase TargetPhase)
 	// Process actions targeting this phase (FIFO order maintained)
 	for (int32 i = ActionQueue.Num() - 1; i >= 0; --i)
 	{
-		FActionQueueEntry& Entry = ActionQueue[i];
+		if (!ActionQueue.IsValidIndex(i))
+		{
+			continue;
+		}
+		FActionQueueEntry Entry = ActionQueue[i];
 
 		if (!Entry.IsPending())
 		{
@@ -3164,8 +3301,17 @@ void UCombatComponent::ProcessQueuedActions(EAttackPhase TargetPhase)
 
 		if (bShouldExecute)
 		{
+			// Execution may synchronously clear or replace the queue through montage/death callbacks.
+			ActionQueue.RemoveAt(i);
+			const TWeakObjectPtr<UCombatComponent> ComponentSnapshot(this);
+			const bool bExecuted = ExecuteAction(Entry);
+			if (!ComponentSnapshot.IsValid())
+			{
+				return;
+			}
+
 			// Execute action
-			if (ExecuteAction(Entry))
+			if (bExecuted)
 			{
 				Entry.State = EActionState::Completed;
 				QueueStats.ActionsExecuted++;
@@ -3183,9 +3329,6 @@ void UCombatComponent::ProcessQueuedActions(EAttackPhase TargetPhase)
 						*UEnum::GetValueAsString(TargetPhase),
 						*UEnum::GetValueAsString(Entry.TargetPhase));
 				}
-
-				// Remove from queue after successful execution
-				ActionQueue.RemoveAt(i);
 			}
 			else
 			{
@@ -3198,8 +3341,6 @@ void UCombatComponent::ProcessQueuedActions(EAttackPhase TargetPhase)
 					UE_LOG(LogCombat, Warning, TEXT("[EVENT-DRIVEN] Action execution failed on phase %s, cancelled"),
 						*UEnum::GetValueAsString(TargetPhase));
 				}
-
-				ActionQueue.RemoveAt(i);
 			}
 		}
 	}
@@ -3296,7 +3437,9 @@ void UCombatComponent::ProcessQueue(float CurrentMontageTime)
 
 bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 {
-	if (!Action.AttackData)
+	UAttackData* const ActionAttackData = Action.AttackData;
+	const EInputType ActionInputType = Action.InputAction.InputType;
+	if (!ActionAttackData || !IsCombatOwnerOperational(this))
 	{
 		return false;
 	}
@@ -3306,13 +3449,13 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 	// Event-driven execution - plays montage directly
 	bool bSuccess = false;
 
-	switch (Action.InputAction.InputType)
+	switch (ActionInputType)
 	{
 		case EInputType::LightAttack:
 		case EInputType::HeavyAttack:
 		{
 			// FINISHER CHECK: Before normal attack, try to execute finisher on vulnerable target
-			if (CachedPairedAnimComp && CachedPairedAnimComp->TryExecuteFinisher(Action.AttackData))
+			if (CachedPairedAnimComp && CachedPairedAnimComp->TryExecuteFinisher(ActionAttackData))
 			{
 				// Finisher was executed - don't play normal attack
 				bSuccess = true;
@@ -3330,14 +3473,23 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 			// 3. If PlayAttackMontage fails, we revert to the previous state
 			UAttackData* PreviousAttackData = CurrentAttackData;
 			EInputType PreviousInputType = CurrentAttackInputType;
-			CurrentAttackData = Action.AttackData;
-			CurrentAttackInputType = Action.InputAction.InputType;
+			CurrentAttackData = ActionAttackData;
+			CurrentAttackInputType = ActionInputType;
 
 			// Play normal attack montage
-			bSuccess = PlayAttackMontage(Action.AttackData);
+			bSuccess = PlayAttackMontage(ActionAttackData);
+			if (!IsValid(this))
+			{
+				return false;
+			}
+			const bool bStartupContextIntact = IsCombatOwnerOperational(this)
+				&& IsValid(ActionAttackData)
+				&& CurrentAttackData == ActionAttackData
+				&& ActionAttackData->AttackMontage;
+			bSuccess = bSuccess && bStartupContextIntact;
 
 			// If successful, discover checkpoints for the new montage
-			if (bSuccess && Action.AttackData->AttackMontage)
+			if (bSuccess)
 			{
 				// Capture phase BEFORE SetPhase overwrites it (for combo detection below)
 				const EAttackPhase PhaseBeforeWindup = CurrentPhase;
@@ -3345,26 +3497,33 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 				// Transition to Windup phase (event-driven phase management)
 				SetPhase(EAttackPhase::Windup);
 
-				DiscoverCheckpoints(Action.AttackData->AttackMontage);
+				DiscoverCheckpoints(ActionAttackData->AttackMontage);
 
 				// CRITICAL FIX: Reset hold state for new attack (clears bActivatedThisAttack)
 				HoldState.Reset();
 
 				// MOTION WARP: Setup warp based on context (target or direction)
-				SetupAttackWarp(Action.AttackData);
+				SetupAttackWarp(Action);
 
 				// Broadcast attack started event (use pre-Windup phase for accurate combo detection)
 				bool bIsCombo = (PhaseBeforeWindup == EAttackPhase::Recovery || PhaseBeforeWindup == EAttackPhase::Active);
-				OnAttackStarted.Broadcast(Action.AttackData, Action.InputAction.InputType, bIsCombo);
+				OnAttackStarted.Broadcast(ActionAttackData, ActionInputType, bIsCombo);
+				if (!IsValid(this)
+					|| !IsCombatOwnerOperational(this)
+					|| !IsValid(ActionAttackData)
+					|| CurrentAttackData != ActionAttackData)
+				{
+					return false;
+				}
 
 				if (GetDebugDraw())
 				{
-					FString SectionName = Action.AttackData->MontageSection.IsNone() ?
-						TEXT("Default") : Action.AttackData->MontageSection.ToString();
+					FString SectionName = ActionAttackData->MontageSection.IsNone() ?
+						TEXT("Default") : ActionAttackData->MontageSection.ToString();
 
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] ═══════════════════════════════════════"));
-					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Attack Data: %s"), *Action.AttackData->GetName());
-					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Montage: %s"), *Action.AttackData->AttackMontage->GetName());
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Attack Data: %s"), *ActionAttackData->GetName());
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Montage: %s"), *ActionAttackData->AttackMontage->GetName());
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Section: %s"), *SectionName);
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Input Type: %s"), *UEnum::GetValueAsString(CurrentAttackInputType));
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Is Combo: %s"), bIsCombo ? TEXT("YES") : TEXT("NO"));
@@ -3375,10 +3534,13 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 			else
 			{
 				// Revert pre-set state on failure
-				CurrentAttackData = PreviousAttackData;
-				CurrentAttackInputType = PreviousInputType;
+				if (bStartupContextIntact && CurrentAttackData == ActionAttackData)
+				{
+					CurrentAttackData = PreviousAttackData;
+					CurrentAttackInputType = PreviousInputType;
+				}
 
-				if (GetDebugDraw())
+				if (bStartupContextIntact && GetDebugDraw())
 				{
 					UE_LOG(LogCombat, Warning, TEXT("[EXECUTE] PlayAttackMontage failed - reverted CurrentAttackData to %s"),
 						PreviousAttackData ? *PreviousAttackData->GetName() : TEXT("None"));
@@ -3404,7 +3566,7 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 
 bool UCombatComponent::ExecuteAttackData(UAttackData* AttackData, AActor* ExplicitWarpTarget, EInputType InputType)
 {
-	if (!AttackData)
+	if (!AttackData || !IsCombatOwnerOperational(this))
 	{
 		return false;
 	}
@@ -3418,18 +3580,38 @@ bool UCombatComponent::ExecuteAttackData(UAttackData* AttackData, AActor* Explic
 
 	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
 	FQueuedInputAction InputAction(InputType, EInputEventType::Press, CurrentTime, bComboWindowActive);
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		InputAction.FacingIntent = BuildAttackFacingIntent(
+			FVector2D::ZeroVector,
+			Character->GetActorRotation(),
+			Character->GetActorRotation(),
+			EInputDirection::None,
+			EAttackFacingIntentSource::Programmatic);
+	}
 	FActionQueueEntry Entry(InputAction, AttackData, EActionExecutionMode::Immediate);
 	Entry.Priority = CalculatePriority(Entry);
 	Entry.TargetPhase = EAttackPhase::None;
 
 	const TWeakObjectPtr<AActor> PreviousExplicitWarpTarget = ExplicitAttackWarpTarget;
 	const TWeakObjectPtr<AActor> PreviousIntentTarget = AttackIntentTarget;
+	const TWeakObjectPtr<UCombatComponent> ComponentSnapshot(this);
 	ExplicitAttackWarpTarget = ExplicitWarpTarget;
 	if (ExplicitWarpTarget)
 	{
 		SetAttackIntentTarget(ExplicitWarpTarget);
 	}
 	const bool bExecuted = ExecuteAction(Entry);
+	if (!ComponentSnapshot.IsValid())
+	{
+		return false;
+	}
+	if (!IsCombatOwnerOperational(this))
+	{
+		ExplicitAttackWarpTarget.Reset();
+		AttackIntentTarget.Reset();
+		return false;
+	}
 	ExplicitAttackWarpTarget = PreviousExplicitWarpTarget;
 	if (!bExecuted)
 	{
@@ -3441,7 +3623,8 @@ bool UCombatComponent::ExecuteAttackData(UAttackData* AttackData, AActor* Explic
 
 bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 {
-	if (!AttackData || !AttackData->AttackMontage)
+	UAnimMontage* const AttackMontage = AttackData ? AttackData->AttackMontage.Get() : nullptr;
+	if (!AttackData || !AttackMontage)
 	{
 		if (GetDebugDraw())
 		{
@@ -3451,7 +3634,8 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	}
 
 	ABaseCombatCharacter* Character = GetOwnerCharacter();
-	if (!Character || !Character->GetMesh())
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	if (!IsCombatOwnerOperational(this) || !Mesh)
 	{
 		if (GetDebugDraw())
 		{
@@ -3460,7 +3644,7 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		return false;
 	}
 
-	UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance();
+	UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
 	if (!AnimInstance)
 	{
 		if (GetDebugDraw())
@@ -3520,6 +3704,11 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		// Force instant stop of ALL montages to clean up the blend mess
 		// This fixes the "half-blended loop" issue when mashing attack during blend-out
 		AnimInstance->StopAllMontages(0.0f);
+		if (!IsAttackStartupContextValid(
+			this, Character, Mesh, AnimInstance, AttackData, AttackMontage))
+		{
+			return false;
+		}
 		bInComboBlend = false;
 		BlendTransitionEndTime = 0.0f;
 
@@ -3550,13 +3739,18 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		// STATE MACHINE: Notify combo transition (tracks old montage for callback filtering)
 		// CRITICAL: Pass section name for same-montage transitions (e.g., Attack_1 → Attack_2 in AM_Light_Combo_1)
 		const float BlendDuration = FMath::Max(BlendOutTime, BlendInTime);
-		AttackStateMachine.OnComboTransition(AttackData->AttackMontage, AttackData->MontageSection, BlendDuration, CurrentWorldTime);
+		AttackStateMachine.OnComboTransition(AttackMontage, AttackData->MontageSection, BlendDuration, CurrentWorldTime);
 
 		// DEPRECATED: Keep legacy flags in sync for backwards compatibility
 		bInComboBlend = true;
 		BlendTransitionEndTime = CurrentWorldTime + BlendDuration;
 
 		AnimInstance->Montage_Stop(BlendOutTime, CurrentMontage);
+		if (!IsAttackStartupContextValid(
+			this, Character, Mesh, AnimInstance, AttackData, AttackMontage))
+		{
+			return false;
+		}
 
 		if (GetDebugDraw())
 		{
@@ -3568,7 +3762,7 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	{
 		// Not a combo - this is a fresh attack start
 		// CRITICAL: Pass section name and time for grace period protection
-		AttackStateMachine.OnAttackStarted(AttackData->AttackMontage, AttackData->MontageSection, CurrentWorldTime);
+		AttackStateMachine.OnAttackStarted(AttackMontage, AttackData->MontageSection, CurrentWorldTime);
 
 		if (GetDebugDraw())
 		{
@@ -3615,7 +3809,7 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		// Play with custom blend-in
 		FAlphaBlendArgs BlendIn(BlendInTime);
 		AnimInstance->Montage_PlayWithBlendSettings(
-			AttackData->AttackMontage,
+			AttackMontage,
 			BlendIn,
 			PlayRate,
 			EMontagePlayReturnType::MontageLength,
@@ -3626,7 +3820,12 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	else
 	{
 		// Play with default blend (instant)
-		AnimInstance->Montage_Play(AttackData->AttackMontage, PlayRate, EMontagePlayReturnType::MontageLength, StartPosition);
+		AnimInstance->Montage_Play(AttackMontage, PlayRate, EMontagePlayReturnType::MontageLength, StartPosition);
+	}
+	if (!IsAttackStartupContextValid(
+		this, Character, Mesh, AnimInstance, AttackData, AttackMontage))
+	{
+		return false;
 	}
 
 	// Clear blend flag - new montage has started playing
@@ -3651,12 +3850,12 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	// Handle montage sections if specified
 	if (!AttackData->MontageSection.IsNone())
 	{
-		AnimInstance->Montage_JumpToSection(AttackData->MontageSection, AttackData->AttackMontage);
+		AnimInstance->Montage_JumpToSection(AttackData->MontageSection, AttackMontage);
 
 		// Prevent auto-advance to next section if bUseSectionOnly is true
 		if (AttackData->bUseSectionOnly)
 		{
-			AnimInstance->Montage_SetNextSection(AttackData->MontageSection, NAME_None, AttackData->AttackMontage);
+			AnimInstance->Montage_SetNextSection(AttackData->MontageSection, NAME_None, AttackMontage);
 
 			if (GetDebugDraw())
 			{
@@ -3669,7 +3868,7 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	if (GetDebugDraw())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Playing: %s | Section: %s | Delegate bound"),
-			*AttackData->AttackMontage->GetName(),
+			*AttackMontage->GetName(),
 			*AttackData->MontageSection.ToString());
 	}
 
@@ -4489,29 +4688,18 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 {
 	if (CurrentPhase == NewPhase)
 	{
-		return; // No change needed
+		if (NewPhase == EAttackPhase::None)
+		{
+			ResetTerminalAttackState();
+		}
+		return;
 	}
 
 	EAttackPhase OldPhase = CurrentPhase;
-	if (NewPhase == EAttackPhase::None)
-	{
-		FAttackInstanceId EndingAttack;
-		EndingAttack.Attacker = GetOwner();
-		EndingAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
-		ClearPublishedAttackWindowsForAttack(EndingAttack);
-	}
 	CurrentPhase = NewPhase;
 	if (NewPhase == EAttackPhase::None)
 	{
-		InvalidateAttackThreatPrediction(EThreatInvalidationReason::AttackEnded);
-		AttackIntentTarget.Reset();
-		if (ABaseCombatCharacter* Character = GetOwnerCharacter())
-		{
-			if (UTargetingComponent* Targeting = Character->GetTargetingComponent())
-			{
-				Targeting->ReleaseActiveAttackWarp();
-			}
-		}
+		ResetTerminalAttackState();
 	}
 
 	// STATE MACHINE: Notify phase change
@@ -4569,21 +4757,6 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 				}
 			}
 
-			// Attack finished - reset combo state for next attack.
-			// NOTE: Stale SetPhase(None) calls from combo transitions never reach here
-			// because the state machine's ShouldProcessMontageEnd() rejects those
-			// callbacks BEFORE OnMontageEnded processes them.
-			CurrentAttackData = nullptr;
-			CurrentAttackInputType = EInputType::None;
-
-			// CRITICAL: Ensure input context returns to Movement on attack completion
-			// This prevents directional input context leaking into idle/movement state
-			SetInputContext(EInputContext::Movement);
-
-			// CRITICAL: Clear hold state completely (ease timer, flags, movement)
-			// This prevents hold state leaking into next attack
-			ClearHoldState();
-
 			if (GetDebugDraw())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[PHASE] Attack finished - Combo state, hold state, and input context cleared"));
@@ -4593,6 +4766,32 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 		default:
 			break;
 	}
+}
+
+void UCombatComponent::ResetTerminalAttackState()
+{
+	FAttackInstanceId EndingAttack;
+	EndingAttack.Attacker = GetOwner();
+	EndingAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
+	ClearPublishedAttackWindowsForAttack(EndingAttack);
+	InvalidateAttackThreatPrediction(EThreatInvalidationReason::AttackEnded);
+	AttackIntentTarget.Reset();
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		if (UTargetingComponent* Targeting = Character->GetTargetingComponent())
+		{
+			Targeting->ReleaseActiveAttackWarp();
+		}
+	}
+
+	CurrentAttackData = nullptr;
+	CurrentAttackInputType = EInputType::None;
+	bComboWindowActive = false;
+	ComboWindowStart = 0.0f;
+	ComboWindowDuration = 0.0f;
+	Checkpoints.Empty();
+	SetInputContext(EInputContext::Movement);
+	ClearHoldState();
 }
 /*TODO: Consider adding OnPhaseEnter/Exit events for more granular control --> Also we know that active phase is when queued input actions can be executed so perhaps having phase specific logic for simple things like this would be prudent*/
 
@@ -4663,6 +4862,7 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		// Stale callback — completely ignored. Queue, checkpoints, phase all preserved.
 		return;
 	}
+	const int32 EndingAttackGeneration = AttackStateMachine.AttackGeneration;
 
 	// ========================================================================
 	// PROCESS VALID CALLBACK
@@ -4725,7 +4925,11 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		// Execute pending actions that reached their checkpoint
 		for (int32 i = ActionQueue.Num() - 1; i >= 0; --i)
 		{
-			FActionQueueEntry& Entry = ActionQueue[i];
+			if (!ActionQueue.IsValidIndex(i))
+			{
+				continue;
+			}
+			FActionQueueEntry Entry = ActionQueue[i];
 
 			if (Entry.IsPending())
 			{
@@ -4754,16 +4958,22 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 							*UEnum::GetValueAsString(Entry.InputAction.InputType), Entry.ScheduledTime, MontageEndTime);
 					}
 
-					// Execute the pending action
-					if (ExecuteAction(Entry))
+					// Startup can synchronously clear or replace the queue through callbacks.
+					ActionQueue.RemoveAt(i);
+					const TWeakObjectPtr<UCombatComponent> ComponentSnapshot(this);
+					const bool bExecuted = ExecuteAction(Entry);
+					if (!ComponentSnapshot.IsValid())
 					{
-						ActionQueue.RemoveAt(i);
-
+						return;
+					}
+					if (bExecuted)
+					{
 						QueueStats.ActionsExecuted++;
 
 						// Only execute the first valid action (FIFO)
 						break;
 					}
+					QueueStats.ActionsCancelled++;
 				}
 				else
 				{
@@ -4787,14 +4997,15 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 	// before the state machine filter, to ensure finisher montages complete properly.
 	// ========================================================================
 
-	// Update state machine with callback processed
-	AttackStateMachine.OnMontageEndProcessed(Montage, bInterrupted);
-
-	// Phase transition to idle if not in combo blend
-	if (!AttackStateMachine.IsComboBlending() &&
-		CurrentPhase != EAttackPhase::Windup &&
-		CurrentPhase != EAttackPhase::Active)
+	// Broadcasts and queued execution above may synchronously start a successor,
+	// including another section of the same montage. Only the exact ending attack
+	// is allowed to clear lifecycle state and checkpoints.
+	const bool bEndingAttackStillOwnsState =
+		AttackStateMachine.AttackGeneration == EndingAttackGeneration
+		&& AttackStateMachine.IsOwnerMontage(Montage);
+	if (bEndingAttackStillOwnsState)
 	{
+		AttackStateMachine.OnMontageEndProcessed(Montage, bInterrupted);
 		SetPhase(EAttackPhase::None);
 	}
 
@@ -4813,8 +5024,6 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		}
 	}
 
-	// Clear checkpoints for finished montage (new montage will have its own)
-	Checkpoints.Empty();
 }
 
 //NOTE:: OnMontageEnded is where queued actions get a last chance to execute if their checkpoint was reached.
@@ -4954,8 +5163,9 @@ void UCombatComponent::ClearHoldState()
 	UpdateMovementFromMontageState();
 }
 
-void UCombatComponent::SetupAttackWarp(UAttackData* AttackData)
+void UCombatComponent::SetupAttackWarp(const FActionQueueEntry& Action)
 {
+	UAttackData* AttackData = Action.AttackData;
 	// Early exit if no valid attack data or warp disabled
 	if (!AttackData || !AttackData->WarpConfig.bEnableWarp)
 	{
@@ -5054,35 +5264,17 @@ void UCombatComponent::SetupAttackWarp(UAttackData* AttackData)
 		WorldDirection = UCombatUtils::InputDirectionToWorldVector(FinalDirection, Character);
 		DirectionSource = TEXT("HoldRelease");
 	}
-	// PRIORITY 2: Fall back to current movement input (for non-hold attacks)
+	// PRIORITY 2: Use the immutable world-space intent from this attack edge.
 	else
 	{
-		const FVector2D MovementInput = Character->GetLastMovementInput();
-
-		// Only use if movement input is significant (above dead zone)
-		if (MovementInput.Size() > 0.2f)
+		const FAttackFacingIntent& FacingIntent = Action.InputAction.FacingIntent;
+		if (FacingIntent.IsFinite()
+			&& FacingIntent.bHasWorldDirection
+			&& !FacingIntent.WorldDirection.IsNearlyZero())
 		{
-			// Get camera rotation for direction conversion
-			FRotator CameraRotation = FRotator::ZeroRotator;
-			if (AController* Controller = Character->GetController())
-			{
-				CameraRotation = Controller->GetControlRotation();
-			}
-
-			// Convert camera-relative input to character-relative direction
-			FinalDirection = UCombatUtils::VectorToCharacterRelativeDirection(
-				MovementInput,
-				CameraRotation,
-				Character,
-				Character->GetActorRotation(),
-				0.2f  // Dead zone
-			);
-
-			if (FinalDirection != EInputDirection::None)
-			{
-				WorldDirection = UCombatUtils::InputDirectionToWorldVector(FinalDirection, Character);
-				DirectionSource = TEXT("LiveInput");
-			}
+			FinalDirection = FacingIntent.BranchDirection;
+			WorldDirection = FacingIntent.WorldDirection.GetSafeNormal2D();
+			DirectionSource = TEXT("CapturedAttackEdge");
 		}
 	}
 
@@ -5163,15 +5355,23 @@ void UCombatComponent::SetupAttackWarp(UAttackData* AttackData)
 					WarpConfig.NoInputFacingCone, *BestTarget->GetName());
 			}
 		}
-		// CASE 4: No direction AND no nearby target in cone - skip warp entirely
+		// CASE 4: No target - preserve the facing captured on this attack edge.
 		else
 		{
-			if (GetDebugDraw())
+			const FAttackFacingIntent& FacingIntent = Action.InputAction.FacingIntent;
+			if (!FacingIntent.IsFinite())
 			{
-				UE_LOG(LogCombat, Verbose, TEXT("[ATTACK WARP] Skipped: No input direction and no targets in %.0f° facing cone"),
-					WarpConfig.NoInputFacingCone);
+				return;
 			}
-			return;
+			TargetRotation = FRotator(0.0f, FacingIntent.CapturedFacingYaw, 0.0f);
+			DirectionSource = TEXT("CapturedFacing");
+			const float AngleDelta = FMath::Abs(FMath::FindDeltaAngleDegrees(
+				CurrentFacing.Yaw, TargetRotation.Yaw));
+			if (WarpConfig.AlreadyFacingThreshold > 0.0f
+				&& AngleDelta <= WarpConfig.AlreadyFacingThreshold)
+			{
+				return;
+			}
 		}
 	}
 
@@ -5370,6 +5570,10 @@ void UCombatComponent::DrawDebugInfo() const
 	if (bComboWindowActive)
 	{
 		float CurrentTime = UMontageUtilityLibrary::GetCurrentMontageTime(Character);
+		if (CurrentTime < 0.0f)
+		{
+			return;
+		}
 		float TimeRemaining = (ComboWindowStart + ComboWindowDuration) - CurrentTime;
 
 		FString ComboInfo = FString::Printf(TEXT("COMBO WINDOW: %.2fs remaining"),

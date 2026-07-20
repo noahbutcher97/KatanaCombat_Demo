@@ -35,6 +35,34 @@ private:
 	int32 PreviousValue = 0;
 };
 
+class FScopedConsoleInt
+{
+public:
+	FScopedConsoleInt(const TCHAR* Name, const int32 NewValue)
+	{
+		Variable = IConsoleManager::Get().FindConsoleVariable(Name);
+		if (Variable)
+		{
+			PreviousValue = Variable->GetInt();
+			Variable->SetWithCurrentPriority(NewValue);
+		}
+	}
+
+	~FScopedConsoleInt()
+	{
+		if (Variable)
+		{
+			Variable->SetWithCurrentPriority(PreviousValue);
+		}
+	}
+
+	bool IsValid() const { return Variable != nullptr; }
+
+private:
+	IConsoleVariable* Variable = nullptr;
+	int32 PreviousValue = 0;
+};
+
 int32 CountCsvFields(const FString& Line)
 {
 	bool bQuoted = false;
@@ -57,6 +85,25 @@ int32 CountCsvFields(const FString& Line)
 	}
 	return FieldCount;
 }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseTelemetryMasterDebugTest,
+	"KatanaCombat.Defense.Telemetry.MasterDebugEnablesCapture",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseTelemetryMasterDebugTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	using namespace DefenseTelemetryTests;
+
+	FScopedConsoleInt DefenseDebug(TEXT("Combat.Defense.Debug"), 0);
+	FScopedConsoleInt MasterDebug(TEXT("Combat.Debug.All"), 1);
+	TestTrue(TEXT("Defense telemetry CVar should be registered"), DefenseDebug.IsValid());
+	TestTrue(TEXT("Master combat debug CVar should be registered"), MasterDebug.IsValid());
+	TestTrue(TEXT("Master combat debug should enable bounded defense telemetry"),
+		DefenseTelemetry::IsEnabled());
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

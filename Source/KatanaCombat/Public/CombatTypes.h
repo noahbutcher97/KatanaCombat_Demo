@@ -1145,6 +1145,16 @@ struct FAttackWarpConfig
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion Warp|Rotation",
         meta = (EditCondition = "bEnableWarp", ClampMin = "90.0", ClampMax = "1800.0"))
     float RotationSpeed = 720.0f;
+
+	/** Maximum cumulative automatic yaw this attack may apply. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion Warp|Rotation",
+		meta = (EditCondition = "bEnableWarp", ClampMin = "0.0", ClampMax = "360.0"))
+	float MaximumAutomaticTurn = 180.0f;
+
+	/** Maximum accepted residual yaw when validating attack alignment. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion Warp|Rotation",
+		meta = (EditCondition = "bEnableWarp", ClampMin = "0.1", ClampMax = "45.0"))
+	float FinalFacingTolerance = 10.0f;
 };
 
 // Backwards compatibility typedef - remove after updating all references
@@ -1773,6 +1783,11 @@ struct FAttackStateMachine
 			LifecycleState = EAttackLifecycleState::Idle;
 		}
 		CurrentPhase = EAttackPhase::None;
+		ActiveMontage = nullptr;
+		ActiveSectionName = NAME_None;
+		PreviousMontage = nullptr;
+		PendingComboTransitions = 0;
+		ComboBlendEndTime = 0.0f;
 	}
 
 	/**
@@ -2917,6 +2932,10 @@ struct FAlignmentRequestSpec
 
 	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
 	float RemainingTurnBudget = 0.0f;
+
+	/** Accepted residual yaw and source for the antipodal constant-rate tie-break. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float FinalFacingTolerance = 10.0f;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
 	float MaximumTranslation = 0.0f;

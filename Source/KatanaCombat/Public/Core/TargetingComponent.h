@@ -591,6 +591,8 @@ private:
 
 	friend class FTargetingAuthoredRootMotionTelemetryBasisTest;
 	friend class FTargetingBlockedRootMotionTelemetryTest;
+	friend class FCombatWarp_MovingTargetRefreshAcrossAttackReplacement;
+	friend class FCombatWarp_ExactOppositeTargetChoosesDeterministicTurn;
 
     UFUNCTION()
     void OnAlignmentModifierUpdated(

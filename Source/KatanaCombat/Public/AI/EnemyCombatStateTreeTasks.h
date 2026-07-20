@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "AI/EnemyAITypes.h"
+#include "CombatTypes.h"
 #include "StateTreeConditionBase.h"
 #include "StateTreeTaskBase.h"
 #include "EnemyCombatStateTreeTasks.generated.h"
@@ -145,7 +146,7 @@ struct FStateTreeExecuteEnemyAttackInstanceData
 	bool bAttackStarted = false;
 
 	UPROPERTY(VisibleAnywhere, Category = Runtime)
-	int32 AttackGeneration = 0;
+	FAttackInstanceId AttackInstance;
 };
 
 USTRUCT(meta = (DisplayName = "Execute Enemy Attack", Category = "Katana Combat"))

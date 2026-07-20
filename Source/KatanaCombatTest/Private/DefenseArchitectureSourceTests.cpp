@@ -83,13 +83,32 @@ FString StripCppComments(const FString& Source)
 bool ExtractFunctionBody(const FString& Source, const FString& FunctionName, FString& OutBody)
 {
 	const FString CleanSource = StripCppComments(Source);
-	const int32 NameIndex = CleanSource.Find(FunctionName, ESearchCase::CaseSensitive);
-	if (NameIndex == INDEX_NONE)
+	int32 SearchIndex = 0;
+	int32 OpenBrace = INDEX_NONE;
+	while (SearchIndex < CleanSource.Len())
 	{
-		return false;
-	}
+		const int32 NameIndex = CleanSource.Find(
+			FunctionName,
+			ESearchCase::CaseSensitive,
+			ESearchDir::FromStart,
+			SearchIndex);
+		if (NameIndex == INDEX_NONE)
+		{
+			break;
+		}
 
-	const int32 OpenBrace = CleanSource.Find(TEXT("{"), ESearchCase::CaseSensitive, ESearchDir::FromStart, NameIndex);
+		const int32 CandidateBrace = CleanSource.Find(
+			TEXT("{"), ESearchCase::CaseSensitive, ESearchDir::FromStart, NameIndex);
+		const int32 CandidateSemicolon = CleanSource.Find(
+			TEXT(";"), ESearchCase::CaseSensitive, ESearchDir::FromStart, NameIndex);
+		if (CandidateBrace != INDEX_NONE
+			&& (CandidateSemicolon == INDEX_NONE || CandidateBrace < CandidateSemicolon))
+		{
+			OpenBrace = CandidateBrace;
+			break;
+		}
+		SearchIndex = NameIndex + FunctionName.Len();
+	}
 	if (OpenBrace == INDEX_NONE)
 	{
 		return false;
@@ -285,9 +304,18 @@ bool FDefenseEnemyAttackFacingOwnershipSourceTest::RunTest(const FString& Parame
 		return false;
 	}
 
+	FString WrapperBody;
+	if (!TestTrue(TEXT("Enemy attack wrapper has an extractable body"), ExtractFunctionBody(
+		Source, TEXT("UEnemyCombatAIComponent::ExecuteAttack()"), WrapperBody)))
+	{
+		return false;
+	}
+	TestTrue(TEXT("Enemy attack wrapper delegates to identity-aware execution"),
+		WrapperBody.Contains(TEXT("ExecuteAttackWithIdentity")));
+
 	FString Body;
-	if (!TestTrue(TEXT("Enemy attack execution has an extractable body"), ExtractFunctionBody(
-		Source, TEXT("UEnemyCombatAIComponent::ExecuteAttack()"), Body)))
+	if (!TestTrue(TEXT("Identity-aware enemy attack execution has an extractable body"), ExtractFunctionBody(
+		Source, TEXT("UEnemyCombatAIComponent::ExecuteAttackWithIdentity"), Body)))
 	{
 		return false;
 	}
@@ -300,6 +328,43 @@ bool FDefenseEnemyAttackFacingOwnershipSourceTest::RunTest(const FString& Parame
 	TestTrue(TEXT("Enemy attack executes through CombatComponent"), ExecuteIndex != INDEX_NONE);
 	TestTrue(TEXT("Enemy attack publishes intent before execution acquires its owned warp"),
 		IntentIndex != INDEX_NONE && ExecuteIndex != INDEX_NONE && IntentIndex < ExecuteIndex);
+	const int32 CallbackIndex = Body.Find(TEXT("OnAttackMontageEnded"), ESearchCase::CaseSensitive);
+	const int32 IdentityIndex = Body.Find(TEXT("ActiveAttackInstance);"), ESearchCase::CaseSensitive);
+	const int32 BindIndex = Body.Find(TEXT("Montage_SetEndDelegate"), ESearchCase::CaseSensitive);
+	TestTrue(TEXT("Enemy montage callback names the lifecycle handler"), CallbackIndex != INDEX_NONE);
+	TestTrue(TEXT("Enemy montage callback captures the active attack identity"), IdentityIndex != INDEX_NONE);
+	TestTrue(TEXT("Enemy montage callback is installed on the snapshotted montage"), BindIndex != INDEX_NONE);
+	TestTrue(TEXT("Identity capture precedes montage delegate installation"),
+		IdentityIndex != INDEX_NONE && BindIndex != INDEX_NONE && IdentityIndex < BindIndex);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseStateTreeDoesNotAdoptActiveAttackSourceTest,
+	"KatanaCombat.Defense.Alignment.Architecture.StateTreeDoesNotAdoptActiveAttack",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseStateTreeDoesNotAdoptActiveAttackSourceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FString Source;
+	if (!TestTrue(TEXT("Enemy StateTree task source loads"), LoadProjectSource(
+		TEXT("Source/KatanaCombat/Private/AI/EnemyCombatStateTreeTasks.cpp"), Source)))
+	{
+		return false;
+	}
+
+	FString Body;
+	if (!TestTrue(TEXT("Execute-enemy-attack EnterState has an extractable body"), ExtractFunctionBody(
+		Source, TEXT("FStateTreeExecuteEnemyAttackTask::EnterState"), Body)))
+	{
+		return false;
+	}
+
+	TestTrue(TEXT("StateTree starts attack through exact invocation output"),
+		Body.Contains(TEXT("ExecuteAttackWithIdentity")));
+	TestFalse(TEXT("StateTree cannot adopt an unrelated active attack"),
+		Body.Contains(TEXT("GetActiveAttackInstance")));
 	return true;
 }
 

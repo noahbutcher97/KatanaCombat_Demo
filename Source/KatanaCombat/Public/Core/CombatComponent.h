@@ -920,6 +920,8 @@ public:
 	friend class FComboRace_ComboChainDataIntegrity;
 	friend class FComboRace_RevertOnFailure;
 	friend class FComboRace_SetPhaseNoneClearsState;
+	friend class FComboRace_NormalMontageEndClearsActivePhase;
+	friend class FAttackAlignment_QueuedIntentAndComboReplacement;
 	friend class FDefenseThreat_AttackSnapshotPublication;
 	friend class FDefenseThreat_HighConfidenceRequiresCompleteEvidence;
 	friend class FDefenseThreat_ComponentSelectionOwnership;
@@ -1148,6 +1150,9 @@ protected:
 	 */
 	void ClearHoldState();
 
+	/** Clear state owned by a completed or interrupted regular attack. */
+	void ResetTerminalAttackState();
+
 	/** Debug: Last checkpoint count for DrawDebugInfo (per-instance, not static) */
 	mutable int32 DebugLastCheckpointCount = 0;
 
@@ -1157,7 +1162,20 @@ protected:
 	 * If no target found, uses rotation-only warp toward input direction
 	 * @param AttackData - Attack being executed (contains WarpConfig)
 	 */
-	void SetupAttackWarp(UAttackData* AttackData);
+	void SetupAttackWarp(const FActionQueueEntry& Action);
+
+	void OnInputEventInternal(
+		EInputType InputType,
+		EInputEventType EventType,
+		EInputDirection InputDirection,
+		const FAttackFacingIntent& FacingIntent);
+
+	FAttackFacingIntent BuildAttackFacingIntent(
+		FVector2D CameraRelativeInput,
+		FRotator CameraRotation,
+		FRotator CharacterRotation,
+		EInputDirection BranchDirection,
+		EAttackFacingIntentSource Source) const;
 
 	/** Simulation-time timer callback used only while held guard has candidates. */
 	void HandleGuardThreatRefreshTimer();

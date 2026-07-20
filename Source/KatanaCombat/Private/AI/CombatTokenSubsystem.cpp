@@ -82,7 +82,7 @@ void UCombatTokenSubsystem::ReleaseAttackToken(AActor* Holder)
 	// Find and remove from active attackers
 	int32 RemovedCount = ActiveAttackers.RemoveAll([Holder](const TWeakObjectPtr<AActor>& Actor)
 	{
-		return Actor.Get() == Holder;
+		return Actor.Get(true) == Holder;
 	});
 
 	if (RemovedCount > 0)
@@ -90,8 +90,7 @@ void UCombatTokenSubsystem::ReleaseAttackToken(AActor* Holder)
 		UE_LOG(LogTemp, Log, TEXT("[TOKEN] Released by %s (Active: %d/%d)"),
 			*Holder->GetName(), ActiveAttackers.Num(), MaxConcurrentAttackers);
 
-		// Broadcast release
-		OnTokenReleased.Broadcast(Holder);
+		BroadcastTokenReleased(Holder);
 
 		// Try to grant to next in queue
 		TryGrantQueuedToken();
@@ -107,7 +106,7 @@ bool UCombatTokenSubsystem::HasAttackToken(AActor* Actor) const
 
 	return ActiveAttackers.ContainsByPredicate([Actor](const TWeakObjectPtr<AActor>& Attacker)
 	{
-		return Attacker.Get() == Actor;
+		return Attacker.Get(true) == Actor;
 	});
 }
 
@@ -120,7 +119,7 @@ bool UCombatTokenSubsystem::IsInTokenQueue(AActor* Actor) const
 
 	return TokenQueue.ContainsByPredicate([Actor](const TWeakObjectPtr<AActor>& Queued)
 	{
-		return Queued.Get() == Actor;
+		return Queued.Get(true) == Actor;
 	});
 }
 
@@ -133,7 +132,7 @@ void UCombatTokenSubsystem::RemoveFromQueue(AActor* Actor)
 
 	int32 RemovedCount = TokenQueue.RemoveAll([Actor](const TWeakObjectPtr<AActor>& Queued)
 	{
-		return Queued.Get() == Actor;
+		return Queued.Get(true) == Actor;
 	});
 
 	if (RemovedCount > 0)
@@ -144,20 +143,40 @@ void UCombatTokenSubsystem::RemoveFromQueue(AActor* Actor)
 
 void UCombatTokenSubsystem::ResetAllTokens()
 {
-	// Clear active attackers
-	for (const TWeakObjectPtr<AActor>& Attacker : ActiveAttackers)
+	TArray<TWeakObjectPtr<AActor>> AttackersToRelease = MoveTemp(ActiveAttackers);
+	ActiveAttackers.Reset();
+	TokenQueue.Reset();
+	LastTokenTime.Reset();
+
+	for (const TWeakObjectPtr<AActor>& Attacker : AttackersToRelease)
 	{
 		if (AActor* Actor = Attacker.Get())
 		{
-			OnTokenReleased.Broadcast(Actor);
+			BroadcastTokenReleased(Actor);
 		}
 	}
 
-	ActiveAttackers.Empty();
-	TokenQueue.Empty();
-	LastTokenTime.Empty();
-
 	UE_LOG(LogTemp, Log, TEXT("[TOKEN] All tokens reset"));
+}
+
+void UCombatTokenSubsystem::BroadcastTokenReleased(AActor* ReleasedActor)
+{
+	if (!ReleasedActor)
+	{
+		return;
+	}
+
+	OnTokenReleased.Broadcast(ReleasedActor);
+
+#if WITH_AUTOMATION_TESTS
+	++TokenReleaseBroadcastCountForTesting;
+	TFunction<void(AActor*)> PostTokenReleasedHook = MoveTemp(PostTokenReleasedHookForTesting);
+	PostTokenReleasedHookForTesting = {};
+	if (PostTokenReleasedHook)
+	{
+		PostTokenReleasedHook(ReleasedActor);
+	}
+#endif
 }
 
 TArray<AActor*> UCombatTokenSubsystem::GetActiveAttackers() const

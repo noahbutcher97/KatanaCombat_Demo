@@ -21,7 +21,7 @@ APlayerCharacter::APlayerCharacter()
     // Configure character movement (default for third-person combat)
     GetCharacterMovement()->bUseControllerDesiredRotation = false;
     GetCharacterMovement()->bOrientRotationToMovement = true;
-    GetCharacterMovement()->RotationRate = FRotator(0.0f, 180, 0.0f);
+    GetCharacterMovement()->RotationRate = FRotator(0.0f, LocomotionRotationRate, 0.0f);
     GetCharacterMovement()->MaxWalkSpeed = 600.0f;
 
     // Don't rotate camera with controller
@@ -33,6 +33,11 @@ APlayerCharacter::APlayerCharacter()
 void APlayerCharacter::BeginPlay()
 {
     Super::BeginPlay();
+
+    const float ValidatedRotationRate = FMath::IsFinite(LocomotionRotationRate)
+        ? FMath::Clamp(LocomotionRotationRate, 1.0f, 1080.0f)
+        : 540.0f;
+    GetCharacterMovement()->RotationRate = FRotator(0.0f, ValidatedRotationRate, 0.0f);
 
     // Setup Enhanced Input
     if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))

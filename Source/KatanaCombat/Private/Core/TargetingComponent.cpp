@@ -563,22 +563,16 @@ bool UTargetingComponent::SetupAttackWarp(AActor* Target, const FRotator& Target
     }
 
     const FVector OwnerLocation = Owner->GetActorLocation();
-    const UDefenseConfiguration* DefenseConfig = GetDefault<UDefenseConfiguration>();
-    if (const UCombatComponent* Combat = Owner->FindComponentByClass<UCombatComponent>())
-    {
-        DefenseConfig = Combat->GetEffectiveDefenseConfiguration();
-    }
+	if (!FMath::IsFinite(Config.RotationSpeed)
+		|| !FMath::IsFinite(Config.MaximumAutomaticTurn)
+		|| !FMath::IsFinite(Config.FinalFacingTolerance))
+	{
+		return false;
+	}
 
-    const float DefenseTurnRate = DefenseConfig && FMath::IsFinite(DefenseConfig->DefenseTurnRate)
-        ? FMath::Max(0.0f, DefenseConfig->DefenseTurnRate)
-        : 180.0f;
-    const float RequestedTurnRate = FMath::IsFinite(Config.RotationSpeed) && Config.RotationSpeed > 0.0f
-        ? Config.RotationSpeed
-        : DefenseTurnRate;
-    const float EffectiveTurnRate = FMath::Min(DefenseTurnRate, RequestedTurnRate);
-    const float TurnBudget = DefenseConfig && FMath::IsFinite(DefenseConfig->MaximumAutomaticTurn)
-        ? FMath::Max(0.0f, DefenseConfig->MaximumAutomaticTurn)
-        : 70.0f;
+	const float EffectiveTurnRate = FMath::Clamp(Config.RotationSpeed, 0.0f, 1800.0f);
+	const float TurnBudget = FMath::Clamp(Config.MaximumAutomaticTurn, 0.0f, 360.0f);
+	const float FinalFacingTolerance = FMath::Clamp(Config.FinalFacingTolerance, 0.1f, 45.0f);
     if (EffectiveTurnRate <= KINDA_SMALL_NUMBER || TurnBudget <= KINDA_SMALL_NUMBER)
     {
         return false;
@@ -601,6 +595,7 @@ bool UTargetingComponent::SetupAttackWarp(AActor* Target, const FRotator& Target
     Spec.DesiredRotation = TargetRotation;
     Spec.MaximumTurnRate = EffectiveTurnRate;
     Spec.RemainingTurnBudget = TurnBudget;
+	Spec.FinalFacingTolerance = FinalFacingTolerance;
     Spec.bTrackTargetRotation = Target != nullptr;
 
     if (Target)
@@ -1046,6 +1041,7 @@ bool UTargetingComponent::ValidateAlignmentSpec(const FAlignmentRequestSpec& Spe
         && FMath::IsFinite(static_cast<float>(Spec.DesiredRotation.Roll));
     const bool bFiniteLimits = FMath::IsFinite(Spec.MaximumTurnRate)
         && FMath::IsFinite(Spec.RemainingTurnBudget)
+		&& FMath::IsFinite(Spec.FinalFacingTolerance)
         && FMath::IsFinite(Spec.MaximumTranslation);
     if (Spec.OwnerId.IsNone()
         || Spec.OwnerGeneration <= 0
@@ -1055,6 +1051,8 @@ bool UTargetingComponent::ValidateAlignmentSpec(const FAlignmentRequestSpec& Spe
 		|| Spec.TargetRelativeOffset.ContainsNaN()
         || Spec.MaximumTurnRate < 0.0f
         || Spec.RemainingTurnBudget < 0.0f
+		|| Spec.FinalFacingTolerance < 0.1f
+		|| Spec.FinalFacingTolerance > 45.0f
         || Spec.MaximumTranslation < 0.0f
         || Spec.Target.IsStale(true))
     {
@@ -1597,16 +1595,35 @@ void UTargetingComponent::ConfigureAlignmentWarpTarget(const FAlignmentRequestRe
 
 FRotator UTargetingComponent::ResolveAlignmentRotation(const FAlignmentRequestSpec& Spec) const
 {
+	constexpr float AntipodalTieBandDegrees = 0.1f;
+	float DesiredYaw = static_cast<float>(Spec.DesiredRotation.Yaw);
     if (Spec.bTrackTargetRotation && OwnerCharacter && Spec.Target.IsValid())
     {
         FVector ToTarget = Spec.Target->GetActorLocation() - OwnerCharacter->GetActorLocation();
         ToTarget.Z = 0.0f;
         if (!ToTarget.IsNearlyZero())
         {
-            return FRotator(0.0, ToTarget.Rotation().Yaw, 0.0);
+			DesiredYaw = static_cast<float>(ToTarget.Rotation().Yaw);
         }
     }
-    return FRotator(0.0, Spec.DesiredRotation.Yaw, 0.0);
+
+	if (OwnerCharacter)
+	{
+		const float CurrentYaw = static_cast<float>(OwnerCharacter->GetActorRotation().Yaw);
+		const float DeltaYaw = FMath::FindDeltaAngleDegrees(CurrentYaw, DesiredYaw);
+		if (180.0f - FMath::Abs(DeltaYaw) <= AntipodalTieBandDegrees + KINDA_SMALL_NUMBER)
+		{
+			// UE constant-rate warping derives turn direction from a cross product,
+			// which is ambiguous at exactly 180 degrees. Pick a stable positive turn.
+			const float AntipodalYawBiasDegrees = FMath::Min(
+				0.5f,
+				Spec.FinalFacingTolerance * 0.5f);
+			DesiredYaw = FRotator::NormalizeAxis(
+				CurrentYaw + 180.0f - AntipodalYawBiasDegrees);
+		}
+	}
+
+    return FRotator(0.0, DesiredYaw, 0.0);
 }
 
 bool UTargetingComponent::IsAlignmentWarpTargetOwned(FName WarpTargetName) const
