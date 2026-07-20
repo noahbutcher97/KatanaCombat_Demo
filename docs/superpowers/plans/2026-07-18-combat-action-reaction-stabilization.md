@@ -54,6 +54,8 @@ After this gate passes, planning is frozen. A new high/medium empirical contradi
 
 Steps 2 and 3 may be implemented independently after Step 1, but commit and verify them separately. Do not combine runtime policy and binary asset changes.
 
+Micro-Plan 07 Task 1 may be extracted immediately after the Step 2 blocker slice when PIE evidence lacks actor/action identity. That extraction is limited to bounded telemetry storage, stable serialization, clear/dump controls, and observational integration. It must not change gameplay policy, does not advance Step 7 acceptance, and gets its own focused-test commit before Steps 3 or 4A resume.
+
 ## Universal Slice Protocol
 
 Before every micro-plan, after compaction/session change, and after unexpected workspace changes:
@@ -107,6 +109,8 @@ For every implementation slice:
 ## Review And Handoff
 
 Maintain `docs/handoffs/2026-07-18-combat-action-reaction-stabilization-execution.md` during implementation. Record HEAD, active step, changed files/assets, exact evidence, unresolved findings, dirty-WIP classification, and next action. Update it before a long command, at each commit, and before pausing.
+
+Use `docs/playtests/COMBAT_STABILIZATION_PIE_CHECKPOINTS.md` for phase-specific visible acceptance. Each checkpoint states what should be fixed and what remains intentionally unresolved so a PIE run is judged only against delivered scope.
 
 Each commit is a review gate. A reviewer should not need to understand later animation assets to validate the crash fix or orbit planner. Do not open one giant undifferentiated PR; keep commits independently auditable even if the branch remains open until all steps are proven.
 

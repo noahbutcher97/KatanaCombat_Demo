@@ -1,17 +1,89 @@
 # Combat Action And Reaction Stabilization Execution
 
-Updated: 2026-07-19
+Updated: 2026-07-20
 
 ## Current State
 
 - Branch: `codex/combat-action-reaction-stabilization`
 - Branch point: `47ef5723 Merge pull request #122 from noahbutcher97/codex/defense-interaction-design`
-- Planning baseline: pending docs-only commit
-- Implementation status: Pre-implementation readiness gate
-- Active micro-plan: None
+- Planning baseline: `3465d228 Plan combat action reaction stabilization`
+- Harness hardening: `d7cf5001 Harden defense manifest adversarial test`
+- Validation noise fix: `a46bbb76 Deduplicate attack-data cycle validation errors`
+- Lifecycle/alignment blocker: `520be7c5 Stabilize combat lifecycle and attack alignment`
+- Implementation status: Micro-Plan 01 and the Micro-Plan 02 blocker slice are automated green; the latest extended `Lvl_DefenseMatrix` run had no crash and the user visually accepted rotation, while the remaining terminal/input behavior and the second map are still partial
+- Active slice: preserve the lifecycle/alignment boundary, then pull forward Micro-Plan 07's non-gameplay telemetry foundation before action-arbitration changes
 - Authority: `docs/superpowers/specs/2026-07-18-combat-action-reaction-stabilization-design.md`
 - Master plan: `docs/superpowers/plans/2026-07-18-combat-action-reaction-stabilization.md`
-- Reconciliation status: source/full-debug PIE trace and read-only live-steering precedent audit complete; alignment and input/hold plans updated
+- Reconciliation status: lifecycle closure and the alignment blocker slice are focused-test and full-baseline green; DefenseMatrix rotation has manual acceptance, while two-map lifecycle closure, live steering, strict reachability, migration, orbit, and input/hold policy remain planned
+
+## Lifecycle Crash Hardening Evidence
+
+The first runtime slice replaces mutable post-execution reads with snapshotted startup inputs and exact `FAttackInstanceId` ownership. StateTree execution now observes the identity returned by its own call, montage callbacks capture that same identity, and terminal cleanup is idempotent across synchronous consumption, death, replacement, duplicate callbacks, and EndPlay. Token removal now recognizes a pending-kill holder so owner destruction cannot strand capacity. Combat montage startup now stops when a callback makes the owner terminal, and event-driven queue processing removes and copies an entry before invoking callback-capable execution.
+
+Changed source and tests:
+
+```text
+Source/KatanaCombat/Private/AI/CombatTokenSubsystem.cpp
+Source/KatanaCombat/Private/AI/EnemyCombatAIComponent.cpp
+Source/KatanaCombat/Private/AI/EnemyCombatStateTreeTasks.cpp
+Source/KatanaCombat/Private/Core/CombatComponent.cpp
+Source/KatanaCombat/Private/Debug/DefenseTelemetry.cpp
+Source/KatanaCombat/Public/AI/CombatTokenSubsystem.h
+Source/KatanaCombat/Public/AI/EnemyCombatAIComponent.h
+Source/KatanaCombat/Public/AI/EnemyCombatStateTreeTasks.h
+Source/KatanaCombatTest/Private/DefenseArchitectureSourceTests.cpp
+Source/KatanaCombatTest/Private/DefenseTelemetryTests.cpp
+Source/KatanaCombatTest/Private/EnemyCombatAITests.cpp
+```
+
+Deterministic red evidence was captured before the fix:
+
+- `Saved/Logs/Codex-Red-ReentrantSelectionClear-20260719-153508.log`: exit `3`, access violation reading `0x50`.
+- `Saved/Logs/Codex-Red-SynchronousConsume-20260719-154022.log`: exit `255`.
+- `Saved/Logs/Codex-Red-AttackLifecycle-20260719-155328.log`: exit `255`, stale completion and participant-destruction failures.
+- `Saved/Logs/Codex-Red-StateTransitionReentry-20260719-164715.log`: exit `255`, replacement ownership and token assertions failed.
+- `Saved/Logs/Codex-Red-StateTreeAdoption-20260719-164740.log`: exit `255`, the task adopted an attack started by another invocation.
+- `Saved/Logs/Codex-Red-BoundMontageInterruption-20260719-164931.log`: exit `255`, an interrupted production-bound montage callback reported success.
+- `Saved/Logs/Codex-Red-AbortTokenReleaseReentry-20260719-171656.log`: exit `255`, outer abort overwrote replacement state.
+- `Saved/Logs/Codex-Red-StartupDependencyInvalidation-20260719-171841.log`: exit `255`, startup invoked an invalidated CombatComponent.
+- `Saved/Logs/Codex-Red-DirectGenerationReplacement-20260719-171807.log`: exit `255`, pre-commit replacement generation remained active without AI ownership.
+- `Saved/Logs/Codex-Red-PendingTerminationTokenReleaseReentry-20260719-172303.log`: exit `255`, pending termination overwrote replacement state.
+- `Saved/Logs/Codex-Red-AttackStartedDirectGenerationReplacement-20260719-172316.log`: exit `255`, post-start replacement generation remained active without AI ownership.
+- `Saved/Logs/Codex-Red-LethalBlendCallback-PreviousState-20260720.log`: a synchronous lethal montage-stop callback left a dead owner able to restart its attack montage.
+- `Saved/Logs/Codex-Red-QueuedLethalBlendCallback-BoundDeathReset-20260720.log`: exit `3`, event-driven queue execution called `RemoveAt(0)` after death cleanup emptied the queue.
+
+Green evidence after hardening:
+
+- No-UBA compile/link: `Build.bat ... -NoUBA -MaxParallelActions=1`, exit `0`.
+- `Saved/Logs/Codex-Green-StateTransitionReentry-20260719-165250.log`: `1/1`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-Green-StateTreeAdoption-20260719-165313.log`: `1/1`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-Green-BoundMontageInterruption-20260719-165336.log`: `1/1`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-AttackStartup-FinalClosure-20260720-091912.log`: `9/9`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-AttackLifecycle-FinalClosure-20260720-091934.log`: `9/9`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-EnemyAI-FinalReviewClosure-20260720-092013.log`: `33/33`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-Defense-FinalReviewClosure-20260720-092029.log`: `139/139`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-Agent-Baseline-20260720-102629-automation.out.log`: `664/664`, zero failures/errors, explicit success marker, exit `0`.
+- `Saved/Logs/Codex-EnemyAI-FinalLifecycleClosure-20260720-111326.log`: `39/39`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-Defense-PostLifecycleAudit-20260720-110349.log`: `139/139`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-Agent-Baseline-20260720-111400-automation.log`: `670/670`, zero failures/errors, explicit success marker, exit `0`; its `347` automation warnings match the prior baseline count.
+- `Saved/Logs/Codex-Green-LethalBlendCallback-20260720.log`: `1/1`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-Green-QueuedLethalBlendCallback-20260720.log`: `1/1`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-Focused-DefenseTelemetry-20260720.log`: `4/4`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-Focused-EnemyAIAttackStartup-PostMontageGuard-20260720.log`: `11/11`, zero failures/errors, exit `0`.
+- `Saved/Logs/Codex-Agent-Baseline-20260720-144041-automation.log`: `673/673`, zero failures/errors, explicit success marker, exit `0`.
+- `Saved/Logs/Codex-Agent-Baseline-20260720-160153-automation.out.log`: `680/680`, zero failures/errors, explicit success marker, exit `0`; editor build also exited `0`.
+
+The final baseline includes `KatanaCombat.DeathSystem`, `KatanaCombat.CombatComponent.MemorySafety`, attack-alignment resolution, terminal montage cleanup, and default debug-HUD configuration. Its `351` automation warnings are unchanged from the `673/673` baseline. The automated Defense PIE gates passed, but post-fix interactive two-map Checkpoint 1A remains the runtime acceptance gate. Nine user-owned packages were preserved during that baseline; later Editor work expanded the current Content WIP to 34 status entries recorded in the evidence manifest below.
+
+The reopened startup-grant, active-termination, result-retention, token-reset, target-clear, terminal montage-startup, and event-driven queue invalidation findings now have isolated red/green regressions. The `20260720-160153` run is the current final automated baseline; post-fix manual PIE remains a separate acceptance gate.
+
+## PIE Verification Checkpoints
+
+Use `docs/playtests/COMBAT_STABILIZATION_PIE_CHECKPOINTS.md` during every requested playtest. It separates lifecycle, alignment/orbit, input/arbitration, and reaction/animation gates, with explicit `Should be fixed` and `Not fixed yet` lists. The pre-fix run covered about 6:58 in `Lvl_DefenseMatrix` with three enemies and three sessions in `Lvl_ThirdPerson1` with four enemies. No crash occurred; DefenseMatrix recorded 80 token grants and 80 releases with a maximum of two active tokens, while ThirdPerson exercised all four enemies with a maximum of one active token. Because that run exposed the now-fixed post-death continuation path, Checkpoint 1 is only partial until repeated against the final code.
+
+The post-alignment log is preserved at `Saved/Logs/PIE-20260720-rotation-checkpoint.log` (19,422,039 bytes). It contains seven `Lvl_DefenseMatrix` PIE sessions and no retained `Lvl_ThirdPerson1` session. The longest run lasted about 3:38 with 95 input presses, five input rejections, 12 balanced movement disable/enable pairs, and no crash. The user visually accepted attack rotation. Terminal cleanup, targetless intent, moving-target refresh, and parry remain partial because they were not individually recorded as named scenarios.
+
+The same run exposed a diagnostic blocker: `[INPUT]`, `[PHASE]`, `[MONTAGE]`, and `[MOVEMENT]` lines omit actor and generation identity, so asymmetric lockouts cannot be assigned reliably. No defense telemetry CSV was dumped. The log also contained 7,302 duplicate combo-cycle validation errors for `LightAttack_1` and `LightAttack_2`; commit `a46bbb76` now deduplicates identical per-call errors with a focused red/green regression. It does not modify the assets or decide whether the authored cycle is valid.
 
 ## New Playtest Evidence Requiring Reconciliation
 
@@ -20,6 +92,7 @@ Updated: 2026-07-19
 - A committed light-attack hold/freeze and its directional follow-up can be replaced by an ordinary attack at apparently arbitrary progress.
 - With no attack target, a player attack does not visibly complete rotation toward movement input.
 - During an active motion-warped turn, current player movement input must retain bounded, per-attack influence over rotation.
+- No manual parry was observed. The latest full-debug DefenseMatrix capture does show attacker parry windows opening, so absence of authored windows is no longer an accepted explanation; input routing, cone/timing rejection, and presentation remain to be distinguished with telemetry.
 
 Source tracing confirmed multiple mechanisms behind the observations:
 
@@ -32,7 +105,11 @@ Source tracing confirmed multiple mechanisms behind the observations:
 - regular attack rotation is capped to defense's 180-degree/second rate and 70-degree budget even though AttackData authors 720 degrees/second.
 - targeted warp refresh hard-faces the selected actor; targetless warp has no terminal-aware live steering, and Move has no terminal clear.
 
-Micro-Spec/Micro-Plan 04A now separates capture, policy, application, and visible result; defines one normal pending slot; gives hold/follow-up exact-generation ownership; and removes ordinary hold suppression from CharacterMovement-mode ownership. Micro-Spec/Micro-Plan 02 now separates immutable attack-edge facing from terminal-aware live steering, defines four bounded per-attack policies, retains exact alignment ownership, and requires attack-owned rate/window reachability plus actual actor-yaw proof. Runtime reproduction is complete; implementation proof remains outstanding.
+Micro-Spec/Micro-Plan 04A now separates capture, policy, application, and visible result; defines one normal pending slot; gives hold/follow-up exact-generation ownership; and removes ordinary hold suppression from CharacterMovement-mode ownership. The first Micro-Plan 02 blocker slice now separates attack rate/budget from defense, retains immutable queued world intent, refreshes a live target across replacement generations, handles exact/near-antipodal turns, and exposes 540-degree locomotion. Strict reachability, terminal-aware steering modes, migration, and contact-time actor-yaw acceptance remain outstanding.
+
+DefenseMatrix-only debug loss was traced to map defaults rather than combat-action state. `Lvl_ThirdPerson1` explicitly uses `GM_KatanaCombat_Base`, whose HUD is `ACombatDebugHUD`; `Lvl_DefenseMatrix` had no override and the project default pointed to missing `GM_Samurai`. `Config/DefaultEngine.ini` now points the global default to `GM_KatanaCombat_Base`, guarded by `KatanaCombat.Debug.Configuration.DefaultGameModeProvidesCombatHUD`.
+
+`Combat.Debug.All` now enables defense telemetry as expected, so the next parry attempt can distinguish input rejection, cone rejection, unavailable parry window, normal block, and successful parry. Parry timing or presentation is not part of Micro-Plan 01: diagnose it under Micro-Plan 07, then route a proven input/policy defect to 04B or a readability defect to 06. The deprecated polling `ProcessQueue(float)` path is currently unused and is scheduled for 04A cleanup; the active event-driven queue path was fixed here because it was a lifecycle blocker. A broader callback-boundary audit, including phase-change delegates, remains a later adversarial hardening item unless it blocks the post-fix checkpoint.
 
 The rotated capture at `Saved/Logs/KatanaCombat-backup-2026.07.19-14.49.54.log` adds bounded runtime evidence:
 
@@ -55,31 +132,7 @@ A read-only `DefenseProofMigration` audit completed with `-DDC-ForceMemoryCache`
 
 ## Preserved User WIP
 
-```text
- M Content/ProjectFiles/Animation/Montages/Katana/Light/AM_Light_Combo_1.uasset
- M Content/ProjectFiles/Levels/Test/Lvl_DefenseMatrix.umap
- M Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/6/69/JZK42Z6X6VW6A5NALDH47D.uasset
- M Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/6/JS/VGKO8NKW281LCY3A3K4ETM.uasset
- M Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/7/CB/19YS22F55XPIYEV7ASGWJO.uasset
- M Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/A/1B/Y3W89WVL6CTN8GGMOAELDW.uasset
-?? Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/0/DE/
-?? Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/E/RI/
-```
-
-These user montage/map/external-actor changes are outside the planning work. The montage became modified during the later Editor session; do not revert, resave, stage, or include any listed package in an asset migration allowlist until the user classifies it.
-
-Planning-time SHA-256 baseline:
-
-```text
-274CC25613CA6A41A5F3D9AB4A24A6B635DD80CA395874CD0C00DEC35C28FC52  Content/ProjectFiles/Animation/Montages/Katana/Light/AM_Light_Combo_1.uasset
-C1E51C2DE9C17E8D0066BD37A58DDF363BD768E21440C5E64431F6DDEDE604E7  Content/ProjectFiles/Levels/Test/Lvl_DefenseMatrix.umap
-7788723149C59AB3D1AF9B29D3F1CB8EED1031D5094657C28DC8599F86C55973  Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/6/69/JZK42Z6X6VW6A5NALDH47D.uasset
-78BDA0169BBD7E23A91FAE9D3696E406909DF1759BF376C54B0CAF6E33EF3CCB  Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/6/JS/VGKO8NKW281LCY3A3K4ETM.uasset
-6E12F9893337B3A56018B8B7E38D03184D9F2845B82573E3E629D8AA3772D8AD  Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/7/CB/19YS22F55XPIYEV7ASGWJO.uasset
-EB68E3E1FAAB045D43D1304F37D0C35D7014281F98D7895D700CEDE4FD9DD729  Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/A/1B/Y3W89WVL6CTN8GGMOAELDW.uasset
-7829AF66CCFA1483ECF37FA89EA51C56EEF97095A88D5FD73805177FAB189013  Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/0/DE/V3JZ16UNMRALF346YOZDKZ.uasset
-F8030B262B81B7268C5C79AA3DE56130FCD821496C96F54BCD75E3817BA0E1D2  Content/__ExternalActors__/ProjectFiles/Levels/Lvl_ThirdPerson1/E/RI/CB7I57MGAN2O7R2ODC677A.uasset
-```
+The current Content worktree has 24 modified, four deleted, and six untracked entries. Their exact paths and SHA-256 values are frozen in `docs/handoffs/evidence/2026-07-20-post-rotation-user-content-wip.md`. These Blueprint, montage, AttackData, paired-data, map, and external-actor changes are user-owned and excluded from source commits. Do not revert, resave, stage, migrate, or reinterpret them without explicit classification.
 
 ## Planning Evidence
 
@@ -106,8 +159,29 @@ F8030B262B81B7268C5C79AA3DE56130FCD821496C96F54BCD75E3817BA0E1D2  Content/__Exte
 
 ## Required Next Action
 
-Commit the reconciled planning package alone, recheck preserved WIP hashes, run `Tools/Codex/run-agent-baseline.ps1`, and record the result. If green, execute Micro-Plan 01's isolated failing reentrant enemy-attack regression before changing lifecycle behavior. Micro-Plan 04A must land before 04B.
+Preserve the lifecycle/alignment implementation as a reviewable source boundary, then implement the bounded, actor-qualified action-reaction telemetry foundation from Micro-Plan 07. The next PIE checkpoint must clear and dump both defense and action-reaction telemetry so input capture, policy, application, movement ownership, montage generation, and terminal cleanup can be correlated before changing Micro-Plan 04A behavior.
 
 ## Slice Log
 
 Add one entry per micro-plan containing commit, changed files/assets, red/green tests, build log, validator/PIE evidence, adversarial findings, proof limits, and exact next action. Verify every entry against live state after compaction or session change.
+
+### Micro-Plan 01: Lifecycle Crash Hardening
+
+- Commit: `520be7c5 Stabilize combat lifecycle and attack alignment` (shared blocker boundary with Micro-Plan 02 because the reentrant startup and queued-facing contracts meet in `CombatComponent`).
+- Assets: none intentionally changed. All nine current pre-verification package hashes match after the full baseline; the Blueprint, montage, maps, and external actors remain excluded user WIP.
+- Red/green: isolated access violation, terminal montage restart, and queue invalidation were reproduced; focused startup/telemetry tests and the full `680/680` no-UBA baseline are green.
+- Adversarial closure: exact invocation identity, synchronous consumption, real lethal-damage delivery, stale/duplicate completion, production-bound montage interruption, reentrant token-release replacement, dependency invalidation, unowned generation rollback, participant destruction, pending-kill token release, terminal montage startup, event-driven queue invalidation, and EndPlay have focused regression coverage. StateTree non-adoption is additionally guarded by a source architecture test.
+- Manual evidence: the latest extended DefenseMatrix run completed without a crash and rotation was visually accepted; the retained log contains no ThirdPerson run and no telemetry dump.
+- Proof limit: automated Defense PIE gates are green, but the StateTree branch is not exercised through a directly instantiated task-context unit test. Two-map completion and a telemetry-backed `LightAttack_1` parry attempt are still pending.
+- Next action: add actor/generation-qualified telemetry before another broad exploratory run.
+
+### Micro-Plan 02: Alignment Blocker Slice
+
+- Commit: `520be7c5 Stabilize combat lifecycle and attack alignment`.
+- Source behavior: attack requests use attack-owned 720-degree rate, 180-degree cumulative budget, and 10-degree tolerance; queued attacks retain input-edge world intent; each replacement owns a new generation; moving targets refresh; exact and near-180 targets use the reviewed positive-yaw bias; player locomotion defaults to 540 degrees/second.
+- Lifecycle hardening: normal montage end clears stale Active/combo state; repeated terminalization releases attack alignment idempotently; montage-end queue fallback removes/copies entries before callback-capable execution.
+- Focused green: `KatanaCombat.AttackAlignment`, `KatanaCombat.ComboRaceCondition`, `KatanaCombat.Defense.Alignment`, `KatanaCombat.Targeting`, and `KatanaCombat.Debug.Configuration` all exit `0`.
+- Full baseline: `Saved/Logs/Codex-Agent-Baseline-20260720-160153-automation.out.log` completed `680/680` with zero failures/errors and exit `0`; its no-UBA editor build also exited `0`.
+- Manual evidence: the user accepted rotation in the latest extended DefenseMatrix session; this is visible proof for that map, not automated final-yaw or two-map proof.
+- Proof limit: automation proves request ownership and the UE modifier's first antipodal yaw frame, not final actor yaw at first contact. Strict preflight, live input steering policies, asset migration, and final telemetry remain unchecked plan items.
+- Next action: preserve this source boundary, then instrument final actor/action identity before the next checkpoint.

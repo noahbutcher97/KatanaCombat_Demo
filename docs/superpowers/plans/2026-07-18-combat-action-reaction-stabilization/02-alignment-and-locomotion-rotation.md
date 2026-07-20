@@ -13,10 +13,10 @@
 
 **Create:** `Source/KatanaCombatTest/Private/AttackAlignmentResolverTests.cpp`
 
-- [ ] Prove an attack configured for 720 degrees/second is currently capped by a 180-degree defense setting.
+- [x] Prove an attack configured for 720 degrees/second is currently capped by a 180-degree defense setting.
 - [ ] Add red tests for the 180-degree default turn budget, rate/deadline reachability, over-budget rejection, exact owner release, play-rate invariance, null target, and missing/disabled warp.
-- [ ] Add exact and near-180-degree regressions proving the 0.1-degree tie band selects positive yaw and the published bias is `min(0.5, FinalFacingTolerance / 2)`.
-- [ ] Prove a queued attack currently rereads mutable movement input instead of retaining the physical edge's world-space facing intent.
+- [x] Add exact and near-180-degree regressions proving the 0.1-degree tie band selects positive yaw and the published bias is `min(0.5, FinalFacingTolerance / 2)`.
+- [x] Prove a queued attack currently rereads mutable movement input instead of retaining the physical edge's world-space facing intent.
 - [ ] Add targetless-input tests for the closed facing-source order, including nonzero input, movement `Completed`/`Canceled`, invalidated soft target fallback, and no-input preservation of attack-edge facing.
 - [ ] Add table-driven red tests for `Disabled`, `Weighted`, `DeadZoneCurve`, and `ConeClamp`, including finite/range rejection, below/at/above magnitude dead zone, analog strength remapping, zero input, input release, response-rate limiting, zero simulation delta, and deterministic exact/near-180 signs.
 - [ ] Prove current targeted refresh hard-faces the target and ignores live player input; prove targetless execution has no terminal-aware live steering path.
@@ -25,7 +25,7 @@
 - [ ] Add noisy-input/meaningful-delta cases that fail if the same warp target is rebuilt every frame.
 - [ ] Add a world/latent regression that measures actor yaw; request creation or modifier configuration alone is not a behavioral oracle.
 - [ ] Add a source assertion rejecting attack-path `SetActorRotation` calls.
-- [ ] Build and run `KatanaCombat.Targeting` plus `KatanaCombat.Defense.Alignment.CombatWarp`; record red evidence.
+- [x] Build and run `KatanaCombat.Targeting` plus `KatanaCombat.Defense.Alignment.CombatWarp`; record red evidence.
 
 ## Task 2: Make Rotation Ownership And Steering Policy Explicit
 
@@ -45,22 +45,22 @@
 - `Source/KatanaCombat/Public/Characters/PlayerCharacter.h`
 - `Source/KatanaCombat/Private/Characters/PlayerCharacter.cpp`
 
-- [ ] Add `MaximumAutomaticTurn = 180.0f` to `FAttackWarpConfig` with finite validation and a 0-360 clamp; treat it as cumulative attack yaw budget rather than a defense budget.
-- [ ] Add `FinalFacingTolerance = 10.0f` to `FAttackWarpConfig`, with finite validation and a 0.1-45-degree clamp.
+- [x] Add `MaximumAutomaticTurn = 180.0f` to `FAttackWarpConfig` with finite validation and a 0-360 clamp; treat it as cumulative attack yaw budget rather than a defense budget.
+- [x] Add `FinalFacingTolerance = 10.0f` to `FAttackWarpConfig`, with finite validation and a 0.1-45-degree clamp.
 - [ ] Add `EAttackAlignmentFailurePolicy { BestEffort, RequireReachable }`; existing assets remain `BestEffort` until audited so the source-first commit is usable.
 - [ ] Add nested `FAttackRotationSteeringConfig` and closed `EAttackRotationSteeringMode { Disabled, Weighted, DeadZoneCurve, ConeClamp }` with the spec's exact defaults. Validate input-magnitude dead zone 0-0.95, maximum deviation 0-180, enabled response rate 1-1800, weight 0-1, dead zone 0-90, full influence greater than dead zone and at most 180, and exponent 0.1-5.
 - [ ] Add immutable `FAttackAlignmentStartContext` carrying attack instance, exact montage instance/section, weak target, source/fallback provenance, base facing intent, by-value warp config, effective damage deadline position, and live-steering admission.
 - [ ] Implement world-free preflight and steering resolution in `FAttackAlignmentResolver`. Apply `InputStrength = Clamp((Magnitude - DeadZone) / (1 - DeadZone), 0, 1)`, signed yaw for every policy, the shared positive-yaw antipodal tie-break, response-rate limiting, reference-cone clamp, remaining rate/time/budget clamp, and return-to-reference budget reservation.
-- [ ] Add an immutable attack-facing intent whose normalized world direction is authoritative and whose desired yaw/eight-way branch direction are derived; include capture time/provenance and store it on every normal queue entry.
+- [x] Add an immutable attack-facing intent whose normalized world direction is authoritative and whose desired yaw/eight-way branch direction are derived; include capture time/provenance and store it on every normal queue entry.
 - [ ] Add one terminal-aware live movement/steering sample to `UCombatComponent` with finite magnitude clamped to 0-1, normalized world direction, input serial, and observation time. `APlayerCharacter` forwards raw Move value plus control yaw before movement application; CombatComponent rejects non-finite components, normalizes direction separately, and attack-edge capture snapshots the same record. Clear it on Move `Completed`, `Canceled`, input teardown/unpossession, CombatComponent EndPlay, and owner EndPlay; do not create another PlayerCharacter/Targeting cache or mutate immutable edge intent.
 - [ ] Encode the reason-coded facing-source order: explicit/paired/AI target, canonical player soft target, captured nonzero world direction, then captured facing yaw. Preserve the stored player fallback across target invalidation or later retarget decisions.
-- [ ] Resolve signed yaw with `FMath::FindDeltaAngleDegrees`; inside the 0.1-degree antipodal band force positive yaw and publish `180 - min(0.5, FinalFacingTolerance / 2)` without a direct rotation fallback.
-- [ ] Build the intent once from the same camera-relative sample used at the physical attack edge. Do not reread `LastMovementInput` or rebuild world yaw from a later character rotation during execution.
+- [x] Resolve signed yaw with `FMath::FindDeltaAngleDegrees`; inside the 0.1-degree antipodal band force positive yaw and publish `180 - min(0.5, FinalFacingTolerance / 2)` without a direct rotation fallback.
+- [x] Build the intent once from the same camera-relative sample used at the physical attack edge. Do not reread `LastMovementInput` or rebuild world yaw from a later character rotation during execution.
 - [ ] Add a pure attack-alignment preflight result carrying reason, required yaw, available budget, usable time before the effective damage deadline/warp end, and target/translation validity. The effective deadline is the earliest canonical Active/Hit begin or earlier legacy hit-enable notify in the selected section.
-- [ ] Build attack `FAlignmentRequestSpec` exclusively from `FAttackWarpConfig`; remove all defense-setting reads from regular attack setup.
+- [x] Build attack `FAlignmentRequestSpec` exclusively from `FAttackWarpConfig`; remove all defense-setting reads from regular attack setup.
 - [ ] Bind steering runtime context to the exact regular-attack alignment handle/generation, attack instance, montage instance/section, effective damage deadline, and registered root-motion modifier. No generic actor tick, notify lookup, or raw Enhanced Input polling may drive it.
 - [ ] Add a native context-based setup API. Retain the current Blueprint-callable loose setup only as a deprecated adapter forced to `BestEffort` plus `Disabled` steering with a compatibility reason; audit Blueprint references and prohibit that adapter from strict production validation.
-- [ ] Reuse existing owner generation, arbitration, modifier registration, and simulation-time play-rate normalization.
+- [x] Reuse existing owner generation, arbitration, modifier registration, and simulation-time play-rate normalization.
 - [ ] Keep execution routing on existing compatibility behavior in this commit; prove the new preflight directly.
 - [ ] Build/run focused tests and commit source scaffolding: `Add attack alignment preflight`.
 
@@ -96,12 +96,12 @@
 - `Source/KatanaCombat/Private/Characters/PlayerCharacter.cpp`
 - `Source/KatanaCombatTest/Private/StateTransitionTests.cpp`
 
-- [ ] Add an editable `LocomotionRotationRate` defaulting to 540 degrees/second.
+- [x] Add an editable `LocomotionRotationRate` defaulting to 540 degrees/second.
 - [ ] Make explicit AI target and player soft-target paths enforce `RequireReachable` preflight and reject unreachable starts rather than accept partial facing. Player soft-target failure falls back to captured intent; a remaining explicit-intent failure records disposition `Rejected` with reason `UnreachableAlignment` before montage start and cannot be reported as consumed.
 - [ ] Update live rotation from the exact registered modifier's update delegate after current animation position/play rate is known and before UE samples the target. Keep target position/reference tracking separate, publish only changes of at least 0.1 degrees or 1 cm, and do not call broad request re-arbitration every frame.
 - [ ] Apply live steering only to the active regular player attack. Freeze the last reachable target at the effective damage deadline; clear steering context on exact attack/alignment terminal, montage replacement, death, paired entry, target invalidation fallback, and EndPlay.
 - [ ] Keep target selection, translation, attack branch, queue identity, and paired/defense alignment unchanged by live steering.
-- [ ] Apply it to `UCharacterMovementComponent::RotationRate` during initialization without changing attack alignment.
+- [x] Apply it to `UCharacterMovementComponent::RotationRate` during initialization without changing attack alignment.
 - [ ] Test finite/range fallback and prove changing locomotion rate does not change attack request rate/budget.
 - [ ] Do not route movement cancellation here; that belongs to Micro-Plan 04.
 

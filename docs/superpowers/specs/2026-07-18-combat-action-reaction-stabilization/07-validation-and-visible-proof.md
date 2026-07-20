@@ -21,6 +21,8 @@ Epic's [Automation Test Framework documentation](https://dev.epicgames.com/docum
 
 No tier may be reported as a stronger tier.
 
+The bounded telemetry contract may be implemented early after lifecycle and blocker-alignment stabilization when exploratory PIE lacks actor/generation identity. This exception is observational only: it may record, clear, and serialize existing decisions, but cannot alter routing, timing, arbitration, movement, animation, or damage behavior.
+
 ## Proof Fixture
 
 Do not resave the user's dirty maps. Add a C++ `ActionReactionProofDirector` that can be spawned in PIE and configures existing actors transiently. The director owns no production gameplay decisions. It runs named scenarios, emits structured telemetry, restores runtime-only overrides, and destroys itself cleanly.
@@ -29,7 +31,7 @@ Required scenarios:
 
 1. repeated AI attack start/consume/death reentrancy;
 2. player and AI attack alignment across representative yaw and play-rate cases, including isolated targetless 45/90/135/180-degree input, terminal-zero/no-input facing preservation, invalid-target fallback, queued-intent retention, and targeted/targetless live steering with hold/reverse/release/late-input cases;
-3. four-enemy approach/orbit/token behavior;
+3. three-enemy `Lvl_DefenseMatrix` and four-enemy `Lvl_ThirdPerson1` approach/orbit/token behavior, recording the discovered participant count rather than assuming fixture population;
 4. input availability and hold commitment across movement, Light/Heavy, release, canceled input, direction/no-direction, damage, and paired entry;
 5. attack and full-body-reaction cancel windows for movement and guard;
 6. guard locomotion, normal block, and distinct perfect parry;
@@ -57,13 +59,14 @@ Before branch acceptance:
 2. Run the full `KatanaCombat` automation suite and summarize the latest log.
 3. Run data validation and content migration audit in no-save mode.
 4. Run all PIE proof scenarios in `Lvl_DefenseMatrix` and `Lvl_ThirdPerson1` without saving either map.
+   Enable `Combat.Debug.All 1`, `Combat.Defense.Debug 1`, and `Combat.ActionReaction.Debug 1`; clear both telemetry buffers before each run and dump both before PIE stops.
 5. Capture telemetry plus short video for visible cases.
 6. Re-run after restarting the Editor to catch stale transient state.
 7. Inspect `git diff --check`, full diff, LFS pointers, and `git status --short`.
 
 ## Required Telemetry
 
-- actor, attack/primary-action generation, montage instance/source, and queue-entry identity;
+- scenario, map, discovered participant count, enabled debug channels, actor, attack/primary-action generation, montage instance/source, and queue-entry identity;
 - physical input capture, policy decision, application/result, intent route, hold phase/generation, cancel decision, and reason;
 - reaction class, pressure, resistance, impact policy, and interruption result;
 - AI token acquire/release reason and count;

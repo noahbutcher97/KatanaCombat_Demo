@@ -6,6 +6,8 @@
 
 ## Task 1: Add Telemetry Contracts First
 
+**Early extraction rule:** This task may run after Micro-Plan 01 and the Micro-Plan 02 blocker slice when exploratory PIE cannot correlate actors, generations, or terminal reasons. Keep it observational, bounded, and separately committed; gameplay behavior still follows the master dependency order.
+
 **Create:**
 
 - `Source/KatanaCombat/Public/Debug/ActionReactionTelemetry.h`
@@ -15,6 +17,7 @@
 - [ ] Define bounded structured records for input capture/decision/application, hold ownership, action decisions, reactions, AI movement/tokens, alignment, animation lane/fallback, and socket drift.
 - [ ] Include actor, attack/primary generation, montage instance/source, queue entry, hold generation, and reason codes so stale, duplicate, and concurrent events are observable.
 - [ ] Add tests for bounded retention, reset, stable serialization fields, and no gameplay mutation.
+- [ ] Add `Combat.ActionReaction.Debug`, `Combat.ActionReaction.ClearTelemetry`, and `Combat.ActionReaction.DumpTelemetry` controls with explicit success/failure output.
 
 ## Task 2: Add A Transient PIE Proof Director
 
@@ -26,6 +29,7 @@
 
 - [ ] Spawn the director transiently through a test/console entry point; do not place or save it in either map.
 - [ ] Implement the eleven named scenarios from Micro-Spec 07 with deterministic setup, timeout, teardown, and restoration.
+- [ ] Record map and discovered participant count for every run; require three authored Defense Matrix participants and four ThirdPerson participants unless the fixture intentionally changes.
 - [ ] In the alignment scenario, assert actual actor yaw at first contact and warp end for isolated targetless 45/90/135/exact-180-degree attacks, terminal-zero/no-input facing preservation, invalid-target fallback, and captured facing across queue delay; published targets/modifiers alone do not pass.
 - [ ] Exercise targeted and targetless live steering by holding, reversing, and releasing input, plus a late pre-contact change. Prove bounded actor-yaw response, stable target/translation identity, reachable clamping, exact-180 tie behavior, and zero contribution to AI/paired/defense alignment.
 - [ ] Emit one pass/fail record per contract and distinguish headless-capable assertions from visible-review requirements.
@@ -49,6 +53,7 @@
 - [ ] Run `Tools/Codex/run-agent-baseline.ps1` and preserve its timestamped logs/summary.
 - [ ] Run data validation and both action-reaction commandlets in audit/no-save mode.
 - [ ] Run all eleven PIE scenarios in `Lvl_DefenseMatrix` and `Lvl_ThirdPerson1` without saving.
+- [ ] Enable `Combat.Debug.All 1`, `Combat.Defense.Debug 1`, and `Combat.ActionReaction.Debug 1`; clear both telemetry buffers before each scenario and dump both before PIE teardown.
 - [ ] Capture short video for targeted and targetless static/live-steered attack alignment, orbit, moving guard, parry distinction, additive trade, full-body interrupt, and 3x3 response matrix.
 - [ ] Restart Editor and repeat crash, orbit, guard, trade, interrupt, and death scenarios.
 - [ ] Classify each claim by evidence tier; do not use source-only evidence for visible quality.
