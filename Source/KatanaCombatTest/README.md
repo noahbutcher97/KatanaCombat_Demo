@@ -10,7 +10,7 @@ Automated tests for the KatanaCombat combat system.
 
 ## Test Coverage
 
-The suite is organized into the 14 groups below. The latest command-line baseline on 2026-06-20 produced 368 completed automation result lines with 0 failures/errors; use the runner below for current counts because Unreal's expanded automation result lines may differ from hand-maintained test totals.
+The groups below describe the original core coverage; newer defense, AI, alignment, validation, and telemetry suites extend them. Use the baseline runner for current counts because Unreal's expanded automation result lines differ from hand-maintained totals.
 
 ### Core Combat Tests
 
@@ -120,6 +120,13 @@ The suite is organized into the 14 groups below. The latest command-line baselin
 - Edge case crash prevention
 
 **Path**: `KatanaCombat.CombatComponent.MemorySafety`
+
+#### 15. Action/Reaction Telemetry Tests (`ActionReactionTelemetryTests.cpp`)
+- Verifies bounded component-owned retention and reset
+- Correlates physical input, queue entries, action execution, holds, movement locks, and montage callbacks
+- Verifies stable CSV fields, actor snapshots, and console controls without changing gameplay decisions
+
+**Path**: `KatanaCombat.ActionReaction.Telemetry.*`
 
 ## Running Tests
 

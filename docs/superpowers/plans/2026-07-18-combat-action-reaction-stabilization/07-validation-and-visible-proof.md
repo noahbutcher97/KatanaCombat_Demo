@@ -14,10 +14,14 @@
 - `Source/KatanaCombat/Private/Debug/ActionReactionTelemetry.cpp`
 - `Source/KatanaCombatTest/Private/ActionReactionTelemetryTests.cpp`
 
-- [ ] Define bounded structured records for input capture/decision/application, hold ownership, action decisions, reactions, AI movement/tokens, alignment, animation lane/fallback, and socket drift.
-- [ ] Include actor, attack/primary generation, montage instance/source, queue entry, hold generation, and reason codes so stale, duplicate, and concurrent events are observable.
-- [ ] Add tests for bounded retention, reset, stable serialization fields, and no gameplay mutation.
-- [ ] Add `Combat.ActionReaction.Debug`, `Combat.ActionReaction.ClearTelemetry`, and `Combat.ActionReaction.DumpTelemetry` controls with explicit success/failure output.
+- [x] Define bounded structured records for input capture/decision/application, hold ownership, action decisions, reactions, AI movement/tokens, alignment, animation lane/fallback, and socket drift.
+- [x] Include actor, attack/primary generation, montage instance/source, queue entry, hold generation, and reason codes so stale, duplicate, and concurrent events are observable.
+- [x] Add tests for bounded retention, reset, stable serialization fields, and no gameplay mutation.
+- [x] Add `Combat.ActionReaction.Debug`, `Combat.ActionReaction.ClearTelemetry`, and `Combat.ActionReaction.DumpTelemetry` controls with explicit success/failure output.
+
+The early foundation emits input/finalization, queue, execution, phase/context, hold, movement-lock, montage-callback, terminal-reset, and paired-stage marker/start outcomes. The schema reserves reaction, AI-token, alignment, orbit, and animation-lane fields, but those owning micro-plans must add and test their emitters before those domains count as runtime evidence.
+
+Implemented by `3fcc5efc` with unity-build closure in `e1f30236`. Focused evidence is `13/13` telemetry and `18/18` defense-chain tests; the full unity build passes, while the `695/695` completed baseline retains one user-asset-dependent `KatanaCombat.Defense.GateA.PIEProof` failure.
 
 ## Task 2: Add A Transient PIE Proof Director
 

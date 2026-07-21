@@ -10,11 +10,13 @@ Updated: 2026-07-20
 - Harness hardening: `d7cf5001 Harden defense manifest adversarial test`
 - Validation noise fix: `a46bbb76 Deduplicate attack-data cycle validation errors`
 - Lifecycle/alignment blocker: `520be7c5 Stabilize combat lifecycle and attack alignment`
-- Implementation status: Micro-Plan 01 and the Micro-Plan 02 blocker slice are automated green; the latest extended `Lvl_DefenseMatrix` run had no crash and the user visually accepted rotation, while the remaining terminal/input behavior and the second map are still partial
-- Active slice: preserve the lifecycle/alignment boundary, then pull forward Micro-Plan 07's non-gameplay telemetry foundation before action-arbitration changes
+- Telemetry foundation: `3fcc5efc Add action reaction telemetry foundation`
+- Telemetry unity-build fix: `e1f30236 Fix action telemetry unity build`
+- Implementation status: Micro-Plan 01 and the Micro-Plan 02 blocker slice are automated green; the latest extended `Lvl_DefenseMatrix` run had no crash and the user visually accepted rotation; Micro-Plan 07's bounded telemetry foundation is focused-test green, while the next two-map diagnostic checkpoint and remaining behavior are still partial
+- Active slice: capture one actor-qualified anomaly per PIE run, then use that evidence to enter Micro-Plan 04A without guessing at asymmetric input or hold ownership
 - Authority: `docs/superpowers/specs/2026-07-18-combat-action-reaction-stabilization-design.md`
 - Master plan: `docs/superpowers/plans/2026-07-18-combat-action-reaction-stabilization.md`
-- Reconciliation status: lifecycle closure and the alignment blocker slice are focused-test and full-baseline green; DefenseMatrix rotation has manual acceptance, while two-map lifecycle closure, live steering, strict reachability, migration, orbit, and input/hold policy remain planned
+- Reconciliation status: lifecycle closure and the alignment blocker slice are focused-test green; DefenseMatrix rotation has manual acceptance, while the current full suite has one asset-WIP-dependent Gate A failure and two-map lifecycle closure, live steering, strict reachability, migration, orbit, and input/hold policy remain planned
 
 ## Lifecycle Crash Hardening Evidence
 
@@ -73,9 +75,9 @@ Green evidence after hardening:
 - `Saved/Logs/Codex-Agent-Baseline-20260720-144041-automation.log`: `673/673`, zero failures/errors, explicit success marker, exit `0`.
 - `Saved/Logs/Codex-Agent-Baseline-20260720-160153-automation.out.log`: `680/680`, zero failures/errors, explicit success marker, exit `0`; editor build also exited `0`.
 
-The final baseline includes `KatanaCombat.DeathSystem`, `KatanaCombat.CombatComponent.MemorySafety`, attack-alignment resolution, terminal montage cleanup, and default debug-HUD configuration. Its `351` automation warnings are unchanged from the `673/673` baseline. The automated Defense PIE gates passed, but post-fix interactive two-map Checkpoint 1A remains the runtime acceptance gate. Nine user-owned packages were preserved during that baseline; later Editor work expanded the current Content WIP to 34 status entries recorded in the evidence manifest below.
+The `680/680` lifecycle/alignment baseline includes `KatanaCombat.DeathSystem`, `KatanaCombat.CombatComponent.MemorySafety`, attack-alignment resolution, terminal montage cleanup, and default debug-HUD configuration. Its `351` automation warnings are unchanged from the `673/673` baseline. The automated Defense PIE gates passed at that content state, but post-fix interactive two-map Checkpoint 1A remains the runtime acceptance gate. Nine user-owned packages were preserved during that baseline; later Editor work expanded the current Content WIP to 34 status entries recorded in the evidence manifest below.
 
-The reopened startup-grant, active-termination, result-retention, token-reset, target-clear, terminal montage-startup, and event-driven queue invalidation findings now have isolated red/green regressions. The `20260720-160153` run is the current final automated baseline; post-fix manual PIE remains a separate acceptance gate.
+The reopened startup-grant, active-termination, result-retention, token-reset, target-clear, terminal montage-startup, and event-driven queue invalidation findings now have isolated red/green regressions. The `20260720-160153` run is the last fully green baseline before the current content drift; the current `695/695` completed baseline and its single Gate A failure are detailed below. Post-fix manual PIE remains a separate acceptance gate.
 
 ## PIE Verification Checkpoints
 
@@ -84,6 +86,22 @@ Use `docs/playtests/COMBAT_STABILIZATION_PIE_CHECKPOINTS.md` during every reques
 The post-alignment log is preserved at `Saved/Logs/PIE-20260720-rotation-checkpoint.log` (19,422,039 bytes). It contains seven `Lvl_DefenseMatrix` PIE sessions and no retained `Lvl_ThirdPerson1` session. The longest run lasted about 3:38 with 95 input presses, five input rejections, 12 balanced movement disable/enable pairs, and no crash. The user visually accepted attack rotation. Terminal cleanup, targetless intent, moving-target refresh, and parry remain partial because they were not individually recorded as named scenarios.
 
 The same run exposed a diagnostic blocker: `[INPUT]`, `[PHASE]`, `[MONTAGE]`, and `[MOVEMENT]` lines omit actor and generation identity, so asymmetric lockouts cannot be assigned reliably. No defense telemetry CSV was dumped. The log also contained 7,302 duplicate combo-cycle validation errors for `LightAttack_1` and `LightAttack_2`; commit `a46bbb76` now deduplicates identical per-call errors with a focused red/green regression. It does not modify the assets or decide whether the authored cycle is valid.
+
+## Action/Reaction Telemetry Foundation
+
+`UCombatComponent` now owns a disabled-by-default 1,024-record ring. `Combat.ActionReaction.Debug` or `Combat.Debug.All` enables capture; `Combat.ActionReaction.ClearTelemetry` resets all runtime combatants; `Combat.ActionReaction.DumpTelemetry <path>` writes stable versioned CSV. Records snapshot actor paths and correlate input serial, queue entry, attack generation, hold generation, paired-stage generation, montage instance/source, route, disposition, state, and closed reason codes.
+
+Current emitters cover physical input capture/finalization, queue accept/reject/cancel, execution start/finish, phase/context changes, hold lifecycle, combat-owned movement lock transitions, montage callback acceptance/rejection, terminal reset, and paired-stage marker/start outcomes. Paired marker telemetry preserves the outgoing stage snapshot even when the marker synchronously starts a successor. Reaction policy, AI token, orbit, alignment-error, animation-lane selection, scenario/map, and participant-count emitters remain owned by their later micro-plans or proof director; empty schema fields are not evidence for those domains.
+
+Focused evidence:
+
+- `Saved/Logs/ActionReactionTelemetry-FINAL-20260720.log`: `13/13`, zero failures, exit `0`; this includes exact queued and immediate-execution failure reasons plus cross-actor identity.
+- `Saved/Logs/PairedMarkerSnapshot-Behavior-RED-20260720.log`: the new regression observed a counter marker mislabeled as generation `3 / FinisherActive` instead of outgoing generation `2 / CounterActive`.
+- `Saved/Logs/PairedMarkerSnapshot-FINAL-20260720.log`: all `18/18` `KatanaCombat.Defense.Chain` tests pass after snapshotting the outgoing marker stage; marker role, montage instance/source/index, unrelated reporter, participant identity, stage-start rollback, and actual emitting montage are covered.
+- `Saved/Logs/Codex-Agent-Baseline-20260720-200140-build.out.log`: the first committed-source baseline exposed an anonymous-namespace collision between the defense and action serializers under Unreal unity builds.
+- `Saved/Logs/Codex-Agent-Baseline-20260720-200240-build.out.log`: the namespaced serializer rebuild exits `0` under the same unity-build lane.
+
+The final source baseline summary at `Saved/Logs/Codex-Agent-Baseline-20260720-200240-automation-summary.json` discovered and completed `695/695` tests. Its only failed test is `KatanaCombat.Defense.GateA.PIEProof`; five downstream assertions from that test account for the seven failure/error lines and automation exit `255`. Read-only audits attribute that failure to current user-owned content drift: the Gate A manifest reports an attack/counter-reference mismatch plus undeclared `GhostSamurai_Ambush01` and `GhostSamurai_Ambushed01` dependencies, and the runtime marker reports the victim role while policy expects the attacker role. No asset was changed. Gate A automatic counter-to-finisher behavior remains an asset reconciliation gate, not evidence of a telemetry or rotation regression.
 
 ## New Playtest Evidence Requiring Reconciliation
 
@@ -159,7 +177,7 @@ The current Content worktree has 24 modified, four deleted, and six untracked en
 
 ## Required Next Action
 
-Preserve the lifecycle/alignment implementation as a reviewable source boundary, then implement the bounded, actor-qualified action-reaction telemetry foundation from Micro-Plan 07. The next PIE checkpoint must clear and dump both defense and action-reaction telemetry so input capture, policy, application, movement ownership, montage generation, and terminal cleanup can be correlated before changing Micro-Plan 04A behavior.
+Run the telemetry-backed diagnostic checkpoint in `Lvl_DefenseMatrix`, then `Lvl_ThirdPerson1`. Reproduce one anomaly per run, clear both rings before the input sequence, and dump both CSVs before stopping PIE. First prioritize asymmetric movement/attack lockout and committed-hold replacement; use their actor/generation/reason evidence to implement Micro-Plan 04A. Keep orbit, reaction, and presentation findings recorded but do not pull them ahead of their owning micro-plans unless they block diagnosis.
 
 ## Slice Log
 
@@ -173,7 +191,7 @@ Add one entry per micro-plan containing commit, changed files/assets, red/green 
 - Adversarial closure: exact invocation identity, synchronous consumption, real lethal-damage delivery, stale/duplicate completion, production-bound montage interruption, reentrant token-release replacement, dependency invalidation, unowned generation rollback, participant destruction, pending-kill token release, terminal montage startup, event-driven queue invalidation, and EndPlay have focused regression coverage. StateTree non-adoption is additionally guarded by a source architecture test.
 - Manual evidence: the latest extended DefenseMatrix run completed without a crash and rotation was visually accepted; the retained log contains no ThirdPerson run and no telemetry dump.
 - Proof limit: automated Defense PIE gates are green, but the StateTree branch is not exercised through a directly instantiated task-context unit test. Two-map completion and a telemetry-backed `LightAttack_1` parry attempt are still pending.
-- Next action: add actor/generation-qualified telemetry before another broad exploratory run.
+- Next action: run one anomaly at a time with both telemetry rings cleared and dumped before PIE teardown.
 
 ### Micro-Plan 02: Alignment Blocker Slice
 
@@ -184,4 +202,15 @@ Add one entry per micro-plan containing commit, changed files/assets, red/green 
 - Full baseline: `Saved/Logs/Codex-Agent-Baseline-20260720-160153-automation.out.log` completed `680/680` with zero failures/errors and exit `0`; its no-UBA editor build also exited `0`.
 - Manual evidence: the user accepted rotation in the latest extended DefenseMatrix session; this is visible proof for that map, not automated final-yaw or two-map proof.
 - Proof limit: automation proves request ownership and the UE modifier's first antipodal yaw frame, not final actor yaw at first contact. Strict preflight, live input steering policies, asset migration, and final telemetry remain unchecked plan items.
-- Next action: preserve this source boundary, then instrument final actor/action identity before the next checkpoint.
+- Next action: use the telemetry-backed checkpoint to classify remaining strict-reachability and live-steering behavior without reopening accepted base rotation.
+
+### Micro-Plan 07: Early Telemetry Foundation
+
+- Commits: `3fcc5efc Add action reaction telemetry foundation`; `e1f30236 Fix action telemetry unity build`.
+- Assets: none changed or staged. The 34-entry user `Content/` lane remains excluded.
+- Source behavior: each combatant owns a disabled-by-default 1,024-record ring with actor/counterpart snapshots, physical input and queue identity, attack/hold/paired generations, montage source, terminal dispositions, and closed reason codes. Console controls clear and dump deterministic versioned CSV before PIE teardown.
+- Red/green: the paired auto-continue regression first proved synchronous successor state could mislabel the outgoing marker; the unity-build baseline then exposed serializer helper collisions. Final focused runs are `13/13` telemetry and `18/18` defense chain, and the final unity build exits `0`.
+- Adversarial closure: hold press/release edges, synthesized follow-ups, cross-actor stable IDs, unrelated marker reporters, actual notify-source montage, outgoing stage snapshots, bounded retention, CSV escaping/cardinality, disabled capture, and precise queued/immediate terminal reasons are covered.
+- Full baseline: `695/695` completed; only asset-dependent `KatanaCombat.Defense.GateA.PIEProof` fails. This is not a green branch baseline.
+- Proof limit: reaction, AI token, orbit, alignment-error, animation-lane, scenario/map, and participant-count emitters are not implemented yet. Empty reserved fields do not prove those systems.
+- Next action: perform the named asymmetric-input checkpoint in `Lvl_DefenseMatrix`, then repeat in `Lvl_ThirdPerson1`; dump both CSVs before stopping each PIE session and route the proven result into Micro-Plan 04A.

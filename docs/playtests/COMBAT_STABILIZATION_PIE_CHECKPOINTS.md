@@ -1,6 +1,10 @@
 # Combat Stabilization PIE Checkpoints
 
-Use this sheet to judge only the behavior delivered by the named checkpoint. Before PIE, run `Combat.Debug.All 1`, `Combat.Defense.Debug 1`, and `Combat.Defense.ClearTelemetry`. Once action-reaction telemetry lands, also run `Combat.ActionReaction.Debug 1` and `Combat.ActionReaction.ClearTelemetry`. Before stopping PIE, dump defense telemetry to `Saved/Logs/DefenseTelemetry/<run-name>.csv` and action-reaction telemetry to `Saved/Logs/ActionReactionTelemetry/<run-name>.csv`. Retain `Saved/Logs/KatanaCombat.log`, and do not save either test map unless the asset change is intentional. Record branch HEAD, map, observed participant count, duration, result, and a short video or timestamp for every run.
+Use this sheet to judge only the behavior delivered by the named checkpoint. Before PIE, run `Combat.Debug.All 1`, `Combat.Defense.Debug 1`, `Combat.ActionReaction.Debug 1`, `Combat.Defense.ClearTelemetry`, and `Combat.ActionReaction.ClearTelemetry`. Before stopping PIE, run `Combat.Defense.DumpTelemetry Saved/Logs/DefenseTelemetry/<run-name>.csv` and `Combat.ActionReaction.DumpTelemetry Saved/Logs/ActionReactionTelemetry/<run-name>.csv`; component-owned rings disappear during PIE teardown. Retain `Saved/Logs/KatanaCombat.log`, and do not save either test map unless the asset change is intentional. Record branch HEAD, map, observed participant count, duration, result, exact input sequence, and a short video or timestamp for every run.
+
+## Diagnostic Capture
+
+Reproduce one anomaly per named run. Start from idle, clear both rings, perform the shortest known input sequence, wait long enough to observe recovery, dump both CSVs, and only then stop PIE. The action/reaction stream currently covers input capture/finalization, queue decisions, action start/finish, phase/context, hold and movement-lock transitions, montage callbacks, terminal reset, and paired-stage marker/start outcomes. It does not yet prove orbit requests, AI-token ownership, reaction arbitration, alignment error, or animation-lane selection; those emitters remain with their owning micro-plans.
 
 ## Checkpoint 1: Attack Lifecycle
 
@@ -34,7 +38,7 @@ Use this sheet to judge only the behavior delivered by the named checkpoint. Bef
 
 **Maps:** `Lvl_DefenseMatrix`, then `Lvl_ThirdPerson1`. Do not save either map or `BP_Player`.
 
-**Latest evidence:** Rotation is visually accepted in `Lvl_DefenseMatrix` at commit ancestry `d7cf5001` plus the uncommitted lifecycle/alignment slice. The retained log contains seven DefenseMatrix sessions, no crash, and no ThirdPerson session. Treat each unchecked line below as open until a named scenario and actor-qualified telemetry prove it.
+**Latest evidence:** Rotation is visually accepted in an extended `Lvl_DefenseMatrix` session on the current branch. The retained pre-telemetry log contains seven DefenseMatrix sessions, no crash, and no ThirdPerson session. Treat each unchecked line below as open until a named scenario and actor-qualified telemetry prove it.
 
 **Actions:**
 
@@ -53,7 +57,21 @@ Use this sheet to judge only the behavior delivered by the named checkpoint. Bef
 - Exact-opposite attacks choose a stable positive turn and do not stall.
 - A normally ended montage returns phase to `None`, clears the combo indicator/queue, and never displays an 11-second false combo countdown or leaves guard-looking input lockout.
 
-**Not fixed yet:** configurable live steering influence during a warp, strict reachability/deadline rejection, final actor-yaw telemetry at contact, orbit jitter, asymmetric input policy, hold replacement, cancel windows, reaction/trade behavior, and guard/parry presentation.
+**Not fixed yet:** configurable live steering influence during a warp, strict reachability/deadline rejection, final actor-yaw telemetry at contact, orbit jitter, asymmetric input policy, hold replacement, cancel windows, reaction/trade behavior, and guard/parry presentation. Current modified Gate A paired assets also fail the no-save manifest audit and the automatic counter-to-finisher proof; do not classify that transition as a source regression until the asset graph is reconciled.
+
+## Checkpoint 1B: One-Anomaly Telemetry Capture
+
+**Run after:** commits `3fcc5efc` and `e1f30236`. This checkpoint diagnoses behavior; it does not claim the input/hold policy is fixed.
+
+**Run 1 - movement-only lockout:** In `Lvl_DefenseMatrix`, start idle, clear both rings, hold Light until the freeze begins, release it, then immediately alternate movement and one Light press for five seconds. Stop inputs, wait five seconds, and dump to `dm-movement-lock-defense.csv` and `dm-movement-lock-actions.csv` before ending PIE.
+
+**Run 2 - committed-hold replacement:** Restart PIE, clear both rings, hold Light until visibly frozen, then press Light exactly once while continuing to hold the original input. Do not add other inputs. Dump to `dm-hold-replacement-defense.csv` and `dm-hold-replacement-actions.csv` before ending PIE.
+
+**Run 3 - map comparison:** In `Lvl_ThirdPerson1`, repeat only the shorter sequence that reproduced a bug above and dump with the `tp1-` prefix. If neither sequence reproduces there, record that result without broad exploratory combat.
+
+**Evidence expected:** every physical edge has one `InputCaptured` and one reason-coded `InputFinalized`; a hold activation and release share one hold generation while retaining their press/release serials; each movement disable has a later restore; every accepted queue entry has one terminal execution or cancellation; montage callbacks identify accepted versus stale generations. Record the player actor path and the first sequence number where visible behavior diverges.
+
+**Still open after capture:** the policy fix itself, one-slot arbitration, committed-hold protection, movement/guard cancel windows, orbit, reaction selection, parry readability, and Gate A asset reconciliation.
 
 ## Checkpoint 2: Alignment And Orbit
 

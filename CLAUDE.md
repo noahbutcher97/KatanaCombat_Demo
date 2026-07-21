@@ -55,6 +55,14 @@ Combat.Debug.Queue 1            // Action queue state
 Combat.Debug.Hold 1             // Hold state visualization
 Combat.Debug.DrawDuration 2.0   // Debug shape persistence (seconds)
 
+// Bounded runtime telemetry (dump before stopping PIE)
+Combat.Defense.Debug 1
+Combat.Defense.ClearTelemetry
+Combat.Defense.DumpTelemetry Saved/Logs/DefenseTelemetry/<run>.csv
+Combat.ActionReaction.Debug 1
+Combat.ActionReaction.ClearTelemetry
+Combat.ActionReaction.DumpTelemetry Saved/Logs/ActionReactionTelemetry/<run>.csv
+
 // Paired Animation Debug (finishers, counters)
 Combat.Debug.PairedAnim 1             // Enable all paired animation debug
 Combat.Debug.PairedAnim.Warp 1        // Warp targets (cyan crosshairs)
