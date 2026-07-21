@@ -14,6 +14,7 @@
 #include "Data/DefenseConfiguration.h"
 #include "Data/TargetingSettings.h"
 #include "Defense/DefensePresentationSelector.h"
+#include "Debug/ActionReactionTelemetry.h"
 #include "Debug/DebugConfig.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
 #include "Utilities/CombatGameplayTags.h"
@@ -176,6 +177,71 @@ FName DefenseStageName(const EChainCounterState State)
 	return Enum
 		? FName(*Enum->GetNameStringByValue(static_cast<int64>(State)))
 		: NAME_None;
+}
+
+void AppendPairedStageActionReactionTelemetry(
+	UCombatComponent* Sink,
+	const FDefenseSequenceContext& Sequence,
+	const EActionReactionTelemetryEvent Event,
+	const EActionReactionTelemetryReason Reason,
+	const UPairedAnimationData* StageData,
+	AActor* ReportingActor,
+	const int32 MontageInstanceId,
+	const FAnimNotifyRuntimeSourceId* NotifySource,
+	FString Detail)
+{
+	if (!Sink && Sequence.Defender.IsValid())
+	{
+		Sink = Sequence.Defender->FindComponentByClass<UCombatComponent>();
+	}
+	if (!Sink)
+	{
+		return;
+	}
+
+	FActionReactionTelemetryRecord Record;
+	Record.Event = Event;
+	Record.Reason = Reason;
+	Record.Actor = Sequence.Defender.IsValid() ? Sequence.Defender.Get() : Sink->GetOwner();
+	Record.Counterpart = Sequence.SourceAttacker.Get();
+	Record.AttackGeneration = Sequence.OriginatingAttack.AttackInstance.AttackGeneration;
+	Record.PrimaryActionGeneration = Sequence.StageGeneration;
+	Record.MontageInstanceId = MontageInstanceId;
+	Record.ActionName = StageData
+		? StageData->ChainTransitionPolicy.RequiredMarker
+		: NAME_None;
+	Record.AnimationLane = TEXT("DefenseChain");
+	Record.ReactionClass = DefenseStageName(Sequence.ChainState);
+	if (StageData)
+	{
+		const UEnum* ReactionEnum = StaticEnum<EPairedReactionType>();
+		Record.ReactionDisposition = ReactionEnum
+			? FName(*ReactionEnum->GetNameStringByValue(
+				static_cast<int64>(StageData->ReactionType)))
+			: NAME_None;
+		Record.MontagePath = StageData->AttackerMontage
+			? FSoftObjectPath(StageData->AttackerMontage)
+			: FSoftObjectPath();
+	}
+	if (NotifySource)
+	{
+		Record.NotifySourcePath = NotifySource->SourceAnimation;
+		if (NotifySource->SourceAnimation.IsValid())
+		{
+			Record.MontagePath = NotifySource->SourceAnimation;
+		}
+	}
+	const bool bMarkerEvent = Event == EActionReactionTelemetryEvent::PairedStageMarkerAccepted
+		|| Event == EActionReactionTelemetryEvent::PairedStageMarkerRejected;
+	if (bMarkerEvent && ReportingActor)
+	{
+		Detail = FString::Printf(
+			TEXT("reporter=%s;%s"),
+			*ReportingActor->GetPathName(),
+			*Detail);
+	}
+	Record.Detail = MoveTemp(Detail);
+	Sink->AppendActionReactionTelemetry(MoveTemp(Record));
 }
 
 void AppendDefenseSequenceTelemetry(
@@ -374,6 +440,12 @@ void UPairedAnimationComponent::HandleChainStageTransitionFromActor(
 	ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(ActiveDefenseSequence.Defender.Get());
 	ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(ActiveDefenseSequence.SourceAttacker.Get());
 	UPairedAnimationData* StageData = ActiveDefenseSequence.ActivePairedData.Get();
+	const FDefenseSequenceContext MarkerSequence = ActiveDefenseSequence;
+	UCombatComponent* MarkerTelemetrySink = CachedCombatComponent.Get();
+	if (!MarkerTelemetrySink && Defender)
+	{
+		MarkerTelemetrySink = Defender->CombatComponent.Get();
+	}
 	if (!ReportingActor
 		|| !StageData
 		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid()
@@ -381,6 +453,16 @@ void UPairedAnimationComponent::HandleChainStageTransitionFromActor(
 		|| !NotifySourceId.IsValid()
 		|| MontageInstanceId < 0)
 	{
+		AppendPairedStageActionReactionTelemetry(
+			MarkerTelemetrySink,
+			MarkerSequence,
+			EActionReactionTelemetryEvent::PairedStageMarkerRejected,
+			EActionReactionTelemetryReason::MarkerContextInvalid,
+			StageData,
+			ReportingActor,
+			MontageInstanceId,
+			&NotifySourceId,
+			TEXT("marker context is incomplete or invalid"));
 		return;
 	}
 	if (!Defender
@@ -388,6 +470,21 @@ void UPairedAnimationComponent::HandleChainStageTransitionFromActor(
 		|| Defender->IsDeadOrDying()
 		|| SourceAttacker->IsDeadOrDying())
 	{
+		AppendPairedStageActionReactionTelemetry(
+			MarkerTelemetrySink,
+			MarkerSequence,
+			EActionReactionTelemetryEvent::PairedStageMarkerRejected,
+			EActionReactionTelemetryReason::MarkerParticipantInvalid,
+			StageData,
+			ReportingActor,
+			MontageInstanceId,
+			&NotifySourceId,
+			FString::Printf(
+				TEXT("defender_valid=%s source_valid=%s defender_terminal=%s source_terminal=%s"),
+				Defender ? TEXT("true") : TEXT("false"),
+				SourceAttacker ? TEXT("true") : TEXT("false"),
+				Defender && Defender->IsDeadOrDying() ? TEXT("true") : TEXT("false"),
+				SourceAttacker && SourceAttacker->IsDeadOrDying() ? TEXT("true") : TEXT("false")));
 		CleanupDefenseSequence(
 			ActiveDefenseSequence.StageGeneration,
 			0.1f,
@@ -412,19 +509,62 @@ void UPairedAnimationComponent::HandleChainStageTransitionFromActor(
 	}
 	else
 	{
+		AppendPairedStageActionReactionTelemetry(
+			MarkerTelemetrySink,
+			MarkerSequence,
+			EActionReactionTelemetryEvent::PairedStageMarkerRejected,
+			EActionReactionTelemetryReason::MarkerReporterMismatch,
+			StageData,
+			ReportingActor,
+			MontageInstanceId,
+			&NotifySourceId,
+			TEXT("reporting actor is not a participant in the active defense sequence"));
 		return;
 	}
 
 	const FPairedChainTransitionPolicy& Policy = StageData->ChainTransitionPolicy;
-	if (ReportingRole != Policy.DriverRole
-		|| MontageInstanceId != ExpectedMontageInstanceId
-		|| !ExpectedMontage
-		|| NotifySourceId.SourceAnimation != FSoftObjectPath(ExpectedMontage)
-		|| !ExpectedMontage->Notifies.IsValidIndex(NotifySourceId.NotifyEventIndex))
+	const bool bDriverRoleMatches = ReportingRole == Policy.DriverRole;
+	const bool bMontageInstanceMatches = MontageInstanceId == ExpectedMontageInstanceId;
+	const bool bSourceMontageMatches = ExpectedMontage
+		&& NotifySourceId.SourceAnimation == FSoftObjectPath(ExpectedMontage);
+	const bool bNotifyIndexValid = ExpectedMontage
+		&& ExpectedMontage->Notifies.IsValidIndex(NotifySourceId.NotifyEventIndex);
+	if (!bDriverRoleMatches
+		|| !bMontageInstanceMatches
+		|| !bSourceMontageMatches
+		|| !bNotifyIndexValid)
 	{
+		const EActionReactionTelemetryReason RejectionReason = !bDriverRoleMatches
+			? EActionReactionTelemetryReason::MarkerDriverRoleMismatch
+			: !bMontageInstanceMatches
+				? EActionReactionTelemetryReason::MarkerMontageInstanceMismatch
+				: !bSourceMontageMatches
+					? EActionReactionTelemetryReason::MarkerNotifySourceMismatch
+					: EActionReactionTelemetryReason::MarkerNotifyIndexInvalid;
+		const FString Detail = FString::Printf(
+			TEXT("role=%d expected_role=%d instance=%d expected_instance=%d source=%s expected_source=%s notify_index=%d notify_count=%d"),
+			static_cast<int32>(ReportingRole),
+			static_cast<int32>(Policy.DriverRole),
+			MontageInstanceId,
+			ExpectedMontageInstanceId,
+			*NotifySourceId.SourceAnimation.ToString(),
+			ExpectedMontage ? *FSoftObjectPath(ExpectedMontage).ToString() : TEXT("None"),
+			NotifySourceId.NotifyEventIndex,
+			ExpectedMontage ? ExpectedMontage->Notifies.Num() : 0);
 		UE_LOG(LogPairedAnim, Verbose,
-			TEXT("[COUNTER-CHAIN] Ignored stale or partner stage marker (generation %d)"),
-			ActiveDefenseSequence.StageGeneration);
+			TEXT("[COUNTER-CHAIN] Ignored stage marker generation=%d %s"),
+			ActiveDefenseSequence.StageGeneration,
+			*Detail);
+		AppendPairedStageActionReactionTelemetry(
+			MarkerTelemetrySink,
+			MarkerSequence,
+			EActionReactionTelemetryEvent::PairedStageMarkerRejected,
+			RejectionReason,
+			StageData,
+			ReportingActor,
+			MontageInstanceId,
+			&NotifySourceId,
+			Detail);
 		return;
 	}
 
@@ -435,18 +575,49 @@ void UPairedAnimationComponent::HandleChainStageTransitionFromActor(
 		|| Policy.RequiredMarker.IsNone()
 		|| AuthoredNotify->MarkerName != Policy.RequiredMarker)
 	{
+		AppendPairedStageActionReactionTelemetry(
+			MarkerTelemetrySink,
+			MarkerSequence,
+			EActionReactionTelemetryEvent::PairedStageMarkerRejected,
+			EActionReactionTelemetryReason::MarkerPolicyMismatch,
+			StageData,
+			ReportingActor,
+			MontageInstanceId,
+			&NotifySourceId,
+			TEXT("authored marker payload does not match the active transition policy"));
 		return;
 	}
 
 	const int32 ExpectedGeneration = ActiveDefenseSequence.StageGeneration;
+	const EChainCounterState PreviousState = ChainState;
+	bool bTransitionApplied = false;
 	if (Transition == EChainStageTransitionType::OpenCounterWindow)
 	{
-		EnterDefenseCounterWindow(ExpectedGeneration);
+		bTransitionApplied = EnterDefenseCounterWindow(ExpectedGeneration);
 	}
 	else
 	{
-		HandleDefenseAutoContinueMarker(ExpectedGeneration);
+		bTransitionApplied = HandleDefenseAutoContinueMarker(ExpectedGeneration);
 	}
+	const bool bMarkerConsumed = bTransitionApplied
+		|| ChainState != PreviousState
+		|| ActiveDefenseSequence.StageGeneration != ExpectedGeneration;
+	AppendPairedStageActionReactionTelemetry(
+		MarkerTelemetrySink,
+		MarkerSequence,
+		bMarkerConsumed
+			? EActionReactionTelemetryEvent::PairedStageMarkerAccepted
+			: EActionReactionTelemetryEvent::PairedStageMarkerRejected,
+		bMarkerConsumed
+			? EActionReactionTelemetryReason::MarkerAccepted
+			: EActionReactionTelemetryReason::MarkerStateMismatch,
+		StageData,
+		ReportingActor,
+		MontageInstanceId,
+		&NotifySourceId,
+		bMarkerConsumed
+			? TEXT("exact driver marker consumed")
+			: TEXT("identity-valid marker rejected by the active Chain state"));
 }
 
 FPairedSequenceLeaseHandle UPairedAnimationComponent::AcquirePairedStateLease(
@@ -2845,6 +3016,16 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 		UE_LOG(LogPairedAnim, Warning,
 			TEXT("[COUNTER-CHAIN] Stage preflight failed: %s"),
 			*FailureReason);
+		AppendPairedStageActionReactionTelemetry(
+			CachedCombatComponent.Get(),
+			ActiveDefenseSequence,
+			EActionReactionTelemetryEvent::PairedStageStartFailed,
+			EActionReactionTelemetryReason::StagePreflightFailed,
+			PairedAnimData,
+			ActiveDefenseSequence.SourceAttacker.Get(),
+			INDEX_NONE,
+			nullptr,
+			FailureReason);
 		return false;
 	}
 
@@ -2861,6 +3042,23 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 	if (!SourcePaired || !DefenderTargeting || !SourceTargeting || !SourceHitReaction
 		|| !DefenderCombat || !SourceCombat)
 	{
+		AppendPairedStageActionReactionTelemetry(
+			CachedCombatComponent.Get(),
+			ActiveDefenseSequence,
+			EActionReactionTelemetryEvent::PairedStageStartFailed,
+			EActionReactionTelemetryReason::StageDependenciesMissing,
+			PairedAnimData,
+			SourceAttacker,
+			INDEX_NONE,
+			nullptr,
+			FString::Printf(
+				TEXT("source_paired=%s defender_targeting=%s source_targeting=%s source_reaction=%s defender_combat=%s source_combat=%s"),
+				SourcePaired ? TEXT("true") : TEXT("false"),
+				DefenderTargeting ? TEXT("true") : TEXT("false"),
+				SourceTargeting ? TEXT("true") : TEXT("false"),
+				SourceHitReaction ? TEXT("true") : TEXT("false"),
+				DefenderCombat ? TEXT("true") : TEXT("false"),
+				SourceCombat ? TEXT("true") : TEXT("false")));
 		return false;
 	}
 
@@ -3167,6 +3365,30 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 		&& SourceMontageInstanceId >= 0;
 	if (!bStarted)
 	{
+		AppendPairedStageActionReactionTelemetry(
+			DefenderCombat,
+			ActiveDefenseSequence,
+			EActionReactionTelemetryEvent::PairedStageStartFailed,
+			bOwnershipReady
+				? EActionReactionTelemetryReason::StagePlaybackFailed
+				: EActionReactionTelemetryReason::StageOwnershipFailed,
+			PairedAnimData,
+			SourceAttacker,
+			DefenderMontageInstanceId,
+			nullptr,
+			FString::Printf(
+				TEXT("ownership=%s defender_lease=%s source_lease=%s defender_alignment=%s source_alignment=%s time_lease=%s defender_started=%s source_started=%s defender_instance=%d source_instance=%d"),
+				bOwnershipReady ? TEXT("true") : TEXT("false"),
+				NewDefenderCollision.IsValid() ? TEXT("true") : TEXT("false"),
+				NewSourceCollision.IsValid() ? TEXT("true") : TEXT("false"),
+				NewDefenderAlignment.IsValid() ? TEXT("true") : TEXT("false"),
+				NewSourceAlignment.IsValid() ? TEXT("true") : TEXT("false"),
+				(!PairedAnimData->bApplySlowMotion || bAcquiredNewTimeLease)
+					? TEXT("true") : TEXT("false"),
+				bDefenderStarted ? TEXT("true") : TEXT("false"),
+				bSourceStarted ? TEXT("true") : TEXT("false"),
+				DefenderMontageInstanceId,
+				SourceMontageInstanceId));
 		ActiveDefenseSequence = Previous;
 		ActiveDefenseSequence.StageGeneration = SuccessorGeneration;
 		if (Previous.LastDamageAppliedStageGeneration == Previous.StageGeneration)
@@ -3278,6 +3500,16 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 		ActiveDefenseSequence,
 		EDefenseTelemetryEvent::StageStart,
 		SuccessState);
+	AppendPairedStageActionReactionTelemetry(
+		DefenderCombat,
+		ActiveDefenseSequence,
+		EActionReactionTelemetryEvent::PairedStageStartSucceeded,
+		EActionReactionTelemetryReason::StageStarted,
+		PairedAnimData,
+		SourceAttacker,
+		DefenderMontageInstanceId,
+		nullptr,
+		TEXT("both paired roles started with owned leases"));
 
 	ReleasePairedStateLeasesForGeneration(Previous.StageGeneration);
 	SourcePaired->ReleasePairedStateLeasesForGeneration(Previous.StageGeneration);

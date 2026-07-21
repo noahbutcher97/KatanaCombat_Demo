@@ -192,6 +192,9 @@ struct FQueuedInputAction
 {
 	GENERATED_BODY()
 
+	/** Native identity of the physical input edge that created this action. */
+	uint64 InputSerial = 0;
+
 	/** Type of input (light/heavy attack, dodge, block) */
 	UPROPERTY(BlueprintReadOnly, Category = "Input")
 	EInputType InputType = EInputType::None;
@@ -272,6 +275,9 @@ struct FActionQueueEntry
 {
 	GENERATED_BODY()
 
+	/** Native component-local identity retained through queue execution and cancellation. */
+	uint64 QueueEntryId = 0;
+
 	/** Input that triggered this action */
 	UPROPERTY(BlueprintReadOnly, Category = "Action")
 	FQueuedInputAction InputAction;
@@ -338,6 +344,12 @@ struct FHoldEvent
 	/** Unique ID for this hold instance (incremented each activation) */
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
 	int32 HoldID = 0;
+
+	/** Native identity of the physical press that owned this hold. */
+	uint64 PressInputSerial = 0;
+
+	/** Native identity of the physical release, once observed. */
+	uint64 ReleaseInputSerial = 0;
 
 	/** Which input triggered this hold? */
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")

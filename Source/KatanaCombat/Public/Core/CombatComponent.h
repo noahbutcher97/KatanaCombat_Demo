@@ -10,6 +10,7 @@
 #include "CombatTypes.h"
 #include "Data/PairedAnimationTypes.h"
 #include "Data/ProceduralAnimationTypes.h"
+#include "Debug/ActionReactionTelemetry.h"
 #include "Debug/DefenseTelemetry.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "CombatComponent.generated.h"
@@ -132,6 +133,15 @@ public:
 	const TArray<FDefenseTelemetryRecord>& GetDefenseTelemetry() const { return DefenseTelemetryRecords; }
 	void ClearDefenseTelemetry();
 	static constexpr int32 GetDefenseTelemetryCapacity() { return DefenseTelemetryCapacity; }
+
+	/** Append one observational action/reaction record to this combatant's bounded ring. */
+	void AppendActionReactionTelemetry(FActionReactionTelemetryRecord Record);
+	const TArray<FActionReactionTelemetryRecord>& GetActionReactionTelemetry() const
+	{
+		return ActionReactionTelemetryBuffer.GetRecords();
+	}
+	void ClearActionReactionTelemetry();
+	static constexpr int32 GetActionReactionTelemetryCapacity() { return ActionReactionTelemetryCapacity; }
 
 	/** Build a value snapshot of the currently published attack state. */
 	FAttackExecutionSnapshot BuildAttackExecutionSnapshot() const;
@@ -786,6 +796,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	TMap<EInputType, float> HeldInputs;
 
+	/** Native physical-edge identity paired with HeldInputs. */
+	TMap<EInputType, uint64> HeldInputSerials;
+
 	/**
 	 * Last captured 8-way directional input (used for directional attacks, evades, holds)
 	 *
@@ -929,6 +942,7 @@ public:
 	friend class FDefenseAlignment_GuardManualOverridePreservesBudget;
 	friend class FDefenseAlignment_GuardManualThresholdAndPriority;
 	friend class FDefenseAlignment_PlayerLookRoutesManualYaw;
+	friend class FActionReactionTelemetryStaleMontageCallbackTest;
 #endif // WITH_AUTOMATION_TESTS
 
 protected:
@@ -994,6 +1008,7 @@ protected:
 
 	/** Process-monotonic identity for the next captured input edge. */
 	uint64 NextCombatInputSerial = 1;
+	uint64 NextActionQueueEntryId = 1;
 
 	/** Current attack phase (tracked independently) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
@@ -1086,6 +1101,8 @@ protected:
 	TArray<FDefenseTelemetryRecord> DefenseTelemetryRecords;
 	uint64 NextDefenseTelemetrySequence = 0;
 	static constexpr int32 DefenseTelemetryCapacity = 512;
+	static constexpr int32 ActionReactionTelemetryCapacity = 1024;
+	FActionReactionTelemetryBuffer ActionReactionTelemetryBuffer{ActionReactionTelemetryCapacity};
 	uint64 NextDefenseTerminalSequence = 0;
 	static constexpr double DefenseInteractionTombstoneSeconds = 1.0;
 	static constexpr int32 DefenseTerminalInteractionCacheCap = 128;
@@ -1142,7 +1159,9 @@ protected:
 	 * Called from: TickComponent, PlayAttackMontage, OnEaseTimerTick
 	 * Ensures movement is always synced with animation state
 	 */
-	void UpdateMovementFromMontageState();
+	void UpdateMovementFromMontageState(int32 CorrelatedHoldGeneration = 0);
+	void ActivateHoldWithInputSerial(EInputType InputType, float PlayRate, uint64 PressInputSerial);
+	void DeactivateHoldWithInputSerial(uint64 ReleaseInputSerial);
 
 	/**
 	 * Clear hold state completely (ease timer, flags, movement)
@@ -1242,9 +1261,22 @@ protected:
 	void FinalizeCombatInput(
 		uint64 Serial,
 		ECombatInputRoute Route,
-		ECombatInputDisposition Disposition);
+		ECombatInputDisposition Disposition,
+		EActionReactionTelemetryReason Reason = EActionReactionTelemetryReason::None);
+
+	FActionReactionTelemetryRecord BuildActionReactionTelemetryRecord(
+		EActionReactionTelemetryEvent Event,
+		EActionReactionTelemetryReason Reason) const;
+	uint64 EnsureActionQueueEntryIdentity(FActionQueueEntry& Entry);
+	void AppendActionQueueTelemetry(
+		const FActionQueueEntry& Entry,
+		EActionReactionTelemetryEvent Event,
+		EActionReactionTelemetryReason Reason);
 
 	/** Queue implementation that reports whether the normal route accepted the edge. */
-	bool TryQueueAction(const FQueuedInputAction& InputAction, UAttackData* AttackData = nullptr);
+	bool TryQueueAction(
+		const FQueuedInputAction& InputAction,
+		UAttackData* AttackData = nullptr,
+		EActionReactionTelemetryReason* OutDecisionReason = nullptr);
 
 };

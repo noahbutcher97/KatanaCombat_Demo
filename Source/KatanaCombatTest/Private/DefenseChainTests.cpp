@@ -16,11 +16,13 @@
 #include "Data/DefenseConfiguration.h"
 #include "Data/PairedAnimationData.h"
 #include "Data/TargetingSettings.h"
+#include "Debug/ActionReactionTelemetry.h"
 #include "Subsystems/CombatEffectsWorldSubsystem.h"
 #include "Utilities/CombatGameplayTags.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/BoxComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "HAL/IConsoleManager.h"
 #include "TimerManager.h"
 
 #include <limits>
@@ -264,6 +266,45 @@ FAnimNotifyRuntimeSourceId MakeMarkerSource(const UAnimMontage* Montage, const i
 	Source.SourceAnimation = FSoftObjectPath(Montage);
 	Source.NotifyEventIndex = Index;
 	return Source;
+}
+
+class FScopedActionReactionTelemetry
+{
+public:
+	explicit FScopedActionReactionTelemetry(const int32 Value)
+	{
+		Variable = IConsoleManager::Get().FindConsoleVariable(TEXT("Combat.ActionReaction.Debug"));
+		if (Variable)
+		{
+			Previous = Variable->GetInt();
+			Variable->Set(Value, ECVF_SetByCode);
+		}
+	}
+
+	~FScopedActionReactionTelemetry()
+	{
+		if (Variable)
+		{
+			Variable->Set(Previous, ECVF_SetByCode);
+		}
+	}
+
+private:
+	IConsoleVariable* Variable = nullptr;
+	int32 Previous = 0;
+};
+
+int32 CountActionReactionTelemetry(
+	const TConstArrayView<FActionReactionTelemetryRecord> Records,
+	const EActionReactionTelemetryEvent Event,
+	const EActionReactionTelemetryReason Reason)
+{
+	int32 Count = 0;
+	for (const FActionReactionTelemetryRecord& Record : Records)
+	{
+		Count += Record.Event == Event && Record.Reason == Reason ? 1 : 0;
+	}
+	return Count;
 }
 }
 
@@ -558,6 +599,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FDefenseChainMarkerIdentityTest::RunTest(const FString& Parameters)
 {
+	FScopedActionReactionTelemetry TelemetryEnabled(1);
 	FDefenseChainFixture Fixture;
 	if (!Fixture.Initialize() || !Fixture.StartCommittedParry())
 	{
@@ -581,6 +623,7 @@ bool FDefenseChainMarkerIdentityTest::RunTest(const FString& Parameters)
 	Fixture.Paired->ActivePairedAnimData = BridgeData;
 	Fixture.Paired->ActivePairedReactionType = EPairedReactionType::Parry;
 	const FAnimNotifyRuntimeSourceId Source = MakeMarkerSource(BridgeData->AttackerMontage);
+	Fixture.DefenderCombat->ClearActionReactionTelemetry();
 
 	Fixture.SourcePaired->HandleChainStageTransition(
 		EChainStageTransitionType::OpenCounterWindow, 202, Source);
@@ -596,6 +639,14 @@ bool FDefenseChainMarkerIdentityTest::RunTest(const FString& Parameters)
 		MakeMarkerSource(BridgeData->AttackerMontage, 3));
 	TestEqual(TEXT("Wrong runtime notify source cannot drive the marker"),
 		Fixture.Paired->GetChainState(), EChainCounterState::ParryActive);
+	AActor* UnrelatedReporter = Fixture.World->SpawnActor<AActor>();
+	Fixture.Paired->HandleChainStageTransitionFromActor(
+		UnrelatedReporter,
+		EChainStageTransitionType::OpenCounterWindow,
+		101,
+		Source);
+	TestEqual(TEXT("An unrelated reporter cannot drive the marker"),
+		Fixture.Paired->GetChainState(), EChainCounterState::ParryActive);
 
 	Fixture.Paired->HandleChainStageTransition(
 		EChainStageTransitionType::OpenCounterWindow, 101, Source);
@@ -609,6 +660,55 @@ bool FDefenseChainMarkerIdentityTest::RunTest(const FString& Parameters)
 		Fixture.Paired->DefenseResponseTickers.Num(), 1);
 	TestTrue(TEXT("Marker handoff retains paired presentation ownership"),
 		Fixture.Paired->IsPairedAnimationActive());
+
+	auto CountTelemetry = [&Fixture](
+		const EActionReactionTelemetryEvent Event,
+		const EActionReactionTelemetryReason Reason)
+	{
+		return CountActionReactionTelemetry(
+			Fixture.DefenderCombat->GetActionReactionTelemetry(), Event, Reason);
+	};
+	TestEqual(TEXT("Partner marker rejection records its role mismatch"),
+		CountTelemetry(
+			EActionReactionTelemetryEvent::PairedStageMarkerRejected,
+			EActionReactionTelemetryReason::MarkerDriverRoleMismatch),
+		1);
+	TestEqual(TEXT("Stale marker rejection records its montage instance mismatch"),
+		CountTelemetry(
+			EActionReactionTelemetryEvent::PairedStageMarkerRejected,
+			EActionReactionTelemetryReason::MarkerMontageInstanceMismatch),
+		1);
+	TestEqual(TEXT("Invalid marker address records its notify index failure"),
+		CountTelemetry(
+			EActionReactionTelemetryEvent::PairedStageMarkerRejected,
+			EActionReactionTelemetryReason::MarkerNotifyIndexInvalid),
+		1);
+	TestEqual(TEXT("Unrelated marker reporter records its participant mismatch"),
+		CountTelemetry(
+			EActionReactionTelemetryEvent::PairedStageMarkerRejected,
+			EActionReactionTelemetryReason::MarkerReporterMismatch),
+		1);
+	TestEqual(TEXT("Exact driver marker records one accepted transition"),
+		CountTelemetry(
+			EActionReactionTelemetryEvent::PairedStageMarkerAccepted,
+			EActionReactionTelemetryReason::MarkerAccepted),
+		1);
+	const FActionReactionTelemetryRecord* AcceptedDriverMarker =
+		Fixture.DefenderCombat->GetActionReactionTelemetry().FindByPredicate(
+			[](const FActionReactionTelemetryRecord& Record)
+			{
+				return Record.Event == EActionReactionTelemetryEvent::PairedStageMarkerAccepted
+					&& Record.Reason == EActionReactionTelemetryReason::MarkerAccepted;
+			});
+	if (AcceptedDriverMarker)
+	{
+		TestEqual(TEXT("Marker telemetry keeps the defending owner as actor"),
+			AcceptedDriverMarker->Actor.Get(), static_cast<AActor*>(Fixture.Defender));
+		TestEqual(TEXT("Marker telemetry keeps the source attacker as counterpart"),
+			AcceptedDriverMarker->Counterpart.Get(), static_cast<AActor*>(Fixture.SourceAttacker));
+		TestTrue(TEXT("Marker telemetry identifies its reporting participant"),
+			AcceptedDriverMarker->Detail.Contains(Fixture.Defender->GetPathName()));
+	}
 
 	Fixture.Destroy();
 
@@ -820,12 +920,29 @@ bool FDefenseChainMarkerIdentityTest::RunTest(const FString& Parameters)
 	VictimDriver.Paired->ActiveDefenseSequence.VictimMontageInstanceId = 404;
 	VictimDriver.Paired->ActivePairedAnimData = VictimBridgeData;
 	VictimDriver.Paired->ActivePairedReactionType = EPairedReactionType::Parry;
+	VictimDriver.DefenderCombat->ClearActionReactionTelemetry();
 	VictimDriver.SourcePaired->HandleChainStageTransition(
 		EChainStageTransitionType::OpenCounterWindow,
 		404,
 		MakeMarkerSource(VictimBridgeData->VictimMontage));
 	TestEqual(TEXT("The authored victim driver marker opens CounterWindow"),
 		VictimDriver.Paired->GetChainState(), EChainCounterState::CounterWindow);
+	const FActionReactionTelemetryRecord* VictimMarker =
+		VictimDriver.DefenderCombat->GetActionReactionTelemetry().FindByPredicate(
+			[](const FActionReactionTelemetryRecord& Record)
+			{
+				return Record.Event == EActionReactionTelemetryEvent::PairedStageMarkerAccepted;
+			});
+	TestNotNull(TEXT("Victim-driven marker should retain its accepted observation"), VictimMarker);
+	if (VictimMarker)
+	{
+		TestEqual(TEXT("Victim-driven marker identifies the emitting victim montage"),
+			VictimMarker->MontagePath, FSoftObjectPath(VictimBridgeData->VictimMontage));
+		TestEqual(TEXT("Victim-driven marker keeps the source attacker as counterpart"),
+			VictimMarker->Counterpart.Get(), static_cast<AActor*>(VictimDriver.SourceAttacker));
+		TestTrue(TEXT("Victim-driven marker identifies its reporting participant"),
+			VictimMarker->Detail.Contains(VictimDriver.SourceAttacker->GetPathName()));
+	}
 	VictimDriver.Destroy();
 	return true;
 }
@@ -837,6 +954,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FDefenseChainPartialStartRollbackTest::RunTest(const FString& Parameters)
 {
+	FScopedActionReactionTelemetry TelemetryEnabled(1);
 	FDefenseChainFixture Fixture;
 	if (!Fixture.Initialize() || !Fixture.StartCommittedParry() || !Fixture.OpenCounterWindow())
 	{
@@ -858,6 +976,7 @@ bool FDefenseChainPartialStartRollbackTest::RunTest(const FString& Parameters)
 		OutInstanceId = Role == EPairedAnimationRole::Attacker ? 301 : INDEX_NONE;
 		return Role == EPairedAnimationRole::Attacker;
 	};
+	Fixture.DefenderCombat->ClearActionReactionTelemetry();
 
 	Fixture.DefenderCombat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
 	const FDefenseSequenceContext& RolledBack =
@@ -887,6 +1006,11 @@ bool FDefenseChainPartialStartRollbackTest::RunTest(const FString& Parameters)
 		Fixture.Paired->HandleOwnerPairedMontageEnded(CounterData->AttackerMontage, true));
 	TestEqual(TEXT("Stale failed-stage callback cannot clean the response window"),
 		Fixture.Paired->GetChainState(), EChainCounterState::CounterWindow);
+	const int32 PlaybackFailures = CountActionReactionTelemetry(
+		Fixture.DefenderCombat->GetActionReactionTelemetry(),
+		EActionReactionTelemetryEvent::PairedStageStartFailed,
+		EActionReactionTelemetryReason::StagePlaybackFailed);
+	TestEqual(TEXT("Partial paired start records one playback failure"), PlaybackFailures, 1);
 
 	Fixture.Destroy();
 	return true;
@@ -899,6 +1023,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FDefenseChainRetainedStageLifecycleTest::RunTest(const FString& Parameters)
 {
+	FScopedActionReactionTelemetry TelemetryEnabled(1);
 	FDefenseChainFixture Fixture;
 	if (!Fixture.Initialize() || !Fixture.StartCommittedParry() || !Fixture.OpenCounterWindow())
 	{
@@ -1000,8 +1125,11 @@ bool FDefenseChainRetainedStageLifecycleTest::RunTest(const FString& Parameters)
 		Fixture.DefenderCombat->GetClearQueueCallCountForTesting();
 
 	const float HealthBeforeCounter = Fixture.SourceAttacker->CurrentHealth;
+	const int32 CounterStageGeneration =
+		Fixture.Paired->GetActiveDefenseSequenceContext().StageGeneration;
 	const int32 CounterMontageId =
 		Fixture.Paired->GetActiveDefenseSequenceContext().AttackerMontageInstanceId;
+	Fixture.DefenderCombat->ClearActionReactionTelemetry();
 	Fixture.Paired->HandleChainStageTransition(
 		EChainStageTransitionType::AutoContinue,
 		CounterMontageId,
@@ -1012,6 +1140,23 @@ bool FDefenseChainRetainedStageLifecycleTest::RunTest(const FString& Parameters)
 		Fixture.SourceAttacker->CurrentHealth,
 		HealthBeforeCounter - CounterData->BaseDamage,
 		KINDA_SMALL_NUMBER);
+	const FActionReactionTelemetryRecord* AcceptedMarker =
+		Fixture.DefenderCombat->GetActionReactionTelemetry().FindByPredicate(
+			[](const FActionReactionTelemetryRecord& Record)
+			{
+				return Record.Event == EActionReactionTelemetryEvent::PairedStageMarkerAccepted
+					&& Record.Reason == EActionReactionTelemetryReason::MarkerAccepted;
+			});
+	TestNotNull(TEXT("Auto-continue should retain its accepted marker observation"), AcceptedMarker);
+	if (AcceptedMarker)
+	{
+		TestEqual(TEXT("Marker observation retains the outgoing counter generation"),
+			AcceptedMarker->PrimaryActionGeneration, CounterStageGeneration);
+		TestEqual(TEXT("Marker observation retains the outgoing counter state"),
+			AcceptedMarker->ReactionClass, FName(TEXT("CounterActive")));
+		TestEqual(TEXT("Marker observation identifies the emitting counter montage"),
+			AcceptedMarker->MontagePath, FSoftObjectPath(CounterData->AttackerMontage));
+	}
 	TestEqual(TEXT("Successor replaces, rather than overlaps, defender stage lease"),
 		Fixture.Paired->GetActivePairedStateLeaseCount(), 1);
 	TestEqual(TEXT("Successor replaces, rather than overlaps, source stage lease"),
