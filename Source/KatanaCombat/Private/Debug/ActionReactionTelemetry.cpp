@@ -7,7 +7,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
-namespace
+namespace ActionReactionTelemetryPrivate
 {
 FString EventName(const EActionReactionTelemetryEvent Event)
 {
@@ -260,11 +260,11 @@ FString ActionReactionTelemetry::BuildCsv(
 		return Left.Sequence < Right.Sequence;
 	});
 
-	FString Csv(CsvHeader);
+	FString Csv(ActionReactionTelemetryPrivate::CsvHeader);
 	Csv.AppendChar(TEXT('\n'));
 	for (const FActionReactionTelemetryRecord& Record : Sorted)
 	{
-		Csv += BuildRow(Record);
+		Csv += ActionReactionTelemetryPrivate::BuildRow(Record);
 		Csv.AppendChar(TEXT('\n'));
 	}
 	return Csv;
