@@ -12,6 +12,14 @@
         "UNREAL_RC_PORT": "30010",
         "UNREAL_AUTO_DETECT": "true"
       }
+    },
+    "uemcp-offline": {
+      "command": "node",
+      "args": ["${HOME}/uemcp/server/server.mjs"],
+      "env": {
+        "UNREAL_PROJECT_NAME": "KatanaCombat"
+      }
     }
-  }
+  },
+  "_uemcp_offline_note": "Cloud/Linux (Claude Code on the web) offline bridge. Provisioned by .claude/scripts/uemcp-cloud-bootstrap.sh (run it from the environment setup script). Serves ONLY the offline toolset (disk-only asset/config/blueprint reads); the live TCP/RC layers stay dormant with no editor. Auto-attaches to this project via the workspace root the harness advertises. On Windows/local, ${HOME}/uemcp does not exist so this entry is inert and the native 'uemcp' entry above is used instead. See .claude/UEMCP_CLOUD.md."
 }
