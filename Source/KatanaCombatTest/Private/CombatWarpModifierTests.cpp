@@ -433,10 +433,10 @@ bool FCombatWarp_SetupAttackWarpOwnedLifecycle::RunTest(const FString& Parameter
 	FAlignmentRequestSpec ActiveSpec;
 	TestTrue(TEXT("Active attack-warp request is queryable"),
 		Targeting->GetAlignmentRequestSpec(Targeting->GetActiveAlignmentRequest(), ActiveSpec));
-	TestEqual(TEXT("Attack warp cannot raise the defense turn capability"),
-		ActiveSpec.MaximumTurnRate, 180.0f, 0.1f);
-	TestEqual(TEXT("Attack warp inherits the cumulative automatic-turn budget"),
-		ActiveSpec.RemainingTurnBudget, 70.0f, 0.1f);
+	TestEqual(TEXT("Attack warp uses its authored attack turn rate independently of defense"),
+		ActiveSpec.MaximumTurnRate, 720.0f, 0.1f);
+	TestEqual(TEXT("Attack warp uses the attack-owned default cumulative turn budget"),
+		ActiveSpec.RemainingTurnBudget, 180.0f, 0.1f);
 	TestEqual(TEXT("Attack warp uses its explicit arbiter priority"),
 		ActiveSpec.Priority, EDefenseAlignmentPriority::ActiveAttackWarp);
 	TestTrue(TEXT("Attack warp preserves the authored target-relative contact offset"),
@@ -466,12 +466,22 @@ bool FCombatWarp_SetupAttackWarpOwnedLifecycle::RunTest(const FString& Parameter
 		Targeting->GetAlignmentRequestCountForTesting(), 1);
 	TestTrue(TEXT("Replacement request is queryable"),
 		Targeting->GetAlignmentRequestSpec(Targeting->GetActiveAlignmentRequest(), ActiveSpec));
-	TestEqual(TEXT("An attack may lower the effective turn capability"),
+	TestEqual(TEXT("Each attack owns its authored turn capability"),
 		ActiveSpec.MaximumTurnRate, 90.0f, 0.1f);
+	TestEqual(TEXT("Replacement retains the attack-owned turn budget"),
+		ActiveSpec.RemainingTurnBudget, 180.0f, 0.1f);
 	TestNull(TEXT("Replacement removes the prior owner's target"),
 		Player->MotionWarpingComponent->FindWarpTarget(Config.TargetWarpName));
 	TestNotNull(TEXT("Replacement publishes only its rotation target"),
 		Player->MotionWarpingComponent->FindWarpTarget(Config.RotationWarpName));
+
+	Config.MaximumAutomaticTurn = 500.0f;
+	TestTrue(TEXT("A finite oversized attack budget is accepted with a runtime clamp"),
+		Targeting->SetupAttackWarp(nullptr, FRotator(0.0, 120.0, 0.0), Config));
+	TestTrue(TEXT("Clamped attack request is queryable"),
+		Targeting->GetAlignmentRequestSpec(Targeting->GetActiveAlignmentRequest(), ActiveSpec));
+	TestEqual(TEXT("Attack cumulative turn budget is clamped to 360 degrees"),
+		ActiveSpec.RemainingTurnBudget, 360.0f, 0.1f);
 
 	Combat->SetPhase(EAttackPhase::None);
 	TestEqual(TEXT("Canonical attack termination releases attack-warp ownership"),
@@ -487,6 +497,193 @@ bool FCombatWarp_SetupAttackWarpOwnedLifecycle::RunTest(const FString& Parameter
 	TestNull(TEXT("Rejected contact offset publishes no warp target"),
 		Player->MotionWarpingComponent->FindWarpTarget(Config.TargetWarpName));
 
+	Config.TargetRelativeOffset = FVector::ZeroVector;
+	Config.MaximumAutomaticTurn = std::numeric_limits<float>::quiet_NaN();
+	TestFalse(TEXT("A non-finite attack turn budget cannot acquire ownership"),
+		Targeting->SetupAttackWarp(Enemy, FRotator::ZeroRotator, Config));
+	TestEqual(TEXT("Rejected attack turn budget leaves no alignment request"),
+		Targeting->GetAlignmentRequestCountForTesting(), 0);
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCombatWarp_MovingTargetRefreshAcrossAttackReplacement,
+	"KatanaCombat.Defense.Alignment.CombatWarp.MovingTargetRefreshAcrossAttackReplacement",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCombatWarp_MovingTargetRefreshAcrossAttackReplacement::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	UCombatComponent* Combat = nullptr;
+	UTargetingComponent* Targeting = nullptr;
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombatAndTargeting(
+		World, Combat, Targeting);
+	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(300.0f, 0.0f, 0.0f));
+	if (!Player || !Combat || !Targeting || !Enemy || !Player->MotionWarpingComponent)
+	{
+		AddError(TEXT("Failed to create moving-target attack-warp fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	FAttackWarpConfig Config;
+	Config.bEnableWarp = true;
+	Config.MinWarpDistance = 0.0f;
+	Config.MaxWarpDistance = 500.0f;
+	Config.TargetRelativeOffset = FVector::ZeroVector;
+
+	TestTrue(TEXT("First attack acquires a targeted warp"),
+		Targeting->SetupAttackWarp(Enemy, FRotator::ZeroRotator, Config));
+	const FAlignmentRequestHandle FirstHandle = Targeting->GetActiveAlignmentRequest();
+	FAlignmentRequestSpec FirstSpec;
+	TestTrue(TEXT("First attack request is queryable"),
+		Targeting->GetAlignmentRequestSpec(FirstHandle, FirstSpec));
+
+	Enemy->SetActorLocation(FVector(0.0f, 300.0f, 0.0f));
+	Targeting->OnMotionWarpingPreUpdate(Player->MotionWarpingComponent);
+	FAlignmentRequestSpec RefreshedFirstSpec;
+	TestTrue(TEXT("First attack remains owned after target movement"),
+		Targeting->GetAlignmentRequestSpec(FirstHandle, RefreshedFirstSpec));
+	TestEqual(TEXT("First attack refreshes facing from the target's live position"),
+		static_cast<float>(RefreshedFirstSpec.DesiredRotation.Yaw), 90.0f, 0.1f);
+	const FMotionWarpingTarget* FirstPublished =
+		Player->MotionWarpingComponent->FindWarpTarget(Config.TargetWarpName);
+	TestNotNull(TEXT("First attack keeps a published target"), FirstPublished);
+	if (FirstPublished)
+	{
+		TestEqual(TEXT("First attack republishes the moved target Y"),
+			static_cast<float>(FirstPublished->Location.Y), 300.0f, 0.1f);
+	}
+
+	TestTrue(TEXT("Combo successor replaces the first attack warp"),
+		Targeting->SetupAttackWarp(Enemy, FRotator(0.0f, 90.0f, 0.0f), Config));
+	const FAlignmentRequestHandle SecondHandle = Targeting->GetActiveAlignmentRequest();
+	FAlignmentRequestSpec SecondSpec;
+	TestTrue(TEXT("Combo successor request is queryable"),
+		Targeting->GetAlignmentRequestSpec(SecondHandle, SecondSpec));
+	TestTrue(TEXT("Combo successor has a distinct alignment handle"),
+		SecondHandle != FirstHandle);
+	TestTrue(TEXT("Combo successor advances attack-warp generation"),
+		SecondSpec.OwnerGeneration > FirstSpec.OwnerGeneration);
+	TestEqual(TEXT("Combo replacement still owns exactly one request"),
+		Targeting->GetAlignmentRequestCountForTesting(), 1);
+
+	Enemy->SetActorLocation(FVector(-300.0f, 0.0f, 0.0f));
+	Targeting->OnMotionWarpingPreUpdate(Player->MotionWarpingComponent);
+	FAlignmentRequestSpec RefreshedSecondSpec;
+	TestTrue(TEXT("Combo successor remains owned after target movement"),
+		Targeting->GetAlignmentRequestSpec(SecondHandle, RefreshedSecondSpec));
+	TestEqual(TEXT("Combo successor refreshes facing instead of retaining first-input yaw"),
+		FMath::Abs(static_cast<float>(RefreshedSecondSpec.DesiredRotation.Yaw)), 180.0f, 0.1f);
+	TestEqual(TEXT("Moving-target refresh preserves target identity"),
+		RefreshedSecondSpec.Target.Get(), Cast<AActor>(Enemy));
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FCombatWarp_ExactOppositeTargetChoosesDeterministicTurn,
+	"KatanaCombat.Defense.Alignment.CombatWarp.ExactOppositeTargetChoosesDeterministicTurn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCombatWarp_ExactOppositeTargetChoosesDeterministicTurn::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	UCombatComponent* Combat = nullptr;
+	UTargetingComponent* Targeting = nullptr;
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombatAndTargeting(
+		World, Combat, Targeting);
+	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(-300.0f, 0.0f, 0.0f));
+	if (!Player || !Targeting || !Enemy || !Player->MotionWarpingComponent)
+	{
+		AddError(TEXT("Failed to create exact-opposite combat-warp fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Player->SetActorRotation(FRotator::ZeroRotator);
+	FAttackWarpConfig Config;
+	Config.bEnableWarp = true;
+	Config.MinWarpDistance = 1000.0f;
+	Config.RotationSpeed = 720.0f;
+	Config.MaximumAutomaticTurn = 180.0f;
+	Config.FinalFacingTolerance = 10.0f;
+	TestTrue(TEXT("Exact-opposite attack acquires rotation ownership"),
+		Targeting->SetupAttackWarp(Enemy, FRotator::ZeroRotator, Config));
+
+	const FMotionWarpingTarget* PublishedTarget =
+		Player->MotionWarpingComponent->FindWarpTarget(Config.RotationWarpName);
+	TestNotNull(TEXT("Exact-opposite request publishes its rotation target"), PublishedTarget);
+	if (!PublishedTarget)
+	{
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	const float PublishedYawDelta = static_cast<float>(FMath::FindDeltaAngleDegrees(
+		Player->GetActorRotation().Yaw,
+		PublishedTarget->Rotation.Yaw));
+	TestTrue(TEXT("Antipodal target preserves an effectively opposite heading"),
+		FMath::Abs(PublishedYawDelta) >= 179.0f);
+	TestEqual(TEXT("Exact antipodal target publishes the tolerance-derived positive bias"),
+		PublishedYawDelta, 179.5f, 0.05f);
+
+	Enemy->SetActorLocation(FRotator(0.0f, -179.95f, 0.0f).Vector() * 300.0f);
+	Targeting->OnMotionWarpingPreUpdate(Player->MotionWarpingComponent);
+	PublishedTarget = Player->MotionWarpingComponent->FindWarpTarget(Config.RotationWarpName);
+	TestNotNull(TEXT("Near-antipodal refresh preserves its published target"), PublishedTarget);
+	if (PublishedTarget)
+	{
+		const float NearAntipodalDelta = static_cast<float>(FMath::FindDeltaAngleDegrees(
+			Player->GetActorRotation().Yaw,
+			PublishedTarget->Rotation.Yaw));
+		TestEqual(TEXT("Near-antipodal negative yaw uses the same positive tie-break"),
+			NearAntipodalDelta, 179.5f, 0.05f);
+	}
+
+	Enemy->SetActorLocation(FRotator(0.0f, -179.8f, 0.0f).Vector() * 300.0f);
+	Targeting->OnMotionWarpingPreUpdate(Player->MotionWarpingComponent);
+	PublishedTarget = Player->MotionWarpingComponent->FindWarpTarget(Config.RotationWarpName);
+	TestNotNull(TEXT("Outside-band refresh preserves its published target"), PublishedTarget);
+	if (PublishedTarget)
+	{
+		const float OutsideBandDelta = static_cast<float>(FMath::FindDeltaAngleDegrees(
+			Player->GetActorRotation().Yaw,
+			PublishedTarget->Rotation.Yaw));
+		TestEqual(TEXT("Yaw outside the antipodal band preserves its shortest-path sign"),
+			OutsideBandDelta, -179.8f, 0.05f);
+	}
+
+	Enemy->SetActorLocation(FVector(-300.0f, 0.0f, 0.0f));
+	Targeting->OnMotionWarpingPreUpdate(Player->MotionWarpingComponent);
+
+	UAnimNotifyState_CombatWarp* Notify = NewObject<UAnimNotifyState_CombatWarp>();
+	UAnimMontage* Animation = NewObject<UAnimMontage>();
+	URootMotionModifier_Warp* RuntimeModifier = AddCombatWarpModifier(
+		Notify, Player->MotionWarpingComponent, Animation);
+	TestNotNull(TEXT("Exact-opposite request creates a runtime modifier"), RuntimeModifier);
+	if (RuntimeModifier)
+	{
+		UpdateModifier(RuntimeModifier, Animation, 0.0f, 0.1f, 1.0f, 0.1f);
+		const FQuat WarpedRotation = RuntimeModifier->WarpRotation(
+			FTransform::Identity,
+			FTransform::Identity,
+			0.1f);
+		const float FirstFrameYaw = static_cast<float>(WarpedRotation.Rotator().Yaw);
+		TestTrue(TEXT("UE constant-rate warping produces positive yaw on the first antipodal frame"),
+			FirstFrameYaw > 1.0f);
+		TestTrue(TEXT("First antipodal frame remains bounded by the 720-degree capability"),
+			FirstFrameYaw <= 72.1f);
+	}
+
+	Targeting->ReleaseActiveAttackWarp();
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

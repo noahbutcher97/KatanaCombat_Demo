@@ -28,6 +28,11 @@ class UAnimMontage;
  * I-Frames:
  * - When bHasIFrames = true, character ignores hits during IFrameStart to IFrameEnd
  * - Times are relative to montage/section start
+ *
+ * AUDIT NOTE (2026-07-21): no assets of this class exist and its runtime consumer
+ * (PlayReactionFromData via PlaySpecialReaction/PlayPairedReaction) has no callers.
+ * Class is pending a delete-or-wire decision — prefer inline FHitReactionEntry in
+ * HitReactionSettings for new work. See docs/audits/DATA_ASSET_AUDIT_2026-07-21.md.
  */
 UCLASS(BlueprintType)
 class KATANACOMBAT_API UHitReactionData : public UPrimaryDataAsset
@@ -79,8 +84,8 @@ public:
     // ========================================================================
 
     /** Duration of hitstun (character cannot act). Default 0 = no stun.
-     * Only configure stun for specific scenarios (guard break, heavy attacks, etc.)
-     * Non-zero stun makes target vulnerable to finishers via IsVulnerableToFinisher(). */
+     * [NOT WIRED on this path] PlayReactionFromData never applies stun from this asset;
+     * stun is applied from FHitReactionEntry.StunDuration on the directional path. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Timing",
         meta = (ClampMin = "0.0", ClampMax = "5.0"))
     float StunDuration = 0.0f;

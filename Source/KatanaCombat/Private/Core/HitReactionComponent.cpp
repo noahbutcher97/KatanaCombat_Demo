@@ -2,6 +2,8 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/HitReactionComponent.h"
+#include "AI/EnemyCombatAIComponent.h"
+#include "AIController.h"
 #include "Core/CombatComponent.h"
 #include "Core/PairedAnimationComponent.h"
 #include "Core/TargetingComponent.h"
@@ -174,8 +176,13 @@ float UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
         }
     }
 
-    // Check invulnerability
-    if (bIsInvulnerable)
+    const bool bAuthorizedPairedPartner = bReactionsSuppressed
+        && PairedAnimationPartner.IsValid()
+        && HitInfo.Attacker == PairedAnimationPartner.Get();
+
+    // Once paired victim ownership is accepted, its exact partner owns the
+    // authored damage commit. Normal hits still honor invulnerability/i-frames.
+    if (bIsInvulnerable && !bAuthorizedPairedPartner)
     {
         UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s BLOCKED: Target is invulnerable"),
             *OwnerName);
@@ -185,7 +192,7 @@ float UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
     // Block non-partner damage during paired animations.
     // The paired animation partner (attacker) must be able to deal damage
     // for sync point health tracking. All other sources are blocked.
-    if (bReactionsSuppressed && HitInfo.Attacker != PairedAnimationPartner.Get())
+    if (bReactionsSuppressed && !bAuthorizedPairedPartner)
     {
         UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s BLOCKED: In paired animation, attacker %s is not the partner"),
             *OwnerName, *AttackerName);
@@ -193,16 +200,17 @@ float UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
     }
 
     // Check i-frames
-    if (IsInIFrames())
+    if (IsInIFrames() && !bAuthorizedPairedPartner)
     {
         UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s BLOCKED: Target is in i-frames (%.2f/%.2f-%.2f)"),
             *OwnerName, CurrentReactionTime, CurrentIFrameStart, CurrentIFrameEnd);
         return 0.0f;
     }
 
-	const FCommittedHitReactionDamage Commit = CommitResolvedDamage(HitInfo, DamageResistance);
+	const float ResistanceSnapshot = bAuthorizedPairedPartner ? 1.0f : DamageResistance;
+	const FCommittedHitReactionDamage Commit = CommitResolvedDamage(HitInfo, ResistanceSnapshot);
 	UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s APPLIED: %.1f damage (resistance: %.2f)"),
-		*OwnerName, Commit.ResolvedDamage, DamageResistance);
+		*OwnerName, Commit.ResolvedDamage, ResistanceSnapshot);
 	DispatchCommittedDamage(Commit);
 	return Commit.ResolvedDamage;
 }
@@ -1013,10 +1021,8 @@ bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
     // ========================================================================
     // GUARD: Already dead - death outcome was already applied
     // ========================================================================
-    // This can happen when:
-    // 1. Victim montage ended first → OnAnyMontageBlendingOut applied outcome
-    // 2. Then damage was applied → HandleDeath() called PlayDeathReaction()
-    // In this case, the character is already dead (bIsDead = true), so skip.
+    // This can happen when a terminal outcome has already completed and a later
+    // montage, notify, or damage callback reaches the death-routing path again.
     if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
     {
         if (CombatChar->bIsDead)
@@ -1040,8 +1046,8 @@ bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
     //
     // EnterPairedAnimationState() set up the pending death state BEFORE damage
     // was applied. The victim montage continues playing as the death animation,
-    // and OnAnyMontageBlendingOut will call ExitPairedAnimationState() and
-    // apply the outcome when it ends.
+    // and paired completion or montage blend-out applies the outcome after
+    // lethal health has entered Dying.
     // ========================================================================
     if (bDeathHandledByPairedAnimation)
     {
@@ -1049,9 +1055,9 @@ bool UHitReactionComponent::PlayDeathReaction(EAttackDirection Direction)
         {
             // The victim montage is still playing as the death animation.
             // Do NOT apply the outcome now — let the montage continue playing.
-            // OnAnyMontageBlendingOut will catch it when it ends and apply the outcome,
-            // then call ExitPairedAnimationState() to clean up all flags.
-            UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s PlayDeathReaction: Victim montage playing as death animation - deferring to blend-out (Montage=%s, Outcome=%s)"),
+            // Completion or OnAnyMontageBlendingOut will apply the outcome and
+            // clean up all paired victim state.
+            UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s PlayDeathReaction: Victim montage is the death animation - deferring to paired completion or blend-out (Montage=%s, Outcome=%s)"),
                 OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
                 PendingDeathMontage ? *PendingDeathMontage->GetName() : TEXT("nullptr"),
                 *UEnum::GetValueAsString(PairedAnimationDeathOutcome));
@@ -1180,38 +1186,7 @@ void UHitReactionComponent::OnAnyMontageBlendingOut(UAnimMontage* Montage, bool 
         Montage ? *Montage->GetName() : TEXT("nullptr"),
         bInterrupted ? TEXT("YES") : TEXT("NO"));
 
-    // Capture the outcome before ExitPairedAnimationState clears it
-    const EReactionOutcome OutcomeToApply = PendingDeathOutcome;
-    const float RagdollBlendTime = PendingRagdollBlendTime;
-
-    // Exit paired animation state — clears all flags (suppression, finisher target,
-    // death handling, pending state). This prevents double application if
-    // PlayDeathReaction is called later after damage is applied.
-    ExitPairedAnimationState();
-
-    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s Applying death outcome: %s"),
-        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
-        *UEnum::GetValueAsString(OutcomeToApply));
-
-    switch (OutcomeToApply)
-    {
-        case EReactionOutcome::Death:
-            // Freeze animation at current pose - character stays in death pose permanently
-            FreezeAtCurrentPose();
-            break;
-
-        case EReactionOutcome::Ragdoll:
-            // Activate ragdoll - physics will take over from current pose
-            ActivateRagdoll(RagdollBlendTime);
-            break;
-
-        case EReactionOutcome::StandardRecovery:
-        default:
-            UE_LOG(LogTemp, Warning, TEXT("[HitReaction] %s StandardRecovery outcome for death - this is unusual"),
-                OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
-            // Let normal blend-out happen (shouldn't occur for death, but handle gracefully)
-            break;
-    }
+	ApplyPendingDeathOutcome();
 }
 
 void UHitReactionComponent::ActivateRagdoll(float BlendTime)
@@ -1224,12 +1199,13 @@ void UHitReactionComponent::ActivateRagdoll(float BlendTime)
         return;
     }
 
-    if (!OwnerCharacter)
+	ACharacter* CharacterOwner = GetOwnerCharacterCached();
+    if (!CharacterOwner)
     {
         return;
     }
 
-    USkeletalMeshComponent* Mesh = OwnerCharacter->GetMesh();
+	USkeletalMeshComponent* Mesh = CharacterOwner->GetMesh();
     if (!Mesh)
     {
         return;
@@ -1262,13 +1238,13 @@ void UHitReactionComponent::ActivateRagdoll(float BlendTime)
     Mesh->SetCollisionProfileName(TEXT("Ragdoll"));
 
     // Disable capsule collision so ragdoll can move freely
-    if (UCapsuleComponent* Capsule = OwnerCharacter->GetCapsuleComponent())
+	if (UCapsuleComponent* Capsule = CharacterOwner->GetCapsuleComponent())
     {
         Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     }
 
     // Disable movement (after death animation completed with root motion)
-    if (UCharacterMovementComponent* MovementComp = OwnerCharacter->GetCharacterMovement())
+	if (UCharacterMovementComponent* MovementComp = CharacterOwner->GetCharacterMovement())
     {
         MovementComp->DisableMovement();
     }
@@ -1277,11 +1253,11 @@ void UHitReactionComponent::ActivateRagdoll(float BlendTime)
     OnRagdollActivated.Broadcast();
 
     UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s activated ragdoll (snapshot saved as '%s')"),
-        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+		*CharacterOwner->GetName(),
         *DeathPoseSnapshotName.ToString());
 
     // Finalize death - transition from Dying to Dead state
-    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
+	if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(CharacterOwner))
     {
         CombatChar->FinalizeDeath();
     }
@@ -1309,6 +1285,26 @@ void UHitReactionComponent::TriggerRagdollFromNotify(float BlendTime)
         return;
     }
 
+	if (ABaseCombatCharacter* CombatCharacter =
+		Cast<ABaseCombatCharacter>(GetOwnerCharacterCached()))
+	{
+		if (CombatCharacter->IsDead())
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[HitReaction] %s TriggerRagdollFromNotify: Character is already dead; clearing stale pending outcome"),
+				*CombatCharacter->GetName());
+			ResetPairedAnimationState();
+			return;
+		}
+		if (!CombatCharacter->IsDying())
+		{
+			UE_LOG(LogTemp, Log,
+				TEXT("[HitReaction] %s TriggerRagdollFromNotify: Deferring until lethal health is committed"),
+				*CombatCharacter->GetName());
+			return;
+		}
+	}
+
     // Clear pending state since we're handling it now (prevents blend-out from re-triggering)
     bDeathOutcomePending = false;
     PendingDeathMontage = nullptr;
@@ -1319,43 +1315,48 @@ void UHitReactionComponent::TriggerRagdollFromNotify(float BlendTime)
 
 void UHitReactionComponent::FreezeAtCurrentPose()
 {
-    if (!OwnerCharacter || !AnimInstance)
+    ACharacter* CharacterOwner = GetOwnerCharacterCached();
+    if (!CharacterOwner)
     {
         return;
     }
 
-    USkeletalMeshComponent* Mesh = OwnerCharacter->GetMesh();
-    if (!Mesh)
+    USkeletalMeshComponent* Mesh = CharacterOwner->GetMesh();
+    UAnimInstance* Instance = ResolveAnimInstance();
+
+    if (Instance)
     {
-        return;
+        // Capture the exact skeletal pose before stopping montage playback.
+        Instance->SavePoseSnapshot(DeathPoseSnapshotName);
+        bHasDeathPoseSnapshot = true;
+        Instance->StopAllMontages(0.0f);
+    }
+    else
+    {
+        bHasDeathPoseSnapshot = false;
+        UE_LOG(LogTemp, Warning,
+            TEXT("[HitReaction] %s freezing without an AnimInstance; no death pose snapshot was captured"),
+            *CharacterOwner->GetName());
     }
 
-    // 1. Save pose snapshot BEFORE stopping anything
-    // This captures the exact skeletal pose at the moment of death
-    // Can be used later in AnimBP with "Pose Snapshot" node for recovery/revive
-    AnimInstance->SavePoseSnapshot(DeathPoseSnapshotName);
-    bHasDeathPoseSnapshot = true;
+    if (Mesh)
+    {
+        // Prevent the AnimBP from transitioning away from the terminal pose.
+        Mesh->bPauseAnims = true;
+    }
 
-    // 2. Stop all montages with no blend
-    AnimInstance->StopAllMontages(0.0f);
-
-    // 3. CRITICAL: Pause animation evaluation on the mesh
-    // This prevents the AnimBP state machine from transitioning to idle
-    // The mesh will hold its current bone transforms indefinitely
-    Mesh->bPauseAnims = true;
-
-    // 4. Disable movement NOW (after death animation completed with root motion)
-    if (UCharacterMovementComponent* MovementComp = OwnerCharacter->GetCharacterMovement())
+    if (UCharacterMovementComponent* MovementComp = CharacterOwner->GetCharacterMovement())
     {
         MovementComp->DisableMovement();
     }
 
-    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s frozen at death pose (snapshot: '%s', anims paused)"),
-        OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
-        *DeathPoseSnapshotName.ToString());
+    UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s frozen at death pose (snapshot: %s, anims paused: %s)"),
+        *CharacterOwner->GetName(),
+        bHasDeathPoseSnapshot ? *DeathPoseSnapshotName.ToString() : TEXT("none"),
+        Mesh ? TEXT("yes") : TEXT("no"));
 
-    // 5. Finalize death - transition from Dying to Dead state
-    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(OwnerCharacter))
+    // Terminal state completion must not depend on animation or mesh availability.
+    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(CharacterOwner))
     {
         CombatChar->FinalizeDeath();
     }
@@ -1579,6 +1580,7 @@ void UHitReactionComponent::EndStagger()
 void UHitReactionComponent::EnterPairedAnimationState(UAnimMontage* VictimMontage, EReactionOutcome DeathOutcome, float RagdollBlendTime, bool bIsLethal, AActor* Partner)
 {
     const FString OwnerName = OwnerCharacter ? OwnerCharacter->GetName() : TEXT("Unknown");
+    const bool bWasInPairedAnimationState = IsInPairedAnimationState();
 
     // Take exclusive ownership of the reaction pipeline
     bReactionsSuppressed = true;
@@ -1587,6 +1589,26 @@ void UHitReactionComponent::EnterPairedAnimationState(UAnimMontage* VictimMontag
     // Store partner reference for damage filtering
     // Damage from the partner (attacker) passes through; all other damage is blocked
     PairedAnimationPartner = Partner;
+
+    if (UCombatComponent* Combat = GetOwner()
+        ? GetOwner()->FindComponentByClass<UCombatComponent>()
+        : nullptr)
+    {
+        Combat->PrepareForPairedTakeover();
+    }
+	if (UEnemyCombatAIComponent* CombatAI = GetOwner()
+		? GetOwner()->FindComponentByClass<UEnemyCombatAIComponent>()
+		: nullptr)
+	{
+		CombatAI->AbortAttack();
+	}
+	if (APawn* OwnerPawn = Cast<APawn>(GetOwner()))
+	{
+		if (AAIController* Controller = Cast<AAIController>(OwnerPawn->GetController()))
+		{
+			Controller->StopMovement();
+		}
+	}
 
     if (bIsLethal)
     {
@@ -1611,6 +1633,11 @@ void UHitReactionComponent::EnterPairedAnimationState(UAnimMontage* VictimMontag
         VictimMontage ? *VictimMontage->GetName() : TEXT("nullptr"),
         *UEnum::GetValueAsString(DeathOutcome),
         RagdollBlendTime);
+
+	if (!bWasInPairedAnimationState)
+	{
+		OnPairedVictimStateChanged.Broadcast(true);
+	}
 }
 
 void UHitReactionComponent::ExitPairedAnimationState()
@@ -1625,6 +1652,28 @@ void UHitReactionComponent::ExitPairedAnimationState()
             bDeathHandledByPairedAnimation ? TEXT("true") : TEXT("false"),
             bDeathOutcomePending ? TEXT("true") : TEXT("false"));
     }
+
+	ResetPairedAnimationState();
+}
+
+void UHitReactionComponent::CompletePairedAnimationState()
+{
+	ABaseCombatCharacter* CombatCharacter = Cast<ABaseCombatCharacter>(GetOwnerCharacterCached());
+	if (bDeathOutcomePending && CombatCharacter && CombatCharacter->IsDying())
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[HitReaction] %s completing paired victim state with pending death outcome"),
+			*CombatCharacter->GetName());
+		ApplyPendingDeathOutcome();
+		return;
+	}
+
+	ExitPairedAnimationState();
+}
+
+void UHitReactionComponent::ResetPairedAnimationState()
+{
+	const bool bWasInPairedAnimationState = IsInPairedAnimationState();
 
     // Release reaction pipeline ownership
     bReactionsSuppressed = false;
@@ -1642,4 +1691,66 @@ void UHitReactionComponent::ExitPairedAnimationState()
     PendingDeathMontage = nullptr;
     PendingDeathOutcome = EReactionOutcome::Ragdoll;
     PendingRagdollBlendTime = 0.2f;
+
+	if (bWasInPairedAnimationState)
+	{
+		OnPairedVictimStateChanged.Broadcast(false);
+	}
+}
+
+bool UHitReactionComponent::ApplyPendingDeathOutcome()
+{
+	if (!bDeathOutcomePending)
+	{
+		return false;
+	}
+
+	if (ABaseCombatCharacter* CombatCharacter =
+		Cast<ABaseCombatCharacter>(GetOwnerCharacterCached()))
+	{
+		if (CombatCharacter->IsDead())
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[HitReaction] %s already dead; clearing stale pending death outcome"),
+				*CombatCharacter->GetName());
+			ResetPairedAnimationState();
+			return false;
+		}
+		if (!CombatCharacter->IsDying())
+		{
+			UE_LOG(LogTemp, Log,
+				TEXT("[HitReaction] %s deferring pending death outcome until lethal health is committed"),
+				*CombatCharacter->GetName());
+			return false;
+		}
+	}
+
+	const EReactionOutcome OutcomeToApply = PendingDeathOutcome;
+	const float RagdollBlendTime = PendingRagdollBlendTime;
+	ResetPairedAnimationState();
+
+	UE_LOG(LogTemp, Log, TEXT("[HitReaction] %s Applying death outcome: %s"),
+		OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"),
+		*UEnum::GetValueAsString(OutcomeToApply));
+
+	switch (OutcomeToApply)
+	{
+		case EReactionOutcome::Death:
+			FreezeAtCurrentPose();
+			break;
+
+		case EReactionOutcome::Ragdoll:
+			ActivateRagdoll(RagdollBlendTime);
+			break;
+
+		case EReactionOutcome::StandardRecovery:
+		default:
+			UE_LOG(LogTemp, Warning,
+				TEXT("[HitReaction] %s StandardRecovery is invalid for lethal death; falling back to ragdoll"),
+				OwnerCharacter ? *OwnerCharacter->GetName() : TEXT("Unknown"));
+			ActivateRagdoll(0.2f);
+			break;
+	}
+
+	return true;
 }

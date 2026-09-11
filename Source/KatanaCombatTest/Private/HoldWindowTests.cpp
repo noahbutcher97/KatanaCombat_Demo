@@ -64,7 +64,7 @@ bool FActivateHoldSetsStateTest::RunTest(const FString& Parameters)
 
 /**
  * Test: Hold State Tracking - Tracks Input Type
- * Verifies hold state correctly tracks the input type and can be replaced
+ * Verifies hold state correctly tracks the input type and rejects replacement
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDeactivateHoldClearsStateTest, "KatanaCombat.CombatComponent.Hold.StateTracking", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
@@ -89,11 +89,15 @@ bool FDeactivateHoldClearsStateTest::RunTest(const FString& Parameters)
 	TestEqual("Hold input type should be HeavyAttack",
 		CombatComp->GetHoldInputType(), EInputType::HeavyAttack);
 
-	// Activate a different hold type (should replace)
+	const int32 OriginalHoldGeneration = CombatComp->HoldState.CurrentHold.HoldID;
+
+	// A live hold owns the lifecycle and cannot be replaced.
 	CombatComp->ActivateHold(EInputType::LightAttack, 1.0f);
 	TestTrue("Should still be holding after second ActivateHold", CombatComp->IsHolding());
-	TestEqual("Hold input type should now be LightAttack",
-		CombatComp->GetHoldInputType(), EInputType::LightAttack);
+	TestEqual("Live hold should retain its original input owner",
+		CombatComp->GetHoldInputType(), EInputType::HeavyAttack);
+	TestEqual("Rejected replacement should retain its generation",
+		CombatComp->HoldState.CurrentHold.HoldID, OriginalHoldGeneration);
 
 	// Cleanup
 	World->DestroyActor(Character);
@@ -166,8 +170,8 @@ bool FHoldWindowStartNoCrashTest::RunTest(const FString& Parameters)
 }
 
 /**
- * Test: Multiple Hold Activations - Last One Wins
- * Verifies that re-activating hold updates the state
+ * Test: Multiple Hold Activations - Existing Owner Wins
+ * Verifies that re-activating cannot replace an active hold generation
  */
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMultipleHoldActivationsTest, "KatanaCombat.CombatComponent.Hold.MultipleActivations", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
 
@@ -187,10 +191,15 @@ bool FMultipleHoldActivationsTest::RunTest(const FString& Parameters)
 	// Activate with LightAttack
 	CombatComp->ActivateHold(EInputType::LightAttack, 0.5f);
 	TestTrue("Should be holding after first activation", CombatComp->IsHolding());
+	const int32 OriginalHoldGeneration = CombatComp->HoldState.CurrentHold.HoldID;
 
-	// Re-activate with HeavyAttack (should overwrite)
+	// Re-activate with HeavyAttack (must be rejected)
 	CombatComp->ActivateHold(EInputType::HeavyAttack, 0.25f);
 	TestTrue("Should still be holding after second activation", CombatComp->IsHolding());
+	TestEqual("Original hold input should remain authoritative",
+		CombatComp->GetHoldInputType(), EInputType::LightAttack);
+	TestEqual("Original hold generation should remain authoritative",
+		CombatComp->HoldState.CurrentHold.HoldID, OriginalHoldGeneration);
 
 	// Cleanup
 	World->DestroyActor(Character);

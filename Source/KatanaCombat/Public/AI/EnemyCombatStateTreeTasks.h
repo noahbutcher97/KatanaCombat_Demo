@@ -4,12 +4,21 @@
 
 #include "CoreMinimal.h"
 #include "AI/EnemyAITypes.h"
+#include "CombatTypes.h"
 #include "StateTreeConditionBase.h"
 #include "StateTreeTaskBase.h"
 #include "EnemyCombatStateTreeTasks.generated.h"
 
 class AAIController;
 class AActor;
+class UEnemyCombatAIComponent;
+
+namespace EnemyCombatStateTree
+{
+	KATANACOMBAT_API EStateTreeRunStatus ResolveAttackTaskTickStatus(
+		UEnemyCombatAIComponent* CombatAI,
+		const FAttackInstanceId& AttackInstance);
+}
 
 USTRUCT()
 struct FStateTreeSetEnemyCombatTargetInstanceData
@@ -145,7 +154,7 @@ struct FStateTreeExecuteEnemyAttackInstanceData
 	bool bAttackStarted = false;
 
 	UPROPERTY(VisibleAnywhere, Category = Runtime)
-	int32 AttackGeneration = 0;
+	FAttackInstanceId AttackInstance;
 };
 
 USTRUCT(meta = (DisplayName = "Execute Enemy Attack", Category = "Katana Combat"))

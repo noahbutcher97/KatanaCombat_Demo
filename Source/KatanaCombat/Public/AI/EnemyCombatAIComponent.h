@@ -9,8 +9,21 @@
 #include "EnemyCombatAIComponent.generated.h"
 
 class UCombatTokenSubsystem;
+class UCombatComponent;
 class UAttackData;
 class UAnimMontage;
+class UAnimInstance;
+class UHitReactionComponent;
+class UPairedAnimationComponent;
+class ABaseCombatCharacter;
+
+enum class EEnemyAttackExecutionStatus : uint8
+{
+	Invalid,
+	Running,
+	Succeeded,
+	Failed
+};
 
 /**
  * Enemy Combat AI Component
@@ -120,6 +133,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "AI|Combat")
 	bool ExecuteAttack();
 
+	/** Execute the selected attack and return the identity produced by this exact invocation. */
+	bool ExecuteAttackWithIdentity(FAttackInstanceId& OutStartedAttack);
+
 	/**
 	 * Called when player successfully counters this enemy's attack
 	 * Transitions to appropriate state based on counter severity
@@ -201,6 +217,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AI|State")
 	bool CanAttemptAttack() const;
 
+	/** True while death, paired-animation ownership, or a defense sequence owns this actor. */
+	UFUNCTION(BlueprintPure, Category = "AI|State")
+	bool IsCombatActionSuppressed() const;
+
+	/** True when the retained target can participate in a new normal AI attack. */
+	UFUNCTION(BlueprintPure, Category = "AI|State")
+	bool IsCombatTargetActionable() const;
+
+	/** True when Candidate may be admitted as a new target for normal AI actions. */
+	bool CanSelectCombatTarget(const AActor* Candidate) const;
+
+	/** Abort stale attack ownership when the retained target is no longer actionable. */
+	bool RevalidateCombatTarget();
+
 	/** Retain attack suppression for one exact defense interaction. */
 	bool AcquireDefenseChainSuppression(const FDefenseInteractionId& InteractionId);
 
@@ -226,19 +256,59 @@ public:
 		return ActiveAttackInstance.AttackGeneration;
 	}
 
+	const FAttackInstanceId& GetActiveAttackInstance() const
+	{
+		return ActiveAttackInstance;
+	}
+
+	const FAttackInstanceId& GetLastStartedAttackInstance() const
+	{
+		return LastStartedAttackInstance;
+	}
+
+	EEnemyAttackExecutionStatus GetAttackExecutionStatus(
+		const FAttackInstanceId& AttackInstance) const;
+
+	bool WasAttackInstanceConsumed(const FAttackInstanceId& AttackInstance) const
+	{
+		return AttackInstance.IsValid() && ConsumedAttackHistory.Contains(AttackInstance);
+	}
+
+	bool WasAttackInstanceCompleted(const FAttackInstanceId& AttackInstance) const
+	{
+		return AttackInstance.IsValid() && CompletedAttackHistory.Contains(AttackInstance);
+	}
+
+	bool WasAttackInstanceTerminated(const FAttackInstanceId& AttackInstance) const
+	{
+		return AttackInstance.IsValid() && LastTerminatedAttackInstance == AttackInstance;
+	}
+
 	/** True when this component observed source-side consumption for this generation. */
 	bool WasAttackGenerationConsumed(int32 AttackGeneration) const
 	{
-		return AttackGeneration > 0
-			&& LastConsumedAttackInstance.Attacker.Get() == GetOwner()
-			&& LastConsumedAttackInstance.AttackGeneration == AttackGeneration;
+		FAttackInstanceId AttackInstance;
+		AttackInstance.Attacker = GetOwner();
+		AttackInstance.AttackGeneration = AttackGeneration;
+		return WasAttackInstanceConsumed(AttackInstance);
 	}
 
 	/** Inject deterministic token ownership for automation worlds that do not own a GameInstance. */
 	void SetTokenSubsystemForTesting(UCombatTokenSubsystem* InTokenSubsystem);
 
 #if WITH_AUTOMATION_TESTS
+	void SetPostExecuteAttackDataHookForTesting(TFunction<void()> Hook);
+	void SetPostAttackStateTransitionHookForTesting(TFunction<void()> Hook);
+	void SetPostApproachStateTransitionHookForTesting(TFunction<void()> Hook);
+	void SetPostCombatAbortHookForTesting(TFunction<void()> Hook);
+	void SetPostAttackStartedHookForTesting(TFunction<void()> Hook);
+	void SetPostAttackEndedHookForTesting(TFunction<void()> Hook);
+	void InvokeAttackMontageEndedForTesting(
+		UAnimMontage* Montage,
+		bool bInterrupted,
+		const FAttackInstanceId& ExpectedAttack);
 	int32 GetTokenReleaseCountForTesting() const { return TokenReleaseCountForTesting; }
+	int32 GetTokenGrantBroadcastCountForTesting() const { return TokenGrantBroadcastCountForTesting; }
 	int32 GetAttackEndBroadcastCountForTesting() const { return AttackEndBroadcastCountForTesting; }
 #endif
 
@@ -300,12 +370,22 @@ protected:
 	void ReleaseTokenAndCleanup();
 
 	void HandleAttackConsumedInternal(const FAttackConsumedEvent& Event);
+	void RecordConsumedAttack(const FAttackInstanceId& AttackInstance);
+	void RecordCompletedAttack(const FAttackInstanceId& AttackInstance);
+	static void RecordBoundedAttackResult(
+		TArray<FAttackInstanceId>& ResultHistory,
+		const FAttackInstanceId& AttackInstance);
 	bool TerminateActiveAttack(
+		FAttackInstanceId ExpectedAttack,
 		bool bInterrupted,
 		EEnemyAIState TerminalState,
 		float RecoveryDuration,
-		bool bStopActiveMontage);
+		bool bStopActiveMontage,
+		bool bExecutionSucceeded);
+	bool TerminatePendingAttack(EEnemyAIState TerminalState, float RecoveryDuration);
 	void UnbindAttackConsumption();
+	void UnbindAttackMontageEnd();
+	void ReleaseTokenAndReturnToReadyState();
 
 	/** Return to the next non-attacking state after an attack could not start. */
 	void ReturnToReadyState();
@@ -318,13 +398,34 @@ protected:
 	UFUNCTION()
 	void HandleTokenGranted(AActor* Attacker);
 
-	/** Called when attack montage ends */
-	UFUNCTION()
-	void OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+	/** Called when the exact attack montage generation ends. */
+	void OnAttackMontageEnded(
+		UAnimMontage* Montage,
+		bool bInterrupted,
+		FAttackInstanceId ExpectedAttack);
 
 	/** Called when the owning combat character receives lethal damage. */
 	UFUNCTION()
 	void HandleOwnerDying(AActor* Killer);
+
+	UFUNCTION()
+	void HandleOwnerPairedAnimationStarted(EPairedReactionType Type, bool bIsCriticalMoment);
+
+	UFUNCTION()
+	void HandleOwnerPairedAnimationEnded(EPairedReactionType Type);
+
+	/** Called when the retained combat target enters Dying or Dead. */
+	UFUNCTION()
+	void HandleCombatTargetDying(AActor* Killer);
+
+	UFUNCTION()
+	void HandleCombatTargetPairedAnimationStarted(EPairedReactionType Type, bool bIsCriticalMoment);
+
+	UFUNCTION()
+	void HandleCombatTargetPairedAnimationEnded(EPairedReactionType Type);
+
+	void HandleCombatTargetPairedVictimStateChanged(bool bIsPairedVictim);
+	void HandleCombatTargetDefenseSequenceParticipationChanged(bool bIsParticipant);
 
 	/** Schedule circling direction change */
 	void ScheduleCirclingDirectionChange();
@@ -332,21 +433,53 @@ protected:
 	/** Replace cached token subsystem and keep delegate bindings consistent. */
 	void SetTokenSubsystem(UCombatTokenSubsystem* InTokenSubsystem);
 
-	/** Ensure owner death delegates are bound before this component can hold combat tokens. */
+	/** Ensure owner death and paired lifecycle delegates are bound before combat ownership. */
 	void BindOwnerDeathEvents();
+	void UnbindOwnerLifecycleEvents();
+
+	/** Keep target terminal-state delegates synchronized with CombatTarget. */
+	void BindCombatTargetLifecycle();
+	void UnbindCombatTargetLifecycle();
+
+	/** Exact paired ownership may retain a terminal victim until its sequence completes. */
+	bool OwnsPairedSequenceWithTarget(const AActor* TargetActor) const;
+	bool IsCombatTargetActionable(const AActor* TargetActor, bool bAllowOwnedSequence) const;
 
 	/** True only while this component is queued and waiting for an async token grant. */
 	bool bWaitingForTokenGrant = false;
 
+	TWeakObjectPtr<ABaseCombatCharacter> BoundCombatTargetCharacter;
+	TWeakObjectPtr<UPairedAnimationComponent> BoundOwnerPairedAnimationComponent;
+	TWeakObjectPtr<UPairedAnimationComponent> BoundCombatTargetPairedAnimationComponent;
+	TWeakObjectPtr<UHitReactionComponent> BoundCombatTargetHitReactionComponent;
+
 	TSet<FDefenseInteractionId> DefenseChainSuppressions;
 
 	FAttackInstanceId ActiveAttackInstance;
-	FAttackInstanceId LastConsumedAttackInstance;
+	FAttackInstanceId LastStartedAttackInstance;
+	FAttackInstanceId LastTerminatedAttackInstance;
+	/** Bounded exact-result histories keep delayed StateTree task queries stable. */
+	TArray<FAttackInstanceId> ConsumedAttackHistory;
+	TArray<FAttackInstanceId> CompletedAttackHistory;
+	static constexpr int32 AttackResultHistoryCapacity = 16;
+	TWeakObjectPtr<UCombatComponent> AttackConsumptionSource;
+	TWeakObjectPtr<UAnimInstance> ActiveAttackAnimInstance;
+	TWeakObjectPtr<UAnimMontage> ActiveAttackMontage;
 	FDelegateHandle AttackConsumedDelegateHandle;
+	TOptional<FAttackConsumedEvent> StartupConsumedEvent;
+	uint64 AttackStartupAttempt = 0;
+	bool bAttackStartupInProgress = false;
 	bool bAttackTerminationCommitted = false;
 
 #if WITH_AUTOMATION_TESTS
+	TFunction<void()> PostExecuteAttackDataHookForTesting;
+	TFunction<void()> PostAttackStateTransitionHookForTesting;
+	TFunction<void()> PostApproachStateTransitionHookForTesting;
+	TFunction<void()> PostCombatAbortHookForTesting;
+	TFunction<void()> PostAttackStartedHookForTesting;
+	TFunction<void()> PostAttackEndedHookForTesting;
 	int32 TokenReleaseCountForTesting = 0;
+	int32 TokenGrantBroadcastCountForTesting = 0;
 	int32 AttackEndBroadcastCountForTesting = 0;
 #endif
 };

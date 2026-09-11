@@ -17,6 +17,7 @@ class UPairedAnimationData;
 class UTargetingComponent;
 class UHitReactionComponent;
 DECLARE_LOG_CATEGORY_EXTERN(LogPairedAnim, Log, All);
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnDefenseSequenceParticipationChanged, bool);
 
 /**
  * Paired Animation Component - Manages finishers, counters, and all paired animation logic.
@@ -72,6 +73,14 @@ class KATANACOMBAT_API UPairedAnimationComponent : public UActorComponent
 	friend class FPairedAnimationRejectsFriendlyTargetTest;
 	friend class FPairedAnimationInputBlockingTest;
 	friend class FPairedAnimationAllInputBlockedTest;
+	friend class FCombatInputRejectedReleaseCleanupTest;
+	friend class FPairedCompletionExpectedPartnerDeathTest;
+	friend class FLegacyPairedSyncDamageCommitTest;
+	friend class FLegacyPairedCompletionDamageFallbackTest;
+	friend class FLegacyFinisherSyncExpectedDeathTest;
+	friend class FEnemyCombatAI_PairedOwnerPreservesTerminalTarget;
+	friend class FEnemyCombatAI_MismatchedPairedPartnerRejected;
+	friend class FEnemyCombatAI_RejectedLegacyPartnerCannotGrantExactOwner;
 
 public:
 	UPairedAnimationComponent();
@@ -302,6 +311,9 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "Combat|Paired Animation")
 	FOnPairedAnimationEnded OnPairedAnimationEnded;
 
+	/** Native lifecycle signal covering both roles, including no-montage defense bridges. */
+	FOnDefenseSequenceParticipationChanged OnDefenseSequenceParticipationChanged;
+
 	// ============================================================================
 	// PAIRED ANIMATION PARTNER TRACKING
 	// ============================================================================
@@ -353,6 +365,16 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
 	bool IsPairedPartner(AActor* Actor) const;
+
+	/** True only when this component owns the active sequence whose authored victim is Actor. */
+	bool IsPairedSequenceOwnerFor(const AActor* Actor) const;
+
+	/** True for either retained role in an active defense sequence, with or without montages. */
+	bool IsDefenseSequenceParticipant() const;
+
+	/** True when this owner's death was committed by its retained lethal paired sequence.
+	 * Ordinary death cleanup must leave partner ownership to that sequence's terminal cleanup. */
+	bool IsExpectedPairedVictimDeath() const;
 
 	/**
 	 * Get count of current paired animation partners.
@@ -409,7 +431,7 @@ public:
 	void EndPairedAnimation();
 
 	/**
-	 * Trigger sync point effects (camera shake, damage).
+	 * Trigger sync point presentation effects and delegates without applying damage.
 	 * Called at impact moment during paired animation.
 	 * Uses ActivePairedAnimData for camera shake configuration.
 	 *
@@ -417,6 +439,15 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void TriggerSyncPointEffects(FName SyncPointName);
+
+	/**
+	 * Process one authored paired-animation sync point.
+	 * Effects always fire; damage commits only when the notify explicitly enables it.
+	 * Damage is generation-owned and exactly once, with completion retained as a
+	 * compatibility fallback for montages that do not contain a damage sync point.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
+	void HandlePairedSyncPoint(FName SyncPointName, bool bApplyDamage);
 
 	/**
 	 * Check if a paired animation is currently active.
@@ -443,7 +474,8 @@ public:
 	 * Cancel the current paired animation immediately.
 	 * Used when a partner dies or other interrupt conditions occur.
 	 * Stops montage, clears partners, restores state.
-	 * Does NOT apply damage (use CompletePairedAnimation for successful completion).
+	 * Does not create a new damage commit. If lethal damage already committed at
+	 * a sync point, cancellation finalizes that pending death outcome.
 	 *
 	 * @param BlendOutTime - How quickly to blend out the current montage (default 0.1s)
 	 */
@@ -453,7 +485,8 @@ public:
 	/**
 	 * Complete the current paired animation successfully.
 	 * Called when finisher montage ends normally (not interrupted).
-	 * Applies damage to victim, handles death if lethal, cleans up all state.
+	 * Uses damage only as a fallback when no authored sync point committed it,
+	 * finalizes lethal outcomes, and cleans up all state.
 	 * This is distinct from CancelPairedAnimation which is for interruptions.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
@@ -540,8 +573,20 @@ protected:
 		EPairedReactionType ReactionType,
 		FString& OutFailureReason) const;
 	int32 AllocateDefenseStageGeneration();
+	int32 AllocateLegacyPairedGeneration();
+	bool BeginLegacyPairedParticipation(
+		int32 Generation,
+		UPairedAnimationComponent* SequenceOwner);
+	void EndLegacyPairedParticipation(
+		int32 ExpectedGeneration,
+		const UPairedAnimationComponent* ExpectedOwner = nullptr);
+	void RegisterLegacyPairedParticipationForPartners();
+	void ReleaseLegacyPairedParticipationForPartners();
+	bool HasAcceptedLegacyPairedParticipant(const AActor* Partner) const;
 	bool ApplyActivePairedDamageOnce();
+	bool ApplyLegacyPairedDamageOnce();
 	bool IsExpectedDefenseFinisherSourceDeath(const AActor* Source) const;
+	bool IsExpectedLegacyPairedVictimDeath(const AActor* Victim) const;
 	UFUNCTION()
 	void HandleDefenseOwnerDying(AActor* Killer);
 	UFUNCTION()
@@ -636,6 +681,12 @@ protected:
 	TMap<FPairedSequenceLeaseHandle, FPairedInputLeaseRecord> PairedInputLeases;
 	uint64 NextPairedInputLeaseId = 0;
 	FPairedSequenceLeaseHandle LegacyPairedInputLease;
+	int32 NextLegacyPairedGeneration = 0;
+	int32 ActiveLegacyPairedGeneration = 0;
+	int32 LastLegacyDamageAppliedGeneration = 0;
+	bool bOwnsLegacyPairedGeneration = false;
+	TWeakObjectPtr<UPairedAnimationComponent> LegacyPairedSequenceOwner;
+	TArray<TWeakObjectPtr<UPairedAnimationComponent>> AcceptedLegacyPairedParticipants;
 	bool bDefenseSequenceCleanupInProgress = false;
 
 #if WITH_AUTOMATION_TESTS
@@ -715,7 +766,7 @@ protected:
 	/** Cached reaction type for active paired animation (used by EndPairedAnimation for delegate broadcast) */
 	EPairedReactionType ActivePairedReactionType = EPairedReactionType::None;
 
-	/** Tracked victim during finisher execution (for damage application at completion) */
+	/** Tracked victim for sync-time damage and completion fallback. */
 	TWeakObjectPtr<AActor> CurrentFinisherVictim;
 
 	/** Guard flag to prevent CompletePairedAnimation from being called multiple times (Gap 20.4) */

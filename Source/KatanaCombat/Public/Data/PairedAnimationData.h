@@ -85,7 +85,7 @@ public:
     // IDENTIFICATION
     // ========================================================================
 
-    /** Unique name for this paired animation (used in TMap lookups) */
+    /** Display/debug name used in logs and editor validation. No runtime lookup uses this. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Identification")
     FName AnimationName;
 
@@ -125,16 +125,17 @@ public:
     // SYNC CONFIGURATION
     // ========================================================================
 
-    /** Time in attacker montage when sync point is reached (damage application) */
+    /** [VALIDATION ONLY] Runtime sync timing is driven by AnimNotifyState_PairedAnimationSync on the montage; this value is only range-checked by validation (pending removal — see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sync",
         meta = (ClampMin = "0.0", ClampMax = "10.0"))
     float SyncPointTime = 0.5f;
 
-    /** Name identifier for the sync point (for AnimNotify lookup) */
+    /** [NOT WIRED] The sync notify carries its own SyncPointName; this asset copy is never read at runtime (pending removal). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sync")
     FName SyncPointName = "Impact";
 
-    /** Time offset for victim montage start relative to attacker (negative = victim starts later) */
+    /** Time offset for victim montage start relative to attacker (negative = victim starts later).
+     * On the finisher path only negative values are honored (positive clamps to 0). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sync",
         meta = (ClampMin = "-2.0", ClampMax = "2.0"))
     float VictimStartOffset = 0.0f;
@@ -143,22 +144,22 @@ public:
     // BLEND TIMES
     // ========================================================================
 
-    /** Blend-in time for attacker montage */
+    /** Blend-in time for attacker montage (applied on the defense-chain play path; the legacy finisher path plays without blend) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Blending",
         meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float AttackerBlendIn = 0.1f;
 
-    /** Blend-out time for attacker montage */
+    /** Blend-out time for attacker montage (defense-chain stop/rollback path) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Blending",
         meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float AttackerBlendOut = 0.2f;
 
-    /** Blend-in time for victim montage (often faster for reactive animations) */
+    /** Blend-in time for victim montage, often faster for reactive animations (defense-chain play path) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Blending",
         meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float VictimBlendIn = 0.05f;
 
-    /** Blend-out time for victim montage */
+    /** Blend-out time for victim montage (defense-chain stop/rollback path) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Blending",
         meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float VictimBlendOut = 0.2f;
@@ -167,31 +168,32 @@ public:
     // POSITIONING
     // ========================================================================
 
-    /** Victim position relative to attacker at start of paired animation (local space) */
+    /** [NOT WIRED] Runtime positioning uses VictimWarpConfig.RelativeOffset; this legacy field is only numerically validated (pending removal — see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Positioning")
     FVector VictimRelativePosition = FVector(100.0f, 0.0f, 0.0f);
 
-    /** Whether victim should face toward (-1) or away from (1) attacker, or use fixed rotation (0) */
+    /** [NOT WIRED] Legacy facing mode; runtime rotation comes from VictimWarpConfig (pending removal). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Positioning",
         meta = (ClampMin = "-1", ClampMax = "1"))
     int32 VictimFacingMode = -1;  // -1 = face attacker, 1 = face away, 0 = use VictimRelativeRotation
 
-    /** Fixed victim rotation relative to attacker (only used if VictimFacingMode == 0) */
+    /** [NOT WIRED] Legacy fixed rotation; not read at runtime (pending removal). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Positioning",
         meta = (EditCondition = "VictimFacingMode == 0"))
     FRotator VictimRelativeRotation = FRotator::ZeroRotator;
 
-    /** Maximum distance victim can be warped to attacker position */
+    /** Maximum distance victim can be warped to attacker position.
+     * Used by defense-chain bridge/retained-stage preflights; the finisher path uses TargetingSettings SoftAimRange instead. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Positioning",
         meta = (ClampMin = "0.0", ClampMax = "1000.0"))
     float MaxWarpDistance = 400.0f;
 
-    /** Minimum distance required to trigger paired animation */
+    /** Minimum distance required to trigger paired animation (defense-chain preflights only; finishers use SoftAimRange) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Positioning",
         meta = (ClampMin = "0.0", ClampMax = "500.0"))
     float MinTriggerDistance = 50.0f;
 
-    /** Maximum distance to trigger paired animation */
+    /** Maximum distance to trigger paired animation (defense-chain preflights only; finishers use SoftAimRange) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Positioning",
         meta = (ClampMin = "0.0", ClampMax = "1000.0"))
     float MaxTriggerDistance = 300.0f;
@@ -250,14 +252,14 @@ public:
 
     /**
      * Attacker voice line (combat bark, taunt).
-     * Plays at animation start or configurable time.
+     * Plays at the sync-point notify, at the attacker's location.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
     TObjectPtr<USoundBase> AttackerVoiceLine;
 
     /**
-     * Amount to duck music during finisher (decibels).
-     * Negative values reduce music volume. 0 = no ducking.
+     * [SCAFFOLD — NOT WIRED] Amount to duck music during finisher (decibels).
+     * No ducking implementation reads this yet.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
         meta = (ClampMin = "-20.0", ClampMax = "0.0"))
@@ -275,30 +277,30 @@ public:
     TObjectPtr<UNiagaraSystem> ImpactVFX;
 
     /**
-     * Post-process material to apply during slow motion.
-     * Blended in at slow-mo start, blended out at end.
+     * [SCAFFOLD — NOT WIRED] Post-process material for slow motion.
+     * No post-process application reads this yet.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
     TObjectPtr<UMaterialInterface> SlowMoPostProcessMaterial;
 
     /**
-     * Weight of slow-mo post process blend (0-1).
-     * Higher = stronger effect.
+     * [SCAFFOLD — NOT WIRED] Weight of slow-mo post-process blend (0-1).
+     * No post-process application reads this yet.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX",
         meta = (EditCondition = "SlowMoPostProcessMaterial != nullptr", ClampMin = "0.0", ClampMax = "1.0"))
     float SlowMoPostProcessWeight = 0.5f;
 
     /**
-     * Screen blood splatter material for high-damage finishers.
-     * Applied as screen overlay at sync point.
+     * [SCAFFOLD — NOT WIRED] Screen blood splatter material for high-damage finishers.
+     * No screen-overlay implementation reads this yet.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
     TObjectPtr<UMaterialInterface> ScreenBloodMaterial;
 
     /**
-     * Whether to spawn blood decals on victim mesh at impact.
-     * Uses victim's contact bone as spawn location.
+     * [SCAFFOLD — NOT WIRED] Whether to spawn blood decals on victim mesh at impact.
+     * No decal-spawning implementation reads this yet.
      */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
     bool bSpawnBloodDecals = false;

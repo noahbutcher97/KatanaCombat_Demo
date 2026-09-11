@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "Data/PairedAnimationEditorTypes.h"
+#include "Analysis/PairedContactEvaluation.h"
 #include "PairedAnimationAnalysisLibrary.generated.h"
 
 /**
@@ -31,6 +32,12 @@ class KATANACOMBATEDITOR_API UPairedAnimationAnalysisLibrary : public UBlueprint
 	GENERATED_BODY()
 
 public:
+	/** Evaluate configured contact geometry over an explicitly bounded interval. */
+	static FPairedContactEvaluation EvaluateIntendedContact(
+		const FPairedContactRule& Rule, TConstArrayView<FPairedContactPose> Poses);
+	/** Compare relative root placement without fitting away timing or spatial errors. */
+	static FPairedAlignmentEvaluation EvaluateRelativeAlignment(const FPairedAlignmentRule& Rule,
+		TConstArrayView<FPairedContactPose> Authored, TConstArrayView<FPairedContactPose> Runtime);
 	// ========================================================================
 	// SPATIAL RELATIONSHIP CONSTRAINTS
 	// ========================================================================

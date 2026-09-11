@@ -7,6 +7,9 @@
 #include "AI/EnemyCombatAIComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "AssetCompilingManager.h"
+#include "Camera/CameraActor.h"
+#include "Camera/CameraComponent.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Characters/EnemyCharacter.h"
 #include "Characters/PlayerCharacter.h"
@@ -19,6 +22,7 @@
 #include "Debug/DefenseTelemetry.h"
 #include "DefenseAssetValidationService.h"
 #include "Engine/GameInstance.h"
+#include "Engine/GameViewportClient.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
@@ -33,6 +37,7 @@
 #include "Misc/Paths.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "ShaderCompiler.h"
 #include "Sound/SoundBase.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
@@ -46,6 +51,16 @@ constexpr TCHAR GateAManifestRelativePath[] =
 	TEXT("Tools/Codex/manifests/defense-gate-a.json");
 constexpr TCHAR GateAAttackPath[] =
 	TEXT("/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1.LightAttack_1");
+
+bool IsExpectedPIEViewportClient(
+	const UWorld* ProofWorld,
+	const FViewportClient* DrawnClient,
+	const FViewportClient* ExpectedClient)
+{
+	return IsValid(ProofWorld) && ProofWorld->WorldType == EWorldType::PIE
+		&& DrawnClient && DrawnClient == ExpectedClient
+		&& DrawnClient->GetWorld() == ProofWorld;
+}
 
 struct FRenderedFrameValidation
 {
@@ -127,6 +142,7 @@ enum class EGateAProofStage : uint8
 {
 	WaitForPIE,
 	HandsOffMapObserve,
+	ControlledProofStart,
 	HeldGuardStart,
 	HeldGuardObserve,
 	NormalBlockStart,
@@ -159,6 +175,7 @@ const TCHAR* GateAStageName(const EGateAProofStage Stage)
 	{
 	case EGateAProofStage::WaitForPIE: return TEXT("WaitForPIE");
 	case EGateAProofStage::HandsOffMapObserve: return TEXT("HandsOffMapObserve");
+	case EGateAProofStage::ControlledProofStart: return TEXT("ControlledProofStart");
 	case EGateAProofStage::HeldGuardStart: return TEXT("HeldGuardStart");
 	case EGateAProofStage::HeldGuardObserve: return TEXT("HeldGuardObserve");
 	case EGateAProofStage::NormalBlockStart: return TEXT("NormalBlockStart");
@@ -275,6 +292,19 @@ public:
 		{
 			return true;
 		}
+		if (!bCommandStarted)
+		{
+			// Latent commands are constructed before map loading and shader preparation.
+			CommandStart = FPlatformTime::Seconds();
+			bCommandStarted = true;
+		}
+		if (Stage != EGateAProofStage::WaitForPIE
+			&& Stage != EGateAProofStage::FinalCaptureWait
+			&& Stage != EGateAProofStage::Done
+			&& FPlatformTime::Seconds() - StageStart > 60.0)
+		{
+			Fail(TEXT("Defense proof stage exceeded its 60-second wall-clock watchdog"));
+		}
 
 		if (Stage != EGateAProofStage::WaitForPIE
 			&& Stage != EGateAProofStage::Done
@@ -283,6 +313,11 @@ public:
 			Fail(TEXT("PIE world became invalid during Gate A proof"));
 		}
 		SampleStageHandoff();
+		if (!PendingCaptureLabel.IsEmpty() && Stage != EGateAProofStage::FinalCaptureWait)
+		{
+			// Preserve the requested scenario until its game viewport has drawn.
+			return false;
+		}
 
 		if (ShouldCaptureContinuousFrame())
 		{
@@ -295,6 +330,12 @@ public:
 			return UpdateWaitForPIE();
 		case EGateAProofStage::HandsOffMapObserve:
 			return UpdateHandsOffMapObserve();
+		case EGateAProofStage::ControlledProofStart:
+			if (InitializeControlledProof())
+			{
+				SetStage(EGateAProofStage::HeldGuardStart);
+			}
+			return false;
 		case EGateAProofStage::HeldGuardStart:
 			return UpdateHeldGuardStart();
 		case EGateAProofStage::HeldGuardObserve:
@@ -395,6 +436,19 @@ private:
 			return Left.GetName() < Right.GetName();
 		});
 		World = PIEWorld;
+		if (FApp::CanEverRender() && !ViewportRenderedHandle.IsValid())
+		{
+			ViewportRenderedHandle = UGameViewportClient::OnViewportRendered().AddRaw(
+				this, &FDefenseGateAPIEProofCommand::HandleViewportRendered);
+		}
+		if (FApp::CanEverRender() && ReadyPIEDrawCount < 2)
+		{
+			if (FPlatformTime::Seconds() - CommandStart > 60.0)
+			{
+				Fail(TEXT("PIE game viewport did not finish resource preparation within 60 seconds"));
+			}
+			return false;
+		}
 		Player = FoundPlayer;
 		Enemies.Reset();
 		for (AEnemyCharacter* Enemy : FoundEnemies)
@@ -527,11 +581,7 @@ private:
 					HandsOffMaxConcurrentTokens,
 					HandsOffMaxQueueLength));
 			CaptureFrame(TEXT("hands_off_map_playable"));
-			if (!InitializeControlledProof())
-			{
-				return false;
-			}
-			SetStage(EGateAProofStage::HeldGuardStart);
+			SetStage(EGateAProofStage::ControlledProofStart, false);
 			return false;
 		}
 
@@ -584,6 +634,24 @@ private:
 			}
 		}
 		ResetCharacterCombat(Player.Get());
+		if (FApp::CanEverRender())
+		{
+			APlayerController* Controller = Cast<APlayerController>(Player->GetController());
+			ACameraActor* Camera = World->SpawnActor<ACameraActor>();
+			if (!Controller || !Camera)
+			{
+				Fail(TEXT("Controlled combat capture requires a player controller and proof camera"));
+				return false;
+			}
+			ProofCamera = Camera;
+			OriginalViewTarget = Controller->GetViewTarget();
+			// View the contact from the side so the executor does not hide the victim.
+			const FVector Focus = BaseLocation + FVector(75.0f, 0.0f, 30.0f);
+			const FVector Location = Focus + FVector(0.0f, -650.0f, 130.0f);
+			Camera->SetActorLocationAndRotation(Location, (Focus - Location).Rotation());
+			Camera->GetCameraComponent()->SetFieldOfView(60.0f);
+			Controller->SetViewTarget(Camera);
+		}
 		for (const TWeakObjectPtr<AEnemyCharacter>& Enemy : Enemies)
 		{
 			if (Enemy.IsValid() && Enemy->GetCombatComponent())
@@ -1140,9 +1208,17 @@ private:
 		if (ChainState == EChainCounterState::FinisherReady)
 		{
 			Test->AddError(TEXT("Counter did not auto-continue at its reviewed FinisherReady marker"));
+			// The retry has its own stage identity; retain it so later checks describe
+			// the actual finisher without masking the failed automatic handoff.
+			const float RetryInitialHealth = EnemyAt(3)->CurrentHealth;
 			PlayerCombat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
 			if (PlayerPaired->GetChainState() == EChainCounterState::FinisherActive)
 			{
+				PerfectFinisherInitialHealth = RetryInitialHealth;
+				PerfectFinisherStageGeneration =
+					PlayerPaired->GetActiveDefenseSequenceContext().StageGeneration;
+				RecordCase(TEXT("CounterToFinisherContinuity"), false,
+					TEXT("automatic handoff failed; public Light input started the retry"));
 				SetStage(EGateAProofStage::PerfectParryFinisher);
 			}
 			return false;
@@ -1221,7 +1297,8 @@ private:
 
 	bool UpdateFinalCaptureWait()
 	{
-		if (StageElapsed() < 0.75)
+		// Cleanup must also complete after a lost or paused PIE world.
+		if (FPlatformTime::Seconds() - StageStart < 0.75)
 		{
 			return false;
 		}
@@ -1235,6 +1312,7 @@ private:
 	{
 		Stage = NewStage;
 		StageStart = FPlatformTime::Seconds();
+		StageSimulationStart = World.IsValid() ? World->GetTimeSeconds() : 0.0;
 		if (bCapture)
 		{
 			CaptureFrame(GateAStageName(NewStage));
@@ -1313,7 +1391,9 @@ private:
 
 	double StageElapsed() const
 	{
-		return FPlatformTime::Seconds() - StageStart;
+		return World.IsValid()
+			? FMath::Max(0.0, World->GetTimeSeconds() - StageSimulationStart)
+			: 0.0;
 	}
 
 	void Fail(const FString& Message)
@@ -1518,6 +1598,21 @@ private:
 
 	void CleanupProofState()
 	{
+		UGameViewportClient::OnViewportRendered().Remove(ViewportRenderedHandle);
+		ViewportRenderedHandle.Reset();
+		if (ProofCamera.IsValid())
+		{
+			if (APlayerController* Controller = Player.IsValid()
+				? Cast<APlayerController>(Player->GetController()) : nullptr)
+			{
+				if (OriginalViewTarget.IsValid())
+				{
+					Controller->SetViewTarget(OriginalViewTarget.Get());
+				}
+			}
+			ProofCamera->Destroy();
+			ProofCamera.Reset();
+		}
 		RemoveProofBindings();
 		if (bDefenseDebugOverridden)
 		{
@@ -1705,7 +1800,7 @@ private:
 		{
 			return false;
 		}
-		const double Now = FPlatformTime::Seconds();
+		const double Now = World.IsValid() ? World->GetTimeSeconds() : 0.0;
 		if (Now - LastContinuousCapture < 0.20)
 		{
 			return false;
@@ -1716,10 +1811,44 @@ private:
 
 	void CaptureFrame(const FString& Label)
 	{
-		if (!FApp::CanEverRender() || FScreenshotRequest::IsScreenshotRequested())
+		if (!FApp::CanEverRender() || !PendingCaptureLabel.IsEmpty())
 		{
 			return;
 		}
+		PendingCaptureLabel = Label;
+		PendingCaptureOpponent = CaptureOpponent;
+		PendingCaptureSimulationTime = World.IsValid() ? World->GetTimeSeconds() : 0.0;
+		++RequestedFrameCount;
+	}
+
+	void HandleViewportRendered(FViewport* DrawnViewport)
+	{
+		UGameViewportClient* GameViewport = World.IsValid() ? World->GetGameViewport() : nullptr;
+		// The engine broadcasts for editor viewports too. Pixel variation and projected
+		// actor positions alone cannot distinguish an editor image from the PIE image.
+		if (!GameViewport || !DrawnViewport || DrawnViewport != GameViewport->Viewport
+			|| !IsExpectedPIEViewportClient(World.Get(), DrawnViewport->GetClient(), GameViewport))
+		{
+			return;
+		}
+		++PIEDrawCount;
+		if (FAssetCompilingManager::Get().GetNumRemainingAssets() > 0
+			|| (GShaderCompilingManager && GShaderCompilingManager->IsCompiling()))
+		{
+			ReadyPIEDrawCount = 0;
+			return;
+		}
+		++ReadyPIEDrawCount;
+		if (ReadyPIEDrawCount < 2)
+		{
+			return;
+		}
+		if (PendingCaptureLabel.IsEmpty())
+		{
+			return;
+		}
+		const FString Label = MoveTemp(PendingCaptureLabel);
+		PendingCaptureLabel.Reset();
 
 		APlayerController* PlayerController = Player.IsValid()
 			? Cast<APlayerController>(Player->GetController())
@@ -1764,7 +1893,7 @@ private:
 
 		FVector2D DefenderScreen = FVector2D::ZeroVector;
 		const bool bDefenderInView = ProjectActor(Player.Get(), DefenderScreen);
-		AEnemyCharacter* Source = CaptureOpponent.Get();
+		AEnemyCharacter* Source = PendingCaptureOpponent.Get();
 		const bool bSourceRequired = Source != nullptr;
 		FVector2D SourceScreen = FVector2D::ZeroVector;
 		bool bSourceInView = ProjectActor(Source, SourceScreen);
@@ -1786,15 +1915,36 @@ private:
 			&& (!bSourceRequired || bSourceInView);
 		bAllCapturedFramesFramed = bAllCapturedFramesFramed && bFramingValid;
 
-		++RequestedFrameCount;
 		const FString Filename = FString::Printf(TEXT("frame_%04d.png"), RequestedFrameCount);
 		const FString AbsolutePath = FPaths::Combine(FramesDirectory, Filename);
-		FScreenshotRequest::RequestScreenshot(AbsolutePath, false, false);
+		// OnViewportRendered follows Canvas.Flush_GameThread. Read this exact render
+		// target now, while actor/camera metadata still describes the drawn world.
+		TArray<FColor> Pixels;
+		const FIntPoint Size = DrawnViewport->GetRenderTargetTextureSizeXY();
+		const bool bRead = GetViewportScreenShot(DrawnViewport, Pixels);
+		bool bSaved = false;
+		if (bRead && Pixels.Num() == Size.X * Size.Y && Size.X > 0 && Size.Y > 0)
+		{
+			for (FColor& Pixel : Pixels)
+			{
+				Pixel.A = 255;
+			}
+			bSaved = FImageUtils::SaveImageByExtension(*AbsolutePath,
+				FImageView(Pixels.GetData(), Size.X, Size.Y));
+		}
+		Test->TestTrue(TEXT("PIE viewport pixels were read and saved"), bSaved);
 		TSharedPtr<FJsonObject> Frame = MakeShared<FJsonObject>();
 		Frame->SetNumberField(TEXT("index"), RequestedFrameCount);
 		Frame->SetStringField(TEXT("file"), Filename);
 		Frame->SetStringField(TEXT("stage"), Label);
+		Frame->SetStringField(TEXT("stage_at_draw"), GateAStageName(Stage));
 		Frame->SetNumberField(TEXT("simulation_time"), World.IsValid() ? World->GetTimeSeconds() : 0.0);
+		Frame->SetNumberField(TEXT("requested_simulation_time"), PendingCaptureSimulationTime);
+		Frame->SetNumberField(TEXT("pie_draw_index"), PIEDrawCount);
+		Frame->SetStringField(TEXT("capture_world"), World->GetPathName());
+		Frame->SetStringField(TEXT("capture_source"), TEXT("PIEGameViewportAfterDraw"));
+		Frame->SetStringField(TEXT("camera"), ProofCamera.IsValid()
+			? TEXT("ControlledSideView") : TEXT("GameplayView"));
 		Frame->SetNumberField(TEXT("viewport_width"), ViewportWidth);
 		Frame->SetNumberField(TEXT("viewport_height"), ViewportHeight);
 		Frame->SetStringField(TEXT("defender"),
@@ -2040,24 +2190,31 @@ private:
 			|| (RequestedFrameCount > 0
 				&& CapturedFrames.Num() == RequestedFrameCount
 				&& bAllCapturedFramesFramed);
+		const bool bRenderedFrameProvenanceComplete = !FApp::CanEverRender()
+			|| (RequestedFrameCount > 0 && CapturedFrames.Num() == RequestedFrameCount
+				&& PIEDrawCount > 0 && PendingCaptureLabel.IsEmpty());
 		if (FApp::CanEverRender() && !bFatalFailure)
 		{
 			Test->TestTrue(TEXT("Every requested Gate A frame was rendered"),
 				bRenderedFrameCountComplete);
 			Test->TestTrue(TEXT("Every rendered Gate A frame decodes with nontrivial pixels"),
 				bRenderedFramePixelsComplete);
-			Test->TestTrue(TEXT("Every Gate A frame contains its required combat participants"),
+			Test->TestTrue(TEXT("Required combat participant centers project inside each captured viewport"),
 				bRenderedFrameFramingComplete);
+			Test->TestTrue(TEXT("Every requested frame was captured from the drawn PIE game viewport"),
+				bRenderedFrameProvenanceComplete);
 		}
 		TSharedPtr<FJsonObject> Root = MakeShared<FJsonObject>();
-		Root->SetNumberField(TEXT("schema_version"), 3);
+		Root->SetNumberField(TEXT("schema_version"), 4);
 		Root->SetStringField(TEXT("gate"), TEXT("A"));
 		Root->SetStringField(TEXT("map"), GateAMapPackage);
 		Root->SetStringField(TEXT("attack"), GateAAttackPath);
 		Root->SetBoolField(TEXT("fatal_failure"), bFatalFailure);
 		Root->SetBoolField(TEXT("complete_case_ledger"), bCompleteCaseLedger);
 		Root->SetBoolField(TEXT("all_cases_passed"),
-			bCompleteCaseLedger && bAllCasesPassed && bStageHandoffContinuity);
+			bCompleteCaseLedger && bAllCasesPassed && bStageHandoffContinuity
+			&& bRenderedFrameCountComplete && bRenderedFramePixelsComplete
+			&& bRenderedFrameFramingComplete && bRenderedFrameProvenanceComplete);
 		Root->SetBoolField(TEXT("stage_handoff_contract_passed"),
 			bStageHandoffContinuity);
 		Root->SetStringField(TEXT("proof_case_authority"), GateAManifestRelativePath);
@@ -2072,6 +2229,7 @@ private:
 		Root->SetNumberField(TEXT("nontrivial_pixel_frames"), NontrivialFrameCount);
 		Root->SetBoolField(TEXT("rendered_frame_pixels_complete"), bRenderedFramePixelsComplete);
 		Root->SetBoolField(TEXT("rendered_frame_framing_complete"), bRenderedFrameFramingComplete);
+		Root->SetBoolField(TEXT("rendered_frame_provenance_complete"), bRenderedFrameProvenanceComplete);
 		Root->SetNumberField(TEXT("resolution_count"), ResolutionCount);
 		Root->SetStringField(TEXT("normal_contact_transport"), TEXT("physical weapon trace"));
 		Root->SetArrayField(TEXT("cases"), Cases);
@@ -2143,6 +2301,7 @@ private:
 	FAutomationTestBase* Test = nullptr;
 	double CommandStart = 0.0;
 	double StageStart = 0.0;
+	double StageSimulationStart = 0.0;
 	double LastContinuousCapture = -1.0;
 	EGateAProofStage Stage = EGateAProofStage::WaitForPIE;
 	TWeakObjectPtr<UWorld> World;
@@ -2169,6 +2328,7 @@ private:
 	bool bImpactSoundBinding = false;
 	bool bDefenseDebugOverridden = false;
 	bool bFatalFailure = false;
+	bool bCommandStarted = false;
 	bool bEvidenceFinalized = false;
 	bool bAllCapturedFramesFramed = true;
 	bool bHandsOffTokenPolicyValid = true;
@@ -2210,6 +2370,14 @@ private:
 	int32 PerfectTokenReleaseBefore = 0;
 	int32 ResolutionCount = 0;
 	int32 RequestedFrameCount = 0;
+	int32 PIEDrawCount = 0;
+	int32 ReadyPIEDrawCount = 0;
+	TWeakObjectPtr<ACameraActor> ProofCamera;
+	TWeakObjectPtr<AActor> OriginalViewTarget;
+	FDelegateHandle ViewportRenderedHandle;
+	FString PendingCaptureLabel;
+	TWeakObjectPtr<AEnemyCharacter> PendingCaptureOpponent;
+	double PendingCaptureSimulationTime = 0.0;
 	double LastStageHandoffSimulationTime = 0.0;
 	FVector NormalBlockStartLocation = FVector::ZeroVector;
 	FVector BridgeDefenderStart = FVector::ZeroVector;
@@ -2230,6 +2398,45 @@ private:
 	TArray<FString> ExpectedCaseNames;
 	TSet<FString> RecordedCaseNames;
 };
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseCaptureViewportIdentityTest,
+	"KatanaCombat.Automation.RenderCapture.ViewportIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseCaptureViewportIdentityTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	class FWorldViewportClient final : public FViewportClient
+	{
+	public:
+		explicit FWorldViewportClient(UWorld* InWorld) : World(InWorld) {}
+		virtual UWorld* GetWorld() const override { return World; }
+		UWorld* World;
+	};
+	UWorld* PIEWorld = NewObject<UWorld>();
+	PIEWorld->WorldType = EWorldType::PIE;
+	UWorld* EditorWorld = NewObject<UWorld>();
+	EditorWorld->WorldType = EWorldType::Editor;
+	UWorld* OtherPIEWorld = NewObject<UWorld>();
+	OtherPIEWorld->WorldType = EWorldType::PIE;
+	FWorldViewportClient GameClient(PIEWorld);
+	FWorldViewportClient OtherClient(PIEWorld);
+	FWorldViewportClient EditorClient(EditorWorld);
+	TestTrue(TEXT("The exact PIE world and viewport client may supply capture pixels"),
+		IsExpectedPIEViewportClient(PIEWorld, &GameClient, &GameClient));
+	TestFalse(TEXT("A nontrivial editor image cannot supply PIE capture pixels"),
+		IsExpectedPIEViewportClient(EditorWorld, &EditorClient, &EditorClient));
+	TestFalse(TEXT("Another viewport of the same world is not the requested game viewport"),
+		IsExpectedPIEViewportClient(PIEWorld, &OtherClient, &GameClient));
+	TestFalse(TEXT("A viewport from another PIE world is rejected"),
+		IsExpectedPIEViewportClient(OtherPIEWorld, &GameClient, &GameClient));
+	TestFalse(TEXT("A viewport that reverted to the editor world is rejected"),
+		IsExpectedPIEViewportClient(PIEWorld, &EditorClient, &EditorClient));
+	TestFalse(TEXT("An absent viewport is not capture readiness"),
+		IsExpectedPIEViewportClient(PIEWorld, nullptr, &GameClient));
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -2319,6 +2526,7 @@ bool FDefenseGateAPIEProofTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(GateAMapPackage));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitForShadersToFinishCompiling());
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(1.0f));
 	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
 	ADD_LATENT_AUTOMATION_COMMAND(FDefenseGateAPIEProofCommand(this, Manifest.ProofCases));

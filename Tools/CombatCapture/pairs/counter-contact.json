@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "paired_asset": "/Game/ProjectFiles/Data/PDA/Defense/GateA/DA_Counter_GateA.DA_Counter_GateA",
+  "attacker_mesh": "/Game/Assets/Characters/CyberpunkRunner/Meshes/SKM_CyberpunkRunnerr_B.SKM_CyberpunkRunnerr_B",
+  "victim_mesh": "/Game/Assets/Characters/FuturisticMercenary/Meshes/SKM_FuturisticMercenary_FullBodyC.SKM_FuturisticMercenary_FullBodyC",
+  "attacker_mesh_position_cm": [0, 0, 0],
+  "victim_mesh_position_cm": [100, 0, 0],
+  "attacker_mesh_rotation_deg": [0, -90, 0],
+  "victim_mesh_rotation_deg": [0, 90, 0],
+  "sample_hz": 60,
+  "attacker_weapon_data": "/Game/ProjectFiles/Data/PDA/Weapons/DA_Weapon_Katana.DA_Weapon_Katana",
+  "criteria_basis": "Counter reuse control: unchanged weapon-segment/18 cm torso proxy criteria evaluated around the authored CounterImpact notify. This is a held-out diagnostic example, not an approved animation-quality reference.",
+  "contacts": [
+    {"name": "BladeToUpperTorso", "source": "Attacker:weapon_start", "source_end": "Attacker:weapon_end", "target": "Victim:spine_03", "sync_name": "CounterImpact", "sync_role": "Attacker", "start_s": 0, "end_s": 0.15, "target_radius_cm": 18, "minimum_gap_cm": -18, "maximum_gap_cm": 8, "maximum_sample_gap_s": 0.075, "sustained": false}
+  ]
+}

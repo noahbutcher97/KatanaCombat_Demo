@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "scenario": "HoldReleaseRecovery",
+  "version": 2,
+  "attack": "/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1.LightAttack_1",
+  "maps": {
+    "ThirdPerson": "/Game/ProjectFiles/Levels/Lvl_ThirdPerson1",
+    "DefenseMatrix": "/Game/ProjectFiles/Levels/Test/Lvl_DefenseMatrix"
+  },
+  "variants": {"Forward": [0, 1, 0], "Backward": [0, -1, 0], "Left": [-1, 0, 0], "Right": [1, 0, 0]},
+  "warmup_s": 0.5,
+  "timeout_s": 25,
+  "victim_offset_cm": [20000, 0, 0],
+  "bystander_offsets_cm": [[20000, 1000, 0], [20000, -1000, 0], [22000, 0, 0]],
+  "camera_offset_cm": [0, -850, 230],
+  "camera_focus_cm": [50, 0, 45],
+  "camera_fov_deg": 60,
+  "camera_mode": "FollowPlayerTranslation",
+  "viewport_width": 960,
+  "viewport_height": 540,
+  "sample_hz": 60,
+  "frame_hz": 15,
+  "random_seed": 12479,
+  "pose_mode": "RequiredParticipantsAlwaysRefresh",
+  "fixture_basis": "Existing enemies are moved out of interaction range in the disposable PIE world to isolate authored hold and input recovery. Player control rotation is zero; movement values are camera-relative. Hold duration uses the source asset ease-in plus 0.4 seconds. Assets and runtime settings are not saved.",
+  "criteria": {
+    "version": 1,
+    "required_role": "Attacker",
+    "required_point": "pelvis",
+    "max_sample_gap_s": 0.075,
+    "max_frame_gap_s": 0.15,
+    "max_pose_age_s": 0.04,
+    "max_frame_sample_lag_s": 0.075,
+    "minimum_samples": 3,
+    "reference_basis": "Gameplay and evidence eligibility only; no pose-quality threshold is assumed."
+  }
+}

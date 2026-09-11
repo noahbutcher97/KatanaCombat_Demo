@@ -109,6 +109,17 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat Tokens")
 	TArray<AActor*> GetActiveAttackers() const;
 
+#if WITH_AUTOMATION_TESTS
+	void SetPostTokenReleasedHookForTesting(TFunction<void(AActor*)> Hook)
+	{
+		PostTokenReleasedHookForTesting = MoveTemp(Hook);
+	}
+	int32 GetTokenReleaseBroadcastCountForTesting() const
+	{
+		return TokenReleaseBroadcastCountForTesting;
+	}
+#endif
+
 	// ============================================================================
 	// DELEGATES
 	// ============================================================================
@@ -144,10 +155,16 @@ protected:
 
 	/** Try to grant a token from the queue (called when a token is released) */
 	void TryGrantQueuedToken();
+	void BroadcastTokenReleased(AActor* ReleasedActor);
 
 	/** Check if enemy is on cooldown */
 	bool IsOnCooldown(AActor* Actor) const;
 
 	/** Clean up any invalid (destroyed) actors from tracking arrays */
 	void CleanupInvalidActors();
+
+#if WITH_AUTOMATION_TESTS
+	TFunction<void(AActor*)> PostTokenReleasedHookForTesting;
+	int32 TokenReleaseBroadcastCountForTesting = 0;
+#endif
 };

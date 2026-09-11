@@ -163,9 +163,12 @@ const TCHAR* CsvHeader =
 
 bool DefenseTelemetry::IsEnabled()
 {
-	static const IConsoleVariable* Variable =
+	static const IConsoleVariable* DefenseVariable =
 		IConsoleManager::Get().FindConsoleVariable(TEXT("Combat.Defense.Debug"));
-	return Variable && Variable->GetInt() != 0;
+	static const IConsoleVariable* MasterVariable =
+		IConsoleManager::Get().FindConsoleVariable(TEXT("Combat.Debug.All"));
+	return (DefenseVariable && DefenseVariable->GetInt() != 0)
+		|| (MasterVariable && MasterVariable->GetInt() != 0);
 }
 
 FDefenseTelemetryRecord DefenseTelemetry::FromResolution(

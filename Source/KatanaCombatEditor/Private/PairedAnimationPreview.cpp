@@ -39,6 +39,8 @@
 #include "DrawDebugHelpers.h"
 #include "HAL/PlatformApplicationMisc.h"
 #include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "HAL/PlatformProcess.h"
 #include "Misc/ScopedSlowTask.h"
 #include "DesktopPlatformModule.h"
 
@@ -735,6 +737,12 @@ void SPairedAnimationPreview::UpdateCharacterPositions()
 
 void SPairedAnimationPreview::UpdateAnimations(float Time)
 {
+	if (bContactProfilePlayback)
+	{
+		FString Error;
+		if (!UPairedAnimationAnalysisSubsystem::SampleContactPreviewPose(Model, FMath::Clamp(double(Time), 0.0, double(Model.MaxDuration)), AttackerMeshComponent, VictimMeshComponent, Error)) { ContactEvaluationStatus = Error; }
+		return;
+	}
 	// CRITICAL FIX: Use the passed Time parameter, not Model.CurrentTime!
 	// This was causing the holistic optimization to produce different results
 	// at different timeline positions - it was always evaluating at Model.CurrentTime
@@ -855,6 +863,7 @@ FString SPairedAnimationPreview::GetVictimSkeletonPath() const
 
 void SPairedAnimationPreview::OnAttackerMontageSelected(const FAssetData& AssetData)
 {
+	bContactProfilePlayback = false;
 	Model.AttackerMontage =Cast<UAnimMontage>(AssetData.GetAsset());
 	if (AttackerMeshComponent && Model.HasValidAttackerMontage())
 	{
@@ -888,6 +897,7 @@ void SPairedAnimationPreview::OnAttackerMontageSelected(const FAssetData& AssetD
 
 void SPairedAnimationPreview::OnVictimMontageSelected(const FAssetData& AssetData)
 {
+	bContactProfilePlayback = false;
 	Model.VictimMontage =Cast<UAnimMontage>(AssetData.GetAsset());
 	if (VictimMeshComponent && Model.HasValidVictimMontage())
 	{
@@ -3699,7 +3709,7 @@ void SPairedAnimationPreview::Tick(const FGeometry& AllottedGeometry, const doub
 	}
 
 	// Always draw visualization
-	DrawDebugVisualization();
+	if (!bContactProfilePlayback) { DrawDebugVisualization(); }
 
 	// PT-11: Update slider position via timeline view
 	if (TimelineView.IsValid())
@@ -3718,6 +3728,7 @@ void SPairedAnimationPreview::UpdateAnalyticsDisplay()
 	{
 		TimeDisplayText->SetText(GetTimeDisplayText());
 	}
+	if (bContactProfilePlayback) { return; } // Legacy nearest-contact analytics are not contact-profile results.
 	if (ContactInfoText.IsValid())
 	{
 		ContactInfoText->SetText(GetContactInfoText());
@@ -3955,7 +3966,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildMainLayout()
 				.AutoHeight()
 				.Padding(4.0f)
 				[
-					BuildQuickActionsBar()
+					SNew(SBox).IsEnabled_Lambda([this]() { return !bContactProfilePlayback; })[BuildQuickActionsBar()]
 				]
 
 				// Asset Selection
@@ -3963,10 +3974,17 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildMainLayout()
 				.AutoHeight()
 				.Padding(4.0f)
 				[
-					BuildAssetSelectionPanel()
+					SNew(SBox).IsEnabled_Lambda([this]() { return !bContactProfilePlayback; })[BuildAssetSelectionPanel()]
 				]
 
 				// Weapon Configuration (expandable, collapsed by default)
+				+ SVerticalBox::Slot()
+				.AutoHeight()
+				.Padding(4.0f)
+				[
+					BuildContactEvaluationPanel()
+				]
+
 				+ SVerticalBox::Slot()
 				.AutoHeight()
 				.Padding(4.0f)
@@ -3987,7 +4005,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildMainLayout()
 				.AutoHeight()
 				.Padding(4.0f)
 				[
-					BuildOptimizationPanel()
+					SNew(SBox).IsEnabled_Lambda([this]() { return !bContactProfilePlayback; })[BuildOptimizationPanel()]
 				]
 
 				// Visualization
@@ -4035,7 +4053,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildMainLayout()
 			.AutoHeight()
 			.Padding(4.0f)
 			[
-				BuildAnalysisPanel()
+				SNew(SBox).IsEnabled_Lambda([this]() { return !bContactProfilePlayback; })[BuildAnalysisPanel()]
 			]
 		];
 }
@@ -5340,6 +5358,7 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildTimelineControls()
 				.MinValue(-2.0f)
 				.MaxValue(2.0f)
 				.Value_Lambda([this]() { return Model.VictimTimeOffset; })
+				.IsEnabled_Lambda([this]() { return !bContactProfilePlayback; })
 				.OnValueChanged_Lambda([this](float Val) {
 					Model.VictimTimeOffset = Val;
 					RecalculateMaxDuration();
@@ -5741,6 +5760,46 @@ TSharedRef<SWidget> SPairedAnimationPreview::BuildGraphsPanel()
 {
 	// Placeholder for future graphs (distance over time, speed over time, etc.)
 	return SNullWidget::NullWidget;
+}
+
+TSharedRef<SWidget> SPairedAnimationPreview::BuildContactEvaluationPanel()
+{
+	if (ContactProfilePath.IsEmpty()) { ContactProfilePath = FPaths::ProjectDir() / TEXT("Tools/CombatCapture/pairs/finisher-contact.json"); }
+	return SNew(SVerticalBox)
+		+ SVerticalBox::Slot().AutoHeight()[SNew(STextBlock).Text(LOCTEXT("ContactEvaluationTitle", "Intended contact evaluation"))]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0, 4)[SNew(SEditableTextBox)
+			.Text_Lambda([this]() { return FText::FromString(ContactProfilePath); })
+			.OnTextCommitted_Lambda([this](const FText& Text, ETextCommit::Type) { ContactProfilePath = Text.ToString(); bContactProfilePlayback = false; ContactEvaluationStatus = TEXT("Load the profile to apply its timing and assets."); })]
+		+ SVerticalBox::Slot().AutoHeight()[SNew(SHorizontalBox)
+			+ SHorizontalBox::Slot().AutoWidth()[SNew(SButton).Text(LOCTEXT("LoadContactProfile", "Load pair and criteria"))
+				.OnClicked_Lambda([this]() { LoadContactEvaluationProfile(); return FReply::Handled(); })]
+			+ SHorizontalBox::Slot().AutoWidth().Padding(4, 0)[SNew(SButton).Text(LOCTEXT("EvaluateContacts", "Evaluate and open report"))
+				.OnClicked_Lambda([this]() { EvaluateContactProfile(); return FReply::Handled(); })]]
+		+ SVerticalBox::Slot().AutoHeight().Padding(0, 4)[SNew(STextBlock).AutoWrapText(true)
+			.Text_Lambda([this]() { return FText::FromString(ContactEvaluationStatus); })];
+}
+
+void SPairedAnimationPreview::LoadContactEvaluationProfile()
+{
+	UPairedAnimationAnalysisSubsystem* Subsystem = GetAnalysisSubsystem();
+	FPairedAnimationPreviewModel Loaded;
+	if (!Subsystem || !Subsystem->LoadContactProfileIntoPreview(ContactProfilePath, Loaded, ContactEvaluationStatus)) { return; }
+	Model = Loaded;
+	UpdateAttackerMesh(Model.GetAttackerSkeleton()); UpdateVictimMesh(Model.GetVictimSkeleton());
+	RefreshAttackerSectionOptions(); RefreshVictimSectionOptions();
+	Model = Loaded; bContactProfilePlayback = true;
+	UpdateAttackerWeaponMesh(Model.AttackerWeaponConfig.WeaponMesh.Get()); UpdateVictimWeaponMesh(Model.VictimWeaponConfig.WeaponMesh.Get());
+	UpdateAnimations(0);
+	ContactEvaluationStatus = TEXT("Loaded explicit contact timing. Adjust placement, scrub the pair, then evaluate. Geometry criteria remain in the profile.");
+}
+
+void SPairedAnimationPreview::EvaluateContactProfile()
+{
+	UPairedAnimationAnalysisSubsystem* Subsystem = GetAnalysisSubsystem(); FString Directory;
+	if (!bContactProfilePlayback) { ContactEvaluationStatus = TEXT("Load the contact profile before evaluating the preview."); return; }
+	if (!Subsystem || !Subsystem->EvaluateContactProfileForPreview(ContactProfilePath, Model, Directory, ContactEvaluationStatus)) { return; }
+	ContactEvaluationStatus = TEXT("Report saved: ") + Directory;
+	FPlatformProcess::LaunchFileInDefaultExternalApplication(*(Directory / TEXT("report.html")));
 }
 
 #undef LOCTEXT_NAMESPACE

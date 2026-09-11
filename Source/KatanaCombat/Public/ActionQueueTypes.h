@@ -27,7 +27,36 @@ UENUM(BlueprintType)
 enum class EInputEventType : uint8
 {
 	Press,
-	Release
+	Release,
+	Canceled
+};
+
+/** Canonical terminal-aware movement sample owned by CombatComponent. */
+USTRUCT(BlueprintType)
+struct FCombatMovementInputSample
+{
+	GENERATED_BODY()
+
+	/** Sanitized camera-relative input with magnitude clamped to one. */
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	FVector2D CameraRelativeInput = FVector2D::ZeroVector;
+
+	/** Normalized horizontal direction in world space. */
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	FVector WorldDirection = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	float Magnitude = 0.0f;
+
+	/** Native-only because Blueprint reflection does not support uint64 properties. */
+	uint64 Serial = 0;
+
+	double SimulationTimestamp = 0.0;
+
+	bool IsActive(float DeadZone = 0.2f) const
+	{
+		return Magnitude > DeadZone && !WorldDirection.IsNearlyZero();
+	}
 };
 
 /** Routing owner selected for one captured combat-input edge. */
@@ -36,6 +65,7 @@ enum class ECombatInputRoute : uint8
 {
 	StatefulControl,
 	ChainOnly,
+	HoldOwned,
 	NormalQueue
 };
 
@@ -46,6 +76,7 @@ enum class ECombatInputDisposition : uint8
 	Captured,
 	Consumed,
 	Queued,
+	Replaced,
 	Rejected,
 	Expired
 };
@@ -113,6 +144,52 @@ enum class EActionState : uint8
 	Cancelled
 };
 
+/** Provenance for the immutable world-space facing captured on an attack edge. */
+UENUM(BlueprintType)
+enum class EAttackFacingIntentSource : uint8
+{
+	Programmatic,
+	CameraRelativeInput,
+	CharacterRelativeDirection,
+	CapturedFacing
+};
+
+/** Stable facing intent retained with a queued attack instead of resampling input later. */
+USTRUCT(BlueprintType)
+struct FAttackFacingIntent
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	FVector WorldDirection = FVector::ForwardVector;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	float DesiredYaw = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	float CapturedFacingYaw = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	EInputDirection BranchDirection = EInputDirection::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	EAttackFacingIntentSource Source = EAttackFacingIntentSource::Programmatic;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	double SimulationTimestamp = 0.0;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	bool bHasWorldDirection = false;
+
+	bool IsFinite() const
+	{
+		return !WorldDirection.ContainsNaN()
+			&& FMath::IsFinite(DesiredYaw)
+			&& FMath::IsFinite(CapturedFacingYaw)
+			&& FMath::IsFinite(SimulationTimestamp);
+	}
+};
+
 /**
  * Window types for timer checkpoints
  */
@@ -146,6 +223,9 @@ struct FQueuedInputAction
 {
 	GENERATED_BODY()
 
+	/** Native identity of the physical input edge that created this action. */
+	uint64 InputSerial = 0;
+
 	/** Type of input (light/heavy attack, dodge, block) */
 	UPROPERTY(BlueprintReadOnly, Category = "Input")
 	EInputType InputType = EInputType::None;
@@ -161,6 +241,10 @@ struct FQueuedInputAction
 	/** Was this input during a combo window? */
 	UPROPERTY(BlueprintReadOnly, Category = "Input")
 	bool bInComboWindow = false;
+
+	/** World-space facing captured on this exact physical input edge. */
+	UPROPERTY(BlueprintReadOnly, Category = "Input")
+	FAttackFacingIntent FacingIntent;
 
 	FQueuedInputAction() = default;
 
@@ -222,6 +306,9 @@ struct FActionQueueEntry
 {
 	GENERATED_BODY()
 
+	/** Native component-local identity retained through queue execution and cancellation. */
+	uint64 QueueEntryId = 0;
+
 	/** Input that triggered this action */
 	UPROPERTY(BlueprintReadOnly, Category = "Action")
 	FQueuedInputAction InputAction;
@@ -276,10 +363,17 @@ struct FActionQueueEntry
 	bool IsExecuting() const { return State == EActionState::Executing; }
 };
 
-/**
- * Hold event instance - tracks a single hold activation
- * Each hold gets a unique ID to prevent state confusion across multiple holds
- */
+UENUM(BlueprintType)
+enum class EHoldPhase : uint8
+{
+	Inactive,
+	EaseIn,
+	FrozenAwaitingRelease,
+	ReleaseBlend,
+	FollowUpHandoff
+};
+
+/** Exact attack-qualified hold activation. */
 USTRUCT(BlueprintType)
 struct FHoldEvent
 {
@@ -289,9 +383,30 @@ struct FHoldEvent
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
 	int32 HoldID = 0;
 
+	/** Native identity of the physical press that owned this hold. */
+	uint64 PressInputSerial = 0;
+
+	/** Native identity of the physical release, once observed. */
+	uint64 ReleaseInputSerial = 0;
+
 	/** Which input triggered this hold? */
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
 	EInputType InputType = EInputType::None;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	EHoldPhase Phase = EHoldPhase::Inactive;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	FAttackInstanceId SourceAttackInstance;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	TObjectPtr<UAttackData> SourceAttackData = nullptr;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	FAnimNotifyRuntimeSourceId NotifySource;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	int32 MontageInstanceId = INDEX_NONE;
 
 	/** When did this hold start? */
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
@@ -305,11 +420,15 @@ struct FHoldEvent
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
 	EAttackDirection Direction = EAttackDirection::None;
 
+	UPROPERTY(BlueprintReadOnly, Category = "Hold")
+	FAttackFacingIntent ReleaseFacingIntent;
+
 	FHoldEvent() = default;
 
 	FHoldEvent(int32 InHoldID, EInputType InInputType, float InStartTime)
 		: HoldID(InHoldID)
 		, InputType(InInputType)
+		, Phase(EHoldPhase::EaseIn)
 		, StartTime(InStartTime)
 		, bCompleted(false)
 		, Direction(EAttackDirection::None)
@@ -320,12 +439,13 @@ struct FHoldEvent
 	void MarkCompleted()
 	{
 		bCompleted = true;
+		Phase = EHoldPhase::FrozenAwaitingRelease;
 	}
 
 	/** Check if this hold is valid and matches the expected ID */
 	bool IsValid(int32 ExpectedID) const
 	{
-		return HoldID == ExpectedID && HoldID > 0;
+		return HoldID == ExpectedID && HoldID > 0 && Phase != EHoldPhase::Inactive;
 	}
 };
 
@@ -371,14 +491,31 @@ struct FHoldState
 	FHoldState() = default;
 
 	/** Activate hold state - creates new hold event with unique ID */
-	void Activate(EInputType InputType, float CurrentTime, float PlayRate)
+	bool Activate(
+		EInputType InputType,
+		float CurrentTime,
+		float PlayRate,
+		const FAttackInstanceId& SourceAttackInstance = {},
+		UAttackData* SourceAttackData = nullptr,
+		const FAnimNotifyRuntimeSourceId& NotifySource = {},
+		int32 MontageInstanceId = INDEX_NONE)
 	{
+		if (IsHolding())
+		{
+			return false;
+		}
+
 		// Create new hold event with unique ID
 		CurrentHold = FHoldEvent(NextHoldID++, InputType, CurrentTime);
+		CurrentHold.SourceAttackInstance = SourceAttackInstance;
+		CurrentHold.SourceAttackData = SourceAttackData;
+		CurrentHold.NotifySource = NotifySource;
+		CurrentHold.MontageInstanceId = MontageInstanceId;
 
 		// Ease system state
 		CurrentPlayRate = PlayRate;
 		bActivatedThisAttack = true;
+		return true;
 	}
 
 	/** Mark current hold as completed (reached freeze/charge state) */
@@ -399,7 +536,36 @@ struct FHoldState
 	/** Check if hold is active */
 	bool IsHolding() const
 	{
-		return CurrentHold.HoldID > 0;
+		return CurrentHold.HoldID > 0 && CurrentHold.Phase != EHoldPhase::Inactive;
+	}
+
+	bool BeginReleaseBlend(
+		int32 ExpectedHoldID,
+		const FAttackFacingIntent& ReleaseFacingIntent,
+		EAttackDirection ReleaseDirection)
+	{
+		if (!CurrentHold.IsValid(ExpectedHoldID)
+			|| CurrentHold.Phase == EHoldPhase::ReleaseBlend
+			|| CurrentHold.Phase == EHoldPhase::FollowUpHandoff)
+		{
+			return false;
+		}
+
+		CurrentHold.ReleaseFacingIntent = ReleaseFacingIntent;
+		CurrentHold.Direction = ReleaseDirection;
+		CurrentHold.Phase = EHoldPhase::ReleaseBlend;
+		return true;
+	}
+
+	bool BeginFollowUpHandoff(int32 ExpectedHoldID)
+	{
+		if (!CurrentHold.IsValid(ExpectedHoldID)
+			|| CurrentHold.Phase != EHoldPhase::ReleaseBlend)
+		{
+			return false;
+		}
+		CurrentHold.Phase = EHoldPhase::FollowUpHandoff;
+		return true;
 	}
 
 	/** Get held input type */

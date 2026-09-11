@@ -1,0 +1,2 @@
+# Optional decoder for pixel detectors. Core capture/review helpers remain stdlib.
+Pillow==12.0.0

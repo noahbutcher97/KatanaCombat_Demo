@@ -39,12 +39,44 @@ AActor* ResolveCombatTarget(const FStateTreeSetEnemyCombatTargetInstanceData& In
 		: nullptr;
 }
 
+EStateTreeRunStatus ResolveAttackExecutionStatus(
+	const UEnemyCombatAIComponent* CombatAI,
+	const FAttackInstanceId& AttackInstance)
+{
+	if (!CombatAI)
+	{
+		return EStateTreeRunStatus::Failed;
+	}
+
+	switch (CombatAI->GetAttackExecutionStatus(AttackInstance))
+	{
+		case EEnemyAttackExecutionStatus::Running:
+			return EStateTreeRunStatus::Running;
+		case EEnemyAttackExecutionStatus::Succeeded:
+			return EStateTreeRunStatus::Succeeded;
+		case EEnemyAttackExecutionStatus::Invalid:
+		case EEnemyAttackExecutionStatus::Failed:
+		default:
+			return EStateTreeRunStatus::Failed;
+	}
+}
+
 EStateTreeRunStatus MoveToCombatTarget(FStateTreeEnemyCombatMoveInstanceData& InstanceData)
 {
 	UEnemyCombatAIComponent* CombatAI = FindEnemyCombatAI(InstanceData.EnemyActor);
 	AAIController* Controller = ResolveAIController(InstanceData.EnemyActor, InstanceData.Controller);
 	if (!CombatAI || !Controller)
 	{
+		return EStateTreeRunStatus::Failed;
+	}
+	if (CombatAI->IsCombatActionSuppressed())
+	{
+		Controller->StopMovement();
+		return EStateTreeRunStatus::Running;
+	}
+	if (!CombatAI->RevalidateCombatTarget())
+	{
+		Controller->StopMovement();
 		return EStateTreeRunStatus::Failed;
 	}
 
@@ -77,6 +109,30 @@ EStateTreeRunStatus MoveToCombatTarget(FStateTreeEnemyCombatMoveInstanceData& In
 }
 }
 
+EStateTreeRunStatus EnemyCombatStateTree::ResolveAttackTaskTickStatus(
+	UEnemyCombatAIComponent* CombatAI,
+	const FAttackInstanceId& AttackInstance)
+{
+	if (!CombatAI)
+	{
+		return EStateTreeRunStatus::Failed;
+	}
+
+	const EStateTreeRunStatus ExistingResult = ResolveAttackExecutionStatus(
+		CombatAI,
+		AttackInstance);
+	if (ExistingResult != EStateTreeRunStatus::Running)
+	{
+		CombatAI->RevalidateCombatTarget();
+		return ExistingResult;
+	}
+	if (!CombatAI->RevalidateCombatTarget())
+	{
+		return ResolveAttackExecutionStatus(CombatAI, AttackInstance);
+	}
+	return ResolveAttackExecutionStatus(CombatAI, AttackInstance);
+}
+
 EStateTreeRunStatus FStateTreeSetEnemyCombatTargetTask::EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
 {
 	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
@@ -85,7 +141,6 @@ EStateTreeRunStatus FStateTreeSetEnemyCombatTargetTask::EnterState(FStateTreeExe
 	{
 		return EStateTreeRunStatus::Failed;
 	}
-
 	AActor* Target = ResolveCombatTarget(InstanceData);
 	if (!Target)
 	{
@@ -93,8 +148,14 @@ EStateTreeRunStatus FStateTreeSetEnemyCombatTargetTask::EnterState(FStateTreeExe
 		return EStateTreeRunStatus::Failed;
 	}
 
+	if (!CombatAI->CanSelectCombatTarget(Target))
+	{
+		return EStateTreeRunStatus::Failed;
+	}
 	CombatAI->SetCombatTarget(Target);
-	return EStateTreeRunStatus::Succeeded;
+	return CombatAI->CombatTarget.Get() == Target && CombatAI->RevalidateCombatTarget()
+		? EStateTreeRunStatus::Succeeded
+		: EStateTreeRunStatus::Failed;
 }
 
 EStateTreeRunStatus FStateTreeRequestEnemyAttackTokenTask::EnterState(FStateTreeExecutionContext& Context, const FStateTreeTransitionResult& Transition) const
@@ -104,6 +165,15 @@ EStateTreeRunStatus FStateTreeRequestEnemyAttackTokenTask::EnterState(FStateTree
 
 	UEnemyCombatAIComponent* CombatAI = FindEnemyCombatAI(InstanceData.EnemyActor);
 	if (!CombatAI)
+	{
+		return EStateTreeRunStatus::Failed;
+	}
+	if (CombatAI->IsCombatActionSuppressed())
+	{
+		CombatAI->CancelQueuedAttackRequest();
+		return EStateTreeRunStatus::Failed;
+	}
+	if (!CombatAI->RevalidateCombatTarget())
 	{
 		return EStateTreeRunStatus::Failed;
 	}
@@ -128,6 +198,15 @@ EStateTreeRunStatus FStateTreeRequestEnemyAttackTokenTask::Tick(FStateTreeExecut
 
 	UEnemyCombatAIComponent* CombatAI = FindEnemyCombatAI(InstanceData.EnemyActor);
 	if (!CombatAI)
+	{
+		return EStateTreeRunStatus::Failed;
+	}
+	if (CombatAI->IsCombatActionSuppressed())
+	{
+		CombatAI->CancelQueuedAttackRequest();
+		return EStateTreeRunStatus::Failed;
+	}
+	if (!CombatAI->RevalidateCombatTarget())
 	{
 		return EStateTreeRunStatus::Failed;
 	}
@@ -176,9 +255,21 @@ EStateTreeRunStatus FStateTreeCircleEnemyCombatTargetTask::Tick(FStateTreeExecut
 
 	UEnemyCombatAIComponent* CombatAI = FindEnemyCombatAI(InstanceData.EnemyActor);
 	AAIController* Controller = ResolveAIController(InstanceData.EnemyActor, InstanceData.Controller);
-	if (!CombatAI || !Controller || !CombatAI->CombatTarget.IsValid())
+	if (!CombatAI || !Controller)
 	{
 		return EStateTreeRunStatus::Failed;
+	}
+	if (CombatAI->IsCombatActionSuppressed())
+	{
+		Controller->StopMovement();
+		return EStateTreeRunStatus::Running;
+	}
+	if (!CombatAI->RevalidateCombatTarget())
+	{
+		Controller->StopMovement();
+		return CombatAI->CombatTarget.IsValid()
+			? EStateTreeRunStatus::Running
+			: EStateTreeRunStatus::Failed;
 	}
 
 	if (InstanceData.TimeSinceUpdate >= InstanceData.UpdateInterval)
@@ -230,6 +321,16 @@ EStateTreeRunStatus FStateTreeApproachEnemyCombatTargetTask::Tick(FStateTreeExec
 	{
 		return EStateTreeRunStatus::Failed;
 	}
+	if (CombatAI->IsCombatActionSuppressed())
+	{
+		Controller->StopMovement();
+		return EStateTreeRunStatus::Running;
+	}
+	if (!CombatAI->RevalidateCombatTarget())
+	{
+		Controller->StopMovement();
+		return EStateTreeRunStatus::Failed;
+	}
 
 	if (CombatAI->IsInAttackRange())
 	{
@@ -268,61 +369,49 @@ EStateTreeRunStatus FStateTreeExecuteEnemyAttackTask::EnterState(FStateTreeExecu
 {
 	FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
 	InstanceData.bAttackStarted = false;
-	InstanceData.AttackGeneration = 0;
+	InstanceData.AttackInstance = {};
 
 	UEnemyCombatAIComponent* CombatAI = FindEnemyCombatAI(InstanceData.EnemyActor);
 	if (!CombatAI)
 	{
 		return EStateTreeRunStatus::Failed;
 	}
+	if (!CombatAI->RevalidateCombatTarget())
+	{
+		return EStateTreeRunStatus::Failed;
+	}
 
 	if (CombatAI->IsAttacking())
 	{
-		InstanceData.bAttackStarted = true;
-		InstanceData.AttackGeneration = CombatAI->GetActiveAttackGeneration();
-		if (InstanceData.AttackGeneration <= 0)
-		{
-			return EStateTreeRunStatus::Failed;
-		}
-		return EStateTreeRunStatus::Running;
+		return EStateTreeRunStatus::Failed;
 	}
-
-	if (!CombatAI->ExecuteAttack())
+	else if (!CombatAI->ExecuteAttackWithIdentity(InstanceData.AttackInstance))
+	{
+		return EStateTreeRunStatus::Failed;
+	}
+	if (!IsValid(CombatAI))
 	{
 		return EStateTreeRunStatus::Failed;
 	}
 
-	InstanceData.bAttackStarted = true;
-	InstanceData.AttackGeneration = CombatAI->GetActiveAttackGeneration();
-	if (InstanceData.AttackGeneration <= 0)
-	{
-		return EStateTreeRunStatus::Failed;
-	}
-	return EStateTreeRunStatus::Running;
+	InstanceData.bAttackStarted = InstanceData.AttackInstance.IsValid();
+	return InstanceData.bAttackStarted
+		? ResolveAttackExecutionStatus(CombatAI, InstanceData.AttackInstance)
+		: EStateTreeRunStatus::Failed;
 }
 
 EStateTreeRunStatus FStateTreeExecuteEnemyAttackTask::Tick(FStateTreeExecutionContext& Context, const float DeltaTime) const
 {
+	(void)DeltaTime;
 	const FInstanceDataType& InstanceData = Context.GetInstanceData(*this);
 	UEnemyCombatAIComponent* CombatAI = FindEnemyCombatAI(InstanceData.EnemyActor);
 	if (!CombatAI || !InstanceData.bAttackStarted)
 	{
 		return EStateTreeRunStatus::Failed;
 	}
-	if (CombatAI->WasAttackGenerationConsumed(InstanceData.AttackGeneration))
-	{
-		return EStateTreeRunStatus::Succeeded;
-	}
-
-	if (CombatAI->IsAttacking()
-		&& CombatAI->GetActiveAttackGeneration() == InstanceData.AttackGeneration)
-	{
-		return EStateTreeRunStatus::Running;
-	}
-
-	return CombatAI->CurrentState == EEnemyAIState::Recovering
-		? EStateTreeRunStatus::Succeeded
-		: EStateTreeRunStatus::Failed;
+	return EnemyCombatStateTree::ResolveAttackTaskTickStatus(
+		CombatAI,
+		InstanceData.AttackInstance);
 }
 
 bool FStateTreeEnemyCombatStateCondition::TestCondition(FStateTreeExecutionContext& Context) const

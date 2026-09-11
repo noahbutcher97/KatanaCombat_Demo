@@ -7,6 +7,9 @@ public class KatanaCombatEditor : ModuleRules
     public KatanaCombatEditor(ReadOnlyTargetRules Target) : base(Target)
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
+        // Authoring translation units reuse private helper names. Keep their scopes
+        // independent when new editor tooling changes Unreal's unity-file grouping.
+        bUseUnity = false;
 
         PublicDependencyModuleNames.AddRange(new string[]
         {
@@ -15,6 +18,7 @@ public class KatanaCombatEditor : ModuleRules
             "Engine",
             "AnimationCore",  // Bone indices for montage analysis
             "GameplayTags",   // Defense manifest and presentation validation
+            "AnimationCapture", // Independent engine capture API and compatibility headers
             "KatanaCombat"    // Our runtime module
         });
 
@@ -38,6 +42,8 @@ public class KatanaCombatEditor : ModuleRules
             "AdvancedPreviewScene", // Preview scene for montage analysis dashboards
             "ApplicationCore",      // Clipboard functionality for copy/export
             "Json",                 // Headless asset migration reports
+            "RenderCore",
+            "RHI",
             "KismetCompiler",       // Headless Blueprint compilation for migration-generated assets
             "StateTreeModule",      // StateTree assets
             "StateTreeEditorModule",// StateTree builder/compiler APIs

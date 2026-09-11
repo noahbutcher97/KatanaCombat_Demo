@@ -21,6 +21,7 @@
 #include "Animation/AnimMontage.h"
 #include "DrawDebugHelpers.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Characters/BaseCombatCharacter.h"
@@ -38,10 +39,69 @@
 #include "Debug/DebugUtils.h"
 #include "Engine/OverlapResult.h"
 #include "TimerManager.h"
+#include "UObject/UObjectIterator.h"
 
 namespace
 {
 TAtomic<uint64> GNextCombatantStableId(1);
+
+bool IsCombatOwnerOperational(const UCombatComponent* CombatComponent)
+{
+	if (!IsValid(CombatComponent))
+	{
+		return false;
+	}
+
+	const ABaseCombatCharacter* Character = Cast<ABaseCombatCharacter>(CombatComponent->GetOwner());
+	return IsValid(Character) && !Character->IsDeadOrDying();
+}
+
+void RefreshCombatComponentDebugTicks()
+{
+	if (!IsInGameThread())
+	{
+		return;
+	}
+
+	const bool bEnableDebugTick = CombatDebug::IsCombatStateDebugEnabled();
+	for (TObjectIterator<UCombatComponent> It; It; ++It)
+	{
+		UCombatComponent* CombatComponent = *It;
+		if (!IsValid(CombatComponent)
+			|| CombatComponent->IsTemplate()
+			|| !CombatComponent->IsRegistered()
+			|| !CombatComponent->GetWorld())
+		{
+			continue;
+		}
+
+		CombatComponent->SetComponentTickEnabled(
+			bEnableDebugTick && IsCombatOwnerOperational(CombatComponent));
+	}
+}
+
+FAutoConsoleVariableSink GCombatComponentDebugTickSink(
+	FConsoleCommandDelegate::CreateStatic(&RefreshCombatComponentDebugTicks));
+
+bool IsAttackStartupContextValid(
+	const UCombatComponent* CombatComponent,
+	const ABaseCombatCharacter* Character,
+	const USkeletalMeshComponent* Mesh,
+	const UAnimInstance* AnimInstance,
+	const UAttackData* AttackData,
+	const UAnimMontage* AttackMontage)
+{
+	return IsCombatOwnerOperational(CombatComponent)
+		&& IsValid(Character)
+		&& IsValid(Mesh)
+		&& IsValid(AnimInstance)
+		&& IsValid(AttackData)
+		&& IsValid(AttackMontage)
+		&& CombatComponent->GetOwner() == Character
+		&& Character->GetMesh() == Mesh
+		&& Mesh->GetAnimInstance() == AnimInstance
+		&& AttackData->AttackMontage.Get() == AttackMontage;
+}
 
 bool IsAttackTaggedUnblockable(const UAttackData* AttackData)
 {
@@ -233,6 +293,128 @@ void UCombatComponent::ClearDefenseTelemetry()
 	NextDefenseTelemetrySequence = 0;
 }
 
+void UCombatComponent::AppendActionReactionTelemetry(FActionReactionTelemetryRecord Record)
+{
+	if (!ActionReactionTelemetry::IsEnabled())
+	{
+		return;
+	}
+
+	EnsureCombatantStableId();
+	if (!Record.Actor.IsValid())
+	{
+		Record.Actor = GetOwner();
+	}
+	if (!Record.ActorStableId.IsValid())
+	{
+		if (Record.Actor.Get() == GetOwner())
+		{
+			Record.ActorStableId = CombatantStableId;
+		}
+		else if (const UCombatComponent* ActorCombat =
+			Record.Actor->FindComponentByClass<UCombatComponent>())
+		{
+			Record.ActorStableId = ActorCombat->GetCombatantStableId();
+		}
+	}
+	if (Record.ActorPathSnapshot.IsEmpty() && Record.Actor.IsValid())
+	{
+		Record.ActorPathSnapshot = Record.Actor->GetPathName();
+	}
+	if (Record.Counterpart.IsValid() && !Record.CounterpartStableId.IsValid())
+	{
+		if (const UCombatComponent* CounterpartCombat =
+			Record.Counterpart->FindComponentByClass<UCombatComponent>())
+		{
+			Record.CounterpartStableId = CounterpartCombat->GetCombatantStableId();
+		}
+	}
+	if (Record.CounterpartPathSnapshot.IsEmpty() && Record.Counterpart.IsValid())
+	{
+		Record.CounterpartPathSnapshot = Record.Counterpart->GetPathName();
+	}
+	if (Record.SimulationTimestamp == 0.0)
+	{
+		Record.SimulationTimestamp = GetWorld()
+			? static_cast<double>(GetWorld()->GetTimeSeconds())
+			: 0.0;
+	}
+	if (Record.UnscaledTimestamp == 0.0)
+	{
+		Record.UnscaledTimestamp = FPlatformTime::Seconds();
+	}
+	ActionReactionTelemetryBuffer.Append(MoveTemp(Record));
+}
+
+void UCombatComponent::ClearActionReactionTelemetry()
+{
+	ActionReactionTelemetryBuffer.Reset();
+	LastMovementInputDecisionReason = EActionReactionTelemetryReason::None;
+}
+
+FActionReactionTelemetryRecord UCombatComponent::BuildActionReactionTelemetryRecord(
+	const EActionReactionTelemetryEvent Event,
+	const EActionReactionTelemetryReason Reason) const
+{
+	FActionReactionTelemetryRecord Record;
+	Record.Event = Event;
+	Record.Reason = Reason;
+	Record.Actor = GetOwner();
+	Record.ActorStableId = CombatantStableId;
+	Record.AttackGeneration = AttackStateMachine.AttackGeneration;
+	Record.PrimaryActionGeneration = AttackStateMachine.AttackGeneration;
+	Record.HoldGeneration = HoldState.CurrentHold.HoldID;
+	Record.MontageInstanceId = AttackStateMachine.ActiveMontageInstanceId;
+	Record.AttackPhase = CurrentPhase;
+	Record.InputContext = CurrentInputContext;
+	Record.QueueDepth = ActionQueue.Num();
+	if (CurrentAttackData)
+	{
+		Record.AttackDataPath = FSoftObjectPath(CurrentAttackData);
+		Record.ActionName = CurrentAttackData->GetFName();
+	}
+	if (UAnimMontage* ActiveMontage = AttackStateMachine.GetActiveMontage())
+	{
+		Record.MontagePath = FSoftObjectPath(ActiveMontage);
+	}
+	return Record;
+}
+
+uint64 UCombatComponent::EnsureActionQueueEntryIdentity(FActionQueueEntry& Entry)
+{
+	if (Entry.QueueEntryId != 0)
+	{
+		return Entry.QueueEntryId;
+	}
+
+	Entry.QueueEntryId = NextActionQueueEntryId++;
+	if (NextActionQueueEntryId == 0)
+	{
+		NextActionQueueEntryId = 1;
+	}
+	return Entry.QueueEntryId;
+}
+
+void UCombatComponent::AppendActionQueueTelemetry(
+	const FActionQueueEntry& Entry,
+	const EActionReactionTelemetryEvent Event,
+	const EActionReactionTelemetryReason Reason)
+{
+	FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(Event, Reason);
+	Telemetry.InputSerial = Entry.InputAction.InputSerial;
+	Telemetry.QueueEntryId = Entry.QueueEntryId;
+	Telemetry.InputType = Entry.InputAction.InputType;
+	Telemetry.InputEvent = Entry.InputAction.EventType;
+	Telemetry.InputDirection = Entry.InputAction.FacingIntent.BranchDirection;
+	Telemetry.ExecutionMode = Entry.ExecutionMode;
+	Telemetry.ActionState = Entry.State;
+	if (Entry.AttackData)
+	{
+		Telemetry.AttackDataPath = FSoftObjectPath(Entry.AttackData);
+	}
+	AppendActionReactionTelemetry(MoveTemp(Telemetry));
+}
+
 void UCombatComponent::BeginPlay()
 {
 	Super::BeginPlay();
@@ -278,8 +460,8 @@ void UCombatComponent::BeginPlay()
 		#endif
 	}
 
-	// Only enable tick if debug visualization is active (performance optimization)
-	if (GetDebugDraw())
+	// Category CVars and the master override can independently drive this overlay.
+	if (CombatDebug::IsCombatStateDebugEnabled())
 	{
 		SetComponentTickEnabled(true);
 	}
@@ -326,6 +508,7 @@ void UCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	// Reset combat state to prevent any lingering effects
 	// (Paired animation cleanup is handled by PairedAnimationComponent::EndPlay)
 	CurrentAttackData = nullptr;
+	ActiveAttackStartupOperationSerial = 0;
 	CurrentPhase = EAttackPhase::None;
 	bIsBlocking = false;
 	CachedPairedAnimComp = nullptr;
@@ -448,7 +631,13 @@ void UCombatComponent::OnCharacterDeath(AActor* Killer)
 			}
 		}
 
-		if (CachedPairedAnimComp->GetChainState() != EChainCounterState::None
+		// A lethal sync can precede the victim's first collision notify. Keep its
+		// partner link until paired cleanup so that notify can acquire the ignore.
+		if (CachedPairedAnimComp->IsExpectedPairedVictimDeath())
+		{
+			// The retained sequence owns completion or cancellation of this death.
+		}
+		else if (CachedPairedAnimComp->GetChainState() != EChainCounterState::None
 			|| CachedPairedAnimComp->IsPairedAnimationActive())
 		{
 			CachedPairedAnimComp->CancelPairedAnimation(0.0f);
@@ -470,6 +659,7 @@ void UCombatComponent::OnCharacterDeath(AActor* Killer)
 
 	// Clear held inputs
 	HeldInputs.Empty();
+	HeldInputSerials.Empty();
 	bIsBlocking = false;
 
 	// Reset to idle phase
@@ -495,14 +685,24 @@ void UCombatComponent::SetInputContext(EInputContext NewContext)
 {
 	if (CurrentInputContext != NewContext)
 	{
-		if (GetDebugDraw())
+		const EInputContext OldContext = CurrentInputContext;
+		if (CombatDebug::IsHoldDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[INPUT CONTEXT] %s → %s"),
-				*UEnum::GetValueAsString(CurrentInputContext),
+				*UEnum::GetValueAsString(OldContext),
 				*UEnum::GetValueAsString(NewContext));
 		}
 
 		CurrentInputContext = NewContext;
+		FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+			EActionReactionTelemetryEvent::InputContextChanged,
+			EActionReactionTelemetryReason::None);
+		Telemetry.InputContext = NewContext;
+		Telemetry.Detail = FString::Printf(
+			TEXT("%s -> %s"),
+			*UEnum::GetValueAsString(OldContext),
+			*UEnum::GetValueAsString(NewContext));
+		AppendActionReactionTelemetry(MoveTemp(Telemetry));
 	}
 }
 
@@ -518,7 +718,7 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 	//
 	// Movement sync remains event-driven (phase transitions, play-rate changes).
 
-	if (GetDebugDraw())
+	if (CombatDebug::IsCombatStateDebugEnabled())
 	{
 		DrawDebugInfo();
 	}
@@ -747,7 +947,8 @@ void UCombatComponent::SweepDefenseInteractionCache(const double UnscaledNow)
 
 bool UCombatComponent::GetDebugDraw() const
 {
-	// Debug visualization is now CVar-controlled (Combat.Debug.All or specific CVars)
+	// General-purpose diagnostics remain behind the master toggle. Category-specific
+	// phase, queue, and hold paths call their own predicates directly.
 	return CombatDebug::IsDebugEnabled();
 }
 
@@ -813,6 +1014,158 @@ UAttackData* UCombatComponent::GetDefaultHeavyAttack() const
 // INPUT PROCESSING
 // ============================================================================
 
+bool UCombatComponent::SubmitMovementInput(
+	const FVector2D& CameraRelativeInput,
+	const FRotator& CameraRotation,
+	const bool bTerminal)
+{
+	FVector2D SanitizedInput = bTerminal ? FVector2D::ZeroVector : CameraRelativeInput;
+	if (!FMath::IsFinite(static_cast<float>(SanitizedInput.X))
+		|| !FMath::IsFinite(static_cast<float>(SanitizedInput.Y)))
+	{
+		SanitizedInput = FVector2D::ZeroVector;
+	}
+
+	const float RawMagnitude = SanitizedInput.Size();
+	const float Magnitude = FMath::Clamp(RawMagnitude, 0.0f, 1.0f);
+	SanitizedInput = RawMagnitude > UE_SMALL_NUMBER
+		? SanitizedInput.GetSafeNormal() * Magnitude
+		: FVector2D::ZeroVector;
+
+	FVector WorldDirection = FVector::ZeroVector;
+	if (!SanitizedInput.IsNearlyZero() && FMath::IsFinite(static_cast<float>(CameraRotation.Yaw)))
+	{
+		const FRotator CameraYaw(0.0f, CameraRotation.Yaw, 0.0f);
+		WorldDirection =
+			FRotationMatrix(CameraYaw).GetUnitAxis(EAxis::X) * SanitizedInput.Y
+			+ FRotationMatrix(CameraYaw).GetUnitAxis(EAxis::Y) * SanitizedInput.X;
+		WorldDirection.Z = 0.0f;
+		WorldDirection = WorldDirection.GetSafeNormal();
+		if (WorldDirection.ContainsNaN())
+		{
+			WorldDirection = FVector::ZeroVector;
+		}
+	}
+
+	MovementInputSample.CameraRelativeInput = SanitizedInput;
+	MovementInputSample.WorldDirection = WorldDirection;
+	MovementInputSample.Magnitude = Magnitude;
+	MovementInputSample.Serial = NextMovementInputSerial++;
+	if (NextMovementInputSerial == 0)
+	{
+		NextMovementInputSerial = 1;
+	}
+	MovementInputSample.SimulationTimestamp = GetWorld()
+		? static_cast<double>(GetWorld()->GetTimeSeconds())
+		: 0.0;
+
+	const bool bHasInput = !bTerminal && Magnitude > UE_SMALL_NUMBER;
+	const EActionReactionTelemetryReason DecisionReason =
+		ResolveMovementInputDecisionReason(bHasInput);
+	RecordMovementInputDecision(DecisionReason);
+	return DecisionReason == EActionReactionTelemetryReason::MovementInputAllowed;
+}
+
+void UCombatComponent::ClearMovementInputSample()
+{
+	if (MovementInputSample.CameraRelativeInput.IsNearlyZero()
+		&& MovementInputSample.WorldDirection.IsNearlyZero()
+		&& MovementInputSample.Magnitude <= UE_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	const FRotator OwnerRotation = GetOwner()
+		? GetOwner()->GetActorRotation()
+		: FRotator::ZeroRotator;
+	SubmitMovementInput(FVector2D::ZeroVector, OwnerRotation, true);
+}
+
+EActionReactionTelemetryReason UCombatComponent::ResolveMovementInputDecisionReason(
+	const bool bHasInput) const
+{
+	if (!bHasInput)
+	{
+		return EActionReactionTelemetryReason::MovementInputCleared;
+	}
+
+	const ABaseCombatCharacter* Character = GetOwnerCharacter();
+	if (!Character || Character->IsDeadOrDying())
+	{
+		return EActionReactionTelemetryReason::MovementInputSuppressedByTerminalState;
+	}
+	if (Character->HitReactionComponent
+		&& Character->HitReactionComponent->IsInPairedAnimationState())
+	{
+		return EActionReactionTelemetryReason::MovementInputSuppressedByPaired;
+	}
+
+	if (HoldState.IsHolding() || HoldState.bIsEasing)
+	{
+		return EActionReactionTelemetryReason::MovementInputSuppressedByHold;
+	}
+
+	const UPairedAnimationComponent* PairedAnimComp = CachedPairedAnimComp;
+	if (!PairedAnimComp && GetOwner())
+	{
+		PairedAnimComp = GetOwner()->FindComponentByClass<UPairedAnimationComponent>();
+	}
+
+	if (PairedAnimComp && PairedAnimComp->IsInputBlocked())
+	{
+		return EActionReactionTelemetryReason::MovementInputSuppressedByPaired;
+	}
+
+	return EActionReactionTelemetryReason::MovementInputAllowed;
+}
+
+void UCombatComponent::RecordMovementInputDecision(
+	const EActionReactionTelemetryReason Reason)
+{
+	if (!ActionReactionTelemetry::IsEnabled())
+	{
+		LastMovementInputDecisionReason = EActionReactionTelemetryReason::None;
+		return;
+	}
+
+	if (Reason == LastMovementInputDecisionReason)
+	{
+		return;
+	}
+	LastMovementInputDecisionReason = Reason;
+
+	FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+		EActionReactionTelemetryEvent::MovementInputDecisionChanged,
+		Reason);
+	Telemetry.InputSerial = MovementInputSample.Serial;
+	Telemetry.MovementMagnitude = MovementInputSample.Magnitude;
+	Telemetry.MovementDisposition = FName(
+		Reason == EActionReactionTelemetryReason::MovementInputAllowed
+			? TEXT("Allowed")
+			: Reason == EActionReactionTelemetryReason::MovementInputCleared
+				? TEXT("Inactive")
+				: TEXT("Suppressed"));
+
+	if (const ACharacter* Character = Cast<ACharacter>(GetOwner()))
+	{
+		Telemetry.bRootMotionActive = Character->IsPlayingRootMotion();
+		if (const UCharacterMovementComponent* Movement = Character->GetCharacterMovement())
+		{
+			Telemetry.CharacterMovementMode = FName(
+				*UEnum::GetValueAsString(Movement->MovementMode.GetValue()));
+			Telemetry.CharacterCustomMovementMode = Movement->CustomMovementMode;
+		}
+	}
+
+	AppendActionReactionTelemetry(MoveTemp(Telemetry));
+}
+
+bool UCombatComponent::IsMovementInputSuppressed() const
+{
+	return ResolveMovementInputDecisionReason(true)
+		!= EActionReactionTelemetryReason::MovementInputAllowed;
+}
+
 void UCombatComponent::OnInputEventWithTransform(
 	EInputType InputType,
 	EInputEventType EventType,
@@ -833,8 +1186,66 @@ void UCombatComponent::OnInputEventWithTransform(
 		0.2f  // Dead zone
 	);
 
-	// Delegate to core input handler with transformed direction
-	OnInputEvent(InputType, EventType, CharacterRelativeDirection);
+	const FAttackFacingIntent FacingIntent = BuildAttackFacingIntent(
+		CameraRelativeInput,
+		CameraRotation,
+		CharacterRotation,
+		CharacterRelativeDirection,
+		EAttackFacingIntentSource::CameraRelativeInput);
+	OnInputEventInternal(InputType, EventType, CharacterRelativeDirection, FacingIntent);
+}
+
+FAttackFacingIntent UCombatComponent::BuildAttackFacingIntent(
+	FVector2D CameraRelativeInput,
+	FRotator CameraRotation,
+	FRotator CharacterRotation,
+	EInputDirection BranchDirection,
+	EAttackFacingIntentSource Source) const
+{
+	FAttackFacingIntent Intent;
+	Intent.CapturedFacingYaw = FMath::IsFinite(static_cast<float>(CharacterRotation.Yaw))
+		? FRotator::NormalizeAxis(static_cast<float>(CharacterRotation.Yaw))
+		: 0.0f;
+	Intent.DesiredYaw = Intent.CapturedFacingYaw;
+	Intent.BranchDirection = BranchDirection;
+	Intent.Source = Source;
+	Intent.SimulationTimestamp = GetWorld()
+		? static_cast<double>(GetWorld()->GetTimeSeconds())
+		: 0.0;
+
+	if (!FMath::IsFinite(static_cast<float>(CameraRelativeInput.X))
+		|| !FMath::IsFinite(static_cast<float>(CameraRelativeInput.Y))
+		|| !FMath::IsFinite(static_cast<float>(CameraRotation.Yaw)))
+	{
+		Intent.Source = EAttackFacingIntentSource::CapturedFacing;
+		return Intent;
+	}
+
+	const float InputMagnitude = FMath::Min(CameraRelativeInput.Size(), 1.0f);
+	if (InputMagnitude <= 0.2f)
+	{
+		Intent.Source = EAttackFacingIntentSource::CapturedFacing;
+		return Intent;
+	}
+
+	const FVector2D NormalizedInput = CameraRelativeInput.GetSafeNormal();
+	const FRotator CameraYaw(0.0f, CameraRotation.Yaw, 0.0f);
+	const FVector CameraForward = FRotationMatrix(CameraYaw).GetUnitAxis(EAxis::X);
+	const FVector CameraRight = FRotationMatrix(CameraYaw).GetUnitAxis(EAxis::Y);
+	FVector WorldDirection = CameraForward * NormalizedInput.Y
+		+ CameraRight * NormalizedInput.X;
+	WorldDirection.Z = 0.0f;
+	WorldDirection = WorldDirection.GetSafeNormal();
+	if (WorldDirection.IsNearlyZero() || WorldDirection.ContainsNaN())
+	{
+		Intent.Source = EAttackFacingIntentSource::CapturedFacing;
+		return Intent;
+	}
+
+	Intent.WorldDirection = WorldDirection;
+	Intent.DesiredYaw = FRotator::NormalizeAxis(WorldDirection.Rotation().Yaw);
+	Intent.bHasWorldDirection = true;
+	return Intent;
 }
 
 void UCombatComponent::OnInputEventAuto(
@@ -881,7 +1292,7 @@ void UCombatComponent::OnInputEventAuto(
 		OnInputEventWithTransform(InputType, EventType, MovementInput, CameraRotation, CameraRotation);
 	}
 
-	if (GetDebugDraw())
+	if (CombatDebug::IsHoldDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[INPUT AUTO] Mode=%s, Camera=%.1f°, Character=%.1f°"),
 			bCharacterRelative ? TEXT("Character-Relative") : TEXT("Camera-Relative"),
@@ -889,13 +1300,82 @@ void UCombatComponent::OnInputEventAuto(
 	}
 }
 
-void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventType, EInputDirection InputDirection)
+void UCombatComponent::OnInputEvent(
+	EInputType InputType,
+	EInputEventType EventType,
+	EInputDirection InputDirection)
+{
+	FAttackFacingIntent FacingIntent;
+	FacingIntent.BranchDirection = InputDirection;
+	FacingIntent.SimulationTimestamp = GetWorld()
+		? static_cast<double>(GetWorld()->GetTimeSeconds())
+		: 0.0;
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		FacingIntent.CapturedFacingYaw = FRotator::NormalizeAxis(
+			Character->GetActorRotation().Yaw);
+		FacingIntent.DesiredYaw = FacingIntent.CapturedFacingYaw;
+		if (InputDirection != EInputDirection::None)
+		{
+			FVector WorldDirection = UCombatUtils::InputDirectionToWorldVector(
+				InputDirection, Character);
+			WorldDirection.Z = 0.0f;
+			WorldDirection = WorldDirection.GetSafeNormal();
+			if (!WorldDirection.IsNearlyZero() && !WorldDirection.ContainsNaN())
+			{
+				FacingIntent.WorldDirection = WorldDirection;
+				FacingIntent.DesiredYaw = FRotator::NormalizeAxis(
+					WorldDirection.Rotation().Yaw);
+				FacingIntent.bHasWorldDirection = true;
+				FacingIntent.Source = EAttackFacingIntentSource::CharacterRelativeDirection;
+			}
+		}
+		else
+		{
+			FacingIntent.Source = EAttackFacingIntentSource::CapturedFacing;
+		}
+	}
+	OnInputEventInternal(InputType, EventType, InputDirection, FacingIntent);
+}
+
+void UCombatComponent::OnInputEventInternal(
+	EInputType InputType,
+	EInputEventType EventType,
+	EInputDirection InputDirection,
+	const FAttackFacingIntent& FacingIntent)
 {
 	const uint64 InputSerial = CaptureCombatInput(InputType, EventType, InputDirection);
+	if (EventType == EInputEventType::Canceled)
+	{
+		HeldInputs.Remove(InputType);
+		HeldInputSerials.Remove(InputType);
+		if (InputType == EInputType::Block)
+		{
+			EndBlock();
+		}
+		if (HoldState.IsHolding() && HoldState.GetHeldInputType() == InputType)
+		{
+			ClearHoldState();
+		}
+
+		FinalizeCombatInput(
+			InputSerial,
+			InputType == EInputType::Block
+				? ECombatInputRoute::StatefulControl
+				: ECombatInputRoute::NormalQueue,
+			ECombatInputDisposition::Consumed,
+			EActionReactionTelemetryReason::InputCanceled);
+		return;
+	}
+
 	if (InputType == EInputType::Block && EventType == EInputEventType::Release)
 	{
 		EndBlock();
-		FinalizeCombatInput(InputSerial, ECombatInputRoute::StatefulControl, ECombatInputDisposition::Consumed);
+		FinalizeCombatInput(
+			InputSerial,
+			ECombatInputRoute::StatefulControl,
+			ECombatInputDisposition::Consumed,
+			EActionReactionTelemetryReason::StatefulControlConsumed);
 		return;
 	}
 
@@ -914,18 +1394,30 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 		FinalizeCombatInput(
 			InputSerial,
 			InputType == EInputType::Block ? ECombatInputRoute::StatefulControl : ECombatInputRoute::NormalQueue,
-			ECombatInputDisposition::Rejected);
+			ECombatInputDisposition::Rejected,
+			EActionReactionTelemetryReason::MissingCombatSettings);
 		return;
 	}
 
 	// Check if input can be processed (gate stunned/dead/guard broken states)
 	if (!CanProcessInput(InputType))
 	{
+		if (EventType == EInputEventType::Release)
+		{
+			HeldInputs.Remove(InputType);
+			HeldInputSerials.Remove(InputType);
+			if (HoldState.IsHolding() && HoldState.GetHeldInputType() == InputType)
+			{
+				HoldState.CurrentHold.ReleaseInputSerial = InputSerial;
+				ClearHoldState();
+			}
+		}
 		FinalizeCombatInput(
 			InputSerial,
 			InputType == EInputType::Block ? ECombatInputRoute::StatefulControl : ECombatInputRoute::NormalQueue,
-			ECombatInputDisposition::Rejected);
-		if (GetDebugDraw())
+			ECombatInputDisposition::Rejected,
+			EActionReactionTelemetryReason::CombatStateRejected);
+		if (CombatDebug::IsQueueDebugEnabled())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[INPUT] Input REJECTED - Cannot process in current combat state"));
 		}
@@ -958,7 +1450,10 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 			ECombatInputRoute::StatefulControl,
 			(bBlockStarted || bPerfectParryCommitted || bLegacyCounterStarted)
 				? ECombatInputDisposition::Consumed
-				: ECombatInputDisposition::Rejected);
+				: ECombatInputDisposition::Rejected,
+			(bBlockStarted || bPerfectParryCommitted || bLegacyCounterStarted)
+				? EActionReactionTelemetryReason::StatefulControlConsumed
+				: EActionReactionTelemetryReason::StatefulControlRejected);
 		return;
 	}
 
@@ -972,7 +1467,10 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 		FinalizeCombatInput(
 			InputSerial,
 			ECombatInputRoute::ChainOnly,
-			bAdvanced ? ECombatInputDisposition::Consumed : ECombatInputDisposition::Expired);
+			bAdvanced ? ECombatInputDisposition::Consumed : ECombatInputDisposition::Expired,
+			bAdvanced
+				? EActionReactionTelemetryReason::ChainAdvanced
+				: EActionReactionTelemetryReason::ChainExpired);
 		return;
 	}
 
@@ -1002,7 +1500,7 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 				{
 					HoldState.CurrentHold.Direction = UCombatUtils::InputToAttackDirection(InputDirection);
 
-					if (GetDebugDraw())
+					if (CombatDebug::IsHoldDebugEnabled())
 					{
 						UE_LOG(LogCombat, Log, TEXT("[DIRECTIONAL] Direction captured at RELEASE: %s (time=%.2f) → HoldEvent.Direction=%s"),
 							*UDebugUtils::FormatInputDirectionDebug(InputDirection),
@@ -1010,21 +1508,21 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 							*UDebugUtils::FormatAttackDirectionDebug(HoldState.CurrentHold.Direction));
 					}
 				}
-				else if (GetDebugDraw())
+				else if (CombatDebug::IsHoldDebugEnabled())
 				{
 					UE_LOG(LogCombat, Log, TEXT("[DIRECTIONAL] Direction captured at RELEASE: %s (time=%.2f) [NO ACTIVE HOLD]"),
 						*UDebugUtils::FormatInputDirectionDebug(InputDirection),
 						DirectionalInputBuffer.CaptureTime);
 				}
 			}
-			else if (GetDebugDraw())
+			else if (CombatDebug::IsHoldDebugEnabled())
 			{
 				// Direction provided during hold, but not capturing until release
 				UE_LOG(LogCombat, Verbose, TEXT("[DIRECTIONAL] Direction during hold: %s (awaiting release to capture)"),
 					*UDebugUtils::FormatInputDirectionDebug(InputDirection));
 			}
 		}
-		else if (GetDebugDraw())
+		else if (CombatDebug::IsHoldDebugEnabled())
 		{
 			// Direction provided but context is Movement (ignored for attack purposes)
 			UE_LOG(LogCombat, Verbose, TEXT("[DIRECTIONAL] Direction IGNORED (context=%s, not DirectionalInput)"),
@@ -1035,7 +1533,7 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 		LastDirectionalInput = InputDirection;
 		bDirectionalInputConsumed = false;
 	}
-	else if (GetDebugDraw())
+	else if (CombatDebug::IsHoldDebugEnabled())
 	{
 		// No direction provided (Blueprint might not be passing movement input)
 		UE_LOG(LogCombat, Verbose, TEXT("[INPUT] No directional input provided"));
@@ -1046,6 +1544,8 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 
 	// Create input action
 	FQueuedInputAction InputAction(InputType, EventType, CurrentTime, bComboWindowActive);
+	InputAction.InputSerial = InputSerial;
+	InputAction.FacingIntent = FacingIntent;
 
 	// Track press/release pairs
 	if (EventType == EInputEventType::Press)
@@ -1053,13 +1553,18 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 		// Check if we can accept new input (not in commit window, not duplicate)
 		if (!CanAcceptNewInput(InputType))
 		{
-			FinalizeCombatInput(InputSerial, ECombatInputRoute::NormalQueue, ECombatInputDisposition::Rejected);
+			FinalizeCombatInput(
+				InputSerial,
+				ECombatInputRoute::NormalQueue,
+				ECombatInputDisposition::Rejected,
+				EActionReactionTelemetryReason::DuplicatePendingInput);
 			return; // Input rejected
 		}
 
 		HeldInputs.Add(InputType, CurrentTime);
+		HeldInputSerials.Add(InputType, InputSerial);
 
-		if ( GetDebugDraw())
+		if (CombatDebug::IsQueueDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[INPUT] %s PRESSED at %.2f (Combo: %s, Direction: %s)"),
 				*UEnum::GetValueAsString(InputType),
@@ -1077,8 +1582,9 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 			ProcessInputPair(PressEvent, InputAction);
 			HeldInputs.Remove(InputType);
 		}
+		HeldInputSerials.Remove(InputType);
 
-		if ( GetDebugDraw())
+		if (CombatDebug::IsQueueDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[INPUT] %s RELEASED at %.2f"),
 				*UEnum::GetValueAsString(InputType),
@@ -1088,18 +1594,26 @@ void UCombatComponent::OnInputEvent(EInputType InputType, EInputEventType EventT
 		// Handle hold deactivation
 		if (HoldState.IsHolding() && HoldState.GetHeldInputType() == InputType)
 		{
-			DeactivateHold();
+			DeactivateHoldWithInputSerial(
+				InputSerial,
+				FacingIntent,
+				InputDirection);
 		}
 	}
 
 	ECombatInputDisposition Disposition = ECombatInputDisposition::Consumed;
+	EActionReactionTelemetryReason DecisionReason = EActionReactionTelemetryReason::InputConsumed;
 	if (EventType == EInputEventType::Press)
 	{
-		Disposition = TryQueueAction(InputAction)
+		Disposition = TryQueueAction(InputAction, nullptr, &DecisionReason)
 			? ECombatInputDisposition::Queued
 			: ECombatInputDisposition::Rejected;
 	}
-	FinalizeCombatInput(InputSerial, ECombatInputRoute::NormalQueue, Disposition);
+	FinalizeCombatInput(
+		InputSerial,
+		ECombatInputRoute::NormalQueue,
+		Disposition,
+		DecisionReason);
 
 	// Update stats
 	QueueStats.TotalInputs++;
@@ -1133,14 +1647,27 @@ uint64 UCombatComponent::CaptureCombatInput(
 		CombatInputHistory.RemoveAt(0, CombatInputHistory.Num() - MaxInputHistoryRecords, EAllowShrinking::No);
 	}
 
+	FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+		EActionReactionTelemetryEvent::InputCaptured,
+		EActionReactionTelemetryReason::Captured);
+	Telemetry.InputSerial = Record.Serial;
+	Telemetry.InputType = Record.InputType;
+	Telemetry.InputEvent = Record.EventType;
+	Telemetry.InputDirection = Record.Direction;
+	Telemetry.InputRoute = Record.Route;
+	Telemetry.InputDisposition = Record.Disposition;
+	AppendActionReactionTelemetry(MoveTemp(Telemetry));
+
 	return Record.Serial;
 }
 
 void UCombatComponent::FinalizeCombatInput(
 	uint64 Serial,
 	ECombatInputRoute Route,
-	ECombatInputDisposition Disposition)
+	ECombatInputDisposition Disposition,
+	EActionReactionTelemetryReason Reason)
 {
+	const FCombatInputRecord* FinalizedRecord = nullptr;
 	for (int32 Index = CombatInputHistory.Num() - 1; Index >= 0; --Index)
 	{
 		FCombatInputRecord& Record = CombatInputHistory[Index];
@@ -1148,13 +1675,40 @@ void UCombatComponent::FinalizeCombatInput(
 		{
 			Record.Route = Route;
 			Record.Disposition = Disposition;
-			return;
+			FinalizedRecord = &Record;
+			break;
 		}
 	}
+
+	FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+		EActionReactionTelemetryEvent::InputFinalized,
+		Reason);
+	Telemetry.InputSerial = Serial;
+	Telemetry.InputRoute = Route;
+	Telemetry.InputDisposition = Disposition;
+	if (FinalizedRecord)
+	{
+		Telemetry.InputType = FinalizedRecord->InputType;
+		Telemetry.InputEvent = FinalizedRecord->EventType;
+		Telemetry.InputDirection = FinalizedRecord->Direction;
+	}
+	else
+	{
+		Telemetry.Detail = TEXT("InputHistoryRecordEvicted");
+	}
+	AppendActionReactionTelemetry(MoveTemp(Telemetry));
 }
 
 bool UCombatComponent::CanProcessInput(EInputType InputType) const
 {
+	const ABaseCombatCharacter* Character = GetOwnerCharacter();
+	if (Character
+		&& Character->HitReactionComponent
+		&& Character->HitReactionComponent->IsInPairedAnimationState())
+	{
+		return false;
+	}
+
 	// Block combat input during paired animations (finishers, counters)
 	// This prevents accidental input buffering during cinematics
 	if (CachedPairedAnimComp && CachedPairedAnimComp->IsInputBlocked())
@@ -1166,7 +1720,7 @@ bool UCombatComponent::CanProcessInput(EInputType InputType) const
 		{
 			return true;
 		}
-		if (GetDebugDraw())
+		if (CombatDebug::IsQueueDebugEnabled())
 		{
 			UE_LOG(LogCombat, Verbose, TEXT("[INPUT] Input blocked - paired animation in progress"));
 		}
@@ -1456,6 +2010,18 @@ bool UCombatComponent::ConsumeActiveAttackInternal(
 		}
 	}
 
+	for (const FActionQueueEntry& Entry : ActionQueue)
+	{
+		if (Entry.IsPending())
+		{
+			FActionQueueEntry CancelledEntry = Entry;
+			CancelledEntry.State = EActionState::Cancelled;
+			AppendActionQueueTelemetry(
+				CancelledEntry,
+				EActionReactionTelemetryEvent::QueueCancelled,
+				EActionReactionTelemetryReason::AttackConsumed);
+		}
+	}
 	ActionQueue.RemoveAll([](const FActionQueueEntry& Entry)
 	{
 		return Entry.IsPending();
@@ -2950,16 +3516,56 @@ void UCombatComponent::QueueAction(const FQueuedInputAction& InputAction, UAttac
 	TryQueueAction(InputAction, AttackData);
 }
 
-bool UCombatComponent::TryQueueAction(const FQueuedInputAction& InputAction, UAttackData* AttackData)
+bool UCombatComponent::TryQueueAction(
+	const FQueuedInputAction& InputAction,
+	UAttackData* AttackData,
+	EActionReactionTelemetryReason* OutDecisionReason)
 {
+	const auto SetDecisionReason = [OutDecisionReason](
+		const EActionReactionTelemetryReason Reason)
+	{
+		if (OutDecisionReason)
+		{
+			*OutDecisionReason = Reason;
+		}
+	};
+	SetDecisionReason(EActionReactionTelemetryReason::None);
+
+	const auto EmitQueueRecord = [this, &InputAction](
+		const EActionReactionTelemetryEvent Event,
+		const EActionReactionTelemetryReason Reason,
+		const FActionQueueEntry* Entry)
+	{
+		FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(Event, Reason);
+		Telemetry.InputSerial = InputAction.InputSerial;
+		Telemetry.InputType = InputAction.InputType;
+		Telemetry.InputEvent = InputAction.EventType;
+		Telemetry.InputDirection = InputAction.FacingIntent.BranchDirection;
+		if (Entry)
+		{
+			Telemetry.QueueEntryId = Entry->QueueEntryId;
+			Telemetry.ExecutionMode = Entry->ExecutionMode;
+			Telemetry.ActionState = Entry->State;
+			Telemetry.AttackDataPath = FSoftObjectPath(Entry->AttackData);
+		}
+		AppendActionReactionTelemetry(MoveTemp(Telemetry));
+	};
+
 	// Only queue press events (releases handled separately)
 	if (InputAction.EventType != EInputEventType::Press)
 	{
+		SetDecisionReason(EActionReactionTelemetryReason::CombatStateRejected);
+		EmitQueueRecord(
+			EActionReactionTelemetryEvent::QueueRejected,
+			EActionReactionTelemetryReason::CombatStateRejected,
+			nullptr);
 		return false;
 	}
 
 	// Determine execution mode
-	EActionExecutionMode ExecMode = DetermineExecutionMode(InputAction);
+	EActionExecutionMode ExecMode = HoldState.IsHolding()
+		? EActionExecutionMode::Queued
+		: DetermineExecutionMode(InputAction);
 
 	// Get attack data if not provided
 	if (!AttackData)
@@ -2971,13 +3577,19 @@ bool UCombatComponent::TryQueueAction(const FQueuedInputAction& InputAction, UAt
 	// This can happen if CombatSettings is not assigned to the character
 	if (!AttackData)
 	{
+		SetDecisionReason(EActionReactionTelemetryReason::AttackResolutionFailed);
 		UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Cannot queue action: No attack resolved. "
 		                                "Check that CombatSettings is assigned to the character."));
+		EmitQueueRecord(
+			EActionReactionTelemetryEvent::QueueRejected,
+			EActionReactionTelemetryReason::AttackResolutionFailed,
+			nullptr);
 		return false;
 	}
 
 	// Create queue entry
 	FActionQueueEntry Entry(InputAction, AttackData, ExecMode);
+	EnsureActionQueueEntryIdentity(Entry);
 	Entry.Priority = CalculatePriority(Entry);
 
 	// PHASE 9: Set TargetPhase for event-driven execution
@@ -2990,6 +3602,10 @@ bool UCombatComponent::TryQueueAction(const FQueuedInputAction& InputAction, UAt
 	// Immediate mode: Execute synchronously (right now)
 	if (ExecMode == EActionExecutionMode::Immediate)
 	{
+		EmitQueueRecord(
+			EActionReactionTelemetryEvent::QueueAccepted,
+			EActionReactionTelemetryReason::None,
+			&Entry);
 		// COMBO-AWARE QUEUE MANAGEMENT:
 		// Check if the executing action has combo branches (NextComboAttack, HeavyComboAttack, etc.)
 		// If YES: Preserve ONLY valid combo inputs (enables alternating light/heavy chains)
@@ -3050,6 +3666,12 @@ bool UCombatComponent::TryQueueAction(const FQueuedInputAction& InputAction, UAt
 				{
 					// Cancel: either invalid combo OR duplicate input (spam prevention)
 					QueuedEntry.State = EActionState::Cancelled;
+					AppendActionQueueTelemetry(
+						QueuedEntry,
+						EActionReactionTelemetryEvent::QueueCancelled,
+						bAlreadyQueued
+							? EActionReactionTelemetryReason::DuplicatePendingInput
+							: EActionReactionTelemetryReason::InvalidComboBranch);
 					QueueStats.ActionsCancelled++;
 					CancelledCount++;
 				}
@@ -3058,7 +3680,7 @@ bool UCombatComponent::TryQueueAction(const FQueuedInputAction& InputAction, UAt
 			// Replace queue with only valid combos (max 1 Light + 1 Heavy)
 			ActionQueue = ValidCombos;
 
-			if (GetDebugDraw())
+			if (CombatDebug::IsQueueDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[QUEUE] Combo-aware clear: Preserved %d valid combos (anti-spam), cancelled %d"),
 					ValidCombos.Num(), CancelledCount);
@@ -3073,6 +3695,10 @@ bool UCombatComponent::TryQueueAction(const FQueuedInputAction& InputAction, UAt
 				if (QueuedEntry.IsPending())
 				{
 					QueuedEntry.State = EActionState::Cancelled;
+					AppendActionQueueTelemetry(
+						QueuedEntry,
+						EActionReactionTelemetryEvent::QueueCancelled,
+						EActionReactionTelemetryReason::FreshChainReset);
 					QueueStats.ActionsCancelled++;
 					ClearedCount++;
 				}
@@ -3080,13 +3706,13 @@ bool UCombatComponent::TryQueueAction(const FQueuedInputAction& InputAction, UAt
 
 			ActionQueue.Empty();
 
-			if (GetDebugDraw() && ClearedCount > 0)
+			if (CombatDebug::IsQueueDebugEnabled() && ClearedCount > 0)
 			{
 				UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Cleared %d pending actions (no combo branches - chain ended)"), ClearedCount);
 			}
 		}
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsQueueDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[QUEUE] Executing IMMEDIATE action: Type=%s"),
 				*UEnum::GetValueAsString(InputAction.InputType));
@@ -3099,32 +3725,71 @@ bool UCombatComponent::TryQueueAction(const FQueuedInputAction& InputAction, UAt
 			QueueStats.ActionsExecuted++;
 			QueueStats.ImmediateExecutions++;
 
-			if (GetDebugDraw())
+			if (CombatDebug::IsQueueDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[QUEUE] Immediate execution SUCCESS"));
 			}
 		}
 		else
 		{
-			if (GetDebugDraw())
+			if (CombatDebug::IsQueueDebugEnabled())
 			{
 				UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Immediate execution FAILED"));
 			}
 		}
 
+		SetDecisionReason(bExecuted
+			? EActionReactionTelemetryReason::ImmediateExecutionSucceeded
+			: EActionReactionTelemetryReason::ImmediateExecutionFailed);
 		return bExecuted; // Don't add to queue
 	}
 
 	// Queued mode: Schedule for later execution at Active-end
 	Entry.ScheduledTime = GetExecutionCheckpoint(Entry);
 
-	// Add to queue
+	// Light/Heavy share one newest-wins pending normal slot.
+	if (InputAction.InputType == EInputType::LightAttack
+		|| InputAction.InputType == EInputType::HeavyAttack)
+	{
+		for (int32 Index = ActionQueue.Num() - 1; Index >= 0; --Index)
+		{
+			FActionQueueEntry& PendingEntry = ActionQueue[Index];
+			const EInputType PendingType = PendingEntry.InputAction.InputType;
+			if (!PendingEntry.IsPending()
+				|| (PendingType != EInputType::LightAttack
+					&& PendingType != EInputType::HeavyAttack))
+			{
+				continue;
+			}
+
+			PendingEntry.State = EActionState::Cancelled;
+			AppendActionQueueTelemetry(
+				PendingEntry,
+				EActionReactionTelemetryEvent::QueueCancelled,
+				EActionReactionTelemetryReason::PendingInputReplaced);
+			if (PendingEntry.InputAction.InputSerial != 0)
+			{
+				FinalizeCombatInput(
+					PendingEntry.InputAction.InputSerial,
+					ECombatInputRoute::NormalQueue,
+					ECombatInputDisposition::Replaced,
+					EActionReactionTelemetryReason::PendingInputReplaced);
+			}
+			++QueueStats.ActionsCancelled;
+			ActionQueue.RemoveAt(Index, 1, EAllowShrinking::No);
+		}
+	}
+
 	ActionQueue.Add(Entry);
+	EmitQueueRecord(
+		EActionReactionTelemetryEvent::QueueAccepted,
+		EActionReactionTelemetryReason::Queued,
+		&Entry);
 
 	// Sort by scheduled time
 	SortQueueByTime();
 
-	if ( GetDebugDraw())
+	if (CombatDebug::IsQueueDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[QUEUE] Added queued action: Type=%s, Mode=%s, Scheduled=%.2f, Priority=%d"),
 			*UEnum::GetValueAsString(InputAction.InputType),
@@ -3133,6 +3798,7 @@ bool UCombatComponent::TryQueueAction(const FQueuedInputAction& InputAction, UAt
 			Entry.Priority);
 	}
 
+	SetDecisionReason(EActionReactionTelemetryReason::Queued);
 	return true;
 }
 
@@ -3147,67 +3813,48 @@ void UCombatComponent::ProcessQueuedActions(EAttackPhase TargetPhase)
 		return;
 	}
 
-	int32 ExecutedCount = 0;
-
-	// Process actions targeting this phase (FIFO order maintained)
-	for (int32 i = ActionQueue.Num() - 1; i >= 0; --i)
+	int32 WinnerIndex = INDEX_NONE;
+	for (int32 Index = ActionQueue.Num() - 1; Index >= 0; --Index)
 	{
-		FActionQueueEntry& Entry = ActionQueue[i];
-
-		if (!Entry.IsPending())
+		const FActionQueueEntry& Candidate = ActionQueue[Index];
+		if (Candidate.IsPending() && Candidate.TargetPhase == TargetPhase)
 		{
-			continue; // Skip non-pending actions
-		}
-
-		// Check if this action targets the current phase transition
-		bool bShouldExecute = (Entry.TargetPhase == TargetPhase);
-
-		if (bShouldExecute)
-		{
-			// Execute action
-			if (ExecuteAction(Entry))
-			{
-				Entry.State = EActionState::Completed;
-				QueueStats.ActionsExecuted++;
-
-				if (Entry.ExecutionMode == EActionExecutionMode::Queued)
-				{
-					QueueStats.QueuedExecutions++;
-				}
-
-				ExecutedCount++;
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[EVENT-DRIVEN] Executed action on phase %s (TargetPhase: %s)"),
-						*UEnum::GetValueAsString(TargetPhase),
-						*UEnum::GetValueAsString(Entry.TargetPhase));
-				}
-
-				// Remove from queue after successful execution
-				ActionQueue.RemoveAt(i);
-			}
-			else
-			{
-				// Execution failed - mark as cancelled
-				Entry.State = EActionState::Cancelled;
-				QueueStats.ActionsCancelled++;
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Warning, TEXT("[EVENT-DRIVEN] Action execution failed on phase %s, cancelled"),
-						*UEnum::GetValueAsString(TargetPhase));
-				}
-
-				ActionQueue.RemoveAt(i);
-			}
+			WinnerIndex = Index;
+			break;
 		}
 	}
 
-	if (GetDebugDraw() && ExecutedCount > 0)
+	if (WinnerIndex == INDEX_NONE)
 	{
-		UE_LOG(LogCombat, Log, TEXT("[EVENT-DRIVEN] Processed %d queued actions on phase %s"),
-			ExecutedCount, *UEnum::GetValueAsString(TargetPhase));
+		return;
+	}
+
+	FActionQueueEntry Winner = ActionQueue[WinnerIndex];
+	ActionQueue.RemoveAt(WinnerIndex, 1, EAllowShrinking::No);
+	const TWeakObjectPtr<UCombatComponent> ComponentSnapshot(this);
+	const bool bExecuted = ExecuteAction(Winner);
+	if (!ComponentSnapshot.IsValid())
+	{
+		return;
+	}
+
+	if (bExecuted)
+	{
+		Winner.State = EActionState::Completed;
+		++QueueStats.ActionsExecuted;
+		if (Winner.ExecutionMode == EActionExecutionMode::Queued)
+		{
+			++QueueStats.QueuedExecutions;
+		}
+	}
+	else
+	{
+		Winner.State = EActionState::Cancelled;
+		AppendActionQueueTelemetry(
+			Winner,
+			EActionReactionTelemetryEvent::QueueCancelled,
+			EActionReactionTelemetryReason::ExecutionFailed);
+		++QueueStats.ActionsCancelled;
 	}
 }
 
@@ -3271,7 +3918,7 @@ void UCombatComponent::ProcessQueue(float CurrentMontageTime)
 					QueueStats.QueuedExecutions++;
 				}
 
-				if (GetDebugDraw())
+				if (CombatDebug::IsQueueDebugEnabled())
 				{
 					UE_LOG(LogCombat, Log, TEXT("[QUEUE] Executed action at %.2f (scheduled: %.2f)"),
 						CurrentMontageTime, Entry.ScheduledTime);
@@ -3284,7 +3931,7 @@ void UCombatComponent::ProcessQueue(float CurrentMontageTime)
 			{
 				// Execution failed - keep in queue for potential retry
 				// Mark as cancelled if it keeps failing
-				if (GetDebugDraw())
+				if (CombatDebug::IsQueueDebugEnabled())
 				{
 					UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Action execution failed at %.2f, keeping in queue"),
 						CurrentMontageTime);
@@ -3296,23 +3943,69 @@ void UCombatComponent::ProcessQueue(float CurrentMontageTime)
 
 bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 {
-	if (!Action.AttackData)
+#if WITH_AUTOMATION_TESTS
+	++ExecuteActionCallCountForTesting;
+#endif
+	EnsureActionQueueEntryIdentity(Action);
+	const uint64 ActionQueueEntryId = Action.QueueEntryId;
+	const FQueuedInputAction ActionInput = Action.InputAction;
+	const EActionExecutionMode ActionExecutionMode = Action.ExecutionMode;
+	const FSoftObjectPath ActionAttackDataPath = Action.AttackData
+		? FSoftObjectPath(Action.AttackData)
+		: FSoftObjectPath();
+	const auto EmitExecutionRecord = [
+		this,
+		ActionQueueEntryId,
+		ActionInput,
+		ActionExecutionMode,
+		ActionAttackDataPath](
+		const EActionReactionTelemetryEvent Event,
+		const EActionReactionTelemetryReason Reason,
+		const EActionState ObservedState)
 	{
+		FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(Event, Reason);
+		Telemetry.InputSerial = ActionInput.InputSerial;
+		Telemetry.QueueEntryId = ActionQueueEntryId;
+		Telemetry.InputType = ActionInput.InputType;
+		Telemetry.InputEvent = ActionInput.EventType;
+		Telemetry.InputDirection = ActionInput.FacingIntent.BranchDirection;
+		Telemetry.ExecutionMode = ActionExecutionMode;
+		Telemetry.ActionState = ObservedState;
+		Telemetry.AttackDataPath = ActionAttackDataPath;
+		AppendActionReactionTelemetry(MoveTemp(Telemetry));
+	};
+
+	UAttackData* const ActionAttackData = Action.AttackData;
+	const EInputType ActionInputType = Action.InputAction.InputType;
+	if (!ActionAttackData || !IsCombatOwnerOperational(this))
+	{
+		EmitExecutionRecord(
+			EActionReactionTelemetryEvent::ActionExecutionStarted,
+			EActionReactionTelemetryReason::None,
+			Action.State);
+		EmitExecutionRecord(
+			EActionReactionTelemetryEvent::ActionExecutionFinished,
+			EActionReactionTelemetryReason::ExecutionFailed,
+			Action.State);
 		return false;
 	}
 
 	Action.State = EActionState::Executing;
+	EmitExecutionRecord(
+		EActionReactionTelemetryEvent::ActionExecutionStarted,
+		EActionReactionTelemetryReason::None,
+		Action.State);
 
 	// Event-driven execution - plays montage directly
 	bool bSuccess = false;
 
-	switch (Action.InputAction.InputType)
+	switch (ActionInputType)
 	{
 		case EInputType::LightAttack:
 		case EInputType::HeavyAttack:
 		{
 			// FINISHER CHECK: Before normal attack, try to execute finisher on vulnerable target
-			if (CachedPairedAnimComp && CachedPairedAnimComp->TryExecuteFinisher(Action.AttackData))
+			if (CachedPairedAnimComp && CachedPairedAnimComp->TryExecuteFinisher(ActionAttackData))
 			{
 				// Finisher was executed - don't play normal attack
 				bSuccess = true;
@@ -3330,14 +4023,35 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 			// 3. If PlayAttackMontage fails, we revert to the previous state
 			UAttackData* PreviousAttackData = CurrentAttackData;
 			EInputType PreviousInputType = CurrentAttackInputType;
-			CurrentAttackData = Action.AttackData;
-			CurrentAttackInputType = Action.InputAction.InputType;
+			const uint64 PreviousStartupOperationSerial =
+				ActiveAttackStartupOperationSerial;
+			const uint64 StartupOperationSerial = NextAttackStartupOperationSerial++;
+			if (NextAttackStartupOperationSerial == 0)
+			{
+				NextAttackStartupOperationSerial = 1;
+			}
+			ActiveAttackStartupOperationSerial = StartupOperationSerial;
+			CurrentAttackData = ActionAttackData;
+			CurrentAttackInputType = ActionInputType;
 
 			// Play normal attack montage
-			bSuccess = PlayAttackMontage(Action.AttackData);
+			bSuccess = PlayAttackMontage(ActionAttackData);
+			if (!IsValid(this))
+			{
+				return false;
+			}
+			const bool bProvisionalStateStillOwned =
+				ActiveAttackStartupOperationSerial == StartupOperationSerial
+				&& IsValid(ActionAttackData)
+				&& CurrentAttackData == ActionAttackData
+				&& CurrentAttackInputType == ActionInputType;
+			const bool bStartupContextIntact = bProvisionalStateStillOwned
+				&& IsCombatOwnerOperational(this)
+				&& ActionAttackData->AttackMontage;
+			bSuccess = bSuccess && bStartupContextIntact;
 
 			// If successful, discover checkpoints for the new montage
-			if (bSuccess && Action.AttackData->AttackMontage)
+			if (bSuccess)
 			{
 				// Capture phase BEFORE SetPhase overwrites it (for combo detection below)
 				const EAttackPhase PhaseBeforeWindup = CurrentPhase;
@@ -3345,26 +4059,41 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 				// Transition to Windup phase (event-driven phase management)
 				SetPhase(EAttackPhase::Windup);
 
-				DiscoverCheckpoints(Action.AttackData->AttackMontage);
+				DiscoverCheckpoints(ActionAttackData->AttackMontage);
 
 				// CRITICAL FIX: Reset hold state for new attack (clears bActivatedThisAttack)
 				HoldState.Reset();
 
 				// MOTION WARP: Setup warp based on context (target or direction)
-				SetupAttackWarp(Action.AttackData);
+				SetupAttackWarp(Action);
 
 				// Broadcast attack started event (use pre-Windup phase for accurate combo detection)
 				bool bIsCombo = (PhaseBeforeWindup == EAttackPhase::Recovery || PhaseBeforeWindup == EAttackPhase::Active);
-				OnAttackStarted.Broadcast(Action.AttackData, Action.InputAction.InputType, bIsCombo);
-
-				if (GetDebugDraw())
+				OnAttackStarted.Broadcast(ActionAttackData, ActionInputType, bIsCombo);
+				if (!IsValid(this)
+					|| !IsCombatOwnerOperational(this)
+					|| !IsValid(ActionAttackData)
+					|| CurrentAttackData != ActionAttackData
+					|| ActiveAttackStartupOperationSerial != StartupOperationSerial)
 				{
-					FString SectionName = Action.AttackData->MontageSection.IsNone() ?
-						TEXT("Default") : Action.AttackData->MontageSection.ToString();
+					if (IsValid(this))
+					{
+						EmitExecutionRecord(
+							EActionReactionTelemetryEvent::ActionExecutionFinished,
+							EActionReactionTelemetryReason::ExecutionFailed,
+							EActionState::Cancelled);
+					}
+					return false;
+				}
+
+				if (CombatDebug::IsQueueDebugEnabled())
+				{
+					FString SectionName = ActionAttackData->MontageSection.IsNone() ?
+						TEXT("Default") : ActionAttackData->MontageSection.ToString();
 
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] ═══════════════════════════════════════"));
-					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Attack Data: %s"), *Action.AttackData->GetName());
-					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Montage: %s"), *Action.AttackData->AttackMontage->GetName());
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Attack Data: %s"), *ActionAttackData->GetName());
+					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Montage: %s"), *ActionAttackData->AttackMontage->GetName());
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Section: %s"), *SectionName);
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Input Type: %s"), *UEnum::GetValueAsString(CurrentAttackInputType));
 					UE_LOG(LogCombat, Log, TEXT("[EXECUTE] Is Combo: %s"), bIsCombo ? TEXT("YES") : TEXT("NO"));
@@ -3375,10 +4104,14 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 			else
 			{
 				// Revert pre-set state on failure
-				CurrentAttackData = PreviousAttackData;
-				CurrentAttackInputType = PreviousInputType;
+				if (bProvisionalStateStillOwned)
+				{
+					CurrentAttackData = PreviousAttackData;
+					CurrentAttackInputType = PreviousInputType;
+					ActiveAttackStartupOperationSerial = PreviousStartupOperationSerial;
+				}
 
-				if (GetDebugDraw())
+				if (bProvisionalStateStillOwned && CombatDebug::IsQueueDebugEnabled())
 				{
 					UE_LOG(LogCombat, Warning, TEXT("[EXECUTE] PlayAttackMontage failed - reverted CurrentAttackData to %s"),
 						PreviousAttackData ? *PreviousAttackData->GetName() : TEXT("None"));
@@ -3399,12 +4132,18 @@ bool UCombatComponent::ExecuteAction(FActionQueueEntry& Action)
 			break;
 	}
 
+	EmitExecutionRecord(
+		EActionReactionTelemetryEvent::ActionExecutionFinished,
+		bSuccess
+			? EActionReactionTelemetryReason::Executed
+			: EActionReactionTelemetryReason::ExecutionFailed,
+		bSuccess ? EActionState::Completed : EActionState::Cancelled);
 	return bSuccess;
 }
 
 bool UCombatComponent::ExecuteAttackData(UAttackData* AttackData, AActor* ExplicitWarpTarget, EInputType InputType)
 {
-	if (!AttackData)
+	if (!AttackData || !IsCombatOwnerOperational(this))
 	{
 		return false;
 	}
@@ -3418,18 +4157,38 @@ bool UCombatComponent::ExecuteAttackData(UAttackData* AttackData, AActor* Explic
 
 	const float CurrentTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
 	FQueuedInputAction InputAction(InputType, EInputEventType::Press, CurrentTime, bComboWindowActive);
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		InputAction.FacingIntent = BuildAttackFacingIntent(
+			FVector2D::ZeroVector,
+			Character->GetActorRotation(),
+			Character->GetActorRotation(),
+			EInputDirection::None,
+			EAttackFacingIntentSource::Programmatic);
+	}
 	FActionQueueEntry Entry(InputAction, AttackData, EActionExecutionMode::Immediate);
 	Entry.Priority = CalculatePriority(Entry);
 	Entry.TargetPhase = EAttackPhase::None;
 
 	const TWeakObjectPtr<AActor> PreviousExplicitWarpTarget = ExplicitAttackWarpTarget;
 	const TWeakObjectPtr<AActor> PreviousIntentTarget = AttackIntentTarget;
+	const TWeakObjectPtr<UCombatComponent> ComponentSnapshot(this);
 	ExplicitAttackWarpTarget = ExplicitWarpTarget;
 	if (ExplicitWarpTarget)
 	{
 		SetAttackIntentTarget(ExplicitWarpTarget);
 	}
 	const bool bExecuted = ExecuteAction(Entry);
+	if (!ComponentSnapshot.IsValid())
+	{
+		return false;
+	}
+	if (!IsCombatOwnerOperational(this))
+	{
+		ExplicitAttackWarpTarget.Reset();
+		AttackIntentTarget.Reset();
+		return false;
+	}
 	ExplicitAttackWarpTarget = PreviousExplicitWarpTarget;
 	if (!bExecuted)
 	{
@@ -3441,9 +4200,10 @@ bool UCombatComponent::ExecuteAttackData(UAttackData* AttackData, AActor* Explic
 
 bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 {
-	if (!AttackData || !AttackData->AttackMontage)
+	UAnimMontage* const AttackMontage = AttackData ? AttackData->AttackMontage.Get() : nullptr;
+	if (!AttackData || !AttackMontage)
 	{
-		if (GetDebugDraw())
+		if (CombatDebug::IsPhaseDebugEnabled())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Failed - Invalid AttackData or Montage"));
 		}
@@ -3451,19 +4211,20 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	}
 
 	ABaseCombatCharacter* Character = GetOwnerCharacter();
-	if (!Character || !Character->GetMesh())
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	if (!IsCombatOwnerOperational(this) || !Mesh)
 	{
-		if (GetDebugDraw())
+		if (CombatDebug::IsPhaseDebugEnabled())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Failed - No character or mesh"));
 		}
 		return false;
 	}
 
-	UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance();
+	UAnimInstance* AnimInstance = Mesh->GetAnimInstance();
 	if (!AnimInstance)
 	{
-		if (GetDebugDraw())
+		if (CombatDebug::IsPhaseDebugEnabled())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Failed - No AnimInstance"));
 		}
@@ -3511,7 +4272,7 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	// CRITICAL FIX: Detect if we're still in a blend transition (rapid input during blend)
 	if (bStillInBlendTransition)
 	{
-		if (GetDebugDraw())
+		if (CombatDebug::IsPhaseDebugEnabled())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[BLEND] Rapid input during blend (EndTime=%.2f, Now=%.2f)! Forcing instant cleanup."),
 				BlendTransitionEndTime, CurrentWorldTime);
@@ -3520,6 +4281,11 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		// Force instant stop of ALL montages to clean up the blend mess
 		// This fixes the "half-blended loop" issue when mashing attack during blend-out
 		AnimInstance->StopAllMontages(0.0f);
+		if (!IsAttackStartupContextValid(
+			this, Character, Mesh, AnimInstance, AttackData, AttackMontage))
+		{
+			return false;
+		}
 		bInComboBlend = false;
 		BlendTransitionEndTime = 0.0f;
 
@@ -3531,7 +4297,7 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	else if (CurrentAttackData && !BlendResult.bIsFreshAttack)
 	{
 		// Normal case: procedural blend times already calculated above
-		if (GetDebugDraw() && (BlendOutTime > 0.0f || BlendInTime > 0.0f))
+		if (CombatDebug::IsPhaseDebugEnabled() && (BlendOutTime > 0.0f || BlendInTime > 0.0f))
 		{
 			UE_LOG(LogCombat, Log, TEXT("[BLEND] Procedural combo transition: %s → %s (Progress: %.1f%%, BlendIn: %.3fs, BlendOut: %.3fs, Strategy: %d)"),
 				*CurrentAttackData->GetName(),
@@ -3550,15 +4316,20 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		// STATE MACHINE: Notify combo transition (tracks old montage for callback filtering)
 		// CRITICAL: Pass section name for same-montage transitions (e.g., Attack_1 → Attack_2 in AM_Light_Combo_1)
 		const float BlendDuration = FMath::Max(BlendOutTime, BlendInTime);
-		AttackStateMachine.OnComboTransition(AttackData->AttackMontage, AttackData->MontageSection, BlendDuration, CurrentWorldTime);
+		AttackStateMachine.OnComboTransition(AttackMontage, AttackData->MontageSection, BlendDuration, CurrentWorldTime);
 
 		// DEPRECATED: Keep legacy flags in sync for backwards compatibility
 		bInComboBlend = true;
 		BlendTransitionEndTime = CurrentWorldTime + BlendDuration;
 
 		AnimInstance->Montage_Stop(BlendOutTime, CurrentMontage);
+		if (!IsAttackStartupContextValid(
+			this, Character, Mesh, AnimInstance, AttackData, AttackMontage))
+		{
+			return false;
+		}
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsPhaseDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[BLEND] Combo blend started (Gen=%u) - EndTime=%.2f (Duration=%.2fs)"),
 				AttackStateMachine.AttackGeneration, BlendTransitionEndTime, BlendDuration);
@@ -3568,9 +4339,9 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	{
 		// Not a combo - this is a fresh attack start
 		// CRITICAL: Pass section name and time for grace period protection
-		AttackStateMachine.OnAttackStarted(AttackData->AttackMontage, AttackData->MontageSection, CurrentWorldTime);
+		AttackStateMachine.OnAttackStarted(AttackMontage, AttackData->MontageSection, CurrentWorldTime);
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsPhaseDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[STATE] New attack started (Gen=%d): %s"),
 				AttackStateMachine.AttackGeneration, *AttackData->GetName());
@@ -3615,7 +4386,7 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		// Play with custom blend-in
 		FAlphaBlendArgs BlendIn(BlendInTime);
 		AnimInstance->Montage_PlayWithBlendSettings(
-			AttackData->AttackMontage,
+			AttackMontage,
 			BlendIn,
 			PlayRate,
 			EMontagePlayReturnType::MontageLength,
@@ -3626,8 +4397,23 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	else
 	{
 		// Play with default blend (instant)
-		AnimInstance->Montage_Play(AttackData->AttackMontage, PlayRate, EMontagePlayReturnType::MontageLength, StartPosition);
+		AnimInstance->Montage_Play(AttackMontage, PlayRate, EMontagePlayReturnType::MontageLength, StartPosition);
 	}
+	if (!IsAttackStartupContextValid(
+		this, Character, Mesh, AnimInstance, AttackData, AttackMontage))
+	{
+		return false;
+	}
+
+	FAnimMontageInstance* ActiveMontageInstance =
+		AnimInstance->GetActiveInstanceForMontage(AttackMontage);
+	if (!ActiveMontageInstance)
+	{
+		AttackStateMachine.ForceReset();
+		return false;
+	}
+	AttackStateMachine.SetActiveMontageInstanceId(
+		ActiveMontageInstance->GetInstanceID());
 
 	// Clear blend flag - new montage has started playing
 	// STATE MACHINE: Notify combo blend complete
@@ -3635,7 +4421,7 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	{
 		AttackStateMachine.OnComboBlendComplete();
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsPhaseDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[STATE] Combo blend complete (Gen=%u) - now InProgress"),
 				AttackStateMachine.AttackGeneration);
@@ -3651,14 +4437,14 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 	// Handle montage sections if specified
 	if (!AttackData->MontageSection.IsNone())
 	{
-		AnimInstance->Montage_JumpToSection(AttackData->MontageSection, AttackData->AttackMontage);
+		AnimInstance->Montage_JumpToSection(AttackData->MontageSection, AttackMontage);
 
 		// Prevent auto-advance to next section if bUseSectionOnly is true
 		if (AttackData->bUseSectionOnly)
 		{
-			AnimInstance->Montage_SetNextSection(AttackData->MontageSection, NAME_None, AttackData->AttackMontage);
+			AnimInstance->Montage_SetNextSection(AttackData->MontageSection, NAME_None, AttackMontage);
 
-			if (GetDebugDraw())
+			if (CombatDebug::IsPhaseDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Section-only mode: %s (no auto-advance)"),
 					*AttackData->MontageSection.ToString());
@@ -3666,10 +4452,10 @@ bool UCombatComponent::PlayAttackMontage(UAttackData* AttackData)
 		}
 	}
 
-	if (GetDebugDraw())
+	if (CombatDebug::IsPhaseDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Playing: %s | Section: %s | Delegate bound"),
-			*AttackData->AttackMontage->GetName(),
+			*AttackMontage->GetName(),
 			*AttackData->MontageSection.ToString());
 	}
 
@@ -3689,6 +4475,10 @@ void UCombatComponent::ClearQueue(bool bCancelCurrent)
 			if (Entry.State != EActionState::Completed)
 			{
 				Entry.State = EActionState::Cancelled;
+				AppendActionQueueTelemetry(
+					Entry,
+					EActionReactionTelemetryEvent::QueueCancelled,
+					EActionReactionTelemetryReason::ExplicitQueueClear);
 				QueueStats.ActionsCancelled++;
 			}
 		}
@@ -3701,6 +4491,10 @@ void UCombatComponent::ClearQueue(bool bCancelCurrent)
 			if (Entry.IsPending())
 			{
 				Entry.State = EActionState::Cancelled;
+				AppendActionQueueTelemetry(
+					Entry,
+					EActionReactionTelemetryEvent::QueueCancelled,
+					EActionReactionTelemetryReason::ExplicitQueueClear);
 				QueueStats.ActionsCancelled++;
 			}
 		}
@@ -3711,6 +4505,7 @@ void UCombatComponent::ClearQueue(bool bCancelCurrent)
 	// Reset combo state when queue is cleared
 	CurrentAttackData = nullptr;
 	CurrentAttackInputType = EInputType::None;
+	ActiveAttackStartupOperationSerial = 0;
 	if (bCancelCurrent)
 	{
 		bIsBlocking = false;
@@ -3720,7 +4515,7 @@ void UCombatComponent::ClearQueue(bool bCancelCurrent)
 	// Prevents stale directional input from persisting across combat resets
 	DirectionalInputBuffer.Reset();
 
-	if ( GetDebugDraw())
+	if (CombatDebug::IsQueueDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[QUEUE] Cleared (CancelCurrent=%s) - Combo state and directional buffer reset"), bCancelCurrent ? TEXT("YES") : TEXT("NO"));
 	}
@@ -3734,14 +4529,19 @@ void UCombatComponent::CancelActionsWithPriority(int32 MinPriority)
 
 		if (Entry.IsPending() && Entry.Priority < MinPriority)
 		{
+			const int32 CancelledPriority = Entry.Priority;
 			Entry.State = EActionState::Cancelled;
+			AppendActionQueueTelemetry(
+				Entry,
+				EActionReactionTelemetryEvent::QueueCancelled,
+				EActionReactionTelemetryReason::PriorityCancelled);
 			QueueStats.ActionsCancelled++;
 			ActionQueue.RemoveAt(i);
 
-			if ( GetDebugDraw())
+			if (CombatDebug::IsQueueDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[QUEUE] Cancelled action (Priority %d < %d)"),
-					Entry.Priority, MinPriority);
+					CancelledPriority, MinPriority);
 			}
 		}
 	}
@@ -3764,7 +4564,7 @@ void UCombatComponent::DiscoverCheckpoints(UAnimMontage* Montage)
 	// Use MontageUtilityLibrary to discover checkpoints from AnimNotifyStates
 	int32 NumDiscovered = UMontageUtilityLibrary::DiscoverCheckpoints(Montage, Checkpoints);
 
-	if (GetDebugDraw())
+	if (CombatDebug::IsQueueDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[CHECKPOINTS] Discovered %d checkpoints from montage: %s"),
 			NumDiscovered,
@@ -3802,7 +4602,7 @@ void UCombatComponent::RegisterCheckpoint(EActionWindowType WindowType, float St
 		ComboWindowDuration = Duration;
 	}
 
-	if ( GetDebugDraw())
+	if (CombatDebug::IsQueueDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[CHECKPOINTS] Registered: Type=%s, Start=%.2f, Duration=%.2f"),
 			*UEnum::GetValueAsString(WindowType),
@@ -3852,7 +4652,7 @@ float UCombatComponent::GetExecutionCheckpoint(const FActionQueueEntry& Action) 
 		    Checkpoint.Duration == 0.0f) // Zero-duration = Active-end marker (phase transition)
 		{
 			// Return the checkpoint time (Active phase end)
-			if (GetDebugDraw())
+			if (CombatDebug::IsQueueDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] Found Active-end checkpoint at %.2f for queued execution"),
 					Checkpoint.MontageTime);
@@ -3864,7 +4664,7 @@ float UCombatComponent::GetExecutionCheckpoint(const FActionQueueEntry& Action) 
 
 	// Checkpoint not found yet - use sentinel value to indicate "execute at Active-end"
 	// The checkpoint will be created when Active→Recovery transition happens via OnPhaseTransition
-	if (GetDebugDraw())
+	if (CombatDebug::IsQueueDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[CHECKPOINT] Active-end checkpoint not found yet, will execute when created"));
 	}
@@ -3879,44 +4679,50 @@ float UCombatComponent::GetExecutionCheckpoint(const FActionQueueEntry& Action) 
 
 void UCombatComponent::OnHoldWindowStart(EInputType InputType)
 {
-	// EVENT-DRIVEN HOLD DETECTION:
-	// AnimNotify fires at hold window start, we check if button is STILL pressed
-	// This replaces tick-based CheckHoldActivation with event-driven pattern
-
-	if (!CurrentAttackData || HoldState.bActivatedThisAttack)
+	// Legacy calls do not carry enough identity to commit a runtime hold.
+	if (CombatDebug::IsHoldDebugEnabled())
 	{
-		return;
+		UE_LOG(LogCombat, Warning,
+			TEXT("[HOLD] Ignored legacy hold-start call for %s; exact notify context is required"),
+			*UEnum::GetValueAsString(InputType));
+	}
+}
+
+bool UCombatComponent::OnHoldWindowStartWithContext(
+	const EInputType InputType,
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId)
+{
+	UAnimMontage* ActiveMontage = AttackStateMachine.GetActiveMontage();
+	const bool bContextMatches = CurrentAttackData
+		&& !HoldState.bActivatedThisAttack
+		&& !HoldState.IsHolding()
+		&& NotifySource.IsValid()
+		&& ActiveMontage
+		&& NotifySource.SourceAnimation == FSoftObjectPath(ActiveMontage)
+		&& MontageInstanceId >= 0
+		&& MontageInstanceId == AttackStateMachine.ActiveMontageInstanceId
+		&& AttackStateMachine.AttackGeneration > 0;
+	if (!bContextMatches)
+	{
+		return false;
 	}
 
-	// Check if the specified input is currently pressed (via HeldInputs map)
-	const float* PressTime = HeldInputs.Find(InputType);
-	if (!PressTime)
+	if (!HeldInputs.Contains(InputType))
 	{
-		// Button not held - normal combo flow
-		if (GetDebugDraw())
+		if (CombatDebug::IsHoldDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[HOLD] Window start, but button not held: %s"),
 				*UEnum::GetValueAsString(InputType));
 		}
-		return;
+		return false;
 	}
 
-	// Button is held - activate hold behavior
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[HOLD] Button held at window start: %s, activating hold"),
-			*UEnum::GetValueAsString(InputType));
-	}
-
-	// ARCHITECTURAL FIX: Enable directional input context
-	// From this point until hold clears, movement stick = directional attack input
-	// This allows direction to be sampled at button release for directional follow-ups
-	SetInputContext(EInputContext::DirectionalInput);
-
-	if (GetDebugDraw())
-	{
-		UE_LOG(LogCombat, Log, TEXT("[HOLD] Directional input window OPENED (awaiting release)"));
-	}
+	FAttackInstanceId SourceAttackInstance;
+	SourceAttackInstance.Attacker = GetOwner();
+	SourceAttackInstance.AttackGeneration = AttackStateMachine.AttackGeneration;
+	const uint64 PressInputSerial = HeldInputSerials.FindRef(InputType);
+	bool bActivated = false;
 
 	// Determine hold behavior based on attack type
 	if (CurrentAttackData->AttackType == EAttackType::Heavy)
@@ -3934,12 +4740,12 @@ void UCombatComponent::OnHoldWindowStart(EInputType InputType)
 
 			if (!bJumped)
 			{
-				if (GetDebugDraw())
+				if (CombatDebug::IsHoldDebugEnabled())
 				{
 					UE_LOG(LogCombat, Warning, TEXT("[HOLD] Failed to jump to charge section: %s"),
 						*CurrentAttackData->ChargeLoopSection.ToString());
 				}
-				return;
+				return false;
 			}
 
 			// STEP 2: Set up the loop (section jumps back to itself)
@@ -3947,57 +4753,72 @@ void UCombatComponent::OnHoldWindowStart(EInputType InputType)
 
 			if (bLooped)
 			{
-				// STEP 3: Activate hold state (no playrate change for heavy attacks - loops at normal speed)
-				ActivateHold(InputType, 1.0f);
+				bActivated = ActivateHoldWithInputSerial(
+					InputType,
+					1.0f,
+					PressInputSerial,
+					SourceAttackInstance,
+					CurrentAttackData,
+					NotifySource,
+					MontageInstanceId);
 
-				// CRITICAL FIX: Mark Heavy hold as completed immediately after activation
-				// This allows IsHoldCompleted() to return true for Heavy attacks
-				// Without this, directional follow-ups never work for Heavy attacks
-				HoldState.MarkHoldCompleted();
+				if (bActivated)
+				{
+					HoldState.MarkHoldCompleted();
+				}
 
-				if (GetDebugDraw())
+				if (CombatDebug::IsHoldDebugEnabled())
 				{
 					UE_LOG(LogCombat, Log, TEXT("[HOLD] Heavy attack charge loop started and marked completed: jumped to '%s' and looping"),
 						*CurrentAttackData->ChargeLoopSection.ToString());
 				}
 			}
-			else if (GetDebugDraw())
+			else if (CombatDebug::IsHoldDebugEnabled())
 			{
 				UE_LOG(LogCombat, Warning, TEXT("[HOLD] Failed to loop charge section: %s"),
 					*CurrentAttackData->ChargeLoopSection.ToString());
 			}
 		}
-		else if (GetDebugDraw())
+		else if (CombatDebug::IsHoldDebugEnabled())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[HOLD] Heavy attack has no ChargeLoopSection defined"));
 		}
 	}
 	else if (CurrentAttackData->AttackType == EAttackType::Light)
 	{
-		// LIGHT ATTACK HOLD: Begin EASE-IN slowdown (bidirectional easing system)
-		// Smoothly transition from normal speed to hold slowdown using UE Timer System (NOT tick!)
-
-		// Activate hold state (marks hold as active)
-		HoldState.Activate(InputType, GetWorld()->GetTimeSeconds(), 1.0f);
+		bActivated = ActivateHoldWithInputSerial(
+			InputType,
+			1.0f,
+			PressInputSerial,
+			SourceAttackInstance,
+			CurrentAttackData,
+			NotifySource,
+			MontageInstanceId);
+		if (!bActivated)
+		{
+			return false;
+		}
 
 		// Initialize EASE-IN transition state (1.0 → HoldTargetPlayRate)
 		HoldState.bIsEasing = true;
 		HoldState.bIsEasingOut = false; // EASE-IN direction
 		HoldState.EaseStartTime = GetWorld()->GetTimeSeconds();
 		HoldState.EaseStartPlayRate = 1.0f; // Current playrate (normal speed)
-
 		// Start timer for ease updates (60 Hz for smooth transitions)
 		// Timer calls OnEaseTimerTick() repeatedly until ease completes or is cancelled
 		float TimerInterval = 1.0f / 60.0f; // 60 Hz update rate
-		GetWorld()->GetTimerManager().SetTimer(
-			EaseTimerHandle,
+		const FTimerDelegate EaseTimerDelegate = FTimerDelegate::CreateUObject(
 			this,
 			&UCombatComponent::OnEaseTimerTick,
+			HoldState.CurrentHold.HoldID);
+		GetWorld()->GetTimerManager().SetTimer(
+			EaseTimerHandle,
+			EaseTimerDelegate,
 			TimerInterval,
 			true // Loop
 		);
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsHoldDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[HOLD TIMER] Light attack EASE-IN started (1.0 → %.2f over %.2fs using %s @ 60Hz)"),
 				CurrentAttackData->HoldTargetPlayRate,
@@ -4005,28 +4826,133 @@ void UCombatComponent::OnHoldWindowStart(EInputType InputType)
 				*UEnum::GetValueAsString(CurrentAttackData->HoldEaseInType));
 		}
 	}
+
+	if (bActivated)
+	{
+		SetInputContext(EInputContext::DirectionalInput);
+		if (CombatDebug::IsHoldDebugEnabled())
+		{
+			UE_LOG(LogCombat, Log, TEXT("[HOLD] Directional input window OPENED (awaiting release)"));
+		}
+	}
+	return bActivated;
 }
 
 void UCombatComponent::ActivateHold(EInputType InputType, float PlayRate)
 {
-	HoldState.Activate(InputType, GetWorld()->GetTimeSeconds(), PlayRate);
+	ActivateHoldWithInputSerial(InputType, PlayRate, 0);
+}
+
+bool UCombatComponent::ActivateHoldWithInputSerial(
+	EInputType InputType,
+	float PlayRate,
+	uint64 PressInputSerial,
+	const FAttackInstanceId& SourceAttackInstance,
+	UAttackData* SourceAttackData,
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	int32 MontageInstanceId)
+{
+	if (!HoldState.Activate(
+		InputType,
+		GetWorld()->GetTimeSeconds(),
+		PlayRate,
+		SourceAttackInstance,
+		SourceAttackData,
+		NotifySource,
+		MontageInstanceId))
+	{
+		return false;
+	}
+	HoldState.CurrentHold.PressInputSerial = PressInputSerial;
+	FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+		EActionReactionTelemetryEvent::HoldStateChanged,
+		EActionReactionTelemetryReason::HoldActivated);
+	Telemetry.InputType = InputType;
+	Telemetry.InputSerial = PressInputSerial;
+	Telemetry.HoldGeneration = HoldState.CurrentHold.HoldID;
+	Telemetry.Detail = FString::Printf(TEXT("PlayRate=%.3f"), PlayRate);
+	AppendActionReactionTelemetry(MoveTemp(Telemetry));
 
 	// Apply playrate to montage using utility library
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
 	UMontageUtilityLibrary::SetMontagePlayRate(Character, PlayRate);
 
-	if ( GetDebugDraw())
+	if (CombatDebug::IsHoldDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[HOLD] Activated: Input=%s, PlayRate=%.2f"),
 			*UEnum::GetValueAsString(InputType),
 			PlayRate);
 	}
+	return true;
 }
 
 void UCombatComponent::DeactivateHold()
 {
-	if (!HoldState.IsHolding() || !CurrentAttackData)
+	DeactivateHoldWithInputSerial(0);
+}
+
+void UCombatComponent::DeactivateHoldWithInputSerial(
+	const uint64 ReleaseInputSerial,
+	const FAttackFacingIntent& ReleaseFacingIntent,
+	const EInputDirection ReleaseDirection)
+{
+	if (!HoldState.IsHolding())
 	{
+		return;
+	}
+
+	const int32 ReleasedHoldGeneration = HoldState.CurrentHold.HoldID;
+	if (!HoldState.BeginReleaseBlend(
+		ReleasedHoldGeneration,
+		ReleaseFacingIntent,
+		UCombatUtils::InputToAttackDirection(ReleaseDirection)))
+	{
+		return;
+	}
+	if (ReleaseInputSerial != 0)
+	{
+		HoldState.CurrentHold.ReleaseInputSerial = ReleaseInputSerial;
+	}
+
+	UAttackData* HoldAttackData = HoldState.CurrentHold.SourceAttackData
+		? HoldState.CurrentHold.SourceAttackData.Get()
+		: CurrentAttackData.Get();
+	if (HoldState.CurrentHold.SourceAttackInstance.IsValid())
+	{
+		const bool bSourceStillOwnsHold =
+			HoldState.CurrentHold.SourceAttackInstance.Attacker.Get() == GetOwner()
+			&& HoldState.CurrentHold.SourceAttackInstance.AttackGeneration
+				== AttackStateMachine.AttackGeneration
+			&& HoldAttackData == CurrentAttackData.Get()
+			&& HoldState.CurrentHold.MontageInstanceId
+				== AttackStateMachine.ActiveMontageInstanceId;
+		if (!bSourceStillOwnsHold)
+		{
+			FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+				EActionReactionTelemetryEvent::HoldReleaseRejected,
+				EActionReactionTelemetryReason::HoldSourceRejected);
+			Telemetry.InputSerial = ReleaseInputSerial;
+			Telemetry.HoldGeneration = ReleasedHoldGeneration;
+			Telemetry.Detail = TEXT("Release source no longer owns active attack");
+			AppendActionReactionTelemetry(MoveTemp(Telemetry));
+			ClearHoldState();
+			return;
+		}
+	}
+
+	if (!HoldAttackData)
+	{
+		FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+			EActionReactionTelemetryEvent::HoldReleaseRejected,
+			EActionReactionTelemetryReason::MissingAttackContext);
+		Telemetry.InputType = HoldState.CurrentHold.InputType;
+		Telemetry.InputSerial = HoldState.CurrentHold.ReleaseInputSerial != 0
+			? HoldState.CurrentHold.ReleaseInputSerial
+			: HoldState.CurrentHold.PressInputSerial;
+		Telemetry.HoldGeneration = HoldState.CurrentHold.HoldID;
+		Telemetry.Detail = TEXT("Release ignored because CurrentAttackData is null");
+		AppendActionReactionTelemetry(MoveTemp(Telemetry));
+		ClearHoldState();
 		return;
 	}
 
@@ -4037,101 +4963,75 @@ void UCombatComponent::DeactivateHold()
 	}
 
 	// HEAVY ATTACK: Jump to release section (no easing)
-	if (CurrentAttackData->AttackType == EAttackType::Heavy)
+	if (HoldAttackData->AttackType == EAttackType::Heavy)
 	{
+		const EInputType ReleasedInputType = HoldState.CurrentHold.InputType;
+		const uint64 ReleasedInputSerial = HoldState.CurrentHold.ReleaseInputSerial != 0
+			? HoldState.CurrentHold.ReleaseInputSerial
+			: HoldState.CurrentHold.PressInputSerial;
 		ACharacter* Character = Cast<ACharacter>(GetOwner());
-
-		// Jump to the configured release section WITH BLEND (smooths transition from charge loop → release attack)
-		if (Character && CurrentAttackData->ChargeReleaseSection != NAME_None)
+		bool bReleaseSectionContinues = false;
+		if (Character && HoldAttackData->ChargeReleaseSection != NAME_None)
 		{
-			bool bJumped = UMontageUtilityLibrary::JumpToSectionWithBlend(
+			bReleaseSectionContinues = UMontageUtilityLibrary::JumpToSectionWithBlend(
 				Character,
-				CurrentAttackData->ChargeReleaseSection,
-				CurrentAttackData->ChargeReleaseBlendTime  // Blends charge loop → release attack
-			);
+				HoldAttackData->ChargeReleaseSection,
+				HoldAttackData->ChargeReleaseBlendTime);
 
-			if (GetDebugDraw())
+			if (CombatDebug::IsHoldDebugEnabled())
 			{
-				if (bJumped)
+				if (bReleaseSectionContinues)
 				{
 					UE_LOG(LogCombat, Log, TEXT("[HOLD] Heavy attack released: jumping to release section '%s'"),
-						*CurrentAttackData->ChargeReleaseSection.ToString());
+						*HoldAttackData->ChargeReleaseSection.ToString());
 				}
 				else
 				{
 					UE_LOG(LogCombat, Warning, TEXT("[HOLD] Failed to jump to release section '%s'"),
-						*CurrentAttackData->ChargeReleaseSection.ToString());
+						*HoldAttackData->ChargeReleaseSection.ToString());
 				}
 			}
 		}
-		else
+
+		const bool bFollowUpStarted = !bReleaseSectionContinues
+			&& DispatchHoldOwnedFollowUp(ReleasedHoldGeneration);
+		const bool bReturnToIdle = !bReleaseSectionContinues && !bFollowUpStarted;
+		if (bReturnToIdle)
 		{
-			// FALLBACK: No release section configured - try directional follow-up, otherwise blend to idle
-			UAttackData* FollowUpAttack = nullptr;
-
-			// Check for directional follow-up based on held direction
-			if (HoldState.CurrentHold.Direction != EAttackDirection::None)
+			if (Character && Character->GetMesh())
 			{
-				TObjectPtr<UAttackData>* DirectionalAttack = CurrentAttackData->DirectionalFollowUps.Find(HoldState.CurrentHold.Direction);
-				if (DirectionalAttack && DirectionalAttack->Get())
+				if (UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance())
 				{
-					FollowUpAttack = DirectionalAttack->Get();
-
-					if (GetDebugDraw())
+					if (UAnimMontage* CurrentMontage = UMontageUtilityLibrary::GetCurrentMontage(Character))
 					{
-						UE_LOG(LogCombat, Log, TEXT("[HOLD] Heavy attack has no ChargeReleaseSection - queueing directional follow-up: %s (direction=%s)"),
-							*FollowUpAttack->GetName(),
-							*UDebugUtils::FormatAttackDirectionDebug(HoldState.CurrentHold.Direction));
-					}
-
-					// Queue directional follow-up for immediate execution
-					FQueuedInputAction FollowUpInput(
-						CurrentAttackInputType,           // Same input type as current attack
-						EInputEventType::Press,           // Treat as press event
-						GetWorld()->GetTimeSeconds(),     // Current time
-						false                             // Not in combo window
-					);
-					QueueAction(FollowUpInput, FollowUpAttack);
-				}
-			}
-
-			// If no directional follow-up found, blend to idle
-			if (!FollowUpAttack && Character && Character->GetMesh())
-			{
-				UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance();
-				if (AnimInstance)
-				{
-					UAnimMontage* CurrentMontage = UMontageUtilityLibrary::GetCurrentMontage(Character);
-					if (CurrentMontage)
-					{
-						// Blend out using ChargeReleaseBlendTime (reuse same blend duration)
-						AnimInstance->Montage_Stop(CurrentAttackData->ChargeReleaseBlendTime, CurrentMontage);
-
-						if (GetDebugDraw())
-						{
-							UE_LOG(LogCombat, Log, TEXT("[HOLD] Heavy attack has no ChargeReleaseSection or directional follow-up - blending to idle (%.2fs)"),
-								CurrentAttackData->ChargeReleaseBlendTime);
-						}
-
-						// CRITICAL: Clear attack state immediately (no follow-up attack)
-						// OnMontageEnded will fire after blend completes, but we need to reset NOW
-						CurrentAttackData = nullptr;
-						CurrentAttackInputType = EInputType::None;
-						SetPhase(EAttackPhase::None);
-						Checkpoints.Empty();
-						ActionQueue.Empty(); // Discard any queued actions - returning to idle
-
-						if (GetDebugDraw())
-						{
-							UE_LOG(LogCombat, Log, TEXT("[HOLD] Heavy attack state cleared - ready for new input"));
-						}
+						AnimInstance->Montage_Stop(
+							HoldAttackData->ChargeReleaseBlendTime,
+							CurrentMontage);
 					}
 				}
 			}
+			CurrentAttackData = nullptr;
+			CurrentAttackInputType = EInputType::None;
+			ActiveAttackStartupOperationSerial = 0;
+			SetPhase(EAttackPhase::None);
+			Checkpoints.Empty();
 		}
 
-		// Deactivate hold state immediately (no easing for heavy attacks)
-		HoldState.Deactivate();
+		TerminateHoldIfMatches(ReleasedHoldGeneration);
+		FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+			EActionReactionTelemetryEvent::HoldStateChanged,
+			EActionReactionTelemetryReason::HoldReleased);
+		Telemetry.InputType = ReleasedInputType;
+		Telemetry.InputSerial = ReleasedInputSerial;
+		Telemetry.HoldGeneration = ReleasedHoldGeneration;
+		Telemetry.Detail = bReleaseSectionContinues
+			? TEXT("HeavyReleaseSection")
+			: (bFollowUpStarted ? TEXT("HeavyFollowUpStarted") : TEXT("HeavyReleaseToIdle"));
+		AppendActionReactionTelemetry(MoveTemp(Telemetry));
+		if (bReturnToIdle)
+		{
+			ProcessQueuedActions(EAttackPhase::Recovery);
+		}
 		return;
 	}
 
@@ -4147,7 +5047,7 @@ void UCombatComponent::DeactivateHold()
 	if (CurrentPlayRate <= 0.0f)
 	{
 		CurrentPlayRate = HoldState.CurrentPlayRate;
-		if (GetDebugDraw())
+		if (CombatDebug::IsHoldDebugEnabled())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[HOLD] Failed to query montage playrate, using HoldState: %.2f"), CurrentPlayRate);
 		}
@@ -4159,7 +5059,7 @@ void UCombatComponent::DeactivateHold()
 	HoldState.EaseStartTime = GetWorld()->GetTimeSeconds();
 	HoldState.EaseStartPlayRate = CurrentPlayRate; // Start from ACTUAL current playrate
 
-	if (GetDebugDraw())
+	if (CombatDebug::IsHoldDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[HOLD] Light attack EASE-OUT starting from ACTUAL playrate: %.2f → 1.0"), CurrentPlayRate);
 	}
@@ -4170,31 +5070,157 @@ void UCombatComponent::DeactivateHold()
 	// Start timer for EASE-OUT (60 Hz for smooth transitions)
 	float TimerInterval = 1.0f / 60.0f; // 60 Hz update rate
 	/*TODO: Update to support variable and dynamic framerate*/
+	const FTimerDelegate EaseTimerDelegate = FTimerDelegate::CreateUObject(
+		this,
+		&UCombatComponent::OnEaseTimerTick,
+		HoldState.CurrentHold.HoldID);
 
 	GetWorld()->GetTimerManager().SetTimer(
 		EaseTimerHandle,
-		this,
-		&UCombatComponent::OnEaseTimerTick,
+		EaseTimerDelegate,
 		TimerInterval,
 		true // Loop
 	);
 
-	if (GetDebugDraw())
+	if (CombatDebug::IsHoldDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[HOLD TIMER] EASE-OUT started (%.2f → 1.0 over %.2fs using %s @ 60Hz)"),
 			CurrentPlayRate,
-			CurrentAttackData->HoldEaseOutDuration,
-			*UEnum::GetValueAsString(CurrentAttackData->HoldEaseOutType));
+			HoldAttackData->HoldEaseOutDuration,
+			*UEnum::GetValueAsString(HoldAttackData->HoldEaseOutType));
 	}
 }
 
-void UCombatComponent::OnEaseTimerTick()
+bool UCombatComponent::IsHoldSourceCurrent(const int32 ExpectedHoldGeneration) const
+{
+	if (!HoldState.CurrentHold.IsValid(ExpectedHoldGeneration))
+	{
+		return false;
+	}
+
+	const FHoldEvent& Hold = HoldState.CurrentHold;
+	if (!Hold.SourceAttackInstance.IsValid())
+	{
+		return Hold.SourceAttackData
+			? Hold.SourceAttackData.Get() == CurrentAttackData.Get()
+			: CurrentAttackData != nullptr;
+	}
+
+	return Hold.SourceAttackInstance.Attacker.Get() == GetOwner()
+		&& Hold.SourceAttackInstance.AttackGeneration == AttackStateMachine.AttackGeneration
+		&& Hold.SourceAttackData.Get() == CurrentAttackData.Get()
+		&& Hold.MontageInstanceId == AttackStateMachine.ActiveMontageInstanceId
+		&& AttackStateMachine.GetActiveMontage()
+		&& Hold.NotifySource.SourceAnimation
+			== FSoftObjectPath(AttackStateMachine.GetActiveMontage());
+}
+
+bool UCombatComponent::TerminateHoldIfMatches(const int32 ExpectedHoldGeneration)
+{
+	if (!HoldState.CurrentHold.IsValid(ExpectedHoldGeneration))
+	{
+		return false;
+	}
+
+	ClearHoldState();
+	return true;
+}
+
+bool UCombatComponent::DispatchHoldOwnedFollowUp(const int32 ExpectedHoldGeneration)
+{
+	if (!IsHoldSourceCurrent(ExpectedHoldGeneration)
+		|| !HoldState.IsHoldCompleted()
+		|| HoldState.CurrentHold.Direction == EAttackDirection::None)
+	{
+		return false;
+	}
+
+	UAttackData* SourceAttackData = HoldState.CurrentHold.SourceAttackData.Get();
+	if (!SourceAttackData)
+	{
+		SourceAttackData = CurrentAttackData.Get();
+	}
+	if (!SourceAttackData)
+	{
+		return false;
+	}
+
+	const TObjectPtr<UAttackData>* DirectionalAttack =
+		SourceAttackData->DirectionalFollowUps.Find(HoldState.CurrentHold.Direction);
+	UAttackData* FollowUpAttack = DirectionalAttack ? DirectionalAttack->Get() : nullptr;
+	if (!FollowUpAttack || !HoldState.BeginFollowUpHandoff(ExpectedHoldGeneration))
+	{
+		return false;
+	}
+
+	const FHoldEvent HoldSnapshot = HoldState.CurrentHold;
+	FQueuedInputAction FollowUpInput(
+		HoldSnapshot.InputType,
+		EInputEventType::Press,
+		GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f,
+		false);
+	FollowUpInput.InputSerial = HoldSnapshot.ReleaseInputSerial;
+	FollowUpInput.FacingIntent = HoldSnapshot.ReleaseFacingIntent;
+	FActionQueueEntry FollowUpEntry(
+		FollowUpInput,
+		FollowUpAttack,
+		EActionExecutionMode::Immediate);
+	EnsureActionQueueEntryIdentity(FollowUpEntry);
+	FollowUpEntry.Priority = CalculatePriority(FollowUpEntry);
+	FollowUpEntry.TargetPhase = EAttackPhase::None;
+
+#if WITH_AUTOMATION_TESTS
+	++HoldOwnedDispatchCountForTesting;
+#endif
+
+	const TWeakObjectPtr<UCombatComponent> ComponentSnapshot(this);
+	const bool bExecuted = ExecuteAction(FollowUpEntry);
+	if (!ComponentSnapshot.IsValid())
+	{
+		return false;
+	}
+
+	if (HoldSnapshot.ReleaseInputSerial != 0)
+	{
+		FinalizeCombatInput(
+			HoldSnapshot.ReleaseInputSerial,
+			ECombatInputRoute::HoldOwned,
+			bExecuted
+				? ECombatInputDisposition::Consumed
+				: ECombatInputDisposition::Rejected,
+			bExecuted
+				? EActionReactionTelemetryReason::Executed
+				: EActionReactionTelemetryReason::ExecutionFailed);
+	}
+
+	if (!bExecuted)
+	{
+		TerminateHoldIfMatches(ExpectedHoldGeneration);
+	}
+	return bExecuted;
+}
+
+void UCombatComponent::OnEaseTimerTick(const int32 ExpectedHoldGeneration)
 {
 	// TIMER-BASED EASE TRANSITION (NOT tick-based!)
 	// This function is called by FTimerHandle at regular intervals (60 Hz)
 	// Handles BOTH ease-in (1.0 → HoldTargetPlayRate) AND ease-out (HoldTargetPlayRate → 1.0)
 
-	if (!HoldState.bIsEasing || !CurrentAttackData)
+	if (!HoldState.CurrentHold.IsValid(ExpectedHoldGeneration))
+	{
+		return;
+	}
+
+	if (!IsHoldSourceCurrent(ExpectedHoldGeneration))
+	{
+		TerminateHoldIfMatches(ExpectedHoldGeneration);
+		return;
+	}
+
+	UAttackData* HoldAttackData = HoldState.CurrentHold.SourceAttackData
+		? HoldState.CurrentHold.SourceAttackData.Get()
+		: CurrentAttackData.Get();
+	if (!HoldState.bIsEasing || !HoldAttackData)
 	{
 		// Ease cancelled or completed - clear timer
 		if (GetWorld())
@@ -4213,9 +5239,9 @@ void UCombatComponent::OnEaseTimerTick()
 	// EASE-IN: Start = 1.0, Target = HoldTargetPlayRate (bIsEasingOut = false)
 	// EASE-OUT: Start = current playrate, Target = 1.0 (bIsEasingOut = true)
 	bool bIsEasingIn = !HoldState.bIsEasingOut; // Use flag instead of playrate comparison
-	float TargetPlayRate = bIsEasingIn ? CurrentAttackData->HoldTargetPlayRate : 1.0f;
-	float EaseDuration = bIsEasingIn ? CurrentAttackData->HoldEaseInDuration : CurrentAttackData->HoldEaseOutDuration;
-	EEasingType EasingType = bIsEasingIn ? CurrentAttackData->HoldEaseInType : CurrentAttackData->HoldEaseOutType;
+	float TargetPlayRate = bIsEasingIn ? HoldAttackData->HoldTargetPlayRate : 1.0f;
+	float EaseDuration = bIsEasingIn ? HoldAttackData->HoldEaseInDuration : HoldAttackData->HoldEaseOutDuration;
+	EEasingType EasingType = bIsEasingIn ? HoldAttackData->HoldEaseInType : HoldAttackData->HoldEaseOutType;
 
 	// Check if ease transition is complete
 	if (ElapsedTime >= EaseDuration)
@@ -4235,7 +5261,7 @@ void UCombatComponent::OnEaseTimerTick()
 		{
 			HoldState.MarkHoldCompleted();
 
-			if (GetDebugDraw())
+			if (CombatDebug::IsHoldDebugEnabled())
 			{
 				float TotalHoldDuration = CurrentTime - HoldState.CurrentHold.StartTime;
 				UE_LOG(LogCombat, Log, TEXT("[HOLD] Light attack freeze reached - hold marked completed (duration: %.2fs)"), TotalHoldDuration);
@@ -4247,71 +5273,30 @@ void UCombatComponent::OnEaseTimerTick()
 			// Calculate total hold duration (from activation to release)
 			float TotalHoldDuration = CurrentTime - HoldState.CurrentHold.StartTime;
 
-			// CRITICAL: Only auto-queue follow-up if hold was COMPLETED
-			// Light: Playrate reached 0 (freeze state)
-			// Heavy: Charge loop became active (marked in ActivateHold)
-			/*TODO: Perhaps add logic for threshold allowance to allow the system to be less rigid (within a threshold from playrate == 0.0f)*/
-			if (HoldState.IsHoldCompleted())
+			const int32 ReleasedHoldGeneration = HoldState.CurrentHold.HoldID;
+			const EInputType ReleasedInputType = HoldState.CurrentHold.InputType;
+			const uint64 ReleasedInputSerial = HoldState.CurrentHold.ReleaseInputSerial != 0
+				? HoldState.CurrentHold.ReleaseInputSerial
+				: HoldState.CurrentHold.PressInputSerial;
+			const bool bFollowUpStarted = DispatchHoldOwnedFollowUp(ReleasedHoldGeneration);
+			TerminateHoldIfMatches(ReleasedHoldGeneration);
+			FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+				EActionReactionTelemetryEvent::HoldStateChanged,
+				EActionReactionTelemetryReason::HoldReleased);
+			Telemetry.InputType = ReleasedInputType;
+			Telemetry.InputSerial = ReleasedInputSerial;
+			Telemetry.HoldGeneration = ReleasedHoldGeneration;
+			Telemetry.Detail = bFollowUpStarted
+				? TEXT("LightEaseOutFollowUpStarted")
+				: FString::Printf(TEXT("LightEaseOutNoFollowUp;Duration=%.3f"), TotalHoldDuration);
+			AppendActionReactionTelemetry(MoveTemp(Telemetry));
+			if (!bFollowUpStarted)
 			{
-				// EXECUTE FOLLOW-UP ATTACK (directional only - NO NextComboAttack fallback)
-				UAttackData* FollowUpAttack = nullptr;
-
-				// Check for directional follow-up based on held direction
-				if (CurrentAttackData && HoldState.CurrentHold.Direction != EAttackDirection::None)
-				{
-					// Try to find directional follow-up (TMap returns TObjectPtr<UAttackData>*)
-					TObjectPtr<UAttackData>* DirectionalAttack = CurrentAttackData->DirectionalFollowUps.Find(HoldState.CurrentHold.Direction);
-					if (DirectionalAttack && DirectionalAttack->Get())
-					{
-						FollowUpAttack = DirectionalAttack->Get();
-
-						if (GetDebugDraw())
-						{
-							UE_LOG(LogCombat, Log, TEXT("[HOLD] Directional follow-up found: Direction=%s, Attack=%s (hold duration: %.2fs)"),
-								*UEnum::GetValueAsString(HoldState.CurrentHold.Direction),
-								*FollowUpAttack->GetName(),
-								TotalHoldDuration);
-						}
-					}
-				}
-
-				// Queue the follow-up attack if found (NO fallback to NextComboAttack)
-				if (FollowUpAttack)
-				{
-					FQueuedInputAction FollowUpInput(
-						HoldState.GetHeldInputType(),          // Same input type as hold
-						EInputEventType::Press,                // Treat as press event
-						GetWorld()->GetTimeSeconds(),          // Current time
-						false                                   // Not in combo window
-					);
-
-					QueueAction(FollowUpInput, FollowUpAttack);
-
-					if (GetDebugDraw())
-					{
-						UE_LOG(LogCombat, Log, TEXT("[HOLD] Directional follow-up queued: %s"), *FollowUpAttack->GetName());
-					}
-				}
-				else if (GetDebugDraw())
-				{
-					UE_LOG(LogCombat, Log, TEXT("[HOLD] No directional follow-up configured for direction=%s"),
-						*UEnum::GetValueAsString(HoldState.CurrentHold.Direction));
-				}
+				ProcessQueuedActions(EAttackPhase::Recovery);
 			}
-			else if (GetDebugDraw())
-			{
-				UE_LOG(LogCombat, Log, TEXT("[HOLD] Hold not completed - skipping follow-up attack (duration: %.2fs)"),
-					TotalHoldDuration);
-			}
-
-			// Deactivate hold state
-			HoldState.Deactivate();
-
-			// PHASE 1 FIX: Procedurally update movement state (replaces manual SetMovementMode)
-			UpdateMovementFromMontageState();
 		}
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsHoldDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[HOLD TIMER] %s complete, final playrate: %.2f"),
 				bIsEasingIn ? TEXT("EASE-IN") : TEXT("EASE-OUT"),
@@ -4337,11 +5322,7 @@ void UCombatComponent::OnEaseTimerTick()
 	ACharacter* Character = Cast<ACharacter>(GetOwner());
 	UMontageUtilityLibrary::SetMontagePlayRate(Character, NewPlayRate);
 
-	// PHASE 1 FIX: Update movement state after changing playrate
-	// This ensures movement locks/unlocks based on current playrate
-	UpdateMovementFromMontageState();
-
-	if (GetDebugDraw())
+	if (CombatDebug::IsHoldDebugEnabled())
 	{
 		UE_LOG(LogCombat, Verbose, TEXT("[HOLD TIMER] %s playrate: %.2f → %.2f (%.1f%% complete)"),
 			bIsEasingIn ? TEXT("EASE-IN") : TEXT("EASE-OUT"),
@@ -4365,11 +5346,7 @@ void UCombatComponent::OnPhaseTransition(EAttackPhase NewPhase)
 	// This replaces tick-based ProcessQueue() polling!
 	ProcessQueuedActions(NewPhase);
 
-	// EVENT-DRIVEN MOVEMENT SYNC: Update movement state on phase changes
-	// Ensures movement is correct when phases change (no tick needed)
-	UpdateMovementFromMontageState();
-
-	if (GetDebugDraw())
+	if (CombatDebug::IsPhaseDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[PHASE] Phase transition complete: %s (queue processed event-driven)"),
 			*UEnum::GetValueAsString(NewPhase));
@@ -4489,35 +5466,33 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 {
 	if (CurrentPhase == NewPhase)
 	{
-		return; // No change needed
+		if (NewPhase == EAttackPhase::None)
+		{
+			ResetTerminalAttackState();
+		}
+		return;
 	}
 
 	EAttackPhase OldPhase = CurrentPhase;
-	if (NewPhase == EAttackPhase::None)
-	{
-		FAttackInstanceId EndingAttack;
-		EndingAttack.Attacker = GetOwner();
-		EndingAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
-		ClearPublishedAttackWindowsForAttack(EndingAttack);
-	}
 	CurrentPhase = NewPhase;
+	FActionReactionTelemetryRecord PhaseTelemetry = BuildActionReactionTelemetryRecord(
+		EActionReactionTelemetryEvent::PhaseChanged,
+		EActionReactionTelemetryReason::None);
+	PhaseTelemetry.AttackPhase = NewPhase;
+	PhaseTelemetry.Detail = FString::Printf(
+		TEXT("%s -> %s"),
+		*UEnum::GetValueAsString(OldPhase),
+		*UEnum::GetValueAsString(NewPhase));
+	AppendActionReactionTelemetry(MoveTemp(PhaseTelemetry));
 	if (NewPhase == EAttackPhase::None)
 	{
-		InvalidateAttackThreatPrediction(EThreatInvalidationReason::AttackEnded);
-		AttackIntentTarget.Reset();
-		if (ABaseCombatCharacter* Character = GetOwnerCharacter())
-		{
-			if (UTargetingComponent* Targeting = Character->GetTargetingComponent())
-			{
-				Targeting->ReleaseActiveAttackWarp();
-			}
-		}
+		ResetTerminalAttackState();
 	}
 
 	// STATE MACHINE: Notify phase change
 	AttackStateMachine.OnPhaseChanged(NewPhase);
 
-	if (GetDebugDraw())
+	if (CombatDebug::IsPhaseDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[PHASE] Phase transition: %d → %d (Gen=%u)"),
 			static_cast<int32>(OldPhase),
@@ -4538,7 +5513,7 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 			{
 				ICombatInterface::Execute_OnEnableHitDetection(Character);
 
-				if (GetDebugDraw())
+				if (CombatDebug::IsPhaseDebugEnabled())
 				{
 					UE_LOG(LogCombat, Log, TEXT("[PHASE] Active entered - Hit detection ENABLED"));
 				}
@@ -4553,7 +5528,7 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 				ICombatInterface::Execute_OnDisableHitDetection(Character);
 			}
 
-			if (GetDebugDraw())
+			if (CombatDebug::IsPhaseDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[PHASE] Recovery entered - Hit detection DISABLED"));
 			}
@@ -4569,22 +5544,7 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 				}
 			}
 
-			// Attack finished - reset combo state for next attack.
-			// NOTE: Stale SetPhase(None) calls from combo transitions never reach here
-			// because the state machine's ShouldProcessMontageEnd() rejects those
-			// callbacks BEFORE OnMontageEnded processes them.
-			CurrentAttackData = nullptr;
-			CurrentAttackInputType = EInputType::None;
-
-			// CRITICAL: Ensure input context returns to Movement on attack completion
-			// This prevents directional input context leaking into idle/movement state
-			SetInputContext(EInputContext::Movement);
-
-			// CRITICAL: Clear hold state completely (ease timer, flags, movement)
-			// This prevents hold state leaking into next attack
-			ClearHoldState();
-
-			if (GetDebugDraw())
+			if (CombatDebug::IsPhaseDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[PHASE] Attack finished - Combo state, hold state, and input context cleared"));
 			}
@@ -4594,11 +5554,48 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 			break;
 	}
 }
+
+void UCombatComponent::ResetTerminalAttackState()
+{
+	FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+		EActionReactionTelemetryEvent::TerminalReset,
+		EActionReactionTelemetryReason::TerminalCleanup);
+	Telemetry.TerminalDisposition = TEXT("AttackStateReset");
+	Telemetry.Detail = FString::Printf(
+		TEXT("ComboWindow=%s;PendingQueue=%d"),
+		bComboWindowActive ? TEXT("Open") : TEXT("Closed"),
+		ActionQueue.Num());
+	AppendActionReactionTelemetry(MoveTemp(Telemetry));
+
+	FAttackInstanceId EndingAttack;
+	EndingAttack.Attacker = GetOwner();
+	EndingAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
+	ClearPublishedAttackWindowsForAttack(EndingAttack);
+	InvalidateAttackThreatPrediction(EThreatInvalidationReason::AttackEnded);
+	AttackIntentTarget.Reset();
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		if (UTargetingComponent* Targeting = Character->GetTargetingComponent())
+		{
+			Targeting->ReleaseActiveAttackWarp();
+		}
+	}
+
+	CurrentAttackData = nullptr;
+	CurrentAttackInputType = EInputType::None;
+	ActiveAttackStartupOperationSerial = 0;
+	bComboWindowActive = false;
+	ComboWindowStart = 0.0f;
+	ComboWindowDuration = 0.0f;
+	Checkpoints.Empty();
+	SetInputContext(EInputContext::Movement);
+	ClearHoldState();
+}
 /*TODO: Consider adding OnPhaseEnter/Exit events for more granular control --> Also we know that active phase is when queued input actions can be executed so perhaps having phase specific logic for simple things like this would be prudent*/
 
 void UCombatComponent::OnMontageBlendingOut(UAnimMontage* Montage, bool bInterrupted)
 {
-	if (GetDebugDraw())
+	if (CombatDebug::IsPhaseDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Montage blending out: %s | Interrupted: %s"),
 			Montage ? *Montage->GetName() : TEXT("None"),
@@ -4616,8 +5613,25 @@ void UCombatComponent::OnMontageBlendingOut(UAnimMontage* Montage, bool bInterru
 void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
 	const float CurrentWorldTime = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
+	const auto EmitMontageRecord = [this, Montage, bInterrupted](
+		const EActionReactionTelemetryEvent Event,
+		const EActionReactionTelemetryReason Reason,
+		const TCHAR* Path)
+	{
+		FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(Event, Reason);
+		if (Montage)
+		{
+			Telemetry.MontagePath = FSoftObjectPath(Montage);
+		}
+		Telemetry.Detail = FString::Printf(
+			TEXT("Path=%s;Interrupted=%s;PendingTransitions=%d"),
+			Path,
+			bInterrupted ? TEXT("true") : TEXT("false"),
+			AttackStateMachine.PendingComboTransitions);
+		AppendActionReactionTelemetry(MoveTemp(Telemetry));
+	};
 
-	if (GetDebugDraw())
+	if (CombatDebug::IsPhaseDebugEnabled())
 	{
 		const float TimeSinceSectionStart = CurrentWorldTime - AttackStateMachine.SectionStartTime;
 		UE_LOG(LogCombat, Log, TEXT("[MONTAGE] Montage ended: %s | Interrupted: %s | Gen=%d | Section=%s | TimeSinceStart=%.3fs"),
@@ -4639,6 +5653,12 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		&& Montage
 		&& CachedPairedAnimComp->HandleOwnerPairedMontageEnded(Montage, bInterrupted))
 	{
+		EmitMontageRecord(
+			EActionReactionTelemetryEvent::MontageCallbackAccepted,
+			bInterrupted
+				? EActionReactionTelemetryReason::MontageInterrupted
+				: EActionReactionTelemetryReason::MontageCompleted,
+			TEXT("PairedAnimation"));
 		return;
 	}
 
@@ -4655,7 +5675,11 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 
 	if (!AttackStateMachine.ShouldProcessMontageEnd(Montage, bInterrupted, CurrentWorldTime))
 	{
-		if (GetDebugDraw())
+		EmitMontageRecord(
+			EActionReactionTelemetryEvent::MontageCallbackRejected,
+			EActionReactionTelemetryReason::StaleMontageCallback,
+			TEXT("RegularAttackFilter"));
+		if (CombatDebug::IsPhaseDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[STATE] Ignoring montage end callback (Gen=%d, PendingTransitions=%d)"),
 				AttackStateMachine.AttackGeneration, AttackStateMachine.PendingComboTransitions);
@@ -4663,6 +5687,13 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		// Stale callback — completely ignored. Queue, checkpoints, phase all preserved.
 		return;
 	}
+	const int32 EndingAttackGeneration = AttackStateMachine.AttackGeneration;
+	EmitMontageRecord(
+		EActionReactionTelemetryEvent::MontageCallbackAccepted,
+		bInterrupted
+			? EActionReactionTelemetryReason::MontageInterrupted
+			: EActionReactionTelemetryReason::MontageCompleted,
+		TEXT("RegularAttack"));
 
 	// ========================================================================
 	// PROCESS VALID CALLBACK
@@ -4682,7 +5713,7 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		// can leave phase stuck on Active/Windup since no more notifies will fire.
 		if (CurrentPhase != EAttackPhase::None)
 		{
-			if (GetDebugDraw())
+			if (CombatDebug::IsPhaseDebugEnabled())
 			{
 				UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Genuine interrupt while phase=%s - forcing phase reset to None"),
 					*UEnum::GetValueAsString(CurrentPhase));
@@ -4690,7 +5721,7 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 			SetPhase(EAttackPhase::None);
 		}
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsPhaseDebugEnabled())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Genuine interrupt - input state reset"));
 		}
@@ -4706,7 +5737,7 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 	// Actions with ScheduledTime=-1.0 mean checkpoint was never registered → discard them
 	if (ActionQueue.Num() > 0)
 	{
-		if (GetDebugDraw())
+		if (CombatDebug::IsQueueDebugEnabled())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[MONTAGE] Montage ended with %d queued actions - checking which are ready"), ActionQueue.Num());
 		}
@@ -4725,7 +5756,11 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		// Execute pending actions that reached their checkpoint
 		for (int32 i = ActionQueue.Num() - 1; i >= 0; --i)
 		{
-			FActionQueueEntry& Entry = ActionQueue[i];
+			if (!ActionQueue.IsValidIndex(i))
+			{
+				continue;
+			}
+			FActionQueueEntry Entry = ActionQueue[i];
 
 			if (Entry.IsPending())
 			{
@@ -4733,13 +5768,18 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 				// ScheduledTime=-1.0 means Active→Recovery checkpoint never registered → discard
 				if (Entry.ScheduledTime < 0.0f)
 				{
-					if (GetDebugDraw())
+					if (CombatDebug::IsQueueDebugEnabled())
 					{
 						UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Discarding action (checkpoint never reached): Type=%s, ScheduledTime=%.2f"),
 							*UEnum::GetValueAsString(Entry.InputAction.InputType), Entry.ScheduledTime);
 					}
 
 					// Discard action - checkpoint never happened
+					Entry.State = EActionState::Cancelled;
+					AppendActionQueueTelemetry(
+						Entry,
+						EActionReactionTelemetryEvent::QueueCancelled,
+						EActionReactionTelemetryReason::CheckpointNotReached);
 					ActionQueue.RemoveAt(i);
 					QueueStats.ActionsCancelled++;
 					continue;
@@ -4748,32 +5788,48 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 				// Only execute if montage reached the scheduled time
 				if (MontageEndTime >= Entry.ScheduledTime)
 				{
-					if (GetDebugDraw())
+					if (CombatDebug::IsQueueDebugEnabled())
 					{
 						UE_LOG(LogCombat, Log, TEXT("[QUEUE] Executing action from ended montage: Type=%s, ScheduledTime=%.2f, MontageEndTime=%.2f"),
 							*UEnum::GetValueAsString(Entry.InputAction.InputType), Entry.ScheduledTime, MontageEndTime);
 					}
 
-					// Execute the pending action
-					if (ExecuteAction(Entry))
+					// Startup can synchronously clear or replace the queue through callbacks.
+					ActionQueue.RemoveAt(i);
+					const TWeakObjectPtr<UCombatComponent> ComponentSnapshot(this);
+					const bool bExecuted = ExecuteAction(Entry);
+					if (!ComponentSnapshot.IsValid())
 					{
-						ActionQueue.RemoveAt(i);
-
+						return;
+					}
+					if (bExecuted)
+					{
 						QueueStats.ActionsExecuted++;
 
 						// Only execute the first valid action (FIFO)
 						break;
 					}
+					Entry.State = EActionState::Cancelled;
+					AppendActionQueueTelemetry(
+						Entry,
+						EActionReactionTelemetryEvent::QueueCancelled,
+						EActionReactionTelemetryReason::ExecutionFailed);
+					QueueStats.ActionsCancelled++;
 				}
 				else
 				{
-					if (GetDebugDraw())
+					if (CombatDebug::IsQueueDebugEnabled())
 					{
 						UE_LOG(LogCombat, Warning, TEXT("[QUEUE] Discarding action (montage ended before checkpoint): Type=%s, ScheduledTime=%.2f, MontageEndTime=%.2f"),
 							*UEnum::GetValueAsString(Entry.InputAction.InputType), Entry.ScheduledTime, MontageEndTime);
 					}
 
 					// Discard action - montage ended before checkpoint
+					Entry.State = EActionState::Cancelled;
+					AppendActionQueueTelemetry(
+						Entry,
+						EActionReactionTelemetryEvent::QueueCancelled,
+						EActionReactionTelemetryReason::MontageEndedBeforeCheckpoint);
 					ActionQueue.RemoveAt(i);
 					QueueStats.ActionsCancelled++;
 				}
@@ -4787,14 +5843,15 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 	// before the state machine filter, to ensure finisher montages complete properly.
 	// ========================================================================
 
-	// Update state machine with callback processed
-	AttackStateMachine.OnMontageEndProcessed(Montage, bInterrupted);
-
-	// Phase transition to idle if not in combo blend
-	if (!AttackStateMachine.IsComboBlending() &&
-		CurrentPhase != EAttackPhase::Windup &&
-		CurrentPhase != EAttackPhase::Active)
+	// Broadcasts and queued execution above may synchronously start a successor,
+	// including another section of the same montage. Only the exact ending attack
+	// is allowed to clear lifecycle state and checkpoints.
+	const bool bEndingAttackStillOwnsState =
+		AttackStateMachine.AttackGeneration == EndingAttackGeneration
+		&& AttackStateMachine.IsOwnerMontage(Montage);
+	if (bEndingAttackStillOwnsState)
 	{
+		AttackStateMachine.OnMontageEndProcessed(Montage, bInterrupted);
 		SetPhase(EAttackPhase::None);
 	}
 
@@ -4813,100 +5870,27 @@ void UCombatComponent::OnMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 		}
 	}
 
-	// Clear checkpoints for finished montage (new montage will have its own)
-	Checkpoints.Empty();
 }
 
 //NOTE:: OnMontageEnded is where queued actions get a last chance to execute if their checkpoint was reached.
-
-// ============================================================================
-// PROCEDURAL MOVEMENT CONTROL (Phase 1 Fix)
-// ============================================================================
-
-void UCombatComponent::UpdateMovementFromMontageState()
-{
-	// PROCEDURAL MOVEMENT SYNC: Automatically enable/disable movement based on current animation state
-	// This replaces manual DisableMovement/SetMovementMode calls scattered throughout the code
-	// Called from: TickComponent (every frame), PlayAttackMontage (new attack), OnEaseTimerTick (during transitions)
-
-	ABaseCombatCharacter* Character = GetOwnerCharacter();
-	if (!Character)
-	{
-		return;
-	}
-
-	UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement();
-	if (!MovementComp)
-	{
-		return;
-	}
-
-	// Determine if movement should be locked based on current state
-	bool bShouldLockMovement = false;
-
-	// RULE 1: Lock during hold freeze (playrate < threshold)
-	if (HoldState.IsHolding())
-	{
-		// Query ACTUAL montage playrate (don't trust HoldState.CurrentPlayRate)
-		float CurrentPlayRate = UMontageUtilityLibrary::GetMontagePlayRate(Character);
-		if (CurrentPlayRate < 0.5f)
-		{
-			bShouldLockMovement = true;
-
-			if (GetDebugDraw() && !bMovementCurrentlyDisabled)
-			{
-				UE_LOG(LogCombat, Log, TEXT("[MOVEMENT] Locking movement - hold freeze (playrate=%.2f)"), CurrentPlayRate);
-			}
-		}
-	}
-
-	// RULE 2: Lock during ease-in (transitioning to freeze)
-	if (HoldState.bIsEasing && !HoldState.bIsEasingOut)
-	{
-		bShouldLockMovement = true;
-
-		if (GetDebugDraw() && !bMovementCurrentlyDisabled)
-		{
-			UE_LOG(LogCombat, Log, TEXT("[MOVEMENT] Locking movement - ease-in to freeze"));
-		}
-	}
-
-	// Apply movement state change if needed
-	if (bShouldLockMovement && !bMovementCurrentlyDisabled)
-	{
-		// Need to disable movement
-		MovementComp->DisableMovement();
-		bMovementCurrentlyDisabled = true;
-
-		if (GetDebugDraw())
-		{
-			UE_LOG(LogCombat, Log, TEXT("[MOVEMENT] Movement DISABLED"));
-		}
-	}
-	else if (!bShouldLockMovement && bMovementCurrentlyDisabled)
-	{
-		// Need to enable movement
-		MovementComp->SetMovementMode(MOVE_Walking);
-		bMovementCurrentlyDisabled = false;
-
-		if (GetDebugDraw())
-		{
-			UE_LOG(LogCombat, Log, TEXT("[MOVEMENT] Movement ENABLED"));
-		}
-	}
-}
 
 void UCombatComponent::ClearHoldState()
 {
 	// CRITICAL: Complete hold state cleanup when starting new attack or on montage end
 	// Prevents state leaks between attacks
 
+	const int32 ReleasedHoldGeneration = HoldState.CurrentHold.HoldID;
+	const EInputType ReleasedInputType = HoldState.CurrentHold.InputType;
+	const uint64 ReleasedInputSerial = HoldState.CurrentHold.ReleaseInputSerial != 0
+		? HoldState.CurrentHold.ReleaseInputSerial
+		: HoldState.CurrentHold.PressInputSerial;
+
 	// Cancel any active ease timer
 	if (GetWorld() && EaseTimerHandle.IsValid())
 	{
 		GetWorld()->GetTimerManager().ClearTimer(EaseTimerHandle);
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsHoldDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[HOLD] Ease timer cleared"));
 		}
@@ -4916,8 +5900,16 @@ void UCombatComponent::ClearHoldState()
 	if (HoldState.IsHolding() || HoldState.bIsEasing)
 	{
 		HoldState.Deactivate();
+		FActionReactionTelemetryRecord Telemetry = BuildActionReactionTelemetryRecord(
+			EActionReactionTelemetryEvent::HoldStateChanged,
+			EActionReactionTelemetryReason::HoldReleased);
+		Telemetry.InputType = ReleasedInputType;
+		Telemetry.InputSerial = ReleasedInputSerial;
+		Telemetry.HoldGeneration = ReleasedHoldGeneration;
+		Telemetry.Detail = TEXT("TerminalOrAttackCleanup");
+		AppendActionReactionTelemetry(MoveTemp(Telemetry));
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsHoldDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[HOLD] Hold state cleared"));
 		}
@@ -4934,7 +5926,7 @@ void UCombatComponent::ClearHoldState()
 		{
 			UMontageUtilityLibrary::SetMontagePlayRate(Character, 1.0f);
 
-			if (GetDebugDraw())
+			if (CombatDebug::IsHoldDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[HOLD] Playrate restored: %.2f → 1.0"), CurrentPlayRate);
 			}
@@ -4945,17 +5937,16 @@ void UCombatComponent::ClearHoldState()
 	// Hold window closed, movement stick no longer interpreted as directional input
 	SetInputContext(EInputContext::Movement);
 
-	if (GetDebugDraw())
+	if (CombatDebug::IsHoldDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[HOLD] Directional input window CLOSED"));
 	}
 
-	// Ensure movement is synced to new state
-	UpdateMovementFromMontageState();
 }
 
-void UCombatComponent::SetupAttackWarp(UAttackData* AttackData)
+void UCombatComponent::SetupAttackWarp(const FActionQueueEntry& Action)
 {
+	UAttackData* AttackData = Action.AttackData;
 	// Early exit if no valid attack data or warp disabled
 	if (!AttackData || !AttackData->WarpConfig.bEnableWarp)
 	{
@@ -5054,35 +6045,17 @@ void UCombatComponent::SetupAttackWarp(UAttackData* AttackData)
 		WorldDirection = UCombatUtils::InputDirectionToWorldVector(FinalDirection, Character);
 		DirectionSource = TEXT("HoldRelease");
 	}
-	// PRIORITY 2: Fall back to current movement input (for non-hold attacks)
+	// PRIORITY 2: Use the immutable world-space intent from this attack edge.
 	else
 	{
-		const FVector2D MovementInput = Character->GetLastMovementInput();
-
-		// Only use if movement input is significant (above dead zone)
-		if (MovementInput.Size() > 0.2f)
+		const FAttackFacingIntent& FacingIntent = Action.InputAction.FacingIntent;
+		if (FacingIntent.IsFinite()
+			&& FacingIntent.bHasWorldDirection
+			&& !FacingIntent.WorldDirection.IsNearlyZero())
 		{
-			// Get camera rotation for direction conversion
-			FRotator CameraRotation = FRotator::ZeroRotator;
-			if (AController* Controller = Character->GetController())
-			{
-				CameraRotation = Controller->GetControlRotation();
-			}
-
-			// Convert camera-relative input to character-relative direction
-			FinalDirection = UCombatUtils::VectorToCharacterRelativeDirection(
-				MovementInput,
-				CameraRotation,
-				Character,
-				Character->GetActorRotation(),
-				0.2f  // Dead zone
-			);
-
-			if (FinalDirection != EInputDirection::None)
-			{
-				WorldDirection = UCombatUtils::InputDirectionToWorldVector(FinalDirection, Character);
-				DirectionSource = TEXT("LiveInput");
-			}
+			FinalDirection = FacingIntent.BranchDirection;
+			WorldDirection = FacingIntent.WorldDirection.GetSafeNormal2D();
+			DirectionSource = TEXT("CapturedAttackEdge");
 		}
 	}
 
@@ -5163,15 +6136,23 @@ void UCombatComponent::SetupAttackWarp(UAttackData* AttackData)
 					WarpConfig.NoInputFacingCone, *BestTarget->GetName());
 			}
 		}
-		// CASE 4: No direction AND no nearby target in cone - skip warp entirely
+		// CASE 4: No target - preserve the facing captured on this attack edge.
 		else
 		{
-			if (GetDebugDraw())
+			const FAttackFacingIntent& FacingIntent = Action.InputAction.FacingIntent;
+			if (!FacingIntent.IsFinite())
 			{
-				UE_LOG(LogCombat, Verbose, TEXT("[ATTACK WARP] Skipped: No input direction and no targets in %.0f° facing cone"),
-					WarpConfig.NoInputFacingCone);
+				return;
 			}
-			return;
+			TargetRotation = FRotator(0.0f, FacingIntent.CapturedFacingYaw, 0.0f);
+			DirectionSource = TEXT("CapturedFacing");
+			const float AngleDelta = FMath::Abs(FMath::FindDeltaAngleDegrees(
+				CurrentFacing.Yaw, TargetRotation.Yaw));
+			if (WarpConfig.AlreadyFacingThreshold > 0.0f
+				&& AngleDelta <= WarpConfig.AlreadyFacingThreshold)
+			{
+				return;
+			}
 		}
 	}
 
@@ -5244,7 +6225,7 @@ float UCombatComponent::GetHoldDuration() const
 
 void UCombatComponent::DrawDebugInfo() const
 {
-	if (!GetOwner())
+	if (!GetOwner() || !CombatDebug::IsCombatStateDebugEnabled())
 	{
 		return;
 	}
@@ -5256,126 +6237,134 @@ void UCombatComponent::DrawDebugInfo() const
 	}
 
 	const FVector OwnerLocation = Character->GetActorLocation();
-	const FVector Offset = FVector(0, 0, 100);
-
-	// ============================================================================
-	// PHASE INDICATOR
-	// ============================================================================
-	FString PhaseInfo = FString::Printf(TEXT("Phase: %s"), *UEnum::GetValueAsString(CurrentPhase));
-	FColor PhaseColor = FColor::White;
-
-	switch (CurrentPhase)
+	int32 LineIndex = 0;
+	const auto DrawStateLine = [this, &OwnerLocation, &LineIndex](
+		const FString& Text,
+		const FColor Color)
 	{
-		case EAttackPhase::Windup:
-			PhaseColor = FColor::Orange;
-			break;
-		case EAttackPhase::Active:
-			PhaseColor = FColor::Red;
-			break;
-		case EAttackPhase::Recovery:
-			PhaseColor = FColor::Yellow;
-			break;
-		case EAttackPhase::None:
-			PhaseColor = FColor::White;
-			break;
+		const FVector LineOffset(0.0, 0.0, 65.0 + 28.0 * LineIndex++);
+		DrawDebugString(GetWorld(), OwnerLocation + LineOffset, Text, nullptr, Color, 0.0f, true);
+	};
+
+	if (CombatDebug::IsPhaseDebugEnabled())
+	{
+		FColor PhaseColor = FColor::White;
+		switch (CurrentPhase)
+		{
+		case EAttackPhase::Windup: PhaseColor = FColor::Orange; break;
+		case EAttackPhase::Active: PhaseColor = FColor::Red; break;
+		case EAttackPhase::Recovery: PhaseColor = FColor::Yellow; break;
+		case EAttackPhase::None: break;
+		}
+		DrawStateLine(
+			FString::Printf(TEXT("Phase: %s"), *UEnum::GetValueAsString(CurrentPhase)),
+			PhaseColor);
 	}
 
-	DrawDebugString(GetWorld(), OwnerLocation + Offset * 0.5f, PhaseInfo, nullptr, PhaseColor, 0.0f, true);
-
-	// ============================================================================
-	// QUEUE INFO
-	// ============================================================================
-	FString QueueInfo = FString::Printf(TEXT("Queue: %d pending | %d total"),
-		GetPendingActionCount(),
-		ActionQueue.Num());
-
-	DrawDebugString(GetWorld(), OwnerLocation + Offset, QueueInfo, nullptr, FColor::Cyan, 0.0f, true);
-
-	// Draw individual queued actions
-	int32 ActionIndex = 0;
-	for (const FActionQueueEntry& Entry : ActionQueue)
+	if (CombatDebug::IsQueueDebugEnabled())
 	{
-		if (Entry.IsPending())
-		{
-			FString ActionInfo = FString::Printf(TEXT("  [%d] %s @ %.2f (%s)"),
-				ActionIndex++,
-				*UEnum::GetValueAsString(Entry.InputAction.InputType),
-				Entry.ScheduledTime,
-				*UEnum::GetValueAsString(Entry.ExecutionMode));
+		DrawStateLine(
+			FString::Printf(TEXT("Queue: %d pending | %d total"),
+				GetPendingActionCount(), ActionQueue.Num()),
+			FColor::Cyan);
 
-			DrawDebugString(GetWorld(), OwnerLocation + Offset * (1.2f + ActionIndex * 0.3f), ActionInfo,
-				nullptr, FColor::Cyan, 0.0f, true);
+		int32 ActionIndex = 0;
+		for (const FActionQueueEntry& Entry : ActionQueue)
+		{
+			if (!Entry.IsPending())
+			{
+				continue;
+			}
+
+			DrawStateLine(
+				FString::Printf(TEXT("[%d] %s @ %.2f (%s)"),
+					ActionIndex++,
+					*UEnum::GetValueAsString(Entry.InputAction.InputType),
+					Entry.ScheduledTime,
+					*UEnum::GetValueAsString(Entry.ExecutionMode)),
+				FColor::Cyan);
+		}
+
+		DrawStateLine(
+			FString::Printf(TEXT("Stats: %d executed (%d queued + %d immediate) | %d cancelled"),
+				QueueStats.ActionsExecuted,
+				QueueStats.QueuedExecutions,
+				QueueStats.ImmediateExecutions,
+				QueueStats.ActionsCancelled),
+			FColor::White);
+
+		const float CurrentMontageTime = UMontageUtilityLibrary::GetCurrentMontageTime(Character);
+		if (Checkpoints.Num() > 0 && CurrentMontageTime >= 0.0f)
+		{
+			UMontageUtilityLibrary::DrawCheckpointTimeline(
+				GetWorld(), Character, Checkpoints, 0.0f, 150.0f);
+			if (Checkpoints.Num() != DebugLastCheckpointCount)
+			{
+				UMontageUtilityLibrary::LogCheckpoints(Checkpoints, TEXT("DEBUG"));
+				DebugLastCheckpointCount = Checkpoints.Num();
+			}
+		}
+
+		if (bComboWindowActive && CurrentMontageTime >= 0.0f)
+		{
+			const float ComboWindowEnd = ComboWindowStart + ComboWindowDuration;
+			if (CurrentMontageTime < ComboWindowStart)
+			{
+				DrawStateLine(
+					FString::Printf(TEXT("Combo window: opens in %.2fs"),
+						ComboWindowStart - CurrentMontageTime),
+					FColor::Yellow);
+			}
+			else if (CurrentMontageTime <= ComboWindowEnd)
+			{
+				DrawStateLine(
+					FString::Printf(TEXT("Combo window: %.2fs remaining"),
+						ComboWindowEnd - CurrentMontageTime),
+					FColor::Green);
+			}
+			else
+			{
+				DrawStateLine(
+					FString::Printf(TEXT("Combo window: expired %.2fs ago (stale active flag)"),
+						CurrentMontageTime - ComboWindowEnd),
+					FColor::Red);
+			}
 		}
 	}
 
-	// ============================================================================
-	// HOLD STATE
-	// ============================================================================
-	if (HoldState.IsHolding())
+	if (CombatDebug::IsHoldDebugEnabled())
 	{
-		FString HoldInfo = FString::Printf(TEXT("HOLDING: %s (%.2fs) [%s]"),
-			*UEnum::GetValueAsString(HoldState.GetHeldInputType()),
-			GetHoldDuration(),
-			HoldState.IsHoldCompleted() ? TEXT("COMPLETED") : TEXT("Incomplete"));
+		const FString HoldInfo = HoldState.IsHolding()
+			? FString::Printf(TEXT("Hold: %s | %s | Gen %d | %.2fs"),
+				*UEnum::GetValueAsString(HoldState.GetHeldInputType()),
+				*UEnum::GetValueAsString(HoldState.CurrentHold.Phase),
+				HoldState.CurrentHold.HoldID,
+				GetHoldDuration())
+			: TEXT("Hold: Inactive");
+		DrawStateLine(HoldInfo, HoldState.IsHolding() ? FColor::Yellow : FColor::White);
 
-		DrawDebugString(GetWorld(), OwnerLocation + Offset * 2.5f, HoldInfo, nullptr, FColor::Yellow, 0.0f, true);
-	}
-
-	// ============================================================================
-	// MOVEMENT STATE (Phase 1 Debug)
-	// ============================================================================
-	FString MovementState = bMovementCurrentlyDisabled ? TEXT("DISABLED") : TEXT("ENABLED");
-	FColor MovementColor = bMovementCurrentlyDisabled ? FColor::Red : FColor::Green;
-
-	DrawDebugString(GetWorld(), OwnerLocation + Offset * 3.0f,
-		FString::Printf(TEXT("Movement: %s"), *MovementState),
-		nullptr, MovementColor, 0.0f, true);
-
-	// ============================================================================
-	// STATS
-	// ============================================================================
-	FString StatsInfo = FString::Printf(TEXT("Stats: %d executed (%d queued + %d immediate) | %d cancelled"),
-		QueueStats.ActionsExecuted,
-		QueueStats.QueuedExecutions,
-		QueueStats.ImmediateExecutions,
-		QueueStats.ActionsCancelled);
-
-	DrawDebugString(GetWorld(), OwnerLocation + Offset * 3.0f, StatsInfo, nullptr, FColor::White, 0.0f, true);
-
-	// ============================================================================
-	// CHECKPOINT TIMELINE (Visual)
-	// ============================================================================
-	if (Checkpoints.Num() > 0 && UMontageUtilityLibrary::GetCurrentMontageTime(Character) >= 0.0f)
-	{
-		// Draw visual timeline using MontageUtilityLibrary
-		UMontageUtilityLibrary::DrawCheckpointTimeline(
-			GetWorld(),
-			Character,
-			Checkpoints,
-			0.0f,  // Draw duration (0 = single frame, updated each tick)
-			150.0f  // Y offset above character
-		);
-
-		// Log checkpoints if they changed (per-instance tracking, not static)
-		if (Checkpoints.Num() != DebugLastCheckpointCount)
+		const EActionReactionTelemetryReason MovementReason =
+			ResolveMovementInputDecisionReason(true);
+		const bool bMovementAllowed =
+			MovementReason == EActionReactionTelemetryReason::MovementInputAllowed;
+		const TCHAR* MovementReasonText = TEXT("Allowed");
+		switch (MovementReason)
 		{
-			UMontageUtilityLibrary::LogCheckpoints(Checkpoints, TEXT("DEBUG"));
-			DebugLastCheckpointCount = Checkpoints.Num();
+		case EActionReactionTelemetryReason::MovementInputSuppressedByHold:
+			MovementReasonText = TEXT("Suppressed: Hold");
+			break;
+		case EActionReactionTelemetryReason::MovementInputSuppressedByPaired:
+			MovementReasonText = TEXT("Suppressed: Paired");
+			break;
+		case EActionReactionTelemetryReason::MovementInputSuppressedByTerminalState:
+			MovementReasonText = TEXT("Suppressed: Terminal");
+			break;
+		default:
+			break;
 		}
-	}
-
-	// ============================================================================
-	// COMBO WINDOW INDICATOR
-	// ============================================================================
-	if (bComboWindowActive)
-	{
-		float CurrentTime = UMontageUtilityLibrary::GetCurrentMontageTime(Character);
-		float TimeRemaining = (ComboWindowStart + ComboWindowDuration) - CurrentTime;
-
-		FString ComboInfo = FString::Printf(TEXT("COMBO WINDOW: %.2fs remaining"),
-			FMath::Max(0.0f, TimeRemaining));
-
-		DrawDebugString(GetWorld(), OwnerLocation + Offset * 3.5f, ComboInfo, nullptr, FColor::Green, 0.0f, true);
+		DrawStateLine(
+			FString::Printf(TEXT("Movement: %s"), MovementReasonText),
+			bMovementAllowed ? FColor::Green : FColor::Red);
 	}
 }
 
@@ -5388,7 +6377,7 @@ void UCombatComponent::ProcessInputPair(const FQueuedInputAction& PressEvent, co
 	// Calculate hold duration
 	float HoldDuration = ReleaseEvent.Timestamp - PressEvent.Timestamp;
 
-	if ( GetDebugDraw())
+	if (CombatDebug::IsHoldDebugEnabled())
 	{
 		UE_LOG(LogCombat, Log, TEXT("[INPUT] Pair processed: %s held for %.2fs"),
 			*UEnum::GetValueAsString(PressEvent.InputType),
@@ -5442,7 +6431,7 @@ UAttackData* UCombatComponent::GetAttackForInput(EInputType InputType)
 	{
 		bShouldCombo = true;
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsQueueDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[COMBO] Allowing combo from phase %s (CurrentAttack=%s)"),
 				*UEnum::GetValueAsString(CurrentPhase),
@@ -5458,14 +6447,14 @@ UAttackData* UCombatComponent::GetAttackForInput(EInputType InputType)
 	{
 		bShouldCombo = false;
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsQueueDebugEnabled())
 		{
 			UE_LOG(LogCombat, Warning, TEXT("[COMBO] BUG-3 FIX: Combo window active but CurrentAttackData is nullptr - falling back to default"));
 		}
 	}
 
 	// Debug: Log combo resolution context
-	if (GetDebugDraw())
+	if (CombatDebug::IsQueueDebugEnabled())
 	{
 		UE_LOG(LogCombat, Warning, TEXT("[COMBO DEBUG] GetAttackForInput: Phase=%s, CurrentAttack=%s, ComboWindow=%s, bShouldCombo=%s"),
 			*UEnum::GetValueAsString(CurrentPhase),
@@ -5495,7 +6484,7 @@ UAttackData* UCombatComponent::GetAttackForInput(EInputType InputType)
 		// Use buffered direction (sampled at release during hold window)
 		AttackDirection = UCombatUtils::InputToAttackDirection(DirectionalInputBuffer.DirectionAtRelease);
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsHoldDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[DIRECTIONAL] Using buffered direction: %s (captured at %.2f) → AttackDirection=%s"),
 				*UEnum::GetValueAsString(DirectionalInputBuffer.DirectionAtRelease),
@@ -5503,7 +6492,7 @@ UAttackData* UCombatComponent::GetAttackForInput(EInputType InputType)
 				*UEnum::GetValueAsString(AttackDirection));
 		}
 	}
-	else if (GetDebugDraw())
+	else if (CombatDebug::IsHoldDebugEnabled())
 	{
 		// No directional input buffered (movement context OR no hold release)
 		UE_LOG(LogCombat, Verbose, TEXT("[DIRECTIONAL] No buffered direction (AttackDirection=None)"));
@@ -5546,7 +6535,7 @@ UAttackData* UCombatComponent::GetAttackForInput(EInputType InputType)
 	{
 		DirectionalInputBuffer.Reset();
 
-		if (GetDebugDraw())
+		if (CombatDebug::IsHoldDebugEnabled())
 		{
 			UE_LOG(LogCombat, Log, TEXT("[DIRECTIONAL] Buffer cleared (directional consumed)"));
 		}
@@ -5556,7 +6545,7 @@ UAttackData* UCombatComponent::GetAttackForInput(EInputType InputType)
 	}
 
 	// Debug: Log resolution result with path metadata
-	if (GetDebugDraw() && Result.Attack)
+	if (CombatDebug::IsQueueDebugEnabled() && Result.Attack)
 	{
 		const TCHAR* PathName = TEXT("Unknown");
 		switch (Result.Path)
@@ -5653,7 +6642,7 @@ void UCombatComponent::ClearExpiredCheckpoints(float CurrentTime)
 				bComboWindowActive = false;
 			}
 
-			if ( GetDebugDraw())
+			if (CombatDebug::IsQueueDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[CHECKPOINTS] Expired: Type=%s at %.2f"),
 					*UEnum::GetValueAsString(Checkpoint.WindowType),
@@ -5671,12 +6660,17 @@ bool UCombatComponent::CanAcceptNewInput(EInputType InputType) const
 	// Commit window only blocks IMMEDIATE execution during None/Recovery, not queuing
 	// Therefore, commit window check is NOT in CanAcceptNewInput - it's in QueueAction
 
-	// Block if queue already has pending actions of same type (prevents double-queueing)
+	if (InputType == EInputType::LightAttack || InputType == EInputType::HeavyAttack)
+	{
+		return true;
+	}
+
+	// Non-attack routes retain duplicate protection until they receive an explicit policy.
 	for (const FActionQueueEntry& Entry : ActionQueue)
 	{
 		if (Entry.IsPending() && Entry.InputAction.InputType == InputType)
 		{
-			if (GetDebugDraw())
+			if (CombatDebug::IsQueueDebugEnabled())
 			{
 				UE_LOG(LogCombat, Warning, TEXT("[INPUT] Input REJECTED - Already queued action of same type"));
 			}
@@ -5957,6 +6951,18 @@ int32 UCombatComponent::GetPairedPartnerCount() const
 bool UCombatComponent::IsInputBlocked() const
 {
 	return CachedPairedAnimComp ? CachedPairedAnimComp->IsInputBlocked() : false;
+}
+
+void UCombatComponent::PrepareForPairedTakeover()
+{
+	EndBlock();
+	SetPhase(EAttackPhase::None);
+	ClearQueue(false);
+	HeldInputs.Reset();
+	HeldInputSerials.Reset();
+	DirectionalInputBuffer.Reset();
+	SetInputContext(EInputContext::Movement);
+	AttackStateMachine.ForceReset();
 }
 
 void UCombatComponent::BeginPairedAnimation(UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType, bool bIsCriticalMoment)

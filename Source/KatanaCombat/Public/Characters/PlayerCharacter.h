@@ -29,6 +29,8 @@ class KATANACOMBAT_API APlayerCharacter : public ABaseCombatCharacter
 
 #if WITH_AUTOMATION_TESTS
     friend class FDefenseAlignment_PlayerLookRoutesManualYaw;
+    friend class FPlayerMovementHoldSuppressionPolicyTest;
+    friend class FPlayerMovementTerminalSampleTest;
 #endif
 
 public:
@@ -36,9 +38,15 @@ public:
 
     virtual void Tick(float DeltaTime) override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+    virtual void UnPossessed() override;
 
     /** Get current movement input for debug visualization */
-    virtual FVector2D GetLastMovementInput() const override { return LastMovementInput; }
+    virtual FVector2D GetLastMovementInput() const override;
+
+    /** CharacterMovement yaw rate used while orienting locomotion to movement input. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Character|Movement",
+        meta = (ClampMin = "1.0", ClampMax = "1080.0", UIMin = "1.0", UIMax = "1080.0", Units = "DegreesPerSecond"))
+    float LocomotionRotationRate = 540.0f;
 
     // ========================================================================
     // DEBUG WIDGET (Player-specific)
@@ -78,6 +86,7 @@ public:
 
 protected:
     virtual void BeginPlay() override;
+    virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
     // ========================================================================
     // INPUT HANDLERS
@@ -85,6 +94,9 @@ protected:
 
     /** Movement input (continuous) */
     void Move(const FInputActionValue& Value);
+
+    /** Clear the terminal-aware movement sample. */
+    void StopMove(const FInputActionValue& Value);
 
     /** Look input (continuous) */
     void Look(const FInputActionValue& Value);
@@ -98,11 +110,17 @@ protected:
     /** Light attack button released */
     void OnLightAttackReleased(const FInputActionValue& Value);
 
+    /** Light attack input was canceled by Enhanced Input. */
+    void OnLightAttackCanceled(const FInputActionValue& Value);
+
     /** Heavy attack button pressed */
     void OnHeavyAttackPressed(const FInputActionValue& Value);
 
     /** Heavy attack button released */
     void OnHeavyAttackReleased(const FInputActionValue& Value);
+
+    /** Heavy attack input was canceled by Enhanced Input. */
+    void OnHeavyAttackCanceled(const FInputActionValue& Value);
 
     /** Block button pressed */
     void OnBlockPressed(const FInputActionValue& Value);
@@ -110,16 +128,13 @@ protected:
     /** Block button released */
     void OnBlockReleased(const FInputActionValue& Value);
 
+    /** Block input was canceled by Enhanced Input. */
+    void OnBlockCanceled(const FInputActionValue& Value);
+
     /** Evade button pressed */
     void OnEvadePressed(const FInputActionValue& Value);
 
     /** Debug toggle button pressed */
     void OnToggleDebug(const FInputActionValue& Value);
 
-    // ========================================================================
-    // DIRECTIONAL INPUT HELPERS
-    // ========================================================================
-
-    /** Last captured movement vector (for directional input) */
-    FVector2D LastMovementInput;
 };

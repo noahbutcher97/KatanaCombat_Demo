@@ -64,9 +64,8 @@ Tools/UE5-Source-Query/
 *.xcodeproj
 *.xcworkspace
 
-# Ignore the ReasoningEngine plugin (separate repo)
-Plugins/
-Plugins
+# External plugins are generated from pinned dependency setup or installed locally.
+/Plugins/*
 
 # Ignore Nul
 nul

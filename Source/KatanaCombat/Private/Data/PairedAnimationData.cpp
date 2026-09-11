@@ -3,6 +3,7 @@
 #include "Data/PairedAnimationData.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_ChainStageTransition.h"
+#include "Sound/SoundBase.h"
 
 #if WITH_EDITOR
 #include "Misc/DataValidation.h"
@@ -284,7 +285,28 @@ EDataValidationResult UPairedAnimationData::IsDataValid(FDataValidationContext& 
     if (AnimationName.IsNone())
     {
         Context.AddWarning(FText::FromString(FString::Printf(
-            TEXT("%s: AnimationName should be set for TMap lookups"), *GetName())));
+            TEXT("%s: AnimationName should be set (used for logs and editor reports)"), *GetName())));
+    }
+
+    // Editor-only engine content does not exist in packaged builds — flag placeholder references
+    const TPair<const TCHAR*, const USoundBase*> AuthoredSounds[] = {
+        { TEXT("ImpactSound"), ImpactSound.Get() },
+        { TEXT("VictimReactionSound"), VictimReactionSound.Get() },
+        { TEXT("AttackerVoiceLine"), AttackerVoiceLine.Get() }
+    };
+    for (const TPair<const TCHAR*, const USoundBase*>& AuthoredSound : AuthoredSounds)
+    {
+        if (AuthoredSound.Value)
+        {
+            const FString SoundPath = AuthoredSound.Value->GetPathName();
+            if (SoundPath.StartsWith(TEXT("/Engine/VREditor"))
+                || SoundPath.StartsWith(TEXT("/Engine/EditorSounds")))
+            {
+                Context.AddWarning(FText::FromString(FString::Printf(
+                    TEXT("%s: %s references editor-only content (%s) that will be missing in packaged builds"),
+                    *GetName(), AuthoredSound.Key, *SoundPath)));
+            }
+        }
     }
 
     return Result;

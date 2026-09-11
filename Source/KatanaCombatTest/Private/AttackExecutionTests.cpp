@@ -97,7 +97,7 @@ bool FClearQueueEmptiesTest::RunTest(const FString& Parameters)
 	// Put component into Active phase so actions get queued instead of executing immediately
 	CombatComp->OnPhaseTransition(EAttackPhase::Active);
 
-	// Queue multiple actions
+	// Repeated normal attacks share one last-input-wins pending slot.
 	UAttackData* TestAttack = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
 	FQueuedInputAction InputAction(EInputType::LightAttack, EInputEventType::Press, 0.0f, false);
 
@@ -106,7 +106,7 @@ bool FClearQueueEmptiesTest::RunTest(const FString& Parameters)
 	CombatComp->QueueAction(InputAction, TestAttack);
 
 	TestFalse("Queue should not be empty after adding actions", CombatComp->IsQueueEmpty());
-	TestEqual("Queue size should be 3", CombatComp->GetQueueSize(), 3);
+	TestEqual("Repeated normal attacks collapse to one pending winner", CombatComp->GetQueueSize(), 1);
 
 	// Clear queue
 	CombatComp->ClearQueue(false);

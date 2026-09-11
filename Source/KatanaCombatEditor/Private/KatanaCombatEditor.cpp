@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "KatanaCombatEditor.h"
+#include "Analysis/CombatCaptureSession.h"
 #include "PropertyEditorModule.h"
 #include "Customizations/AttackDataCustomization.h"
 #include "Customizations/HitReactionDataCustomization.h"
@@ -14,6 +15,7 @@
 
 void FKatanaCombatEditorModule::StartupModule()
 {
+	CombatCaptureCommands::Register();
 	RegisterCustomizations();
 
 	// Register Paired Animation Preview (Window > Paired Animation Preview)
@@ -22,6 +24,7 @@ void FKatanaCombatEditorModule::StartupModule()
 
 void FKatanaCombatEditorModule::ShutdownModule()
 {
+	CombatCaptureCommands::Unregister();
 	// Unregister Paired Animation Preview
 	SPairedAnimationPreview::UnregisterTabSpawner();
 

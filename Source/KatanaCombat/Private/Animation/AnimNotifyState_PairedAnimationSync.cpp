@@ -37,8 +37,11 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
     UPairedAnimationComponent* PairedComp = Owner->FindComponentByClass<UPairedAnimationComponent>();
     if (PairedComp)
     {
-        // Trigger sync point effects (camera shake, etc.) AND broadcast delegate
-        PairedComp->TriggerSyncPointEffects(SyncPointName);
+        // The primary attacker notify owns the authored damage commit. Participant
+        // components and duplicate notifies are rejected by generation ownership.
+        PairedComp->HandlePairedSyncPoint(
+            SyncPointName,
+            bIsPrimarySyncPoint && bApplyDamage);
     }
 
     // Also check for HitReactionComponent (in case this is on victim's montage)

@@ -73,9 +73,11 @@ struct KATANACOMBAT_API FPairedWarpConfig
 };
 
 /**
- * Configuration for finisher trigger conditions
- * Multiple conditions can be enabled - any matching condition triggers vulnerability
- * Design goal: Easy to trigger, flashy to execute (AC3 style)
+ * [ORPHANED — NOT WIRED] Configuration for finisher trigger conditions.
+ * No class holds an instance of this struct; HitReactionComponent::GetFinisherTriggerReason
+ * currently hardcodes its logic (0.25 health threshold, unconditional stagger/stun checks).
+ * Pending wire-or-delete decision — see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md.
+ * Design goal if wired: Easy to trigger, flashy to execute (AC3 style).
  */
 USTRUCT(BlueprintType)
 struct KATANACOMBAT_API FFinisherTriggerConfig

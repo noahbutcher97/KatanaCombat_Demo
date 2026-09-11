@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "EditorSubsystem.h"
 #include "Data/PairedAnimationEditorTypes.h"
+#include "Analysis/PairedContactEvaluation.h"
 #include "PairedAnimationAnalysisSubsystem.generated.h"
 
 class UDebugSkelMeshComponent;
@@ -33,6 +34,22 @@ class KATANACOMBATEDITOR_API UPairedAnimationAnalysisSubsystem : public UEditorS
 	GENERATED_BODY()
 
 public:
+	/** Montage-level sync states overlapping a fresh forward playback interval.
+	 * Includes states already active at entry, matching Unreal's notify extraction. */
+	static TArray<FPairedSyncEvent> CollectMontageSyncEvents(const UAnimMontage* Montage, double Start, double End);
+
+	/** Read-only authoring/runtime evaluation. Each invocation writes a unique report. */
+	bool EvaluateContactProfile(const FString& ProfilePath, const FString& CaptureDirectory,
+		FString& OutReportDirectory, FString& OutError);
+	/** Load profile assets/placement into the existing preview model without modifying assets. */
+	bool LoadContactProfileIntoPreview(const FString& ProfilePath,
+		FPairedAnimationPreviewModel& Model, FString& OutError);
+	/** Evaluate current preview placement using the profile's explicit timing and contact contract. */
+	bool EvaluateContactProfileForPreview(const FString& ProfilePath,
+		const FPairedAnimationPreviewModel& Model, FString& OutReportDirectory, FString& OutError);
+	/** Absolute, non-looping paired playback with montage rates, section bounds and extracted root motion. */
+	static bool SampleContactPreviewPose(const FPairedAnimationPreviewModel& Model, double Time,
+		UDebugSkelMeshComponent* AttackerMesh, UDebugSkelMeshComponent* VictimMesh, FString& OutError);
 	// ========================================================================
 	// LIFECYCLE
 	// ========================================================================

@@ -340,10 +340,8 @@ void ABaseCombatCharacter::HandleDeath_Implementation(AActor* Killer)
     // ========================================================================
     // GUARD: Already dead or dying - don't process death twice
     // ========================================================================
-    // This can happen when:
-    // 1. Finisher victim montage ended → OnAnyMontageBlendingOut applied death outcome
-    // 2. FinalizeDeath() was called → bIsDead = true
-    // 3. CompletePairedAnimation() applies damage → HandleDeath called again
+    // This can happen when a death callback or terminal paired cleanup is
+    // delivered more than once for the same committed lethal transition.
     // In this case, death was already processed, so skip.
     if (bIsDead)
     {
@@ -1460,6 +1458,20 @@ void ABaseCombatCharacter::OnHoldWindowStart_Implementation(EInputType InputType
     {
         CombatComponent->OnHoldWindowStart(InputType);
     }
+}
+
+void ABaseCombatCharacter::OnHoldWindowStartWithContext_Implementation(
+	const EInputType InputType,
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId)
+{
+	if (CombatComponent)
+	{
+		CombatComponent->OnHoldWindowStartWithContext(
+			InputType,
+			NotifySource,
+			MontageInstanceId);
+	}
 }
 
 // ============================================================================

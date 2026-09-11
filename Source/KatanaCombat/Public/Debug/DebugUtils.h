@@ -302,6 +302,16 @@ public:
 		AActor* ActorToIgnore = nullptr);
 
 	/**
+	 * Find walkable environment support for a character, excluding pawns and
+	 * their owned/attached objects. Includes static and dynamic platforms and
+	 * uses the character's slope policy. Does not prove capsule clearance or reachability.
+	 * Searches at most 32 rejected components; no valid hit leaves bFoundGround false.
+	 */
+	static FGroundSampleResult SampleWalkableGroundAtLocation(
+		UWorld* World, const FVector& Location, ACharacter* Character,
+		float TraceStartOffset = 100.0f, float TraceDistance = 500.0f);
+
+	/**
 	 * Adjust a location's Z to match ground height
 	 * Returns the location with Z adjusted to be on the ground + offset
 	 *

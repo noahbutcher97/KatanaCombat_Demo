@@ -325,6 +325,9 @@ bool FComboRace_SetPhaseNoneClearsState::RunTest(const FString& Parameters)
 	// Set up mid-attack state
 	Combat->CurrentAttackData = Attack;
 	Combat->CurrentAttackInputType = EInputType::LightAttack;
+	Combat->bComboWindowActive = true;
+	Combat->ComboWindowStart = 0.0f;
+	Combat->ComboWindowDuration = 3.0f;
 	Combat->SetPhase(EAttackPhase::Windup);
 
 	// SetPhase(None) should clear CurrentAttackData (no pending transitions)
@@ -334,6 +337,56 @@ bool FComboRace_SetPhaseNoneClearsState::RunTest(const FString& Parameters)
 		Combat->CurrentAttackData == nullptr);
 	TestTrue(TEXT("CurrentAttackInputType should be None"),
 		Combat->CurrentAttackInputType == EInputType::None);
+	TestFalse(TEXT("Combo window should be cleared on phase None"),
+		Combat->bComboWindowActive);
+	TestEqual(TEXT("Combo window start should be reset"), Combat->ComboWindowStart, 0.0f);
+	TestEqual(TEXT("Combo window duration should be reset"), Combat->ComboWindowDuration, 0.0f);
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+// ============================================================================
+// TEST: A valid normal montage end is terminal even if Recovery never fired
+// ============================================================================
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FComboRace_NormalMontageEndClearsActivePhase,
+	"KatanaCombat.ComboRaceCondition.NormalMontageEndClearsActivePhase",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FComboRace_NormalMontageEndClearsActivePhase::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	UCombatComponent* Combat = nullptr;
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, Combat);
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack(EAttackType::Heavy);
+	if (!Combat || !Player || !Attack || !Attack->AttackMontage)
+	{
+		AddError(TEXT("Failed to create normal montage-end fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Combat->CurrentAttackData = Attack;
+	Combat->CurrentAttackInputType = EInputType::HeavyAttack;
+	Combat->bComboWindowActive = true;
+	Combat->ComboWindowStart = 0.0f;
+	Combat->ComboWindowDuration = Attack->AttackMontage->GetPlayLength();
+	Combat->AttackStateMachine.OnAttackStarted(
+		Attack->AttackMontage, Attack->MontageSection, World->GetTimeSeconds());
+	Combat->SetPhase(EAttackPhase::Active);
+
+	Combat->OnMontageEnded(Attack->AttackMontage, false);
+
+	TestEqual(TEXT("Normal owner montage end clears an Active phase"),
+		Combat->GetCurrentPhase(), EAttackPhase::None);
+	TestNull(TEXT("Normal owner montage end clears attack data"), Combat->CurrentAttackData.Get());
+	TestEqual(TEXT("Normal owner montage end clears attack input"),
+		Combat->CurrentAttackInputType, EInputType::None);
+	TestFalse(TEXT("Normal owner montage end clears combo state"),
+		Combat->bComboWindowActive);
+	TestFalse(TEXT("Normal owner montage end leaves no active lifecycle"),
+		Combat->AttackStateMachine.IsAttackActive());
 
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;

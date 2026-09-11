@@ -47,18 +47,21 @@ bool FPhasesVsWindowsTest::RunTest(const FString& Parameters)
 	// Test 3: Combo window activates correctly
 	TestTrue("Combo window should be active after registration", CombatComp->IsInComboWindow());
 
-	// Test 4: Phase change doesn't affect windows
-	EAttackPhase PhaseBefore = CombatComp->GetCurrentPhase();
+	// Test 4: Nonterminal phase changes do not affect windows
 	bool bComboActiveBefore = CombatComp->IsInComboWindow();
-
-	CombatComp->OnPhaseTransition(EAttackPhase::None);
-
-	TestEqual("Phase should change", CombatComp->GetCurrentPhase(), EAttackPhase::None);
-	// Windows are time-based, independent of phase transitions
-	TestTrue("Combo window persists through phase changes (still registered)",
+	CombatComp->OnPhaseTransition(EAttackPhase::Active);
+	TestEqual("Nonterminal phase should change", CombatComp->GetCurrentPhase(), EAttackPhase::Active);
+	TestTrue("Combo window persists through nonterminal phase changes",
 		CombatComp->IsInComboWindow() == bComboActiveBefore);
 
-	// Test 5: EAttackPhase enum validation
+	// Test 5: None is terminal and clears attack-owned windows
+	CombatComp->OnPhaseTransition(EAttackPhase::None);
+	TestEqual("Terminal phase should change", CombatComp->GetCurrentPhase(), EAttackPhase::None);
+	TestFalse("Combo window clears when its attack terminates", CombatComp->IsInComboWindow());
+	TestEqual("Terminal cleanup removes registered attack windows",
+		CombatComp->GetActiveWindows(0.6f).Num(), 0);
+
+	// Test 6: EAttackPhase enum validation
 	TArray<EAttackPhase> AllPhases = {
 		EAttackPhase::None,
 		EAttackPhase::Windup,

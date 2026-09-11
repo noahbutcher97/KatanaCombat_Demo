@@ -22,6 +22,8 @@
     "/Game/ProjectFiles/Data/PDA/Settings/DA_CombatSettings_Default.DA_CombatSettings_Default"
   ],
   "supportingAssets": [
+    "/Game/Assets/Animations/GhostSamurai_Bundle/GhostSamurai/Katana/Apose/Execution/GhostSamurai_Ambush01.GhostSamurai_Ambush01",
+    "/Game/Assets/Animations/GhostSamurai_Bundle/GhostSamurai/Katana/Apose/Execution/GhostSamurai_Ambushed01.GhostSamurai_Ambushed01",
     "/Game/Assets/Animations/CombatMasterAnimBundle/Animations/DynamicAxeAnims/Manny_UE5/RootMotion/CommboAttack/Anim_DA_Combo_B3_RM.Anim_DA_Combo_B3_RM",
     "/Game/Assets/Animations/CombatMasterAnimBundle/Animations/DynamicAxeAnims/Manny_UE5/RootMotion/CommboAttack/Anim_DA_Combo_C1_RM.Anim_DA_Combo_C1_RM",
     "/Game/Assets/Animations/CombatMasterAnimBundle/Animations/DynamicAxeAnims/Manny_UE5/RootMotion/CommboAttack/Anim_DA_Combo_C2_RM.Anim_DA_Combo_C2_RM",
@@ -138,9 +140,9 @@
       "name": "Finisher",
       "role": "Finisher",
       "pairedData": "/Game/ProjectFiles/Data/PDA/Defense/GateA/DA_Finisher_GateA.DA_Finisher_GateA",
-      "attackerMontage": "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_Finisher_Defender.AM_Finisher_Defender",
+      "attackerMontage": "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_Finisher_Attacker.AM_Finisher_Attacker",
       "attackerSection": "Finisher",
-      "victimMontage": "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_Finisher_Attacker.AM_Finisher_Attacker",
+      "victimMontage": "/Game/ProjectFiles/Animation/Montages/Defense/GateA/AM_Finisher_Victim.AM_Finisher_Victim",
       "victimSection": "Finisher",
       "driverRole": null,
       "driverMarker": null,

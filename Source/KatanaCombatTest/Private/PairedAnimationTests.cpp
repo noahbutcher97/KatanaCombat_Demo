@@ -1324,3 +1324,168 @@ bool FSyncPointContactPointTest::RunTest(const FString& Parameters)
 
 	return true;
 }
+
+// ============================================================================
+// SYNC-TIME DAMAGE COMMIT TESTS
+// ============================================================================
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLegacyPairedSyncDamageCommitTest,
+	"KatanaCombat.PairedAnimation.Damage.LegacySyncCommitsExactlyOnce",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLegacyPairedSyncDamageCommitTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Attacker = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector::ZeroVector);
+	AEnemyCharacter* Victim = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(100.0f, 0.0f, 0.0f));
+	UPairedAnimationComponent* Paired = Attacker
+		? Attacker->PairedAnimationComponent.Get()
+		: nullptr;
+	UPairedAnimationData* Data = NewObject<UPairedAnimationData>();
+	if (!World || !Attacker || !Victim || !Paired || !Data)
+	{
+		AddError(TEXT("Failed to create legacy sync-damage fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Data->BaseDamage = 25.0f;
+	Data->DamageMultiplier = 1.0f;
+	Data->bIsLethal = false;
+	Paired->AddPairedPartner(Victim);
+	Paired->CurrentFinisherVictim = Victim;
+	Paired->BeginPairedAnimation(Data, EPairedReactionType::Counter, false);
+	const float InitialHealth = Victim->CurrentHealth;
+
+	Paired->HandlePairedSyncPoint(FName(TEXT("Impact")), false);
+	TestEqual(TEXT("A sync point with damage disabled preserves health"),
+		Victim->CurrentHealth, InitialHealth);
+
+	Paired->HandlePairedSyncPoint(FName(TEXT("Impact")), true);
+	TestEqual(TEXT("The authored damage sync point commits damage immediately"),
+		Victim->CurrentHealth, InitialHealth - 25.0f);
+	TestEqual(TEXT("The current legacy generation records the damage commit"),
+		Paired->LastLegacyDamageAppliedGeneration,
+		Paired->ActiveLegacyPairedGeneration);
+
+	Paired->HandlePairedSyncPoint(FName(TEXT("ImpactDuplicate")), true);
+	Paired->CompletePairedAnimation();
+	TestEqual(TEXT("Duplicate sync and montage completion cannot apply damage twice"),
+		Victim->CurrentHealth, InitialHealth - 25.0f);
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLegacyPairedCompletionDamageFallbackTest,
+	"KatanaCombat.PairedAnimation.Damage.LegacyCompletionFallback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLegacyPairedCompletionDamageFallbackTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Attacker = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector::ZeroVector);
+	AEnemyCharacter* Victim = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(100.0f, 0.0f, 0.0f));
+	UPairedAnimationComponent* Paired = Attacker
+		? Attacker->PairedAnimationComponent.Get()
+		: nullptr;
+	UPairedAnimationData* Data = NewObject<UPairedAnimationData>();
+	if (!World || !Attacker || !Victim || !Paired || !Data)
+	{
+		AddError(TEXT("Failed to create legacy completion-fallback fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Data->BaseDamage = 20.0f;
+	Data->DamageMultiplier = 1.0f;
+	Data->bIsLethal = false;
+	Paired->AddPairedPartner(Victim);
+	Paired->CurrentFinisherVictim = Victim;
+	Paired->BeginPairedAnimation(Data, EPairedReactionType::Counter, false);
+	const float InitialHealth = Victim->CurrentHealth;
+
+	Paired->CompletePairedAnimation();
+	TestEqual(TEXT("Montage completion preserves compatibility when no damage sync fires"),
+		Victim->CurrentHealth, InitialHealth - 20.0f);
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FLegacyFinisherSyncExpectedDeathTest,
+	"KatanaCombat.PairedAnimation.Damage.LegacyFinisherSyncExpectedDeath",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FLegacyFinisherSyncExpectedDeathTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Attacker = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector::ZeroVector);
+	AEnemyCharacter* Victim = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(100.0f, 0.0f, 0.0f));
+	UPairedAnimationComponent* Paired = Attacker
+		? Attacker->PairedAnimationComponent.Get()
+		: nullptr;
+	UPairedAnimationData* Data = NewObject<UPairedAnimationData>();
+	UAnimMontage* VictimMontage = NewObject<UAnimMontage>();
+	if (!World || !Attacker || !Victim || !Paired || !Data || !VictimMontage
+		|| !Victim->CombatComponent || !Victim->HitReactionComponent
+		|| !Victim->PairedAnimationComponent)
+	{
+		AddError(TEXT("Failed to create legacy finisher sync fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Data->BaseDamage = 1.0f;
+	Data->DamageMultiplier = 1.0f;
+	Data->bIsLethal = true;
+	Data->VictimMontage = VictimMontage;
+	Victim->HitReactionComponent->bIsInvulnerable = true;
+	Victim->HitReactionComponent->DamageResistance = 0.0f;
+	TestTrue(TEXT("The future victim can begin in a normal blocking state"),
+		Victim->CombatComponent->BeginBlock(Attacker));
+	Victim->HitReactionComponent->EnterPairedAnimationState(
+		VictimMontage, EReactionOutcome::Ragdoll, 0.2f, true, Attacker);
+	TestFalse(TEXT("Paired takeover ends guard so committed finisher damage cannot be blocked"),
+		Victim->CombatComponent->CanBlockAttackFrom(Attacker));
+	Paired->AddPairedPartner(Victim);
+	Victim->PairedAnimationComponent->AddPairedPartner(Attacker);
+	Paired->CurrentFinisherVictim = Victim;
+	Paired->BeginPairedAnimation(Data, EPairedReactionType::Finisher, false);
+
+	Paired->HandlePairedSyncPoint(FName(TEXT("Impact")), true);
+	TestTrue(TEXT("Accepted paired damage bypasses stale defense modifiers"),
+		Victim->CurrentHealth <= 0.0f);
+	TestTrue(TEXT("A lethal finisher enters terminal health state at impact"),
+		Victim->IsDeadOrDying());
+	TestTrue(TEXT("Impact-time lethal damage enters Dying before the victim montage resolves"),
+		Victim->IsDying());
+	TestFalse(TEXT("The visual death outcome remains deferred until paired cleanup"),
+		Victim->IsDead());
+	TestTrue(TEXT("The victim reaction pipeline remains paired while the montage is pending"),
+		Victim->HitReactionComponent->IsInPairedAnimationState());
+	TestTrue(TEXT("Expected impact death does not cancel the remaining paired sequence"),
+		Paired->IsPairedAnimationActive());
+	TestTrue(TEXT("Expected impact death retains the victim through terminal cleanup"),
+		Paired->IsPairedPartner(Victim));
+
+	Paired->CancelPairedAnimation(0.0f);
+	TestFalse(TEXT("Post-impact interruption releases paired ownership"),
+		Paired->IsPairedAnimationActive());
+	TestFalse(TEXT("Post-impact interruption finalizes victim reaction ownership"),
+		Victim->HitReactionComponent->IsInPairedAnimationState());
+	TestTrue(TEXT("Post-impact interruption applies the pending visual death outcome"),
+		Victim->IsDead());
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}

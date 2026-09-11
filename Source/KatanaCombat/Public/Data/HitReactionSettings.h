@@ -55,19 +55,19 @@ public:
     // SPECIAL REACTIONS (non-directional)
     // ========================================================================
 
-    /** Guard broken reaction (posture depleted) */
+    /** [NOT WIRED] PlayGuardBrokenReaction currently plays the component's legacy GuardBrokenMontage, not this slot (pending wire-or-delete, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Special")
     TObjectPtr<UHitReactionData> GuardBrokenReaction;
 
-    /** Knockdown reaction */
+    /** [NOT WIRED] Reachable only via PlaySpecialReaction, which has no callers. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Special")
     TObjectPtr<UHitReactionData> KnockdownReaction;
 
-    /** Launch reaction (for launchers) */
+    /** [NOT WIRED] No launcher system exists; reachable only via PlaySpecialReaction (no callers). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Special")
     TObjectPtr<UHitReactionData> LaunchReaction;
 
-    /** Death reaction */
+    /** [NOT WIRED] The live death path uses the DeathReactions map below; this slot is unreached. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Special")
     TObjectPtr<UHitReactionData> DeathReaction;
 
@@ -97,11 +97,11 @@ public:
     // Built now, wired when AttackData extended with counter/finisher names
     // ========================================================================
 
-    /** Counter reactions (keyed by counter attack name) */
+    /** [NOT WIRED] GetPairedReaction has no runtime callers; pairing is handled by UPairedAnimationData. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Paired")
     TMap<FName, TObjectPtr<UHitReactionData>> CounterReactions;
 
-    /** Finisher victim reactions (keyed by finisher name) */
+    /** [NOT WIRED] GetPairedReaction has no runtime callers; pairing is handled by UPairedAnimationData. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Paired")
     TMap<FName, TObjectPtr<UHitReactionData>> FinisherVictimReactions;
 
@@ -119,7 +119,7 @@ public:
         meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float HeavyDamageHealthPercent = 0.25f;
 
-    /** Global knockback multiplier applied to all reactions */
+    /** [NOT WIRED] No knockback physics is applied; this multiplier is never read (pending wire-or-delete). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parameters",
         meta = (ClampMin = "0.0", ClampMax = "5.0"))
     float GlobalKnockbackMultiplier = 1.0f;

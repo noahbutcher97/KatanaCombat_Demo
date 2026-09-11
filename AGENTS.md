@@ -18,6 +18,11 @@ Assets, maps, animation assets, and data assets live under `Content/`; engine an
 
 ## Build, Test, and Development Commands
 
+Before building a fresh checkout, install the locked AnimationAnalysis dependency
+using `python Tools/AnimationAnalysis/setup_dependency.py`.
+See [dependency setup](Tools/AnimationAnalysis/README.md); the generated plugin is
+ignored, and shared implementation edits belong in its separate repository.
+
 Run the standard Codex baseline:
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "Tools\Codex\run-agent-baseline.ps1"
@@ -51,6 +56,10 @@ powershell -ExecutionPolicy Bypass -File ".agents/skills/katana-verify/scripts/s
 
 Follow Unreal Engine C++ conventions: `U`, `A`, `F`, `E`, and `I` prefixes where appropriate, PascalCase types/functions, and camelBack variables as enforced by `.clang-tidy`. Keep cross-component combat delegates and shared enums/structs in `Source/KatanaCombat/Public/CombatTypes.h`; keep component-internal declarations near the owning component. Prefer UE containers and smart pointer types over raw ownership.
 
+Name files, classes, functions, tests, assets, and tools after their purpose, domain, or observable behavior. Names must be understandable to contributors using the tracked repository alone. Do not introduce names based on private workflow gates (such as `GateA`), local-only milestones, machine setup, or AI-tooling conventions. Migrate existing opaque names in scoped changes that update their consumers and documentation together.
+
+The capture foundation and portable analysis package are owned by the separate AnimationAnalysis repository; Katana consumes a pinned revision. Apply the [suite architecture contract](docs/architecture/ANIMATION_ANALYSIS_SUITE.md) to the entire existing suite and new work: portable contracts and analysis, a separate Unreal adapter, then Katana-specific adapters, profiles and scenarios. Project classes, skeleton defaults, asset paths, scenario assertions and local setup belong in the project integration. Audit and migrate existing mixed responsibilities; extracting the foundation does not complete the whole suite. Shared core execution and Unreal adapter builds must remain independent of Katana gameplay dependencies. Keep compatibility, evidence provenance and retention intact during scoped migrations.
+
 Core combat rules to preserve:
 - Phases are exclusive; windows may overlap.
 - Input is always buffered; combo windows affect timing, not capture.
@@ -70,6 +79,8 @@ Use the smallest verification ladder that proves the change:
 ## Commit & Pull Request Guidelines
 
 Recent history uses short, imperative summaries, sometimes with scope prefixes such as `CP-3:` or `Phase 6:`. Keep the first line specific: `Fix counter window pose matching` or `Update paired animation docs`. Pull requests should describe gameplay/editor impact, list tests run, link issues or plans, and include screenshots or video for visible animation, UI, or asset changes.
+
+Do not include AI attributions, generated-by footers, or assistant co-author trailers in commit messages.
 
 ## Codex Workflow
 
