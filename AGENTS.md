@@ -80,6 +80,8 @@ Use the smallest verification ladder that proves the change:
 
 Recent history uses short, imperative summaries, sometimes with scope prefixes such as `CP-3:` or `Phase 6:`. Keep the first line specific: `Fix counter window pose matching` or `Update paired animation docs`. Pull requests should describe gameplay/editor impact, list tests run, link issues or plans, and include screenshots or video for visible animation, UI, or asset changes.
 
+Do not include AI attributions, generated-by footers, or assistant co-author trailers in commit messages.
+
 ## Codex Workflow
 
 Repo-specific Codex configuration lives in `.codex/config.toml`. Reusable Codex skills live in `.agents/skills/`:
