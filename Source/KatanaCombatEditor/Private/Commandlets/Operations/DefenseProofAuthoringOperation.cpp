@@ -47,7 +47,7 @@ const FString FDefenseProofAuthoringOperation::OperationName = TEXT("DefenseProo
 
 namespace
 {
-constexpr int32 RecipeVersion = 4;
+constexpr int32 RecipeVersion = 5;
 constexpr float FloatTolerance = 0.001f;
 
 const FString DefenseManifestRelativePath =
@@ -74,8 +74,8 @@ const FString BridgeDefenderMontagePackage = MontageRoot + TEXT("AM_ParryBridge_
 const FString BridgeAttackerMontagePackage = MontageRoot + TEXT("AM_ParryBridge_Attacker");
 const FString CounterDefenderMontagePackage = MontageRoot + TEXT("AM_Counter_Defender");
 const FString CounterAttackerMontagePackage = MontageRoot + TEXT("AM_Counter_Attacker");
-const FString FinisherDefenderMontagePackage = MontageRoot + TEXT("AM_Finisher_Defender");
 const FString FinisherAttackerMontagePackage = MontageRoot + TEXT("AM_Finisher_Attacker");
+const FString FinisherVictimMontagePackage = MontageRoot + TEXT("AM_Finisher_Victim");
 
 const FString DefenseConfigurationPackage = DataRoot + TEXT("DA_DefenseConfiguration_GateA");
 const FString BridgeDataPackage = DataRoot + TEXT("DA_ParryBridge_GateA");
@@ -92,10 +92,6 @@ const FString CounterSequencePath =
 	TEXT("/Game/Assets/Animations/DynamicKatana/AS_Parry_Counter_Attack_L_Seq.AS_Parry_Counter_Attack_L_Seq");
 const FString CounterReactionSequencePath =
 	TEXT("/Game/Assets/Animations/DynamicKatana/AS_Hit_Large_F_Seq.AS_Hit_Large_F_Seq");
-const FString FinisherSequencePath =
-	TEXT("/Game/Assets/Animations/DynamicKatana/AS_Execution_01_Seq.AS_Execution_01_Seq");
-const FString FinisherReactionSequencePath =
-	TEXT("/Game/Assets/Animations/DynamicKatana/AS_Execution_Target_01_Seq.AS_Execution_Target_01_Seq");
 
 struct FDefenseAuthoringSegmentSpec
 {
@@ -148,6 +144,9 @@ struct FDefenseAuthoringPairedSpec
 	float SyncPointTime = 0.0f;
 	float BaseDamage = 0.0f;
 	bool bLethal = false;
+	FVector AttackerWarpOffset = FVector(100.0f, 0.0f, 0.0f);
+	bool bAttackerWarpTranslation = true;
+	FVector VictimWarpOffset = FVector(100.0f, 0.0f, 0.0f);
 };
 
 struct FDefenseAuthoringPlan : FDefenseProofAuthoringApprovalContract
@@ -188,14 +187,7 @@ TArray<FDefenseAuthoringMontageSpec> BuildMontageSpecs()
 		{CounterAttackerMontagePackage,
 			{{StaggerSequencePath, 0.70f, 0.76f, 0.133333f},
 			 {CounterReactionSequencePath, 0.0f, 1.0f, 1.0f}},
-			{{TEXT("Counter"), 0.0f}}, TEXT("PairedTarget"), 0.0f, 0.55f, true, true},
-		{FinisherDefenderMontagePackage,
-			{{FinisherSequencePath, 0.0f, 2.916667f, 1.0f}}, {{TEXT("Finisher"), 0.0f}},
-			TEXT("PairedTarget"), 0.0f, 0.75f, true, true, true,
-			EPairedReactionType::Finisher, 0.55f, true},
-		{FinisherAttackerMontagePackage,
-			{{FinisherReactionSequencePath, 0.0f, 2.916667f, 1.0f}}, {{TEXT("Finisher"), 0.0f}},
-			TEXT("PairedTarget"), 0.0f, 0.75f, true, true}
+			{{TEXT("Counter"), 0.0f}}, TEXT("PairedTarget"), 0.0f, 0.55f, true, true}
 	};
 }
 
@@ -211,9 +203,10 @@ TArray<FDefenseAuthoringPairedSpec> BuildPairedSpecs()
 			TEXT("FinisherReady"), NAME_None, NAME_None,
 			true, true, true, 0.45f, 25.0f, false},
 		{FinisherDataPackage, EPairedReactionType::Finisher,
-			FinisherDefenderMontagePackage, TEXT("Finisher"), FinisherAttackerMontagePackage, TEXT("Finisher"),
+			FinisherAttackerMontagePackage, TEXT("Finisher"), FinisherVictimMontagePackage, TEXT("Finisher"),
 			NAME_None, NAME_None, NAME_None,
-			false, false, false, 0.55f, 100.0f, true}
+			false, false, false, 0.55f, 100.0f, true,
+			FVector::ZeroVector, false, FVector(50.0f, 0.0f, 0.0f)}
 	};
 }
 
@@ -675,9 +668,11 @@ bool PairedDataMatches(
 		&& Data->AttackerMontage
 		&& Data->AttackerMontage->GetPathName() == BuildObjectPath(Spec.AttackerMontagePackage)
 		&& Data->AttackerMontageSection == Spec.AttackerSection
+		&& Data->AttackerMontage->IsValidSectionName(Spec.AttackerSection)
 		&& Data->VictimMontage
 		&& Data->VictimMontage->GetPathName() == BuildObjectPath(Spec.VictimMontagePackage)
 		&& Data->VictimMontageSection == Spec.VictimSection
+		&& Data->VictimMontage->IsValidSectionName(Spec.VictimSection)
 		&& Data->ChainTransitionPolicy.DriverRole == EPairedAnimationRole::Attacker
 		&& Data->ChainTransitionPolicy.RequiredMarker == Spec.RequiredMarker
 		&& Data->ChainTransitionPolicy.AttackerReadySection == Spec.AttackerReadySection
@@ -708,12 +703,12 @@ bool PairedDataMatches(
 		&& Data->AttackerWarpConfig.WarpTargetName == TEXT("PairedTarget")
 		&& Data->VictimWarpConfig.WarpTargetName == TEXT("PairedTarget")
 		&& Data->AttackerWarpConfig.RelativeOffset.Equals(
-			FVector(100.0f, 0.0f, 0.0f), FloatTolerance)
+			Spec.AttackerWarpOffset, FloatTolerance)
 		&& Data->VictimWarpConfig.RelativeOffset.Equals(
-			FVector(100.0f, 0.0f, 0.0f), FloatTolerance)
+			Spec.VictimWarpOffset, FloatTolerance)
 		&& NearlyEqual(Data->AttackerWarpConfig.MaxWarpDistance, RoleWarpLimit)
 		&& NearlyEqual(Data->VictimWarpConfig.MaxWarpDistance, RoleWarpLimit)
-		&& Data->AttackerWarpConfig.bWarpTranslation
+		&& Data->AttackerWarpConfig.bWarpTranslation == Spec.bAttackerWarpTranslation
 		&& Data->VictimWarpConfig.bWarpTranslation
 		&& Data->AttackerWarpConfig.bWarpRotation
 		&& Data->VictimWarpConfig.bWarpRotation
@@ -785,6 +780,9 @@ UPairedAnimationData* CreatePairedData(
 		WarpConfig->bWarpRotation = true;
 		WarpConfig->bAdjustToTerrain = true;
 	}
+	Data->AttackerWarpConfig.RelativeOffset = Spec.AttackerWarpOffset;
+	Data->AttackerWarpConfig.bWarpTranslation = Spec.bAttackerWarpTranslation;
+	Data->VictimWarpConfig.RelativeOffset = Spec.VictimWarpOffset;
 	Data->bApplySlowMotion = false;
 	Data->BaseDamage = Spec.BaseDamage;
 	Data->DamageMultiplier = 1.0f;
@@ -1342,6 +1340,8 @@ FString BuildRecipeFingerprintFacts()
 	Facts += TEXT("bones=head:High,spine_03:Middle,pelvis:Low\n");
 	Facts += TEXT("defender_rows=NormalBlockGeneric:NormalBlock:Block,PerfectParryGeneric:PerfectParry:Parry:CounterReady\n");
 	Facts += TEXT("attacker_rows=ContinueGeneric:Continue:Empty,ParryStaggerGeneric:ParryStagger:Stagger\n");
+	Facts += FString::Printf(TEXT("authored_finisher_dependencies=%s|%s\n"),
+		*FinisherAttackerMontagePackage, *FinisherVictimMontagePackage);
 	for (const FDefenseAuthoringMontageSpec& Spec : BuildMontageSpecs())
 	{
 		Facts += FString::Printf(
@@ -1373,6 +1373,9 @@ FString BuildRecipeFingerprintFacts()
 			*Spec.VictimReadySection.ToString(), Spec.bAttackerTerminalCompatible,
 			Spec.bVictimTerminalCompatible, Spec.bAutoContinue, Spec.SyncPointTime,
 			Spec.BaseDamage, Spec.bLethal);
+		Facts += FString::Printf(TEXT("paired_warp=%s|attacker_offset=%s|attacker_translation=%d|victim_offset=%s\n"),
+			*Spec.PackageName, *Spec.AttackerWarpOffset.ToString(),
+			Spec.bAttackerWarpTranslation, *Spec.VictimWarpOffset.ToString());
 	}
 	return Facts;
 }
@@ -1454,6 +1457,26 @@ void BuildSourceState(
 		for (const FDefenseAuthoringSegmentSpec& Segment : Spec.Segments)
 		{
 			SourcePaths.Add(Segment.SourcePath);
+		}
+	}
+	// Finisher montages are authored inputs. Bind their bytes and animation sources
+	// without adding them to the recipe's writable destination set.
+	for (const FString& PackageName :
+		{FinisherAttackerMontagePackage, FinisherVictimMontagePackage})
+	{
+		SourcePaths.Add(BuildObjectPath(PackageName));
+		if (const UAnimMontage* Montage = LoadObjectAtPackage<UAnimMontage>(PackageName))
+		{
+			for (const FSlotAnimationTrack& Slot : Montage->SlotAnimTracks)
+			{
+				for (const FAnimSegment& Segment : Slot.AnimTrack.AnimSegments)
+				{
+					if (const UAnimSequenceBase* Source = Segment.GetAnimReference())
+					{
+						SourcePaths.Add(Source->GetPathName());
+					}
+				}
+			}
 		}
 	}
 
@@ -1587,6 +1610,17 @@ FDefenseAuthoringPlan BuildPlan()
 	if (!LoadObjectAtPath<UNiagaraSystem>(ImpactVFXPath))
 	{
 		Plan.Errors.Add(FString::Printf(TEXT("reviewed impact VFX did not load: %s"), *ImpactVFXPath));
+	}
+	for (const FString& PackageName :
+		{FinisherAttackerMontagePackage, FinisherVictimMontagePackage})
+	{
+		const UAnimMontage* Montage = LoadObjectAtPackage<UAnimMontage>(PackageName);
+		if (!Montage || !Montage->IsValidSectionName(TEXT("Finisher")))
+		{
+			Plan.Errors.Add(FString::Printf(
+				TEXT("authored finisher dependency is missing or lacks its Finisher section: %s"),
+				*PackageName));
+		}
 	}
 
 	for (const FDefenseAuthoringMontageSpec& Spec : BuildMontageSpecs())

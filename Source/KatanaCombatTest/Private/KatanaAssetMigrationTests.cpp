@@ -1583,8 +1583,15 @@ bool FDefenseProofAuthoringPlanReadOnlyTest::RunTest(const FString& Parameters)
 	(void)Parameters;
 	const TArray<FString> Destinations =
 		FDefenseProofAuthoringOperation::GetDestinationPackageNames();
-	TestEqual(TEXT("The reviewed Gate A recipe should own fourteen packages"),
-		Destinations.Num(), 14);
+	TestEqual(TEXT("The reviewed Gate A recipe should own twelve packages"),
+		Destinations.Num(), 12);
+	for (const TCHAR* FinisherName :
+		{TEXT("AM_Finisher_Attacker"), TEXT("AM_Finisher_Victim"), TEXT("AM_Finisher_Defender")})
+	{
+		TestFalse(TEXT("Authoring must not rewrite current finishers or recreate the retired montage"),
+			Destinations.Contains(FString(TEXT("/Game/ProjectFiles/Animation/Montages/Defense/GateA/"))
+				+ FinisherName));
+	}
 
 	TMap<FString, bool> DirtyBefore;
 	for (const FString& PackageName : Destinations)
@@ -1609,9 +1616,9 @@ bool FDefenseProofAuthoringPlanReadOnlyTest::RunTest(const FString& Parameters)
 		FDefenseProofAuthoringOperation::OperationName);
 	TestEqual(TEXT("The recipe should produce one aggregate row"), FirstReport.Rows.Num(), 1);
 	TestEqual(TEXT("The row should expose the fixed destination count"),
-		FirstReport.Rows[0].Details.FindRef(TEXT("destination_package_count")), FString(TEXT("14")));
-	TestEqual(TEXT("The approval contract should use recipe version 4"),
-		FirstReport.Rows[0].Details.FindRef(TEXT("recipe_version")), FString(TEXT("4")));
+		FirstReport.Rows[0].Details.FindRef(TEXT("destination_package_count")), FString(TEXT("12")));
+	TestEqual(TEXT("The approval contract should use recipe version 5"),
+		FirstReport.Rows[0].Details.FindRef(TEXT("recipe_version")), FString(TEXT("5")));
 	for (const FString& HashField : TArray<FString>{
 		TEXT("recipe_facts_hash"), TEXT("source_state_hash"),
 		TEXT("destination_state_hash"), TEXT("manifest_hash")})
@@ -1693,6 +1700,15 @@ bool FDefenseProofAuthoringDirtyPackageContractTest::RunTest(const FString& Para
 		GuardObject ? GuardObject->GetOutermost() : nullptr);
 	ExpectDirtyPackageRejected(TEXT("A dirty destination must invalidate approval"),
 		DestinationPackage);
+	for (const TCHAR* FinisherName : {TEXT("AM_Finisher_Attacker"), TEXT("AM_Finisher_Victim")})
+	{
+		const FString PackageName =
+			FString(TEXT("/Game/ProjectFiles/Animation/Montages/Defense/GateA/")) + FinisherName;
+		UPackage* FinisherPackage = LoadPackage(nullptr, *PackageName, LOAD_None);
+		TestNotNull(TEXT("The authored finisher dependency should load"), FinisherPackage);
+		ExpectDirtyPackageRejected(TEXT("A dirty authored finisher must invalidate approval"),
+			FinisherPackage);
+	}
 	return true;
 }
 
