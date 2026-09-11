@@ -2,7 +2,27 @@
 
 Automated tests for the KatanaCombat combat system.
 
+For reusable PIE capture, motion/telemetry analysis, and frame review outside individual tests, see [Combat capture and analysis](../../docs/guides/COMBAT_CAPTURE_AND_ANALYSIS.md). The `KatanaCombat.Capture.*` suite exercises the same recorder used by the PIE console commands.
+
+Capture engine code is owned by the separate [Animation Analysis dependency](../../Tools/AnimationAnalysis/README.md).
+Run its setup command before building a fresh project checkout.
+Project capture tests exercise its Katana compatibility adapter. The separate
+`Tools/AnimationAnalysis/verify_unreal_host.py` verifier builds the copied plugin in
+a minimal host and runs `AnimationAnalysis.Capture.Portability.*` controls without Katana
+modules/assets. Those host tests are not part of the normal project test module.
+
+`python Tools/CombatCapture/run_scenario.py --map all --variant all --mode rendered` builds and runs completed/interrupted finisher input/recovery scenarios on both project maps, then publishes per-assertion evaluations. The driver uses public gameplay and Enhanced Input interfaces with active bystanders. Rendered evidence eligibility and calibrated displacement checks are separate from gameplay assertions. See the guide for repeated runs, fixed render resolution, source/asset identity, explicit references and capture-overhead controls.
+
 ## Module Configuration
+
+Additional reusable scenarios and paired authoring checks:
+
+```powershell
+python Tools/CombatCapture/run_scenario.py --scenario Tools/CombatCapture/scenarios/hold-release-recovery.json --map all --variant all --mode rendered
+python Tools/CombatCapture/evaluate_pair.py --profile Tools/CombatCapture/pairs/finisher-contact.json
+```
+
+`KatanaCombat.Capture.Scenarios.HoldReleaseRecovery.*` observes real hold notifies, all four directional releases, competing input, movement restoration and fresh attack ownership. `KatanaCombat.Editor.PairedEvaluation.*` validates contact intent, alignment budgets and shared preview/commandlet sampling. See [Paired animation evaluation](../../docs/guides/PAIRED_ANIMATION_EVALUATION.md) for capture comparison, profile format and unmeasured capabilities.
 
 - **Type**: `UncookedOnly` - Excluded from shipping builds
 - **Dependencies**: KatanaCombat, UnrealEd

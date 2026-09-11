@@ -64,6 +64,12 @@ private:
 	// This enables: testable state management, potential undo system, serialization.
 
 	FPairedAnimationPreviewModel Model;
+	FString ContactProfilePath;
+	FString ContactEvaluationStatus;
+	bool bContactProfilePlayback = false;
+	TSharedRef<SWidget> BuildContactEvaluationPanel();
+	void LoadContactEvaluationProfile();
+	void EvaluateContactProfile();
 
 	// ========================================================================
 	// SHARED PREVIEW SCENE (Runtime UObjects - NOT in Model)

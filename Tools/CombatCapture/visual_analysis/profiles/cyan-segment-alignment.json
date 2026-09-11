@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "detector": "colored_segment_alignment",
+  "detector_version": "1",
+  "status": "experimental",
+  "image_size": [960, 540],
+  "scope": "Reviewed, unobscured cyan segments in 960x540 KatanaCombat captures. Region identity is supplied independently by the reviewer. Calibration does not establish arbitrary material, resolution, camera or animation quality coverage.",
+  "settings": {
+    "minimum_green": 80,
+    "minimum_blue": 80,
+    "minimum_green_over_red": 30,
+    "minimum_blue_over_red": 30,
+    "component_join_radius_px": 2,
+    "minimum_component_pixels": 30,
+    "significant_fragment_pixels": 12,
+    "maximum_other_component_fraction": 0.6,
+    "minimum_span_px": 20,
+    "maximum_line_width_rms_px": 2,
+    "minimum_elongation": 50,
+    "maximum_alignment_error_px": 3,
+    "minimum_span_overlap": 0.5
+  }
+}

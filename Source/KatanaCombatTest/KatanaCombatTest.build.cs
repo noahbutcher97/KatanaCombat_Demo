@@ -28,6 +28,7 @@ public class KatanaCombatTest : ModuleRules
 				"ImageCore",         // Rendered proof-frame decode and pixel validation
 				"Kismet",           // Find-in-Blueprint cache reload regression coverage
 				"KatanaCombatEditor", // For editor tool regression tests
+				"AnimationCapture", // Independent native capture symbols used by compatibility tests
 				"Json",             // For asset migration report tests
 				"MotionWarping",    // For alignment warp-target ownership tests
 				"Niagara",          // For defense presentation effect fixtures

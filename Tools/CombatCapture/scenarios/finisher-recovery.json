@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "scenario": "FinisherRecovery",
+  "version": 4,
+  "attack": "/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1.LightAttack_1",
+  "maps": {
+    "ThirdPerson": "/Game/ProjectFiles/Levels/Lvl_ThirdPerson1",
+    "DefenseMatrix": "/Game/ProjectFiles/Levels/Test/Lvl_DefenseMatrix"
+  },
+  "variants": {"Completed": -1.0, "Interrupted": 0.45},
+  "warmup_s": 0.5,
+  "timeout_s": 25.0,
+  "paired_input_after_s": 0.15,
+  "recovery_observation_s": 2.0,
+  "victim_offset_cm": [150, 0, 0],
+  "bystander_offsets_cm": [[300, 300, 0], [-300, 300, 0], [-350, -200, 0]],
+  "camera_offset_cm": [0, -850, 230],
+  "camera_focus_cm": [50, 0, 45],
+  "camera_fov_deg": 60,
+  "camera_views": {
+    "opposite": {"offset_cm": [50, 600, 180], "focus_cm": [50, 0, 55], "fov_deg": 60},
+    "contact_oblique": {"offset_cm": [450, 400, 280], "focus_cm": [50, 0, 70], "fov_deg": 50},
+    "contact_elevated": {"offset_cm": [200, -200, 500], "focus_cm": [50, 0, 55], "fov_deg": 50}
+  },
+  "viewport_width": 960,
+  "viewport_height": 540,
+  "sample_hz": 60,
+  "capture_points": {"Attacker": ["weapon_start", "weapon_end"], "Victim": ["spine_03", "spine_05", "neck_01"]},
+  "frame_hz": 30,
+  "random_seed": 12479,
+  "pose_mode": "RequiredParticipantsAlwaysRefresh",
+  "criteria": {
+    "version": 1,
+    "required_role": "Attacker",
+    "required_point": "pelvis",
+    "max_sample_gap_s": 0.075,
+    "max_frame_gap_s": 0.12,
+    "max_pose_age_s": 0.04,
+    "max_frame_sample_lag_s": 0.075,
+    "minimum_samples": 3,
+    "reference_basis": "Transition thresholds require a separate repeated-run calibration; none is assumed by this scenario."
+  }
+}

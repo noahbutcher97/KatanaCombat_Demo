@@ -368,3 +368,85 @@ float UPairedAnimationAnalysisLibrary::CalculateDistance2D(FVector LocationA, FV
 {
 	return FVector::Dist2D(LocationA, LocationB);
 }
+// Explicit contact intent shared by preview and automated evaluation.
+FPairedContactEvaluation UPairedAnimationAnalysisLibrary::EvaluateIntendedContact(
+	const FPairedContactRule& Rule, TConstArrayView<FPairedContactPose> Poses)
+{
+	FPairedContactEvaluation Result;
+	const double Numbers[] = {Rule.StartSeconds, Rule.EndSeconds, Rule.TargetRadiusCm,
+		Rule.MinimumGapCm, Rule.MaximumGapCm, Rule.MaximumSampleGapSeconds,
+		Rule.ExpectedAngleDegrees, Rule.AngleToleranceDegrees};
+	for (double Value : Numbers)
+	{
+		if (!FMath::IsFinite(Value)) { Result.Reason = TEXT("Non-finite contact criterion"); return Result; }
+	}
+	if (Rule.Name.IsEmpty() || Rule.SourcePoint.IsEmpty() || Rule.TargetPoint.IsEmpty()
+		|| Rule.StartSeconds > Rule.EndSeconds || Rule.TargetRadiusCm < 0
+		|| Rule.MinimumGapCm > Rule.MaximumGapCm || Rule.MaximumSampleGapSeconds <= 0
+		|| Rule.AngleToleranceDegrees < 0 || Rule.ExpectedAngleDegrees < 0 || Rule.ExpectedAngleDegrees > 180
+		|| (Rule.bMeasureOrientation && (Rule.TargetLocalNormal.ContainsNaN() || Rule.TargetLocalNormal.IsNearlyZero())))
+	{
+		Result.Reason = TEXT("Invalid contact geometry, timing or tolerance"); return Result;
+	}
+	int32 Before = INDEX_NONE, After = INDEX_NONE;
+	for (int32 I = 0; I < Poses.Num(); ++I)
+	{
+		if (!FMath::IsFinite(Poses[I].TimeSeconds) || !FMath::IsFinite(Poses[I].OriginalTimeSeconds)
+			|| (I && Poses[I].TimeSeconds <= Poses[I - 1].TimeSeconds))
+		{
+			Result.Reason = TEXT("Pose times must be finite and strictly increasing"); return Result;
+		}
+		if (Poses[I].TimeSeconds <= Rule.StartSeconds) { Before = I; }
+		if (After == INDEX_NONE && Poses[I].TimeSeconds >= Rule.EndSeconds) { After = I; }
+	}
+	if (Before == INDEX_NONE || After == INDEX_NONE)
+	{
+		Result.Reason = TEXT("Samples do not bracket the intended contact interval"); return Result;
+	}
+	for (int32 I = Before; I <= After; ++I)
+	{
+		const FPairedContactPose& Pose = Poses[I];
+		if (!Pose.bEligible) { Result.Reason = Pose.IneligibilityReason; return Result; }
+		if (I > Before)
+		{
+			Result.MaximumSampleGapSeconds = FMath::Max(Result.MaximumSampleGapSeconds, Pose.TimeSeconds - Poses[I - 1].TimeSeconds);
+			if (Result.MaximumSampleGapSeconds > Rule.MaximumSampleGapSeconds)
+			{
+				Result.Reason = TEXT("Contact interval exceeds the declared sampling uncertainty"); return Result;
+			}
+		}
+		const FTransform* Source = Pose.Points.Find(Rule.SourcePoint);
+		const FTransform* End = Rule.SourceEndPoint.IsEmpty() ? Source : Pose.Points.Find(Rule.SourceEndPoint);
+		const FTransform* Target = Pose.Points.Find(Rule.TargetPoint);
+		if (!Source || !End || !Target || !Source->IsValid() || !End->IsValid() || !Target->IsValid())
+		{
+			Result.Reason = TEXT("Missing or invalid intended contact point; no origin or nearest-bone fallback"); return Result;
+		}
+		if (Pose.TimeSeconds < Rule.StartSeconds || Pose.TimeSeconds > Rule.EndSeconds) { continue; }
+		if (!Rule.SourceEndPoint.IsEmpty() && Source->GetLocation().Equals(End->GetLocation(), UE_SMALL_NUMBER))
+		{
+			Result.Reason = TEXT("A declared segment has coincident endpoints; use explicit point intent instead"); return Result;
+		}
+		const FVector Closest = FMath::ClosestPointOnSegment(Target->GetLocation(), Source->GetLocation(), End->GetLocation());
+		FPairedContactObservation Observation;
+		Observation.TimeSeconds = Pose.TimeSeconds; Observation.OriginalTimeSeconds = Pose.OriginalTimeSeconds;
+		Observation.SignedGapCm = FVector::Distance(Closest, Target->GetLocation()) - Rule.TargetRadiusCm;
+		if (Rule.bMeasureOrientation)
+		{
+			const FVector Axis = Rule.SourceEndPoint.IsEmpty() ? Source->GetUnitAxis(EAxis::X) : (End->GetLocation() - Source->GetLocation()).GetSafeNormal();
+			if (Axis.IsNearlyZero()) { Result.Reason = TEXT("Degenerate source axis cannot establish orientation"); return Result; }
+			const FVector Normal = Target->TransformVectorNoScale(Rule.TargetLocalNormal).GetSafeNormal();
+			const double Angle = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(FVector::DotProduct(Axis, Normal), -1.0, 1.0)));
+			Observation.AngleErrorDegrees = FMath::Abs(Angle - Rule.ExpectedAngleDegrees);
+		}
+		Observation.bWithinCriteria = Observation.SignedGapCm >= Rule.MinimumGapCm && Observation.SignedGapCm <= Rule.MaximumGapCm
+			&& (!Rule.bMeasureOrientation || Observation.AngleErrorDegrees <= Rule.AngleToleranceDegrees);
+		Result.MatchingSamples += Observation.bWithinCriteria ? 1 : 0;
+		Result.Observations.Add(Observation);
+	}
+	if (Result.Observations.IsEmpty()) { Result.Reason = TEXT("No observed pose inside the contact interval"); return Result; }
+	const bool bPass = Rule.bSustained ? Result.MatchingSamples == Result.Observations.Num() : Result.MatchingSamples > 0;
+	Result.Status = bPass ? EPairedContactResult::Pass : EPairedContactResult::Fail;
+	Result.Reason = Rule.bSustained ? TEXT("All observed poses must satisfy the sustained contact intent") : TEXT("At least one observed pose must satisfy contact within the intended interval");
+	return Result;
+}

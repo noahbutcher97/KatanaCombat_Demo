@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "paired_asset": "/Game/ProjectFiles/Data/PDA/Defense/GateA/DA_Finisher_GateA.DA_Finisher_GateA",
+  "attacker_mesh": "/Game/Assets/Characters/CyberpunkRunner/Meshes/SKM_CyberpunkRunnerr_B.SKM_CyberpunkRunnerr_B",
+  "victim_mesh": "/Game/Assets/Characters/Mannequins/Meshes/SKM_Manny_Simple.SKM_Manny_Simple",
+  "attacker_mesh_position_cm": [
+    0,
+    0,
+    0
+  ],
+  "victim_mesh_position_cm": [
+    50,
+    0,
+    0
+  ],
+  "attacker_mesh_rotation_deg": [
+    0,
+    -90,
+    0
+  ],
+  "victim_mesh_rotation_deg": [
+    0,
+    90,
+    0
+  ],
+  "sample_hz": 60,
+  "attacker_weapon_data": "/Game/ProjectFiles/Data/PDA/Weapons/DA_Weapon_Katana.DA_Weapon_Katana",
+  "criteria_basis": "Diagnostic intent for the currently equipped finisher: attached katana trace segment against an 18 cm upper-torso region. The 0.3..1.5 s action interval is based on review of the existing finisher recording. Proxy dimensions and alignment budgets (25 cm, 20 degrees, 50 ms) are provisional review triggers, not artist-approved or calibrated quality thresholds. Runtime sync notifies are reported separately so damage timing remains visible. Mannequin mesh variant for the DefenseMatrix fixture; all geometric and timing criteria are unchanged.",
+  "alignment_budgets": [
+    {
+      "name": "EntryAlignment",
+      "start_s": 0.1,
+      "end_s": 0.3,
+      "maximum_translation_cm": 25,
+      "maximum_rotation_deg": 20,
+      "maximum_victim_timing_error_s": 0.05,
+      "maximum_sample_gap_s": 0.075
+    },
+    {
+      "name": "ContactAlignment",
+      "start_s": 0.3,
+      "end_s": 1.5,
+      "maximum_translation_cm": 25,
+      "maximum_rotation_deg": 20,
+      "maximum_victim_timing_error_s": 0.05,
+      "maximum_sample_gap_s": 0.075
+    },
+    {
+      "name": "ExitAlignment",
+      "start_s": 1.8,
+      "end_s": 2.3,
+      "maximum_translation_cm": 25,
+      "maximum_rotation_deg": 20,
+      "maximum_victim_timing_error_s": 0.05,
+      "maximum_sample_gap_s": 0.075
+    }
+  ],
+  "contacts": [
+    {
+      "name": "BladeToUpperTorso",
+      "source": "Attacker:weapon_start",
+      "source_end": "Attacker:weapon_end",
+      "target": "Victim:spine_03",
+      "start_s": 0.3,
+      "end_s": 1.5,
+      "target_radius_cm": 18,
+      "minimum_gap_cm": -18,
+      "maximum_gap_cm": 8,
+      "maximum_sample_gap_s": 0.075,
+      "sustained": false
+    },
+    {
+      "name": "EntryRootSeparation",
+      "source": "Attacker:root",
+      "target": "Victim:root",
+      "start_s": 0.1,
+      "end_s": 0.3,
+      "target_radius_cm": 0,
+      "minimum_gap_cm": 30,
+      "maximum_gap_cm": 180,
+      "maximum_sample_gap_s": 0.075,
+      "sustained": true
+    },
+    {
+      "name": "ReleaseLeftHand",
+      "source": "Attacker:hand_l",
+      "target": "Victim:spine_03",
+      "start_s": 1.8,
+      "end_s": 2.3,
+      "target_radius_cm": 0,
+      "minimum_gap_cm": 10,
+      "maximum_gap_cm": 200,
+      "maximum_sample_gap_s": 0.075,
+      "sustained": true
+    }
+  ]
+}
