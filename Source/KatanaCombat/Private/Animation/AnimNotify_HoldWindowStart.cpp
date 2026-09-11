@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Animation/AnimNotify_HoldWindowStart.h"
+#include "Animation/CombatAnimNotifyIdentity.h"
 #include "Interfaces/CombatInterface.h"
 #include "GameFramework/Actor.h"
 
@@ -31,7 +32,11 @@ void UAnimNotify_HoldWindowStart::Notify(USkeletalMeshComponent* MeshComp, UAnim
 	// Route to ICombatInterface on owner
 	if (Owner->Implements<UCombatInterface>())
 	{
-		ICombatInterface::Execute_OnHoldWindowStart(Owner, InputType);
+		ICombatInterface::Execute_OnHoldWindowStartWithContext(
+			Owner,
+			InputType,
+			ResolveRuntimeNotifySourceId(EventReference),
+			ResolveRuntimeMontageInstanceId(EventReference));
 	}
 }
 

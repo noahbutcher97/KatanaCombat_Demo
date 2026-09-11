@@ -116,13 +116,15 @@ bool FQueueBasicOperationsTest::RunTest(const FString& Parameters)
 	TestFalse("Queue should not be empty after add", CombatComp->IsQueueEmpty());
 	TestEqual("Queue size should be 1", CombatComp->GetQueueSize(), 1);
 
-	// Test multiple adds
+	// Newest attack replaces the single pending normal slot.
 	FQueuedInputAction Action2(EInputType::HeavyAttack, EInputEventType::Press, 0.1f, false);
 	FQueuedInputAction Action3(EInputType::LightAttack, EInputEventType::Press, 0.2f, false);
 	CombatComp->QueueAction(Action2, TestAttack);
 	CombatComp->QueueAction(Action3, TestAttack);
 
-	TestEqual("Queue size should be 3", CombatComp->GetQueueSize(), 3);
+	TestEqual("Queue size should remain one", CombatComp->GetQueueSize(), 1);
+	TestEqual("Newest pending input should win",
+		CombatComp->ActionQueue[0].InputAction.Timestamp, 0.2f);
 
 	// Test clear
 	CombatComp->ClearQueue(false);
@@ -633,8 +635,11 @@ bool FQueueLastInputWinsTest::RunTest(const FString& Parameters)
 	CombatComp->QueueAction(Heavy1, HeavyAttack);
 	CombatComp->QueueAction(Light2, LightAttack);
 
-	// All should be queued (last-input-wins happens at execution)
-	TestEqual("Queue should have all inputs", CombatComp->GetQueueSize(), 3);
+	TestEqual("Normal attack buffer should contain one winner", CombatComp->GetQueueSize(), 1);
+	TestEqual("Last input should replace older pending inputs",
+		CombatComp->ActionQueue[0].InputAction.Timestamp, Light2.Timestamp);
+	TestEqual("Last input should preserve its attack data",
+		CombatComp->ActionQueue[0].AttackData, LightAttack);
 
 	World->DestroyActor(TestCharacter);
 	FCombatTestHelpers::DestroyTestWorld(World);
@@ -668,8 +673,7 @@ bool FQueueRapidInputTest::RunTest(const FString& Parameters)
 		CombatComp->QueueAction(Action, TestAttack);
 	}
 
-	// Queue should handle rapid input without crash
-	TestTrue("Queue size should be > 0 after rapid input", CombatComp->GetQueueSize() > 0);
+	TestEqual("Rapid input should collapse to one pending winner", CombatComp->GetQueueSize(), 1);
 
 	// Clear should handle full queue
 	CombatComp->ClearQueue(false);

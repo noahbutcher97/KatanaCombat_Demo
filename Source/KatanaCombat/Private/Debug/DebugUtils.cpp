@@ -7,8 +7,32 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "DrawDebugHelpers.h"
+#include "HAL/IConsoleManager.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogEnvironment, Log, All);
+
+namespace
+{
+TAutoConsoleVariable<int32> CVarGroundSamplingDebug(TEXT("Combat.Debug.GroundSampling"), 0,
+	TEXT("Log ground-query hits, owners, components and walkability without debug drawing."), ECVF_Cheat);
+
+bool IsPawnGeometry(const AActor* Actor)
+{
+	TArray<const AActor*, TInlineAllocator<8>> Pending, Seen;
+	if (Actor) { Pending.Add(Actor); }
+	while (!Pending.IsEmpty() && Seen.Num() < 32)
+	{
+		const AActor* Candidate = Pending.Pop(EAllowShrinking::No);
+		if (!Candidate || Seen.Contains(Candidate)) { continue; }
+		if (Candidate->IsA<APawn>()) { return true; }
+		Seen.Add(Candidate);
+		if (Candidate->GetOwner()) { Pending.Add(Candidate->GetOwner()); }
+		if (Candidate->GetAttachParentActor()) { Pending.Add(Candidate->GetAttachParentActor()); }
+	}
+	// An unresolved ownership chain is not established environment support.
+	return !Pending.IsEmpty();
+}
+}
 
 // ============================================================================
 // DIRECTION CONVERSION HELPERS
@@ -485,7 +509,56 @@ FGroundSampleResult UDebugUtils::SampleGroundAtLocation(
 		Result.SlopeAngle = CalculateSlopeAngle(HitResult.ImpactNormal);
 		Result.bIsWalkable = IsSlopeWalkable(HitResult.ImpactNormal);
 	}
+	if (CVarGroundSamplingDebug.GetValueOnGameThread() != 0)
+	{
+		UE_LOG(LogEnvironment, Log, TEXT("GroundSample Time=%.6f Owner=%s Query=(%s) Found=%d HitActor=%s HitComponent=%s ObjectType=%d Impact=(%s) Normal=(%s) Walkable=%d"),
+			World->GetTimeSeconds(), *GetPathNameSafe(ActorToIgnore), *Location.ToString(), Result.bFoundGround,
+			*GetPathNameSafe(HitResult.GetActor()), *GetPathNameSafe(HitResult.GetComponent()),
+			HitResult.GetComponent() ? static_cast<int32>(HitResult.GetComponent()->GetCollisionObjectType()) : -1,
+			*HitResult.ImpactPoint.ToString(), *HitResult.ImpactNormal.ToString(), Result.bIsWalkable);
+	}
 
+	return Result;
+}
+
+FGroundSampleResult UDebugUtils::SampleWalkableGroundAtLocation(
+	UWorld* World, const FVector& Location, ACharacter* Character, float TraceStartOffset, float TraceDistance)
+{
+	FGroundSampleResult Result; Result.bIsWalkable = false;
+	const auto* Movement = IsValid(Character) ? Character->GetCharacterMovement() : nullptr;
+	if (!World || !Movement || Location.ContainsNaN() || !FMath::IsFinite(TraceStartOffset)
+		|| !FMath::IsFinite(TraceDistance) || TraceStartOffset < 0 || TraceDistance <= 0) { return Result; }
+	const FVector Start = Location + FVector(0, 0, TraceStartOffset), End = Location - FVector(0, 0, TraceDistance);
+	FCollisionObjectQueryParams Objects; Objects.AddObjectTypesToQuery(ECC_WorldStatic); Objects.AddObjectTypesToQuery(ECC_WorldDynamic);
+	FCollisionQueryParams Query(SCENE_QUERY_STAT(PairedGroundSupport), false, Character);
+	for (int32 Attempt = 0; Attempt < 32; ++Attempt)
+	{
+		FHitResult Hit;
+		if (!World->LineTraceSingleByObjectType(Hit, Start, End, Objects, Query)) { break; }
+		const UPrimitiveComponent* Component = Hit.GetComponent();
+		const bool bPawnGeometry = IsPawnGeometry(Hit.GetActor());
+		const bool bWalkable = Movement->IsWalkable(Hit);
+		const bool bSupportsCharacter = Component && Component->CanCharacterStepUp(Character)
+			&& Component->GetCollisionResponseToChannel(Character->GetCapsuleComponent()->GetCollisionObjectType()) == ECR_Block;
+		const bool bAccepted = Hit.IsValidBlockingHit() && !bPawnGeometry && bWalkable && bSupportsCharacter;
+		if (CVarGroundSamplingDebug.GetValueOnGameThread() != 0)
+		{
+			UE_LOG(LogEnvironment, Log, TEXT("WalkableGroundSample Time=%.6f Owner=%s Query=(%s) HitActor=%s HitComponent=%s ObjectType=%d Impact=(%s) Walkable=%d PawnGeometry=%d SupportsCharacter=%d Accepted=%d"),
+				World->GetTimeSeconds(), *GetPathNameSafe(Character), *Location.ToString(), *GetPathNameSafe(Hit.GetActor()),
+				*GetPathNameSafe(Component), Component ? static_cast<int32>(Component->GetCollisionObjectType()) : -1,
+				*Hit.ImpactPoint.ToString(), bWalkable, bPawnGeometry, bSupportsCharacter, bAccepted);
+		}
+		if (bAccepted)
+		{
+			Result.bFoundGround = Result.bIsWalkable = true;
+			Result.GroundLocation = Hit.ImpactPoint; Result.GroundNormal = Hit.ImpactNormal;
+			Result.SlopeAngle = CalculateSlopeAngle(Hit.ImpactNormal);
+			return Result;
+		}
+		if (!Component) { break; }
+		// A single blocking character/steep surface must not hide eligible support below it.
+		Query.AddIgnoredComponent(Component);
+	}
 	return Result;
 }
 

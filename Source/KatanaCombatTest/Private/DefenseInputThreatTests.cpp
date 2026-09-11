@@ -858,13 +858,19 @@ bool FDefenseInput_NormalQueuePreservesBuffering::RunTest(const FString& Paramet
 	Combat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
 	Combat->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Press);
 
-	TestEqual(TEXT("Normal inputs retain existing queue behavior"), Combat->GetPendingActionCount(), 2);
+	TestEqual(TEXT("Normal inputs use one last-input-wins pending slot"), Combat->GetPendingActionCount(), 1);
 	const TArray<FCombatInputRecord>& History = Combat->GetCombatInputHistory();
 	TestEqual(TEXT("Both normal inputs are recorded"), History.Num(), 2);
-	for (const FCombatInputRecord& Record : History)
+	if (History.Num() == 2)
 	{
-		TestEqual(TEXT("Normal input route"), Record.Route, ECombatInputRoute::NormalQueue);
-		TestEqual(TEXT("Accepted normal input disposition"), Record.Disposition, ECombatInputDisposition::Queued);
+		TestEqual(TEXT("Displaced input retains the normal route"),
+			History[0].Route, ECombatInputRoute::NormalQueue);
+		TestEqual(TEXT("Older normal input is terminally replaced"),
+			History[0].Disposition, ECombatInputDisposition::Replaced);
+		TestEqual(TEXT("Winning input retains the normal route"),
+			History[1].Route, ECombatInputRoute::NormalQueue);
+		TestEqual(TEXT("Newest normal input remains queued"),
+			History[1].Disposition, ECombatInputDisposition::Queued);
 	}
 
 	FCombatTestHelpers::DestroyTestWorld(World);

@@ -229,11 +229,19 @@ public:
 		return AttackMontagePlayRateForTesting;
 	}
 	void SetDefenseManualYawInputForTesting(float NormalizedYawInput, double UnscaledNow);
-	void SeedAttackWindowStateForTesting(UAttackData* Attack, EAttackPhase Phase, int32 Generation)
+	void SeedAttackWindowStateForTesting(
+		UAttackData* Attack,
+		EAttackPhase Phase,
+		int32 Generation,
+		UAnimMontage* ActiveMontage = nullptr,
+		int32 MontageInstanceId = INDEX_NONE)
 	{
 		CurrentAttackData = Attack;
+		ActiveAttackStartupOperationSerial = 0;
 		CurrentPhase = Phase;
 		AttackStateMachine.AttackGeneration = Generation;
+		AttackStateMachine.ActiveMontage = ActiveMontage;
+		AttackStateMachine.ActiveMontageInstanceId = MontageInstanceId;
 	}
 	const FDefenseResolution& GetLastInputDefenseResolutionForTesting() const
 	{
@@ -318,6 +326,26 @@ public:
 		EInputEventType EventType,
 		FVector2D MovementInput,
 		bool bCharacterRelative = true);
+
+	/**
+	 * Store the canonical movement sample and return whether PlayerCharacter may apply it.
+	 * This policy never changes CharacterMovement mode.
+	 */
+	bool SubmitMovementInput(
+		const FVector2D& CameraRelativeInput,
+		const FRotator& CameraRotation,
+		bool bTerminal = false);
+
+	/** Clear the canonical movement sample at an Enhanced Input terminal edge. */
+	void ClearMovementInputSample();
+
+	const FCombatMovementInputSample& GetMovementInputSample() const
+	{
+		return MovementInputSample;
+	}
+
+	/** Derived movement-application policy; this is not CharacterMovement ownership. */
+	bool IsMovementInputSuppressed() const;
 
 	/**
 	 * Check if input can be processed
@@ -531,6 +559,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Hold")
 	void OnHoldWindowStart(EInputType InputType);
 
+	/** Validate and commit a hold for the exact active attack/montage instance. */
+	bool OnHoldWindowStartWithContext(
+		EInputType InputType,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId);
+
 
 	/**
 	 * Activate hold state
@@ -728,6 +762,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Paired Animation")
 	bool IsInputBlocked() const;
 
+	/** Atomically retire regular combat/input ownership before a paired role starts. */
+	void PrepareForPairedTakeover();
+
 	UFUNCTION(BlueprintCallable, Category = "Combat|Paired Animation")
 	void BeginPairedAnimation(UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType, bool bIsCriticalMoment = true);
 
@@ -778,6 +815,8 @@ public:
 
 #if WITH_AUTOMATION_TESTS
 	int32 ClearQueueCallCountForTesting = 0;
+	int32 ExecuteActionCallCountForTesting = 0;
+	int32 HoldOwnedDispatchCountForTesting = 0;
 	float AttackMontagePlayRateForTesting = 1.0f;
 #endif
 
@@ -789,8 +828,11 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
 	FHoldState HoldState;
 
-	/** Whether movement is currently disabled due to hold freeze */
-	bool bMovementCurrentlyDisabled = false;
+	/** Single canonical movement sample used by locomotion and attack-edge facing. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
+	FCombatMovementInputSample MovementInputSample;
+
+	uint64 NextMovementInputSerial = 1;
 
 	/** Currently held inputs (for press/release matching) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|State")
@@ -925,6 +967,15 @@ public:
 	friend class FDebugLabelPositionTest;
 	friend class FDebugArrowPositionTest;
 	friend class FDebugHoldStateVisualizationTest;
+	friend class FPlayerMovementHoldSuppressionPolicyTest;
+	friend class FCombatInputCanceledClearsHoldWithoutFollowUpTest;
+	friend class FCombatBlockCanceledClearsGuardTest;
+	friend class FHoldCommitmentExactContextTest;
+	friend class FHoldCommitmentRecoveryInputBuffersTest;
+	friend class FNormalAttackSlotReplacementTest;
+	friend class FNormalAttackSingleWinnerBoundaryTest;
+	friend class FHoldOwnedHandoffPrecedesNormalSlotTest;
+	friend class FHoldStaleEaseGenerationRejectedTest;
 	friend class FDebugPhaseColorTest;
 	friend class FDebugQueueVisualizationTest;
 	friend class FDebugArrowLengthTest;
@@ -943,6 +994,10 @@ public:
 	friend class FDefenseAlignment_GuardManualThresholdAndPriority;
 	friend class FDefenseAlignment_PlayerLookRoutesManualYaw;
 	friend class FActionReactionTelemetryStaleMontageCallbackTest;
+	friend class FCombatInputPairedTakeoverTest;
+	friend class FCombatInputPairedVictimTakeoverTest;
+	friend class FCombatInputRejectedReleaseCleanupTest;
+	friend class FCombatHoldCleanupPreservesMovementModeTest;
 #endif // WITH_AUTOMATION_TESTS
 
 protected:
@@ -1087,6 +1142,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	EInputType CurrentAttackInputType = EInputType::None;
 
+	/** Operation identity guarding provisional attack-state publication across reentrant callbacks. */
+	uint64 ActiveAttackStartupOperationSerial = 0;
+	uint64 NextAttackStartupOperationSerial = 1;
+
 	/** True while the Block input is held and not consumed by a parry/counter. */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	bool bIsBlocking = false;
@@ -1103,6 +1162,8 @@ protected:
 	static constexpr int32 DefenseTelemetryCapacity = 512;
 	static constexpr int32 ActionReactionTelemetryCapacity = 1024;
 	FActionReactionTelemetryBuffer ActionReactionTelemetryBuffer{ActionReactionTelemetryCapacity};
+	EActionReactionTelemetryReason LastMovementInputDecisionReason =
+		EActionReactionTelemetryReason::None;
 	uint64 NextDefenseTerminalSequence = 0;
 	static constexpr double DefenseInteractionTombstoneSeconds = 1.0;
 	static constexpr int32 DefenseTerminalInteractionCacheCap = 128;
@@ -1152,16 +1213,23 @@ protected:
 	// ============================================================================
 
 	/** Timer callback for procedural ease transitions (timer-based, NOT tick-based) */
-	void OnEaseTimerTick();
+	void OnEaseTimerTick(int32 ExpectedHoldGeneration);
 
-	/**
-	 * Procedurally update movement state based on montage/hold state
-	 * Called from: TickComponent, PlayAttackMontage, OnEaseTimerTick
-	 * Ensures movement is always synced with animation state
-	 */
-	void UpdateMovementFromMontageState(int32 CorrelatedHoldGeneration = 0);
-	void ActivateHoldWithInputSerial(EInputType InputType, float PlayRate, uint64 PressInputSerial);
-	void DeactivateHoldWithInputSerial(uint64 ReleaseInputSerial);
+	bool ActivateHoldWithInputSerial(
+		EInputType InputType,
+		float PlayRate,
+		uint64 PressInputSerial,
+		const FAttackInstanceId& SourceAttackInstance = {},
+		UAttackData* SourceAttackData = nullptr,
+		const FAnimNotifyRuntimeSourceId& NotifySource = {},
+		int32 MontageInstanceId = INDEX_NONE);
+	void DeactivateHoldWithInputSerial(
+		uint64 ReleaseInputSerial,
+		const FAttackFacingIntent& ReleaseFacingIntent = {},
+		EInputDirection ReleaseDirection = EInputDirection::None);
+	bool IsHoldSourceCurrent(int32 ExpectedHoldGeneration) const;
+	bool TerminateHoldIfMatches(int32 ExpectedHoldGeneration);
+	bool DispatchHoldOwnedFollowUp(int32 ExpectedHoldGeneration);
 
 	/**
 	 * Clear hold state completely (ease timer, flags, movement)
@@ -1267,6 +1335,8 @@ protected:
 	FActionReactionTelemetryRecord BuildActionReactionTelemetryRecord(
 		EActionReactionTelemetryEvent Event,
 		EActionReactionTelemetryReason Reason) const;
+	EActionReactionTelemetryReason ResolveMovementInputDecisionReason(bool bHasInput) const;
+	void RecordMovementInputDecision(EActionReactionTelemetryReason Reason);
 	uint64 EnsureActionQueueEntryIdentity(FActionQueueEntry& Entry);
 	void AppendActionQueueTelemetry(
 		const FActionQueueEntry& Entry,

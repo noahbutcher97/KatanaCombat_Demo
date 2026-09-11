@@ -2,6 +2,7 @@
 
 #include "Misc/AutomationTest.h"
 
+#include "Animation/AnimMontage.h"
 #include "Core/CombatComponent.h"
 #include "CombatTestHelpers.h"
 #include "Data/AttackConfiguration.h"
@@ -9,6 +10,7 @@
 #include "Data/CombatSettings.h"
 #include "Data/WeaponData.h"
 #include "Debug/ActionReactionTelemetry.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "HAL/IConsoleManager.h"
 
 namespace ActionReactionTelemetryTests
@@ -62,6 +64,18 @@ int32 CountCsvFields(const FString& Line)
 		}
 	}
 	return FieldCount;
+}
+
+int32 CountMovementDecisionRecords(
+	const TArray<FActionReactionTelemetryRecord>& Records)
+{
+	int32 Count = 0;
+	for (const FActionReactionTelemetryRecord& Record : Records)
+	{
+		Count += Record.Event ==
+			EActionReactionTelemetryEvent::MovementInputDecisionChanged ? 1 : 0;
+	}
+	return Count;
 }
 }
 
@@ -304,15 +318,28 @@ bool FActionReactionTelemetryLifecycleCorrelationTest::RunTest(const FString& Pa
 
 	UAttackData* Attack = NewObject<UAttackData>();
 	Attack->AttackType = EAttackType::Light;
+	Attack->AttackMontage = NewObject<UAnimMontage>(Attack);
 	Attack->HoldTargetPlayRate = 0.0f;
 	Attack->HoldEaseInDuration = 1.0f;
-	Combat->SeedAttackWindowStateForTesting(Attack, EAttackPhase::None, 17);
+	Combat->SeedAttackWindowStateForTesting(
+		Attack,
+		EAttackPhase::None,
+		17,
+		Attack->AttackMontage,
+		91);
 	Combat->HeldInputs.Add(EInputType::LightAttack, World->GetTimeSeconds());
 	constexpr uint64 PressInputSerial = 77;
 	Combat->HeldInputSerials.Add(EInputType::LightAttack, PressInputSerial);
 	Combat->ClearActionReactionTelemetry();
 
-	Combat->OnHoldWindowStart(EInputType::LightAttack);
+	FAnimNotifyRuntimeSourceId HoldNotifySource;
+	HoldNotifySource.SourceAnimation = FSoftObjectPath(Attack->AttackMontage.Get());
+	HoldNotifySource.NotifyEventIndex = 0;
+	TestTrue(TEXT("Exact hold context should commit"),
+		Combat->OnHoldWindowStartWithContext(
+			EInputType::LightAttack,
+			HoldNotifySource,
+			91));
 	Combat->OnPhaseTransition(EAttackPhase::Windup);
 	const int32 HoldGeneration = Combat->HoldState.CurrentHold.HoldID;
 	Combat->OnInputEvent(EInputType::LightAttack, EInputEventType::Release);
@@ -322,11 +349,10 @@ bool FActionReactionTelemetryLifecycleCorrelationTest::RunTest(const FString& Pa
 	const TArray<FActionReactionTelemetryRecord>& Records = Combat->GetActionReactionTelemetry();
 	const FActionReactionTelemetryRecord* HoldActivated = nullptr;
 	const FActionReactionTelemetryRecord* HoldReleased = nullptr;
-	const FActionReactionTelemetryRecord* MovementDisabled = nullptr;
-	const FActionReactionTelemetryRecord* MovementRestored = nullptr;
 	const FActionReactionTelemetryRecord* TerminalReset = nullptr;
 	int32 ContextChanges = 0;
 	int32 PhaseChanges = 0;
+	int32 MovementStateChanges = 0;
 	for (const FActionReactionTelemetryRecord& Record : Records)
 	{
 		if (Record.Event == EActionReactionTelemetryEvent::HoldStateChanged
@@ -339,16 +365,6 @@ bool FActionReactionTelemetryLifecycleCorrelationTest::RunTest(const FString& Pa
 		{
 			HoldReleased = &Record;
 		}
-		else if (Record.Event == EActionReactionTelemetryEvent::MovementStateChanged
-			&& Record.Reason == EActionReactionTelemetryReason::MovementDisabled)
-		{
-			MovementDisabled = &Record;
-		}
-		else if (Record.Event == EActionReactionTelemetryEvent::MovementStateChanged
-			&& Record.Reason == EActionReactionTelemetryReason::MovementRestored)
-		{
-			MovementRestored = &Record;
-		}
 		else if (Record.Event == EActionReactionTelemetryEvent::TerminalReset)
 		{
 			TerminalReset = &Record;
@@ -356,6 +372,7 @@ bool FActionReactionTelemetryLifecycleCorrelationTest::RunTest(const FString& Pa
 
 		ContextChanges += Record.Event == EActionReactionTelemetryEvent::InputContextChanged ? 1 : 0;
 		PhaseChanges += Record.Event == EActionReactionTelemetryEvent::PhaseChanged ? 1 : 0;
+		MovementStateChanges += Record.Event == EActionReactionTelemetryEvent::MovementStateChanged ? 1 : 0;
 	}
 
 	TestTrue(TEXT("Real hold path should assign a generation"), HoldGeneration > 0);
@@ -372,15 +389,15 @@ bool FActionReactionTelemetryLifecycleCorrelationTest::RunTest(const FString& Pa
 		TestEqual(TEXT("Hold release should correlate to the physical release"),
 			HoldReleased->InputSerial, ReleaseInputSerial);
 	}
-	TestNotNull(TEXT("Ease-in movement lock should be observable"), MovementDisabled);
-	TestNotNull(TEXT("Terminal movement restore should be observable"), MovementRestored);
+	TestEqual(TEXT("Ordinary hold lifecycle must not claim character movement mode"),
+		MovementStateChanges, 0);
 	TestNotNull(TEXT("Terminal attack cleanup should be observable"), TerminalReset);
 	TestEqual(TEXT("Directional hold entry and terminal exit should both change input context"), ContextChanges, 2);
 	TestEqual(TEXT("Windup entry and terminal exit should both change phase"), PhaseChanges, 2);
 	TestEqual(TEXT("Terminal cleanup should restore movement input context"),
 		Combat->CurrentInputContext, EInputContext::Movement);
-	TestFalse(TEXT("Terminal cleanup should not leave movement disabled"),
-		Combat->bMovementCurrentlyDisabled);
+	TestFalse(TEXT("Terminal cleanup should not leave movement suppressed"),
+		Combat->IsMovementInputSuppressed());
 
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
@@ -668,8 +685,108 @@ bool FActionReactionTelemetryRejectedHoldReleaseTest::RunTest(const FString& Par
 		TestEqual(TEXT("Rejected release should retain hold identity"),
 			Rejected->HoldGeneration, HoldGeneration);
 	}
-	TestTrue(TEXT("Observational telemetry must preserve existing rejected-release behavior"),
+	TestFalse(TEXT("Missing attack context should terminate the hold without a follow-up"),
 		Combat->IsHolding());
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FActionReactionTelemetryMovementDecisionTest,
+	"KatanaCombat.ActionReaction.Telemetry.MovementDecisionChanges",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FActionReactionTelemetryMovementDecisionTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	using namespace ActionReactionTelemetryTests;
+
+	FScopedConsoleInt ActionDebug(TEXT("Combat.ActionReaction.Debug"), 1);
+	FScopedConsoleInt MasterDebug(TEXT("Combat.Debug.All"), 0);
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	UCombatComponent* Combat = nullptr;
+	APlayerCharacter* Player =
+		FCombatTestHelpers::CreateTestCharacterWithCombat(World, Combat);
+	UCharacterMovementComponent* Movement =
+		Player ? Player->GetCharacterMovement() : nullptr;
+	if (!TestNotNull(TEXT("Player should be created"), Player)
+		|| !TestNotNull(TEXT("Combat component should be created"), Combat)
+		|| !TestNotNull(TEXT("Movement component should be created"), Movement))
+	{
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Movement->SetMovementMode(MOVE_Flying);
+	Combat->ClearActionReactionTelemetry();
+	TestTrue(TEXT("Unsuppressed movement should be applied"),
+		Combat->SubmitMovementInput(FVector2D(0.0, 1.0), FRotator::ZeroRotator));
+	TestEqual(TEXT("Dead-zone entry should emit one movement decision"),
+		CountMovementDecisionRecords(Combat->GetActionReactionTelemetry()), 1);
+
+	const FActionReactionTelemetryRecord* Allowed =
+		Combat->GetActionReactionTelemetry().FindByPredicate(
+			[](const FActionReactionTelemetryRecord& Record)
+			{
+				return Record.Event ==
+						EActionReactionTelemetryEvent::MovementInputDecisionChanged
+					&& Record.Reason ==
+						EActionReactionTelemetryReason::MovementInputAllowed;
+			});
+	TestNotNull(TEXT("Allowed movement should have a reason-coded record"), Allowed);
+	if (Allowed)
+	{
+		TestEqual(TEXT("Movement record should retain the sample serial"),
+			Allowed->InputSerial, Combat->GetMovementInputSample().Serial);
+		TestEqual(TEXT("Movement record should identify the primary owner generation"),
+			Allowed->PrimaryActionGeneration, Allowed->AttackGeneration);
+		TestEqual(TEXT("Movement record should include CMC mode"),
+			Allowed->CharacterMovementMode,
+			FName(TEXT("MOVE_Flying")));
+		TestEqual(TEXT("Movement record should include normalized magnitude"),
+			Allowed->MovementMagnitude, 1.0f);
+		TestFalse(TEXT("Idle movement should report no root motion"),
+			Allowed->bRootMotionActive);
+	}
+
+	Combat->SubmitMovementInput(FVector2D(0.5, 0.5), FRotator::ZeroRotator);
+	TestEqual(TEXT("Repeated samples with the same decision must not spam history"),
+		CountMovementDecisionRecords(Combat->GetActionReactionTelemetry()), 1);
+
+	Combat->ActivateHold(EInputType::LightAttack, 0.0f);
+	TestFalse(TEXT("Committed hold should suppress movement application"),
+		Combat->SubmitMovementInput(FVector2D(0.0, 1.0), FRotator::ZeroRotator));
+	TestEqual(TEXT("Hold policy transition should emit one additional decision"),
+		CountMovementDecisionRecords(Combat->GetActionReactionTelemetry()), 2);
+	const FActionReactionTelemetryRecord* Suppressed =
+		Combat->GetActionReactionTelemetry().FindByPredicate(
+			[](const FActionReactionTelemetryRecord& Record)
+			{
+				return Record.Event ==
+						EActionReactionTelemetryEvent::MovementInputDecisionChanged
+					&& Record.Reason ==
+						EActionReactionTelemetryReason::MovementInputSuppressedByHold;
+			});
+	TestNotNull(TEXT("Hold suppression should have a closed reason"), Suppressed);
+
+	Combat->ClearActionReactionTelemetry();
+	Combat->SubmitMovementInput(FVector2D(0.0, 1.0), FRotator::ZeroRotator);
+	TestEqual(TEXT("Clearing telemetry should re-arm the current movement decision"),
+		CountMovementDecisionRecords(Combat->GetActionReactionTelemetry()), 1);
+
+	Combat->DeactivateHold();
+	Combat->SubmitMovementInput(FVector2D(0.0, 1.0), FRotator::ZeroRotator);
+	const int32 BeforeTerminal =
+		CountMovementDecisionRecords(Combat->GetActionReactionTelemetry());
+	Combat->ClearMovementInputSample();
+	TestEqual(TEXT("Terminal move edge should emit one inactive decision"),
+		CountMovementDecisionRecords(Combat->GetActionReactionTelemetry()),
+		BeforeTerminal + 1);
+	Combat->ClearMovementInputSample();
+	TestEqual(TEXT("Repeated terminal clears must be idempotent"),
+		CountMovementDecisionRecords(Combat->GetActionReactionTelemetry()),
+		BeforeTerminal + 1);
 
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
@@ -709,6 +826,8 @@ bool FActionReactionTelemetryStableCsvTest::RunTest(const FString& Parameters)
 		Csv.StartsWith(TEXT("schema_version,sequence,event,reason,simulation_timestamp")));
 	TestTrue(TEXT("CSV should expose correlation identities"),
 		Csv.Contains(TEXT("input_serial,queue_entry_id,attack_generation,primary_action_generation,hold_generation")));
+	TestTrue(TEXT("CSV should expose movement observation context"),
+		Csv.Contains(TEXT("movement_disposition,character_movement_mode,character_custom_movement_mode,movement_magnitude,root_motion_active")));
 	TestTrue(TEXT("CSV should emit stable event and reason names"),
 		Csv.Contains(TEXT("InputFinalized")) && Csv.Contains(TEXT("DuplicatePendingInput")));
 	TestTrue(TEXT("CSV should retain snapshotted identity after actor invalidation"),

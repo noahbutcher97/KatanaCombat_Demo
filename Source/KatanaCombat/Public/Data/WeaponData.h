@@ -185,8 +185,9 @@ public:
     TObjectPtr<UAttackConfiguration> AttackConfiguration;
 
     /**
-     * Damage multiplier applied to all attacks with this weapon
-     * Stacks with AttackData::BaseDamage
+     * Damage multiplier applied to weapon-trace hits (BaseDamage * this).
+     * NOTE: does NOT apply to finisher/counter damage — paired animations
+     * use PairedAnimationData BaseDamage/DamageMultiplier instead.
      * Example: Greatsword = 1.5x, Dagger = 0.8x
      */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Combat",
@@ -194,9 +195,9 @@ public:
     float DamageMultiplier = 1.0f;
 
     /**
-     * Weapon reach for targeting system adjustments
-     * Longer weapons can hit from further away
-     * Used to adjust soft aim assist range
+     * [NOT WIRED] Targeting currently uses TargetingSettings SoftAimRange;
+     * this value is read only by tests (pending wire-or-delete decision,
+     * see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md).
      */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Combat",
         meta = (ClampMin = "50.0", ClampMax = "500.0"))

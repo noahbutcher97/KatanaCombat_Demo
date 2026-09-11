@@ -15,6 +15,8 @@ class UHitReactionSettings;
 class UHitReactionData;
 class UCombatComponent;
 
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnPairedVictimStateChanged, bool);
+
 /** Immutable result of target-authorized damage calculation before observable work. */
 struct KATANACOMBAT_API FCommittedHitReactionDamage
 {
@@ -43,6 +45,8 @@ UCLASS(ClassGroup=(Combat), meta=(BlueprintSpawnableComponent))
 class KATANACOMBAT_API UHitReactionComponent : public UActorComponent
 {
     GENERATED_BODY()
+
+	friend class FPairedVictimOutcomeRequiresCommittedDeathTest;
 
 public:
     UHitReactionComponent();
@@ -400,7 +404,8 @@ public:
      * are suppressed until ExitPairedAnimationState() is called.
      *
      * For lethal paired animations, also registers the victim montage as the
-     * death montage so OnAnyMontageBlendingOut applies the correct outcome.
+     * death montage so OnAnyMontageBlendingOut can apply the correct outcome
+     * after lethal health has entered Dying.
      *
      * @param VictimMontage - The victim's paired animation montage
      * @param DeathOutcome - What happens when montage ends (Ragdoll or Death/freeze)
@@ -417,12 +422,19 @@ public:
      * flags including reaction suppression, finisher target, and death handling.
      *
      * Called automatically when:
-     * - Death outcome is applied (OnAnyMontageBlendingOut)
      * - Paired animation is cancelled (CancelPairedAnimation)
-     * - Paired animation completes (CompletePairedAnimation cleanup)
+     * Successful paired completion uses CompletePairedAnimationState() so a
+     * pending lethal outcome is committed before ownership is released.
      */
     UFUNCTION(BlueprintCallable, Category = "Hit Reaction|Paired Animation")
     void ExitPairedAnimationState();
+
+    /**
+     * Complete paired-animation victim ownership after successful gameplay commit.
+     * Applies a pending lethal death outcome when the owner is Dying; otherwise
+     * releases the same state as ExitPairedAnimationState().
+     */
+    void CompletePairedAnimationState();
 
     /**
      * Is this character currently in a paired animation as the victim?
@@ -430,6 +442,9 @@ public:
      */
     UFUNCTION(BlueprintPure, Category = "Hit Reaction|Paired Animation")
     bool IsInPairedAnimationState() const { return bReactionsSuppressed; }
+
+    /** Native lifecycle signal for systems that gate behavior while this actor is a paired victim. */
+    FOnPairedVictimStateChanged OnPairedVictimStateChanged;
 
     // ============================================================================
     // EVENTS
@@ -674,6 +689,12 @@ private:
     /** The death montage we're waiting for (to filter global delegate) */
     UPROPERTY()
     TObjectPtr<UAnimMontage> PendingDeathMontage = nullptr;
+
+    /** Clear all paired victim flags and pending death state without applying an outcome. */
+    void ResetPairedAnimationState();
+
+    /** Apply and clear the exact pending death outcome once. */
+    bool ApplyPendingDeathOutcome();
 
     /**
      * Handle montage blending out - apply death outcome BEFORE blend completes

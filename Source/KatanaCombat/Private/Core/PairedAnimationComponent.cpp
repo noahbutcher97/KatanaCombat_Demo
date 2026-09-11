@@ -316,6 +316,12 @@ void UPairedAnimationComponent::EndPlay(const EEndPlayReason::Type EndPlayReason
 	{
 		CancelPairedAnimation(0.0f);
 	}
+	if (ActiveLegacyPairedGeneration != 0)
+	{
+		const int32 EndingLegacyGeneration = ActiveLegacyPairedGeneration;
+		ReleaseLegacyPairedParticipationForPartners();
+		EndLegacyPairedParticipation(EndingLegacyGeneration);
+	}
 
 	ClearPairedPartners();
 
@@ -685,11 +691,10 @@ void UPairedAnimationComponent::ReleasePairedStateLease(
 void UPairedAnimationComponent::ReleasePairedStateLeasesForGeneration(
 	const int32 StageGeneration)
 {
-	if (StageGeneration <= 0)
+	if (StageGeneration == 0)
 	{
 		return;
 	}
-
 	TSet<FPairedSequenceLeaseHandle> ReleasedHandles;
 	for (auto It = PairedStateLeases.CreateIterator(); It; ++It)
 	{
@@ -748,6 +753,8 @@ void UPairedAnimationComponent::RecomputePairedState()
 	{
 		return;
 	}
+	const ABaseCombatCharacter* CombatCharacter = Cast<ABaseCombatCharacter>(Character);
+	const bool bTerminalCharacterState = CombatCharacter && CombatCharacter->IsDeadOrDying();
 
 	TSet<TWeakObjectPtr<AActor>> DesiredIgnoredActors;
 	bool bIgnoreAllPawns = false;
@@ -840,7 +847,10 @@ void UPairedAnimationComponent::RecomputePairedState()
 	}
 	else if (bCapsuleCollisionBaselineCaptured)
 	{
-		Capsule->SetCollisionEnabled(BaselineCollisionEnabled.GetValue());
+		if (!bTerminalCharacterState)
+		{
+			Capsule->SetCollisionEnabled(BaselineCollisionEnabled.GetValue());
+		}
 		bCapsuleCollisionBaselineCaptured = false;
 	}
 
@@ -858,7 +868,10 @@ void UPairedAnimationComponent::RecomputePairedState()
 		}
 		else if (bMovementBaselineCaptured)
 		{
-			Movement->SetMovementMode(BaselineMovementMode.GetValue());
+			if (!bTerminalCharacterState)
+			{
+				Movement->SetMovementMode(BaselineMovementMode.GetValue());
+			}
 			bMovementBaselineCaptured = false;
 		}
 	}
@@ -928,7 +941,7 @@ bool UPairedAnimationComponent::BeginPairedCollisionNotify(
 	const UPairedAnimationComponent* SequenceOwner = FindDefenseSequenceOwner();
 	const int32 StageGeneration = SequenceOwner
 		? SequenceOwner->ActiveDefenseSequence.StageGeneration
-		: 0;
+		: ActiveLegacyPairedGeneration;
 	const FPairedSequenceLeaseHandle Handle = AcquirePairedStateLease(
 		TEXT("PairedCollisionNotify"),
 		StageGeneration,
@@ -1230,6 +1243,89 @@ bool UPairedAnimationComponent::ApplyActivePairedDamageOnce()
 	return true;
 }
 
+bool UPairedAnimationComponent::ApplyLegacyPairedDamageOnce()
+{
+	const int32 LegacyGeneration = ActiveLegacyPairedGeneration;
+	if (!bOwnsLegacyPairedGeneration
+		|| LegacyGeneration >= 0
+		|| LastLegacyDamageAppliedGeneration == LegacyGeneration
+		|| ActivePairedReactionType == EPairedReactionType::Parry)
+	{
+		return false;
+	}
+
+	AActor* Victim = CurrentFinisherVictim.Get();
+	AActor* DamageSource = GetOwner();
+	UPairedAnimationData* Data = ActivePairedAnimData.Get();
+	if (!HasAcceptedLegacyPairedParticipant(Victim)
+		|| !DamageSource
+		|| !Data
+		|| !Victim->Implements<UDamageableInterface>())
+	{
+		return false;
+	}
+
+	const double RequestedDamageDouble =
+		static_cast<double>(Data->BaseDamage) * static_cast<double>(Data->DamageMultiplier);
+	if (!FMath::IsFinite(Data->BaseDamage)
+		|| Data->BaseDamage < 0.0f
+		|| !FMath::IsFinite(Data->DamageMultiplier)
+		|| Data->DamageMultiplier < 0.0f
+		|| RequestedDamageDouble > static_cast<double>(TNumericLimits<float>::Max()))
+	{
+		return false;
+	}
+
+	float RequestedDamage = static_cast<float>(RequestedDamageDouble);
+	const float CurrentHealth = IDamageableInterface::Execute_GetCurrentHealth(Victim);
+	if (!FMath::IsFinite(CurrentHealth) || CurrentHealth < 0.0f)
+	{
+		return false;
+	}
+
+	const bool bTreatAsLethal = ShouldTreatPairedAnimationAsLethal(
+		ActivePairedReactionType,
+		Data);
+	if (ActivePairedReactionType == EPairedReactionType::Counter && !bTreatAsLethal)
+	{
+		RequestedDamage = FMath::Min(RequestedDamage, FMath::Max(0.0f, CurrentHealth - 1.0f));
+	}
+
+	FHitReactionInfo HitInfo;
+	HitInfo.Attacker = DamageSource;
+	HitInfo.HitDirection = (Victim->GetActorLocation() - DamageSource->GetActorLocation()).GetSafeNormal();
+	HitInfo.ImpactPoint = Victim->GetActorLocation();
+	HitInfo.bWasCounter = ActivePairedReactionType == EPairedReactionType::Counter;
+	HitInfo.PhaseWhenHit = EAttackPhase::Active;
+	HitInfo.Damage = bTreatAsLethal
+		? FMath::Max(RequestedDamage, CurrentHealth + 1.0f)
+		: RequestedDamage;
+
+	// Commit ownership before invoking external damage code so synchronous death
+	// callbacks recognize the victim death as the expected paired outcome.
+	const int32 PreviousDamageGeneration = LastLegacyDamageAppliedGeneration;
+	LastLegacyDamageAppliedGeneration = LegacyGeneration;
+	const float ActualDamage = IDamageableInterface::Execute_ApplyDamage(Victim, HitInfo);
+	if (HitInfo.Damage > 0.0f
+		&& ActualDamage <= 0.0f
+		&& IDamageableInterface::Execute_IsAlive(Victim))
+	{
+		LastLegacyDamageAppliedGeneration = PreviousDamageGeneration;
+		UE_LOG(LogPairedAnim, Warning,
+			TEXT("[PAIRED DAMAGE] Legacy generation %d damage was rejected by %s; completion fallback remains armed"),
+			LegacyGeneration,
+			*GetNameSafe(Victim));
+		return false;
+	}
+	UE_LOG(LogPairedAnim, Log,
+		TEXT("[PAIRED DAMAGE] Legacy generation %d committed %.1f actual damage (%.1f requested) to %s"),
+		LegacyGeneration,
+		ActualDamage,
+		HitInfo.Damage,
+		*GetNameSafe(Victim));
+	return true;
+}
+
 void UPairedAnimationComponent::HandleDefenseOwnerDying(AActor* Killer)
 {
 	(void)Killer;
@@ -1256,6 +1352,35 @@ bool UPairedAnimationComponent::IsExpectedDefenseFinisherSourceDeath(
 		&& ShouldTreatPairedAnimationAsLethal(EPairedReactionType::Finisher, ActiveData)
 		&& SourceCharacter
 		&& SourceCharacter->IsDeadOrDying();
+}
+
+bool UPairedAnimationComponent::IsExpectedLegacyPairedVictimDeath(
+	const AActor* Victim) const
+{
+	const ABaseCombatCharacter* VictimCharacter = Cast<ABaseCombatCharacter>(Victim);
+	return Victim
+		&& Victim == CurrentFinisherVictim.Get()
+		&& bOwnsLegacyPairedGeneration
+		&& ActiveLegacyPairedGeneration < 0
+		&& HasAcceptedLegacyPairedParticipant(Victim)
+		&& LastLegacyDamageAppliedGeneration == ActiveLegacyPairedGeneration
+		&& ActivePairedReactionType != EPairedReactionType::Parry
+		&& ActivePairedAnimData
+		&& ShouldTreatPairedAnimationAsLethal(
+			ActivePairedReactionType,
+			ActivePairedAnimData)
+		&& VictimCharacter
+		&& VictimCharacter->IsDeadOrDying();
+}
+
+bool UPairedAnimationComponent::IsExpectedPairedVictimDeath() const
+{
+	if (const UPairedAnimationComponent* SequenceOwner = FindDefenseSequenceOwner())
+	{
+		return SequenceOwner->IsExpectedDefenseFinisherSourceDeath(GetOwner());
+	}
+	const UPairedAnimationComponent* SequenceOwner = LegacyPairedSequenceOwner.Get();
+	return SequenceOwner && SequenceOwner->IsExpectedLegacyPairedVictimDeath(GetOwner());
 }
 
 void UPairedAnimationComponent::HandleDefenseSourceDying(AActor* Killer)
@@ -1311,6 +1436,8 @@ void UPairedAnimationComponent::CleanupDefenseSequence(
 	const EPairedReactionType EndedReaction = ActivePairedReactionType;
 	ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(Sequence.Defender.Get());
 	ABaseCombatCharacter* SourceAttacker = Cast<ABaseCombatCharacter>(Sequence.SourceAttacker.Get());
+	const bool bExpectedCommittedSourceDeath =
+		IsExpectedDefenseFinisherSourceDeath(SourceAttacker);
 	UPairedAnimationComponent* SourcePaired = SourceAttacker
 		? SourceAttacker->PairedAnimationComponent.Get()
 		: nullptr;
@@ -1441,7 +1568,14 @@ void UPairedAnimationComponent::CleanupDefenseSequence(
 	}
 	if (SourceAttacker && SourceAttacker->HitReactionComponent)
 	{
-		SourceAttacker->HitReactionComponent->ExitPairedAnimationState();
+		if (bExpectedCommittedSourceDeath)
+		{
+			SourceAttacker->HitReactionComponent->CompletePairedAnimationState();
+		}
+		else
+		{
+			SourceAttacker->HitReactionComponent->ExitPairedAnimationState();
+		}
 	}
 	if (SourcePaired)
 	{
@@ -1476,6 +1610,11 @@ void UPairedAnimationComponent::CleanupDefenseSequence(
 		DefenderCombat->SetPhase(EAttackPhase::None);
 		DefenderCombat->ClearQueue(false);
 		DefenderCombat->RefreshGuardThreat(EThreatRefreshReason::ManualRevalidation);
+	}
+	OnDefenseSequenceParticipationChanged.Broadcast(false);
+	if (SourcePaired)
+	{
+		SourcePaired->OnDefenseSequenceParticipationChanged.Broadcast(false);
 	}
 
 	UE_LOG(LogPairedAnim, Log,
@@ -1675,6 +1814,11 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 	ActiveChainTarget = SourceAttacker;
 	ActiveChainAttackData = nullptr;
 	ChainState = EChainCounterState::ParryActive;
+	OnDefenseSequenceParticipationChanged.Broadcast(true);
+	if (SourcePaired)
+	{
+		SourcePaired->OnDefenseSequenceParticipationChanged.Broadcast(true);
+	}
 
 	if (bUsePairedBridge)
 	{
@@ -2744,6 +2888,150 @@ int32 UPairedAnimationComponent::AllocateDefenseStageGeneration()
 	return NextDefenseStageGeneration;
 }
 
+int32 UPairedAnimationComponent::AllocateLegacyPairedGeneration()
+{
+	NextLegacyPairedGeneration = NextLegacyPairedGeneration == MIN_int32
+		? -1
+		: NextLegacyPairedGeneration - 1;
+	return NextLegacyPairedGeneration;
+}
+
+bool UPairedAnimationComponent::BeginLegacyPairedParticipation(
+	const int32 Generation,
+	UPairedAnimationComponent* const SequenceOwner)
+{
+	if (Generation >= 0
+		|| !SequenceOwner
+		|| SequenceOwner == this
+		|| ChainState != EChainCounterState::None
+		|| ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		return false;
+	}
+	if (ActiveLegacyPairedGeneration == Generation
+		&& !bOwnsLegacyPairedGeneration
+		&& LegacyPairedSequenceOwner.Get() == SequenceOwner)
+	{
+		return true;
+	}
+	if (ActiveLegacyPairedGeneration != 0 || IsPairedAnimationActive())
+	{
+		return false;
+	}
+
+	ActiveLegacyPairedGeneration = Generation;
+	bOwnsLegacyPairedGeneration = false;
+	LegacyPairedSequenceOwner = SequenceOwner;
+	return true;
+}
+
+void UPairedAnimationComponent::EndLegacyPairedParticipation(
+	const int32 ExpectedGeneration,
+	const UPairedAnimationComponent* const ExpectedOwner)
+{
+	if (ExpectedGeneration >= 0 || ActiveLegacyPairedGeneration != ExpectedGeneration)
+	{
+		return;
+	}
+	if (ExpectedOwner && LegacyPairedSequenceOwner.Get() != ExpectedOwner)
+	{
+		return;
+	}
+
+	ReleasePairedStateLeasesForGeneration(ExpectedGeneration);
+	if (!bOwnsLegacyPairedGeneration)
+	{
+		// Expected lethal damage preserves this link through montage playback.
+		// Release only the retiring sequence's partner when participation ends.
+		if (const UPairedAnimationComponent* SequenceOwner = LegacyPairedSequenceOwner.Get())
+		{
+			RemovePairedPartner(SequenceOwner->GetOwner());
+		}
+	}
+	if (bOwnsLegacyPairedGeneration)
+	{
+		AcceptedLegacyPairedParticipants.Reset();
+	}
+	ActiveLegacyPairedGeneration = 0;
+	bOwnsLegacyPairedGeneration = false;
+	LegacyPairedSequenceOwner.Reset();
+}
+
+void UPairedAnimationComponent::RegisterLegacyPairedParticipationForPartners()
+{
+	if (!bOwnsLegacyPairedGeneration || ActiveLegacyPairedGeneration >= 0)
+	{
+		return;
+	}
+
+	AcceptedLegacyPairedParticipants.RemoveAll(
+		[](const TWeakObjectPtr<UPairedAnimationComponent>& ParticipantRef)
+		{
+			return !ParticipantRef.IsValid();
+		});
+	for (const TWeakObjectPtr<AActor>& PartnerRef : PairedAnimationPartners)
+	{
+		AActor* Partner = PartnerRef.Get();
+		UPairedAnimationComponent* PartnerPaired = Partner
+			? Partner->FindComponentByClass<UPairedAnimationComponent>()
+			: nullptr;
+		if (PartnerPaired
+			&& PartnerPaired->BeginLegacyPairedParticipation(
+				ActiveLegacyPairedGeneration,
+				this))
+		{
+			AcceptedLegacyPairedParticipants.AddUnique(PartnerPaired);
+		}
+		else if (PartnerPaired)
+		{
+			UE_LOG(LogPairedAnim, Warning,
+				TEXT("[PAIRED] %s could not acquire legacy participation generation %d"),
+				*GetNameSafe(Partner),
+				ActiveLegacyPairedGeneration);
+		}
+	}
+}
+
+void UPairedAnimationComponent::ReleaseLegacyPairedParticipationForPartners()
+{
+	if (!bOwnsLegacyPairedGeneration || ActiveLegacyPairedGeneration >= 0)
+	{
+		return;
+	}
+
+	const int32 EndingGeneration = ActiveLegacyPairedGeneration;
+	for (const TWeakObjectPtr<UPairedAnimationComponent>& ParticipantRef :
+		AcceptedLegacyPairedParticipants)
+	{
+		if (UPairedAnimationComponent* const Participant = ParticipantRef.Get())
+		{
+			Participant->EndLegacyPairedParticipation(EndingGeneration, this);
+		}
+	}
+	AcceptedLegacyPairedParticipants.Reset();
+}
+
+bool UPairedAnimationComponent::HasAcceptedLegacyPairedParticipant(const AActor* Partner) const
+{
+	if (!Partner || !bOwnsLegacyPairedGeneration || ActiveLegacyPairedGeneration >= 0)
+	{
+		return false;
+	}
+
+	const UPairedAnimationComponent* const PartnerPaired =
+		Partner->FindComponentByClass<UPairedAnimationComponent>();
+	const bool bOwnerRecordedParticipant = AcceptedLegacyPairedParticipants.ContainsByPredicate(
+		[PartnerPaired](const TWeakObjectPtr<UPairedAnimationComponent>& ParticipantRef)
+		{
+			return ParticipantRef.Get() == PartnerPaired;
+		});
+	return PartnerPaired
+		&& bOwnerRecordedParticipant
+		&& PartnerPaired->ActiveLegacyPairedGeneration == ActiveLegacyPairedGeneration
+		&& !PartnerPaired->bOwnsLegacyPairedGeneration
+		&& PartnerPaired->LegacyPairedSequenceOwner.Get() == this;
+}
+
 bool UPairedAnimationComponent::PreflightDefenseChainStage(
 	UPairedAnimationData* PairedAnimData,
 	const EPairedReactionType ReactionType,
@@ -3775,6 +4063,7 @@ bool UPairedAnimationComponent::TryStartPairedAnimationWithTarget(AActor* Target
 		TargetHitReaction->ExitPairedAnimationState();
 		CurrentFinisherVictim.Reset();
 
+		ReleaseLegacyPairedParticipationForPartners();
 		ClearPairedPartners();
 		if (TargetPairedComp)
 		{
@@ -4402,6 +4691,19 @@ void UPairedAnimationComponent::AddPairedPartner(AActor* Partner)
 	}
 
 	PairedAnimationPartners.Add(Partner);
+	if (bOwnsLegacyPairedGeneration && ActiveLegacyPairedGeneration < 0)
+	{
+		if (UPairedAnimationComponent* PartnerPaired =
+			Partner->FindComponentByClass<UPairedAnimationComponent>())
+		{
+			if (PartnerPaired->BeginLegacyPairedParticipation(
+				ActiveLegacyPairedGeneration,
+				this))
+			{
+				AcceptedLegacyPairedParticipants.AddUnique(PartnerPaired);
+			}
+		}
+	}
 
 	if (GetDebugDraw())
 	{
@@ -4462,6 +4764,34 @@ bool UPairedAnimationComponent::IsPairedPartner(AActor* Actor) const
 	return false;
 }
 
+bool UPairedAnimationComponent::IsPairedSequenceOwnerFor(const AActor* Actor) const
+{
+	if (!Actor || CurrentFinisherVictim.Get() != Actor || !IsPairedAnimationActive())
+	{
+		return false;
+	}
+
+	const bool bOwnsLegacySequence = HasAcceptedLegacyPairedParticipant(Actor);
+	const bool bOwnsDefenseSequence = ChainState != EChainCounterState::None
+		&& ActiveDefenseSequence.OriginatingInteraction.IsValid()
+		&& ActiveDefenseSequence.Defender.Get() == GetOwner()
+		&& ActiveDefenseSequence.SourceAttacker.Get() == Actor;
+	return bOwnsLegacySequence || bOwnsDefenseSequence;
+}
+
+bool UPairedAnimationComponent::IsDefenseSequenceParticipant() const
+{
+	const UPairedAnimationComponent* const SequenceOwner = FindDefenseSequenceOwner();
+	if (!SequenceOwner)
+	{
+		return false;
+	}
+
+	const AActor* const OwnerActor = GetOwner();
+	return SequenceOwner->ActiveDefenseSequence.Defender.Get() == OwnerActor
+		|| SequenceOwner->ActiveDefenseSequence.SourceAttacker.Get() == OwnerActor;
+}
+
 // ============================================================================
 // PAIRED ANIMATION EFFECT HANDLING
 // ============================================================================
@@ -4480,12 +4810,54 @@ void UPairedAnimationComponent::BeginPairedAnimation(UPairedAnimationData* Paire
 		UE_LOG(LogPairedAnim, Warning, TEXT("[PAIRED EFFECTS] BeginPairedAnimation called with null PairedAnimData"));
 		return;
 	}
+	if (ActiveLegacyPairedGeneration != 0 && !bOwnsLegacyPairedGeneration)
+	{
+		UE_LOG(LogPairedAnim, Warning,
+			TEXT("[PAIRED EFFECTS] Legacy participant cannot become a competing sequence owner"));
+		return;
+	}
+	if (ActiveLegacyPairedGeneration == 0)
+	{
+		ActiveLegacyPairedGeneration = AllocateLegacyPairedGeneration();
+		bOwnsLegacyPairedGeneration = true;
+		LegacyPairedSequenceOwner = this;
+		AcceptedLegacyPairedParticipants.Reset();
+	}
+	RegisterLegacyPairedParticipationForPartners();
+	if (!CurrentFinisherVictim.IsValid())
+	{
+		AActor* SolePartner = nullptr;
+		for (const TWeakObjectPtr<AActor>& PartnerRef : PairedAnimationPartners)
+		{
+			AActor* const Partner = PartnerRef.Get();
+			if (!Partner)
+			{
+				continue;
+			}
+			if (SolePartner && SolePartner != Partner)
+			{
+				SolePartner = nullptr;
+				break;
+			}
+			SolePartner = Partner;
+		}
+		if (HasAcceptedLegacyPairedParticipant(SolePartner))
+		{
+			CurrentFinisherVictim = SolePartner;
+		}
+	}
+	if (UCombatComponent* Combat = GetOwner() ? GetOwner()->FindComponentByClass<UCombatComponent>() : nullptr)
+	{
+		Combat->PrepareForPairedTakeover();
+	}
 
 	ActivePairedAnimData = PairedAnimData;
 	ActivePairedReactionType = ReactionType;
 	if (!LegacyPairedInputLease.IsValid())
 	{
-		LegacyPairedInputLease = AcquireInputOwnership(TEXT("LegacyPairedAnimation"), 0);
+		LegacyPairedInputLease = AcquireInputOwnership(
+			TEXT("LegacyPairedAnimation"),
+			ActiveLegacyPairedGeneration);
 	}
 	if (UCombatComponent* Combat = GetOwner() ? GetOwner()->FindComponentByClass<UCombatComponent>() : nullptr)
 	{
@@ -4586,9 +4958,13 @@ void UPairedAnimationComponent::EndPairedAnimation()
 	}
 
 	ReleaseLegacyPairedTimeDilation();
+	const int32 EndingLegacyGeneration = ActiveLegacyPairedGeneration;
+	ReleaseLegacyPairedParticipationForPartners();
+	EndLegacyPairedParticipation(EndingLegacyGeneration, this);
 
 	ActivePairedAnimData = nullptr;
 	ActivePairedReactionType = EPairedReactionType::None;
+	CurrentFinisherVictim.Reset();
 	ReleaseInputOwnership(LegacyPairedInputLease);
 	LegacyPairedInputLease = {};
 	if (UCombatComponent* Combat = GetOwner() ? GetOwner()->FindComponentByClass<UCombatComponent>() : nullptr)
@@ -4600,20 +4976,8 @@ void UPairedAnimationComponent::EndPairedAnimation()
 	{
 		RecomputePairedState();
 	}
-	else if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	else
 	{
-		if (UCharacterMovementComponent* MovementComp = Character->GetCharacterMovement())
-		{
-			if (MovementComp->MovementMode == MOVE_None)
-			{
-				MovementComp->SetMovementMode(MOVE_Walking);
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogPairedAnim, Log, TEXT("[PAIRED EFFECTS] Restored movement mode (was MOVE_None)"));
-				}
-			}
-		}
 		bMovementCurrentlyDisabled = false;
 	}
 
@@ -4624,6 +4988,26 @@ void UPairedAnimationComponent::EndPairedAnimation()
 		UE_LOG(LogPairedAnim, Log, TEXT("[PAIRED EFFECTS] Ended paired animation (Type: %d)"),
 			static_cast<int32>(ReactionType));
 	}
+}
+
+void UPairedAnimationComponent::HandlePairedSyncPoint(
+	const FName SyncPointName,
+	const bool bApplyDamage)
+{
+	TriggerSyncPointEffects(SyncPointName);
+	if (!bApplyDamage)
+	{
+		return;
+	}
+
+	if (ChainState != EChainCounterState::None
+		&& ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		ApplyActivePairedDamageOnce();
+		return;
+	}
+
+	ApplyLegacyPairedDamageOnce();
 }
 
 void UPairedAnimationComponent::TriggerSyncPointEffects(FName SyncPointName)
@@ -4802,6 +5186,37 @@ void UPairedAnimationComponent::OnPairedPartnerDeath(AActor* DeadPartner)
 		SequenceOwner->CancelPairedAnimation();
 		return;
 	}
+	if (IsExpectedLegacyPairedVictimDeath(DeadPartner))
+	{
+		return;
+	}
+	if (bCompletingPairedAnimation && CurrentFinisherVictim.Get() == DeadPartner)
+	{
+		return;
+	}
+	if (ActiveLegacyPairedGeneration < 0)
+	{
+		const int32 EndingGeneration = ActiveLegacyPairedGeneration;
+		if (bOwnsLegacyPairedGeneration)
+		{
+			if (UPairedAnimationComponent* DeadPartnerPaired =
+				DeadPartner->FindComponentByClass<UPairedAnimationComponent>())
+			{
+				DeadPartnerPaired->EndLegacyPairedParticipation(EndingGeneration, this);
+				AcceptedLegacyPairedParticipants.RemoveAll(
+					[DeadPartnerPaired](const TWeakObjectPtr<UPairedAnimationComponent>& ParticipantRef)
+					{
+						return ParticipantRef.Get() == DeadPartnerPaired;
+					});
+			}
+		}
+		else
+		{
+			EndLegacyPairedParticipation(
+				EndingGeneration,
+				LegacyPairedSequenceOwner.Get());
+		}
+	}
 
 	RemovePairedPartner(DeadPartner);
 	if (IsPairedAnimationActive())
@@ -4848,7 +5263,14 @@ void UPairedAnimationComponent::CancelPairedAnimation(float BlendOutTime)
 
 			if (UHitReactionComponent* PartnerHitReaction = Partner->FindComponentByClass<UHitReactionComponent>())
 			{
-				PartnerHitReaction->ExitPairedAnimationState();
+				if (IsExpectedLegacyPairedVictimDeath(Partner))
+				{
+					PartnerHitReaction->CompletePairedAnimationState();
+				}
+				else
+				{
+					PartnerHitReaction->ExitPairedAnimationState();
+				}
 
 				if (GetDebugDraw())
 				{
@@ -4885,6 +5307,7 @@ void UPairedAnimationComponent::CancelPairedAnimation(float BlendOutTime)
 
 	CurrentFinisherVictim.Reset();
 	bCompletingPairedAnimation = false;
+	ReleaseLegacyPairedParticipationForPartners();
 	ClearPairedPartners();
 	EndPairedAnimation();
 
@@ -4938,83 +5361,28 @@ void UPairedAnimationComponent::CompletePairedAnimation()
 		return;
 	}
 	bCompletingPairedAnimation = true;
-	const bool bTreatAsLethal = ShouldTreatPairedAnimationAsLethal(ActivePairedReactionType, ActivePairedAnimData);
 
 	if (GetDebugDraw())
 	{
 		UE_LOG(LogPairedAnim, Log, TEXT("[PAIRED COMPLETE] Completing paired animation successfully"));
 	}
 
-	// ========================================================================
-	// APPLY FINISHER DAMAGE TO VICTIM
-	// ========================================================================
-	AActor* Victim = CurrentFinisherVictim.Get();
-	const bool bShouldApplyPairedDamage =
-		ActivePairedReactionType != EPairedReactionType::Parry;
-	if (Victim && ActivePairedAnimData && bShouldApplyPairedDamage)
+	// Compatibility fallback: correctly authored montages commit at their primary
+	// damage sync point. Older or malformed montages still resolve at completion.
+	if (ActivePairedReactionType != EPairedReactionType::Parry
+		&& LastLegacyDamageAppliedGeneration != ActiveLegacyPairedGeneration)
 	{
-		const float FinalDamage = ActivePairedAnimData->BaseDamage * ActivePairedAnimData->DamageMultiplier;
-
-		if (GetDebugDraw())
+		if (ApplyLegacyPairedDamageOnce())
 		{
-			UE_LOG(LogPairedAnim, Log, TEXT("[PAIRED COMPLETE] Applying damage to %s: %.1f (Base: %.1f x Mult: %.2f, Lethal: %s)"),
-				*Victim->GetName(),
-				FinalDamage,
-				ActivePairedAnimData->BaseDamage,
-				ActivePairedAnimData->DamageMultiplier,
-				bTreatAsLethal ? TEXT("YES") : TEXT("NO"));
-		}
-
-		if (Victim->Implements<UDamageableInterface>())
-		{
-			FHitReactionInfo HitInfo;
-			HitInfo.Attacker = GetOwner();
-			HitInfo.HitDirection = (Victim->GetActorLocation() - GetOwner()->GetActorLocation()).GetSafeNormal();
-			HitInfo.AttackData = nullptr;
-			HitInfo.ImpactPoint = Victim->GetActorLocation();
-			HitInfo.bWasCounter = (ActivePairedReactionType == EPairedReactionType::Counter);
-			HitInfo.StunDuration = 0.0f;
-
-			if (bTreatAsLethal)
-			{
-				const float MaxHealth = IDamageableInterface::Execute_GetMaxHealth(Victim);
-				const float CurrentHealth = IDamageableInterface::Execute_GetCurrentHealth(Victim);
-				HitInfo.Damage = FMath::Max(FinalDamage, CurrentHealth + 1.0f);
-
-				if (GetDebugDraw())
-				{
-					UE_LOG(LogPairedAnim, Log, TEXT("[PAIRED COMPLETE] LETHAL finisher: Applying %.1f damage (victim has %.1f/%.1f health)"),
-						HitInfo.Damage, CurrentHealth, MaxHealth);
-				}
-			}
-			else
-			{
-				HitInfo.Damage = FinalDamage;
-			}
-
-			const float ActualDamage = IDamageableInterface::Execute_ApplyDamage(Victim, HitInfo);
-
-			if (GetDebugDraw())
-			{
-				UE_LOG(LogPairedAnim, Log, TEXT("[PAIRED COMPLETE] Damage applied: %.1f actual (%.1f requested)"),
-					ActualDamage, HitInfo.Damage);
-			}
+			UE_LOG(LogPairedAnim, Warning,
+				TEXT("[PAIRED COMPLETE] Generation %d reached montage completion without a damage sync point; applied compatibility fallback"),
+				ActiveLegacyPairedGeneration);
 		}
 		else
 		{
-			UE_LOG(LogPairedAnim, Warning, TEXT("[PAIRED COMPLETE] Victim %s does not implement IDamageableInterface - no damage applied"),
-				*Victim->GetName());
-		}
-	}
-	else if (GetDebugDraw())
-	{
-		if (!Victim)
-		{
-			UE_LOG(LogPairedAnim, Warning, TEXT("[PAIRED COMPLETE] No victim tracked - cannot apply damage"));
-		}
-		if (!ActivePairedAnimData)
-		{
-			UE_LOG(LogPairedAnim, Warning, TEXT("[PAIRED COMPLETE] No ActivePairedAnimData - cannot apply damage"));
+			UE_LOG(LogPairedAnim, Warning,
+				TEXT("[PAIRED COMPLETE] Generation %d ended without a valid paired damage commit"),
+				ActiveLegacyPairedGeneration);
 		}
 	}
 
@@ -5041,7 +5409,7 @@ void UPairedAnimationComponent::CompletePairedAnimation()
 
 			if (UHitReactionComponent* PartnerHitReaction = Partner->FindComponentByClass<UHitReactionComponent>())
 			{
-				PartnerHitReaction->ExitPairedAnimationState();
+				PartnerHitReaction->CompletePairedAnimationState();
 
 				if (GetDebugDraw())
 				{
@@ -5062,6 +5430,7 @@ void UPairedAnimationComponent::CompletePairedAnimation()
 	}
 
 	CurrentFinisherVictim.Reset();
+	ReleaseLegacyPairedParticipationForPartners();
 	ClearPairedPartners();
 	EndPairedAnimation();
 

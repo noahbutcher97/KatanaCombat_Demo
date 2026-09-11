@@ -169,9 +169,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Threat", meta = (ClampMin = "0.0"))
 	float GuardAutoFacingResumeSeconds = 0.10f;
 
+	/** [NOT WIRED] Runtime uses the hardcoded DefenseInteractionTombstoneSeconds constant (CombatComponent.h);
+	 * editing this has no effect until wired — see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Interaction", meta = (ClampMin = "0.0"))
 	float InteractionTombstoneSeconds = 1.0f;
 
+	/** [NOT WIRED] Runtime uses the hardcoded DefenseTerminalInteractionCacheCap constant (CombatComponent.h);
+	 * editing this has no effect until wired — see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Interaction", meta = (ClampMin = "1"))
 	int32 TerminalInteractionCacheCap = 128;
 
@@ -193,6 +197,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Translation", meta = (ClampMin = "0.0"))
 	float NormalBlockTranslationAllowance = 0.0f;
 
+	/** [EDITOR/PROOF ONLY] Consumed by asset validation and proof authoring, not by runtime. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Translation", meta = (ClampMin = "0.0"))
 	float NormalBlockTranslationDriftTolerance = 1.0f;
 
@@ -202,9 +207,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Skeleton")
 	TArray<FDefenseBoneHeightRow> BoneHeightRows;
 
+	/** [NOT WIRED] Never played at runtime yet (pending wire-or-delete decision, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Guard")
 	TObjectPtr<UAnimMontage> GuardEnterMontage = nullptr;
 
+	/** [NOT WIRED] Never played at runtime yet (pending wire-or-delete decision, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Guard")
 	TObjectPtr<UAnimMontage> GuardExitMontage = nullptr;
 

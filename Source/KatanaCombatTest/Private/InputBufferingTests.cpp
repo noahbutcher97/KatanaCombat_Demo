@@ -40,11 +40,11 @@ bool FInputBufferingTest::RunTest(const FString& Parameters)
 	TestFalse("Queue should not be empty after queueing during Active", CombatComp->IsQueueEmpty());
 	TestEqual("Queue size should be 1", CombatComp->GetQueueSize(), 1);
 
-	// Test 3: Multiple inputs can be queued
+	// Test 3: Newest normal input replaces the single pending slot
 	CombatComp->QueueAction(InputAction, TestAttack);
 	CombatComp->QueueAction(InputAction, TestAttack);
 
-	TestEqual("Queue size should be 3 after multiple inputs", CombatComp->GetQueueSize(), 3);
+	TestEqual("Normal attack buffer should retain one pending input", CombatComp->GetQueueSize(), 1);
 
 	// Test 4: Clear queue
 	CombatComp->ClearQueue(false);

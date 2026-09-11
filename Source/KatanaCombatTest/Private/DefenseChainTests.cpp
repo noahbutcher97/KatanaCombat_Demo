@@ -5,6 +5,7 @@
 
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_ChainStageTransition.h"
+#include "AI/CombatTokenSubsystem.h"
 #include "AI/EnemyCombatAIComponent.h"
 #include "Containers/Ticker.h"
 #include "Core/CombatComponent.h"
@@ -22,6 +23,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/BoxComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Engine/GameInstance.h"
 #include "HAL/IConsoleManager.h"
 #include "TimerManager.h"
 
@@ -588,6 +590,96 @@ bool FDefenseChainSequenceOwnershipTimeoutTest::RunTest(const FString& Parameter
 		Fixture.Paired->GetActivePairedStateLeaseCount(), 0);
 	TestTrue(TEXT("Terminal cleanup preserves held guard"), Fixture.DefenderCombat->IsBlocking());
 
+	Fixture.Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseChainNoMontageBystanderTargetLifecycleTest,
+	"KatanaCombat.Defense.Chain.NoMontageBystanderTargetLifecycle",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseChainNoMontageBystanderTargetLifecycleTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FDefenseChainFixture Fixture;
+	if (!Fixture.Initialize())
+	{
+		AddError(TEXT("Failed to create no-montage defense Chain fixture"));
+		Fixture.Destroy();
+		return false;
+	}
+
+	AEnemyCharacter* DefenderBystander = FCombatTestHelpers::CreateTestEnemyCharacter(
+		Fixture.World, FVector(350.0f, 100.0f, 0.0f));
+	AEnemyCharacter* SourceBystander = FCombatTestHelpers::CreateTestEnemyCharacter(
+		Fixture.World, FVector(350.0f, -100.0f, 0.0f));
+	AEnemyCharacter* FreshSelector = FCombatTestHelpers::CreateTestEnemyCharacter(
+		Fixture.World, FVector(450.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* DefenderBystanderAI = DefenderBystander
+		? DefenderBystander->GetCombatAIComponent()
+		: nullptr;
+	UEnemyCombatAIComponent* SourceBystanderAI = SourceBystander
+		? SourceBystander->GetCombatAIComponent()
+		: nullptr;
+	UEnemyCombatAIComponent* FreshSelectorAI = FreshSelector
+		? FreshSelector->GetCombatAIComponent()
+		: nullptr;
+	UGameInstance* GameInstance = NewObject<UGameInstance>();
+	UCombatTokenSubsystem* TokenSubsystem = NewObject<UCombatTokenSubsystem>(GameInstance);
+	UAttackData* BystanderAttack = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
+	if (!DefenderBystanderAI || !SourceBystanderAI || !FreshSelectorAI
+		|| !TokenSubsystem || !BystanderAttack)
+	{
+		AddError(TEXT("Failed to create no-montage bystander AI fixture"));
+		Fixture.Destroy();
+		return false;
+	}
+
+	TokenSubsystem->MaxConcurrentAttackers = 2;
+	TokenSubsystem->TokenCooldownPerEnemy = 0.0f;
+	FEnemyAttackConfig AttackConfig;
+	AttackConfig.AttackData = BystanderAttack;
+	AttackConfig.MinRange = 0.0f;
+	AttackConfig.MaxRange = 1000.0f;
+	for (UEnemyCombatAIComponent* CombatAI : {DefenderBystanderAI, SourceBystanderAI, FreshSelectorAI})
+	{
+		CombatAI->SetTokenSubsystemForTesting(TokenSubsystem);
+		CombatAI->AvailableAttacks = {AttackConfig};
+	}
+	DefenderBystanderAI->SetCombatTarget(Fixture.Defender);
+	SourceBystanderAI->SetCombatTarget(Fixture.SourceAttacker);
+	TestTrue(TEXT("Defender bystander owns a token before sequence takeover"),
+		DefenderBystanderAI->TryInitiateAttack());
+	TestTrue(TEXT("Source bystander owns a token before sequence takeover"),
+		SourceBystanderAI->TryInitiateAttack());
+
+	TestTrue(TEXT("Committed perfect parry enters the production no-montage bridge"),
+		Fixture.StartCommittedParry());
+	TestFalse(TEXT("No-montage takeover immediately releases the defender bystander's token"),
+		DefenderBystanderAI->HasAttackToken());
+	TestFalse(TEXT("No-montage takeover immediately releases the source bystander's token"),
+		SourceBystanderAI->HasAttackToken());
+	TestFalse(TEXT("Retained defender is unavailable to normal AI attacks"),
+		DefenderBystanderAI->CanAttemptAttack());
+	TestFalse(TEXT("Retained source is unavailable to normal AI attacks"),
+		SourceBystanderAI->CanAttemptAttack());
+
+	FreshSelectorAI->SetCombatTarget(Fixture.Defender);
+	TestNull(TEXT("A no-montage defense participant cannot be selected as a fresh target"),
+		FreshSelectorAI->CombatTarget.Get());
+
+	Fixture.Paired->CancelPairedAnimation(0.0f);
+	TestEqual(TEXT("Temporary defense ownership retains the defender target for resume"),
+		DefenderBystanderAI->CombatTarget.Get(), static_cast<AActor*>(Fixture.Defender));
+	TestEqual(TEXT("Temporary defense ownership retains the source target for resume"),
+		SourceBystanderAI->CombatTarget.Get(), static_cast<AActor*>(Fixture.SourceAttacker));
+	TestTrue(TEXT("Defender bystander reacquires after cleanup without target reset"),
+		DefenderBystanderAI->TryInitiateAttack());
+	TestTrue(TEXT("Source bystander reacquires after cleanup without target reset"),
+		SourceBystanderAI->TryInitiateAttack());
+
+	TokenSubsystem->ResetAllTokens();
 	Fixture.Destroy();
 	return true;
 }

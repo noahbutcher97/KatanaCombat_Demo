@@ -67,6 +67,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Basic")
     EAttackType AttackType = EAttackType::Light;
 
+    /** Authored direction label. Editor tooling/diagnostics only — runtime resolves directional follow-ups from INPUT direction, not this field. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Basic")
     EAttackDirection Direction = EAttackDirection::None;
 
@@ -85,7 +86,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Montage Section")
     bool bUseSectionOnly = false;
 
-    /** If true, automatically jump to the section start when playing this attack */
+    /** [NOT WIRED] Section jump is currently unconditional when MontageSection is set; this flag is not consulted (pending wire-or-delete, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Montage Section")
     bool bJumpToSectionStart = true;
 
@@ -97,7 +98,9 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage")
     float BaseDamage = 25.0f;
 
-    /** Hitstun duration inflicted on hit (used by BaseCombatCharacter::OnWeaponHit) */
+    /** Hitstun duration inflicted on hit (used by BaseCombatCharacter::OnWeaponHit).
+     * NOTE: applied only on the legacy fallback path — when a directional reaction entry
+     * resolves, the entry's StunDuration wins and this value is bypassed. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage")
     float HitStunDuration = 0.0f;
 
@@ -126,7 +129,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|Audio")
     FImpactAudioConfig ImpactAudioConfig;
 
-    /** VFX configuration for hit impacts [SCAFFOLD FOR U-16] */
+    /** VFX configuration for hit impacts (tier 1 of the FX resolution chain via ResolveAndSpawnImpactVFX) */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|VFX")
     FImpactVFXConfig ImpactVFXConfig;
 
@@ -139,9 +142,9 @@ public:
     float PostureDamage = 10.0f;
 
     /**
-     * Stagger power (0-1). Controls the chance/strength of contextual stagger.
-     * Heavy attacks have higher stagger power. Counter attacks can force stagger.
-     * 0 = never staggers, 1 = always staggers on hit
+     * [NOT WIRED] Reserved for contextual-stagger tuning; no runtime system reads this.
+     * Current stagger is duration-based (ApplyStagger) triggered by the parry/counter/finisher flow.
+     * Pending wire-or-delete decision — see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md.
      */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage", meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float StaggerPower = 0.0f;
@@ -170,7 +173,7 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combos")
     TMap<EAttackDirection, TObjectPtr<UAttackData>> HeavyDirectionalFollowUps;
 
-    /** Time window for combo input (after this attack starts recovery) */
+    /** [EDITOR TOOLING ONLY] Seeds ComboWindow notify generation. Runtime combo timing is notify/phase-driven and does not read this value. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combos")
     float ComboInputWindow = 0.6f;
 
@@ -178,12 +181,12 @@ public:
     // COMBO TRANSITION BLENDING
     // ============================================================================
 
-    /** Blend-out time when transitioning FROM this attack to any combo follow-up (0 = instant) */
+    /** [NOT WIRED] Superseded by the procedural blend calculation in PlayAttackMontage; this value is not read (pending removal). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combos|Blending",
         meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "0.5"))
     float ComboBlendOutTime = 0.1f;
 
-    /** Blend-in time when this attack is the TARGET of a combo transition (0 = instant) */
+    /** [NOT WIRED] Superseded by the procedural blend calculation in PlayAttackMontage; this value is not read (pending removal). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combos|Blending",
         meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "0.5"))
     float ComboBlendInTime = 0.1f;
@@ -192,15 +195,17 @@ public:
     // HEAVY ATTACK CHARGING (Only visible when AttackType == Heavy)
     // ============================================================================
 
+    /** [NOT WIRED] Charge level is never computed (CalculateChargeLevel has no callers). Pending charge-scaling decision — see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float MaxChargeTime = 2.0f;
 
-    /** Animation playback speed during charge windup (< 1.0 = slower) */
+    /** [NOT WIRED] Charge windup playback speed is not scaled by this value. Pending charge-scaling decision. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float ChargeTimeScale = 0.5f;
 
+    /** [NOT WIRED] Charged heavy attacks do not scale damage by charge. Pending charge-scaling decision. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float MaxChargeDamageMultiplier = 2.5f;
@@ -234,14 +239,17 @@ public:
     // LIGHT ATTACK HOLD & FOLLOW-UP (Only visible when AttackType == Light)
     // ============================================================================
 
+    /** Authoring-time gate: controls whether hold notifies are generated for this attack. Runtime does not re-check this flag. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
         meta = (EditCondition = "AttackType == EAttackType::Light", EditConditionHides))
     bool bCanHold = true;
 
+    /** [NOT WIRED] No hold-cap enforcement exists (Design Rule 4: hold is a button-state check, not duration tracking). Pending wire-or-delete decision. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
         meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold", EditConditionHides))
     bool bEnforceMaxHoldTime = false;
 
+    /** [NOT WIRED] No hold-cap enforcement exists. Pending wire-or-delete decision. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
         meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold && bEnforceMaxHoldTime", EditConditionHides))
     float MaxHoldTime = 1.5f;
@@ -286,7 +294,7 @@ public:
         meta = (DisplayName = "Use Notify Timing (Editor Only)"))
     bool bUseAnimNotifyTiming = true;
 
-    /** Editor-only: Fallback when notifies are missing (runtime ignores this) */
+    /** [NOT WIRED] Not read by runtime or editor tools (pending removal — see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Editor Tools|Timing Generation",
         meta = (EditCondition = "bUseAnimNotifyTiming", EditConditionHides, DisplayName = "Fallback Mode"))
     ETimingFallbackMode TimingFallbackMode = ETimingFallbackMode::AutoCalculate;
@@ -328,29 +336,31 @@ public:
     TObjectPtr<UPairedAnimationData> CounterData = nullptr;
 
     /**
-     * Which hand performs this attack (for procedural IK and animation selection)
-     * Used by paired animation system for contact point calculation
+     * Fallback source-contact socket for defense contact resolution,
+     * used when DefenseProfile.SourceContactSocketOverride is None.
+     * (Not read by IK or the paired-animation system.)
      */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paired Animation|Context")
     FName AttackHand = "RightHand";
 
     /**
-     * Default victim bone for contact (chest, head, etc.)
-     * Used for IK adjustment and effect placement during paired animations
+     * Fallback defender target bone for defense contact resolution
+     * (via GetDefenseTargetBoneFallback) when DefenseProfile.DefenderTargetBoneFallback is None.
+     * (Not read by IK or the paired-animation system.)
      */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paired Animation|Context")
     FName DefaultContactBone = "spine_03";
 
     /**
-     * Whether this attack can trigger finishers on vulnerable enemies
-     * Only checked when enemy is in finisher-eligible state (low health, guard broken, stunned)
+     * [EDITOR VALIDATION ONLY] Runtime gates finishers on FinisherData != null;
+     * this flag is only cross-checked by editor validation/tooling (pending removal).
      */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paired Animation|Triggers")
     bool bCanTriggerFinisher = false;
 
     /**
-     * Whether this attack has a counter variant (used after parry)
-     * When true and CounterData is set, uses paired counter animation
+     * [EDITOR VALIDATION ONLY] Runtime gates counters on CounterData != null;
+     * this flag is only cross-checked by editor validation/tooling (pending removal).
      */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Paired Animation|Triggers")
     bool bHasCounterVariant = false;

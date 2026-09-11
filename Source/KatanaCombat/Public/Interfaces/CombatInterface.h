@@ -132,4 +132,11 @@ public:
 	 */
 	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
 	void OnHoldWindowStart(EInputType InputType);
+
+	/** Canonical hold-start event carrying exact notify and montage-instance identity. */
+	UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")
+	void OnHoldWindowStartWithContext(
+		EInputType InputType,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId);
 };

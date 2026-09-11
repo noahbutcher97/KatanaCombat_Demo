@@ -11,6 +11,14 @@
 
 class AAIController;
 class AActor;
+class UEnemyCombatAIComponent;
+
+namespace EnemyCombatStateTree
+{
+	KATANACOMBAT_API EStateTreeRunStatus ResolveAttackTaskTickStatus(
+		UEnemyCombatAIComponent* CombatAI,
+		const FAttackInstanceId& AttackInstance);
+}
 
 USTRUCT()
 struct FStateTreeSetEnemyCombatTargetInstanceData

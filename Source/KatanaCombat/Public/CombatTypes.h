@@ -903,7 +903,7 @@ struct FHitReactionEntry
     // PHYSICS
     // ========================================================================
 
-    /** Knockback force applied to victim */
+    /** [NOT WIRED] No knockback physics is currently applied; this value is never consumed (pending wire-or-delete, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics",
         meta = (ClampMin = "0.0"))
     float KnockbackForce = 200.0f;
@@ -912,7 +912,7 @@ struct FHitReactionEntry
     // OUTCOME (what happens after animation completes)
     // ========================================================================
 
-    /** What happens when this reaction completes */
+    /** What happens when this reaction completes. NOTE: currently honored only for DeathReactions entries; directional reactions ignore it. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Outcome")
     EReactionOutcome Outcome = EReactionOutcome::StandardRecovery;
 
@@ -1156,10 +1156,6 @@ struct FAttackWarpConfig
 		meta = (EditCondition = "bEnableWarp", ClampMin = "0.1", ClampMax = "45.0"))
 	float FinalFacingTolerance = 10.0f;
 };
-
-// Backwards compatibility typedef - remove after updating all references
-using FDirectionalWarpConfig = FAttackWarpConfig;
-using FMotionWarpingConfig = FAttackWarpConfig;
 
 // ============================================================================
 // HITSTOP CONFIGURATION
@@ -1598,6 +1594,10 @@ struct FAttackStateMachine
 	UPROPERTY()
 	TWeakObjectPtr<UAnimMontage> ActiveMontage;
 
+	/** Exact runtime montage instance that owns this attack generation. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
+	int32 ActiveMontageInstanceId = INDEX_NONE;
+
 	/** The section name we're playing (for logging/debugging) */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "State")
 	FName ActiveSectionName = NAME_None;
@@ -1646,6 +1646,7 @@ struct FAttackStateMachine
 		LifecycleState = EAttackLifecycleState::Starting;
 		CurrentPhase = EAttackPhase::None;
 		ActiveMontage = Montage;
+		ActiveMontageInstanceId = INDEX_NONE;
 		ActiveSectionName = SectionName;
 		PreviousMontage = nullptr;
 		AttackGeneration++;
@@ -1667,6 +1668,7 @@ struct FAttackStateMachine
 	{
 		PreviousMontage = ActiveMontage;
 		ActiveMontage = NewMontage;
+		ActiveMontageInstanceId = INDEX_NONE;
 		ActiveSectionName = NewSectionName;
 		AttackGeneration++;
 		PendingComboTransitions++; // Old montage will fire OnMontageEnded later — expect it
@@ -1685,6 +1687,11 @@ struct FAttackStateMachine
 		{
 			LifecycleState = EAttackLifecycleState::InProgress;
 		}
+	}
+
+	void SetActiveMontageInstanceId(int32 MontageInstanceId)
+	{
+		ActiveMontageInstanceId = MontageInstanceId;
 	}
 
 	/**
@@ -1784,6 +1791,7 @@ struct FAttackStateMachine
 		}
 		CurrentPhase = EAttackPhase::None;
 		ActiveMontage = nullptr;
+		ActiveMontageInstanceId = INDEX_NONE;
 		ActiveSectionName = NAME_None;
 		PreviousMontage = nullptr;
 		PendingComboTransitions = 0;
@@ -1798,6 +1806,7 @@ struct FAttackStateMachine
 		LifecycleState = EAttackLifecycleState::Idle;
 		CurrentPhase = EAttackPhase::None;
 		ActiveMontage = nullptr;
+		ActiveMontageInstanceId = INDEX_NONE;
 		ActiveSectionName = NAME_None;
 		PreviousMontage = nullptr;
 		PendingComboTransitions = 0;
@@ -2685,9 +2694,11 @@ struct FDefensePresentationPayload
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FName ReviewedDeflectionMarker = NAME_None;
 
+	/** [NOT WIRED] Runtime contact socket comes from FDefenseDecision::SourceSocket; this override is not read (pending wire-or-delete, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FName SourceSocketOverride = NAME_None;
 
+	/** [NOT WIRED] Runtime target bone comes from FDefenseDecision::TargetBone; this override is not read (pending wire-or-delete, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FName TargetBoneOverride = NAME_None;
 

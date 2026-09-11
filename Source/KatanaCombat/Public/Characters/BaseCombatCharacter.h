@@ -352,6 +352,10 @@ public:
 		float RemainingWindowDuration) override;
     virtual bool IsInParryWindow_Implementation() const override;
     virtual void OnHoldWindowStart_Implementation(EInputType InputType) override;
+	virtual void OnHoldWindowStartWithContext_Implementation(
+		EInputType InputType,
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId) override;
 
 protected:
     virtual void BeginPlay() override;

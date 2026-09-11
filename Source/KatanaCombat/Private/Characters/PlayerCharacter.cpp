@@ -52,6 +52,33 @@ void APlayerCharacter::BeginPlay()
     }
 }
 
+void APlayerCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+    if (CombatComponent)
+    {
+        CombatComponent->ClearMovementInputSample();
+    }
+
+    Super::EndPlay(EndPlayReason);
+}
+
+void APlayerCharacter::UnPossessed()
+{
+    if (CombatComponent)
+    {
+        CombatComponent->ClearMovementInputSample();
+    }
+
+    Super::UnPossessed();
+}
+
+FVector2D APlayerCharacter::GetLastMovementInput() const
+{
+    return CombatComponent
+        ? CombatComponent->GetMovementInputSample().CameraRelativeInput
+        : FVector2D::ZeroVector;
+}
+
 void APlayerCharacter::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
@@ -70,6 +97,8 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
         if (MoveAction)
         {
             EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &APlayerCharacter::Move);
+            EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &APlayerCharacter::StopMove);
+            EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Canceled, this, &APlayerCharacter::StopMove);
         }
 
         // Looking
@@ -85,6 +114,7 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
         {
             EnhancedInputComponent->BindAction(LightAttackAction, ETriggerEvent::Started, this, &APlayerCharacter::OnLightAttackPressed);
             EnhancedInputComponent->BindAction(LightAttackAction, ETriggerEvent::Completed, this, &APlayerCharacter::OnLightAttackReleased);
+            EnhancedInputComponent->BindAction(LightAttackAction, ETriggerEvent::Canceled, this, &APlayerCharacter::OnLightAttackCanceled);
         }
 
         // Heavy Attack (Started = pressed, Completed = released)
@@ -92,6 +122,7 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
         {
             EnhancedInputComponent->BindAction(HeavyAttackAction, ETriggerEvent::Started, this, &APlayerCharacter::OnHeavyAttackPressed);
             EnhancedInputComponent->BindAction(HeavyAttackAction, ETriggerEvent::Completed, this, &APlayerCharacter::OnHeavyAttackReleased);
+            EnhancedInputComponent->BindAction(HeavyAttackAction, ETriggerEvent::Canceled, this, &APlayerCharacter::OnHeavyAttackCanceled);
         }
 
         // Block (Started = pressed, Completed = released)
@@ -99,6 +130,7 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
         {
             EnhancedInputComponent->BindAction(BlockAction, ETriggerEvent::Started, this, &APlayerCharacter::OnBlockPressed);
             EnhancedInputComponent->BindAction(BlockAction, ETriggerEvent::Completed, this, &APlayerCharacter::OnBlockReleased);
+            EnhancedInputComponent->BindAction(BlockAction, ETriggerEvent::Canceled, this, &APlayerCharacter::OnBlockCanceled);
         }
 
         // Evade
@@ -121,12 +153,19 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 
 void APlayerCharacter::Move(const FInputActionValue& Value)
 {
-    const FVector2D MovementVector = Value.Get<FVector2D>();
+    FVector2D MovementVector = Value.Get<FVector2D>();
+    const FRotator CameraRotation = Controller
+        ? Controller->GetControlRotation()
+        : GetActorRotation();
+    const bool bMayApplyMovement = CombatComponent
+        ? CombatComponent->SubmitMovementInput(MovementVector, CameraRotation)
+        : !MovementVector.ContainsNaN();
+    if (CombatComponent)
+    {
+        MovementVector = CombatComponent->GetMovementInputSample().CameraRelativeInput;
+    }
 
-    // Cache for directional input (used by attack handlers)
-    LastMovementInput = MovementVector;
-
-    if (Controller && !MovementVector.IsZero())
+    if (Controller && bMayApplyMovement && !MovementVector.IsZero())
     {
         // Find out which way is forward
         const FRotator Rotation = Controller->GetControlRotation();
@@ -141,6 +180,15 @@ void APlayerCharacter::Move(const FInputActionValue& Value)
         // Add movement
         AddMovementInput(ForwardDirection, MovementVector.Y);
         AddMovementInput(RightDirection, MovementVector.X);
+    }
+}
+
+void APlayerCharacter::StopMove(const FInputActionValue& Value)
+{
+    (void)Value;
+    if (CombatComponent)
+    {
+        CombatComponent->ClearMovementInputSample();
     }
 }
 
@@ -174,38 +222,61 @@ void APlayerCharacter::StopLook(const FInputActionValue& Value)
 
 void APlayerCharacter::OnLightAttackPressed(const FInputActionValue& Value)
 {
+    (void)Value;
     if (CombatComponent)
     {
-        CombatComponent->OnInputEventAuto(EInputType::LightAttack, EInputEventType::Press, LastMovementInput);
+        CombatComponent->OnInputEventAuto(EInputType::LightAttack, EInputEventType::Press, GetLastMovementInput());
     }
 }
 
 void APlayerCharacter::OnLightAttackReleased(const FInputActionValue& Value)
 {
+    (void)Value;
     if (CombatComponent)
     {
-        CombatComponent->OnInputEventAuto(EInputType::LightAttack, EInputEventType::Release, LastMovementInput);
+        CombatComponent->OnInputEventAuto(EInputType::LightAttack, EInputEventType::Release, GetLastMovementInput());
+    }
+}
+
+void APlayerCharacter::OnLightAttackCanceled(const FInputActionValue& Value)
+{
+    (void)Value;
+    if (CombatComponent)
+    {
+        CombatComponent->OnInputEventAuto(EInputType::LightAttack, EInputEventType::Canceled, GetLastMovementInput());
     }
 }
 
 void APlayerCharacter::OnHeavyAttackPressed(const FInputActionValue& Value)
 {
+    (void)Value;
     if (CombatComponent)
     {
-        CombatComponent->OnInputEventAuto(EInputType::HeavyAttack, EInputEventType::Press, LastMovementInput);
+        CombatComponent->OnInputEventAuto(EInputType::HeavyAttack, EInputEventType::Press, GetLastMovementInput());
     }
 }
 
 void APlayerCharacter::OnHeavyAttackReleased(const FInputActionValue& Value)
 {
+    (void)Value;
     if (CombatComponent)
     {
-        CombatComponent->OnInputEventAuto(EInputType::HeavyAttack, EInputEventType::Release, LastMovementInput);
+        CombatComponent->OnInputEventAuto(EInputType::HeavyAttack, EInputEventType::Release, GetLastMovementInput());
+    }
+}
+
+void APlayerCharacter::OnHeavyAttackCanceled(const FInputActionValue& Value)
+{
+    (void)Value;
+    if (CombatComponent)
+    {
+        CombatComponent->OnInputEventAuto(EInputType::HeavyAttack, EInputEventType::Canceled, GetLastMovementInput());
     }
 }
 
 void APlayerCharacter::OnBlockPressed(const FInputActionValue& Value)
 {
+    (void)Value;
     if (CombatComponent)
     {
         CombatComponent->OnInputEvent(EInputType::Block, EInputEventType::Press);
@@ -214,9 +285,19 @@ void APlayerCharacter::OnBlockPressed(const FInputActionValue& Value)
 
 void APlayerCharacter::OnBlockReleased(const FInputActionValue& Value)
 {
+    (void)Value;
     if (CombatComponent)
     {
         CombatComponent->OnInputEvent(EInputType::Block, EInputEventType::Release);
+    }
+}
+
+void APlayerCharacter::OnBlockCanceled(const FInputActionValue& Value)
+{
+    (void)Value;
+    if (CombatComponent)
+    {
+        CombatComponent->OnInputEvent(EInputType::Block, EInputEventType::Canceled);
     }
 }
 

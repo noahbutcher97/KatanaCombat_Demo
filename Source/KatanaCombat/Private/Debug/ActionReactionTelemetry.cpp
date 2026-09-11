@@ -37,6 +37,7 @@ FString EventName(const EActionReactionTelemetryEvent Event)
 	case EActionReactionTelemetryEvent::AlignmentChanged: return TEXT("AlignmentChanged");
 	case EActionReactionTelemetryEvent::OrbitMoveChanged: return TEXT("OrbitMoveChanged");
 	case EActionReactionTelemetryEvent::AnimationLaneChanged: return TEXT("AnimationLaneChanged");
+	case EActionReactionTelemetryEvent::MovementInputDecisionChanged: return TEXT("MovementInputDecisionChanged");
 	default: return TEXT("Unknown");
 	}
 }
@@ -50,11 +51,13 @@ FString ReasonName(const EActionReactionTelemetryReason Reason)
 	case EActionReactionTelemetryReason::MissingCombatSettings: return TEXT("MissingCombatSettings");
 	case EActionReactionTelemetryReason::CombatStateRejected: return TEXT("CombatStateRejected");
 	case EActionReactionTelemetryReason::InputConsumed: return TEXT("InputConsumed");
+	case EActionReactionTelemetryReason::InputCanceled: return TEXT("InputCanceled");
 	case EActionReactionTelemetryReason::StatefulControlConsumed: return TEXT("StatefulControlConsumed");
 	case EActionReactionTelemetryReason::StatefulControlRejected: return TEXT("StatefulControlRejected");
 	case EActionReactionTelemetryReason::ChainAdvanced: return TEXT("ChainAdvanced");
 	case EActionReactionTelemetryReason::ChainExpired: return TEXT("ChainExpired");
 	case EActionReactionTelemetryReason::DuplicatePendingInput: return TEXT("DuplicatePendingInput");
+	case EActionReactionTelemetryReason::PendingInputReplaced: return TEXT("PendingInputReplaced");
 	case EActionReactionTelemetryReason::InvalidComboBranch: return TEXT("InvalidComboBranch");
 	case EActionReactionTelemetryReason::FreshChainReset: return TEXT("FreshChainReset");
 	case EActionReactionTelemetryReason::PriorityCancelled: return TEXT("PriorityCancelled");
@@ -75,6 +78,8 @@ FString ReasonName(const EActionReactionTelemetryReason Reason)
 	case EActionReactionTelemetryReason::TerminalCleanup: return TEXT("TerminalCleanup");
 	case EActionReactionTelemetryReason::HoldActivated: return TEXT("HoldActivated");
 	case EActionReactionTelemetryReason::HoldReleased: return TEXT("HoldReleased");
+	case EActionReactionTelemetryReason::HoldSourceRejected: return TEXT("HoldSourceRejected");
+	case EActionReactionTelemetryReason::StaleHoldGeneration: return TEXT("StaleHoldGeneration");
 	case EActionReactionTelemetryReason::MissingAttackContext: return TEXT("MissingAttackContext");
 	case EActionReactionTelemetryReason::MovementDisabled: return TEXT("MovementDisabled");
 	case EActionReactionTelemetryReason::MovementRestored: return TEXT("MovementRestored");
@@ -97,6 +102,11 @@ FString ReasonName(const EActionReactionTelemetryReason Reason)
 	case EActionReactionTelemetryReason::TokenReleased: return TEXT("TokenReleased");
 	case EActionReactionTelemetryReason::AlignmentRequested: return TEXT("AlignmentRequested");
 	case EActionReactionTelemetryReason::AlignmentReleased: return TEXT("AlignmentReleased");
+	case EActionReactionTelemetryReason::MovementInputCleared: return TEXT("MovementInputCleared");
+	case EActionReactionTelemetryReason::MovementInputAllowed: return TEXT("MovementInputAllowed");
+	case EActionReactionTelemetryReason::MovementInputSuppressedByHold: return TEXT("MovementInputSuppressedByHold");
+	case EActionReactionTelemetryReason::MovementInputSuppressedByPaired: return TEXT("MovementInputSuppressedByPaired");
+	case EActionReactionTelemetryReason::MovementInputSuppressedByTerminalState: return TEXT("MovementInputSuppressedByTerminalState");
 	default: return TEXT("Unknown");
 	}
 }
@@ -134,8 +144,8 @@ FString ActorPath(const TWeakObjectPtr<AActor>& Actor, const FString& Snapshot)
 FString BuildRow(const FActionReactionTelemetryRecord& Record)
 {
 	TArray<FString> Fields;
-	Fields.Reserve(49);
-	Fields.Add(TEXT("1"));
+	Fields.Reserve(53);
+	Fields.Add(TEXT("2"));
 	Fields.Add(FString::Printf(TEXT("%llu"), Record.Sequence));
 	Fields.Add(EventName(Record.Event));
 	Fields.Add(ReasonName(Record.Reason));
@@ -166,6 +176,10 @@ FString BuildRow(const FActionReactionTelemetryRecord& Record)
 	Fields.Add(Record.ActionName.ToString());
 	Fields.Add(FString::FromInt(Record.QueueDepth));
 	Fields.Add(Record.MovementDisposition.ToString());
+	Fields.Add(Record.CharacterMovementMode.ToString());
+	Fields.Add(FString::FromInt(Record.CharacterCustomMovementMode));
+	Fields.Add(FString::Printf(TEXT("%.6f"), Record.MovementMagnitude));
+	Fields.Add(Record.bRootMotionActive ? TEXT("1") : TEXT("0"));
 	Fields.Add(Record.TokenDisposition.ToString());
 	Fields.Add(FString::FromInt(Record.ActiveTokenCount));
 	Fields.Add(Record.AlignmentOwner.ToString());
@@ -197,7 +211,9 @@ const TCHAR* CsvHeader =
 	TEXT("attack_generation,primary_action_generation,hold_generation,montage_instance_id,")
 	TEXT("attack_data_path,montage_path,notify_source_path,input_type,input_event,input_direction,")
 	TEXT("input_route,input_disposition,execution_mode,action_state,attack_phase,input_context,")
-	TEXT("action_name,queue_depth,movement_disposition,token_disposition,active_token_count,")
+	TEXT("action_name,queue_depth,movement_disposition,character_movement_mode,")
+	TEXT("character_custom_movement_mode,movement_magnitude,root_motion_active,")
+	TEXT("token_disposition,active_token_count,")
 	TEXT("alignment_owner,alignment_disposition,requested_yaw,applied_yaw,remaining_yaw_error,")
 	TEXT("orbit_destination_x,orbit_destination_y,orbit_destination_z,orbit_radial_error,")
 	TEXT("reaction_class,reaction_disposition,animation_lane,animation_fallback,weapon_socket_drift,")

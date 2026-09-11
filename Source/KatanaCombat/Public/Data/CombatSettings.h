@@ -32,9 +32,11 @@ class UDefenseConfiguration;
  *
  * Override Pattern:
  *   Component.SettingsOverride → CombatSettings.SubsystemSettings → Hardcoded fallback
+ *   (DefenseConfiguration additionally prepends transient DefenseStanceOverrides and falls
+ *   back to the class CDO — see CombatComponent::GetEffectiveDefenseConfiguration.)
  *
  * Weapon/Attack Configuration Pattern:
- *   WeaponComponent.WeaponDataOverride → CombatSettings.DefaultWeaponData → nullptr
+ *   WeaponComponent.WeaponData (per-instance) → CombatSettings.DefaultWeaponData → nullptr
  *   WeaponData contains AttackConfiguration, so setting WeaponData implicitly sets moveset.
  *
  * Debug visualization controlled via CVars (see DebugConfig.h):
@@ -59,7 +61,8 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Subsystems")
     TObjectPtr<UTargetingSettings> TargetingSettings;
 
-    /** Motion warping distances and speeds */
+    /** [NOT WIRED] No system dereferences this slot — warping is driven by per-attack
+     * FAttackWarpConfig (pending delete decision, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Subsystems")
     TObjectPtr<UMotionWarpingSettings> MotionWarpingSettings;
 

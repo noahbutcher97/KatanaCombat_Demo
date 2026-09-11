@@ -1169,7 +1169,7 @@ bool FDefenseContactLethalEventTest::RunTest(const FString& Parameters)
 	const FDefenseContactReceipt First = ResolveAndFinalize(Source, Target, Request);
 	TestEqual(TEXT("Lethal receipt reports health actually removed"), First.AppliedDamage, 10.0f);
 	TestEqual(TEXT("Lethal contact commits zero health"), Target->CurrentHealth, 0.0f);
-	TestTrue(TEXT("Lethal contact commits dying state before return"), Target->IsDying());
+	TestTrue(TEXT("Lethal contact commits a terminal death state before return"), Target->IsDeadOrDying());
 	TestEqual(TEXT("Lethal contact emits damage once"), Recorder->DamageReceivedCount, 1);
 	TestEqual(TEXT("Lethal contact emits health once"), Recorder->HealthChangedCount, 1);
 	TestEqual(TEXT("Lethal contact emits dying once"), Recorder->CharacterDyingCount, 1);

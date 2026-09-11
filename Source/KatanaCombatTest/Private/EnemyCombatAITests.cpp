@@ -5,7 +5,9 @@
 #include "AI/EnemyCombatAIController.h"
 #include "AI/CombatTokenSubsystem.h"
 #include "AI/EnemyCombatAIComponent.h"
+#include "AI/EnemyCombatStateTreeTasks.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Characters/EnemyCharacter.h"
 #include "Characters/PlayerCharacter.h"
 #include "Core/CombatComponent.h"
@@ -15,6 +17,7 @@
 #include "Core/WeaponComponent.h"
 #include "Data/AttackData.h"
 #include "Data/CombatSettings.h"
+#include "Data/PairedAnimationData.h"
 #include "Debug/DefenseMatrixProofDirector.h"
 #include "EnhancedActionKeyMapping.h"
 #include "Engine/BlueprintGeneratedClass.h"
@@ -648,6 +651,80 @@ bool FEnemyCombatAI_QueuedTokenTimeoutRemovesRequest::RunTest(const FString& Par
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_QueuedTargetPairedRemovesRequest,
+	"KatanaCombat.EnemyAI.TargetLifecycle.QueuedTargetPairedRemovesRequest",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_QueuedTargetPairedRemovesRequest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FString StateTreePath = TEXT("/Game/ProjectFiles/AI/ST_EnemyCombatProof.ST_EnemyCombatProof");
+
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	APlayerController* PlayerController = World ? World->SpawnActor<APlayerController>() : nullptr;
+	AEnemyCharacter* TokenHolder = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(100.0f, 0.0f, 0.0f));
+	AEnemyCharacter* QueuedEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(150.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* HolderAI = TokenHolder ? TokenHolder->GetCombatAIComponent() : nullptr;
+	UEnemyCombatAIComponent* QueuedAI = QueuedEnemy ? QueuedEnemy->GetCombatAIComponent() : nullptr;
+	AEnemyCombatAIController* QueuedController = QueuedEnemy
+		? Cast<AEnemyCombatAIController>(QueuedEnemy->GetController())
+		: nullptr;
+	UEnemyStateTreeAIComponent* StateTreeComponent = QueuedController
+		? Cast<UEnemyStateTreeAIComponent>(QueuedController->GetStateTreeAIComponent())
+		: nullptr;
+	UStateTree* StateTree = Cast<UStateTree>(StaticLoadObject(UStateTree::StaticClass(), nullptr, *StateTreePath));
+	UCombatTokenSubsystem* TokenSubsystem = CreateTestTokenSubsystem();
+	UAttackData* AttackData = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
+
+	if (!Player || !PlayerController || !Player->HitReactionComponent || !HolderAI || !QueuedAI
+		|| !QueuedController || !StateTreeComponent || !StateTree || !TokenSubsystem || !AttackData)
+	{
+		AddError(TEXT("Failed to create queued paired-target fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	PlayerController->Possess(Player);
+	StateTreeComponent->StopLogic(TEXT("Configure queued paired-target test"));
+	StateTreeComponent->SetStateTree(StateTree);
+	HolderAI->SetTokenSubsystemForTesting(TokenSubsystem);
+	QueuedAI->SetTokenSubsystemForTesting(TokenSubsystem);
+	HolderAI->SetCombatTarget(Player);
+	QueuedAI->SetCombatTarget(Player);
+	ConfigureSingleAttack(HolderAI, AttackData);
+	ConfigureSingleAttack(QueuedAI, AttackData);
+
+	TestTrue(TEXT("The holder occupies the only attack token"), HolderAI->TryInitiateAttack());
+	StateTreeComponent->StartLogic();
+	StateTreeComponent->TickComponent(0.01f, ELevelTick::LEVELTICK_All, nullptr);
+	TestTrue(TEXT("The bystander queues against the available target"), QueuedAI->IsWaitingForToken());
+
+	Player->HitReactionComponent->EnterPairedAnimationState(
+		nullptr, EReactionOutcome::Ragdoll, 0.2f, false, TokenHolder);
+
+	TestFalse(TEXT("Paired takeover invalidates the queued request without waiting for a StateTree tick"),
+		QueuedAI->IsWaitingForToken());
+	TestNull(TEXT("Target invalidation clears the queued attack selection"), QueuedAI->SelectedAttack.Get());
+	TestEqual(TEXT("Temporary paired ownership retains the target for later revalidation"),
+		QueuedAI->CombatTarget.Get(), static_cast<AActor*>(Player));
+	TestFalse(TEXT("Every attacker targeting the paired-owned actor releases its token"),
+		HolderAI->HasAttackToken());
+	TestEqual(TEXT("Paired takeover leaves no token assigned to that target's attackers"),
+		TokenSubsystem->GetActiveAttackerCount(), 0);
+	StateTreeComponent->TickComponent(0.01f, ELevelTick::LEVELTICK_All, nullptr);
+	HolderAI->AbortAttack();
+	TestFalse(TEXT("A stale queued request cannot receive the released token"), QueuedAI->HasAttackToken());
+
+	StateTreeComponent->StopLogic(TEXT("Queued paired-target test cleanup"));
+	Player->HitReactionComponent->ExitPairedAnimationState();
+	TokenSubsystem->ResetAllTokens();
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_QueuedTokenStateTreeStopRemovesRequest,
 	"KatanaCombat.EnemyAI.QueuedTokenStateTreeStopRemovesRequest",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -830,6 +907,39 @@ bool FEnemyCombatAI_ProofEnemyExecutionSetsCombatCurrentAttack::RunTest(const FS
 	TestEqual(TEXT("Legacy parry callback cannot end consumed ownership again"),
 		CombatAI->GetAttackEndBroadcastCountForTesting(), EndsBeforeLegacyCallback);
 	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_DeadTargetRejectsExecution,
+	"KatanaCombat.EnemyAI.TargetLifecycle.DeadTargetRejectsExecution",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_DeadTargetRejectsExecution::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FEnemyAttackLifecycleFixture Fixture = CreateEnemyAttackLifecycleFixture();
+	if (!TestTrue(TEXT("Dead-target execution fixture should be valid"), Fixture.IsValid()))
+	{
+		Fixture.Destroy();
+		return false;
+	}
+
+	TestTrue(TEXT("The enemy acquires a token while the target is actionable"),
+		Fixture.CombatAI->TryInitiateAttack());
+	TestTrue(TEXT("The target reaches terminal Dead state"),
+		FCombatTestHelpers::DealLethalDamage(Fixture.Player, Fixture.Enemy));
+
+	TestFalse(TEXT("Execution rejects a target that died after token acquisition"),
+		Fixture.CombatAI->ExecuteAttack());
+	TestFalse(TEXT("Dead-target rejection releases the held token"),
+		Fixture.CombatAI->HasAttackToken());
+	TestNull(TEXT("Dead-target rejection clears the selected attack"),
+		Fixture.CombatAI->SelectedAttack.Get());
+	TestFalse(TEXT("Dead-target rejection does not start a combat generation"),
+		Fixture.Enemy->CombatComponent->BuildAttackExecutionSnapshot().bAttackActive);
+
+	Fixture.CombatAI->AbortAttack();
+	Fixture.Destroy();
 	return true;
 }
 
@@ -2272,6 +2382,570 @@ bool FEnemyCombatAI_HitReactionStaggerBlocksAttack::RunTest(const FString& Param
 	TestFalse(TEXT("A live hit-reaction stagger blocks token acquisition even in a ready AI state"),
 		CombatAI->TryInitiateAttack());
 	TestFalse(TEXT("Rejected staggered attack owns no token"), CombatAI->HasAttackToken());
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_PairedVictimSuppressesAttack,
+	"KatanaCombat.EnemyAI.PairedVictim.SuppressAndRestore",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_PairedVictimSuppressesAttack::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector::ZeroVector);
+	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(150.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* CombatAI = Enemy ? Enemy->GetCombatAIComponent() : nullptr;
+	UCombatTokenSubsystem* TokenSubsystem = CreateTestTokenSubsystem();
+	UAttackData* AttackData = FCombatTestHelpers::CreateTestAttack();
+	if (!World || !Player || !Enemy || !CombatAI || !TokenSubsystem || !AttackData
+		|| !Enemy->HitReactionComponent)
+	{
+		AddError(TEXT("Failed to create paired-victim suppression fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	CombatAI->SetTokenSubsystemForTesting(TokenSubsystem);
+	CombatAI->SetCombatTarget(Player);
+	ConfigureSingleAttack(CombatAI, AttackData, 500.0f);
+	CombatAI->CurrentState = EEnemyAIState::Circling;
+	Enemy->HitReactionComponent->EnterPairedAnimationState(
+		nullptr, EReactionOutcome::Ragdoll, 0.2f, false, Player);
+
+	TestTrue(TEXT("Paired-victim ownership suppresses AI combat actions"),
+		CombatAI->IsCombatActionSuppressed());
+	TestFalse(TEXT("A paired victim cannot request an attack token"),
+		CombatAI->TryInitiateAttack());
+	TestFalse(TEXT("Rejected paired-victim attack owns no token"),
+		CombatAI->HasAttackToken());
+
+	Enemy->HitReactionComponent->ExitPairedAnimationState();
+	TestFalse(TEXT("Releasing paired-victim ownership restores AI eligibility"),
+		CombatAI->IsCombatActionSuppressed());
+	TestTrue(TEXT("The enemy can request a token after paired cleanup"),
+		CombatAI->TryInitiateAttack());
+	CombatAI->AbortAttack();
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_PairedTargetSuppressesAttack,
+	"KatanaCombat.EnemyAI.TargetLifecycle.PairedTargetSuppressesAttack",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_PairedTargetSuppressesAttack::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
+	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(150.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* CombatAI = Enemy ? Enemy->GetCombatAIComponent() : nullptr;
+	UCombatTokenSubsystem* TokenSubsystem = CreateTestTokenSubsystem();
+	UAttackData* AttackData = FCombatTestHelpers::CreateTestAttack();
+	if (!World || !Player || !Player->HitReactionComponent || !Enemy || !CombatAI
+		|| !TokenSubsystem || !AttackData)
+	{
+		AddError(TEXT("Failed to create paired-target suppression fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	CombatAI->SetTokenSubsystemForTesting(TokenSubsystem);
+	CombatAI->SetCombatTarget(Player);
+	ConfigureSingleAttack(CombatAI, AttackData, 500.0f);
+	Player->HitReactionComponent->EnterPairedAnimationState(
+		nullptr, EReactionOutcome::Ragdoll, 0.2f, false, nullptr);
+
+	TestFalse(TEXT("An AI cannot attempt an attack against a paired-owned target"),
+		CombatAI->CanAttemptAttack());
+	TestFalse(TEXT("A paired-owned target rejects token acquisition"),
+		CombatAI->TryInitiateAttack());
+	TestFalse(TEXT("Rejected paired-target attack owns no token"), CombatAI->HasAttackToken());
+	TestFalse(TEXT("Rejected paired-target attack owns no queued request"), CombatAI->IsWaitingForToken());
+	TestNull(TEXT("Rejected paired-target attack retains no selection"), CombatAI->SelectedAttack.Get());
+
+	Player->HitReactionComponent->ExitPairedAnimationState();
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_PairedTargetAbortsActiveAttack,
+	"KatanaCombat.EnemyAI.TargetLifecycle.PairedTargetAbortsActiveAttack",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_PairedTargetAbortsActiveAttack::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FEnemyAttackLifecycleFixture Fixture = CreateEnemyAttackLifecycleFixture();
+	if (!TestTrue(TEXT("Active paired-target fixture should be valid"), Fixture.IsValid())
+		|| !TestNotNull(TEXT("Target owns a hit-reaction component"), Fixture.Player->HitReactionComponent.Get()))
+	{
+		Fixture.Destroy();
+		return false;
+	}
+
+	TestTrue(TEXT("The attack request receives a token"), Fixture.CombatAI->TryInitiateAttack());
+	TestTrue(TEXT("The normal attack starts before paired takeover"), Fixture.CombatAI->ExecuteAttack());
+	TestTrue(TEXT("The active attack owns a combat generation"),
+		Fixture.Enemy->CombatComponent->BuildAttackExecutionSnapshot().bAttackActive);
+
+	Fixture.Player->HitReactionComponent->EnterPairedAnimationState(
+		nullptr, EReactionOutcome::Ragdoll, 0.2f, false, nullptr);
+	TestFalse(TEXT("Paired takeover releases the active token without a StateTree tick"),
+		Fixture.CombatAI->HasAttackToken());
+	TestFalse(TEXT("Paired takeover retires the active combat generation immediately"),
+		Fixture.Enemy->CombatComponent->BuildAttackExecutionSnapshot().bAttackActive);
+	TestEqual(TEXT("Paired takeover emits one interrupted attack end"),
+		Fixture.CombatAI->GetAttackEndBroadcastCountForTesting(), 1);
+	const int32 ReleasesAfterTakeover = Fixture.CombatAI->GetTokenReleaseCountForTesting();
+	TestFalse(TEXT("The paired target remains unavailable on explicit revalidation"),
+		Fixture.CombatAI->RevalidateCombatTarget());
+	TestEqual(TEXT("Repeated target revalidation does not release ownership twice"),
+		Fixture.CombatAI->GetTokenReleaseCountForTesting(), ReleasesAfterTakeover);
+	TestEqual(TEXT("Repeated target revalidation does not end the attack twice"),
+		Fixture.CombatAI->GetAttackEndBroadcastCountForTesting(), 1);
+
+	Fixture.Player->HitReactionComponent->ExitPairedAnimationState();
+	Fixture.Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_PairedExecutorTargetSuppressesAttack,
+	"KatanaCombat.EnemyAI.TargetLifecycle.PairedExecutorTargetSuppressesAttack",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_PairedExecutorTargetSuppressesAttack::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
+	AEnemyCharacter* Bystander = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(150.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* BystanderAI = Bystander ? Bystander->GetCombatAIComponent() : nullptr;
+	UCombatTokenSubsystem* TokenSubsystem = CreateTestTokenSubsystem();
+	UAttackData* AttackData = FCombatTestHelpers::CreateTestAttack();
+	UPairedAnimationData* PairedData = NewObject<UPairedAnimationData>();
+	if (!World || !Player || !Player->PairedAnimationComponent || !Bystander || !BystanderAI
+		|| !TokenSubsystem || !AttackData || !PairedData)
+	{
+		AddError(TEXT("Failed to create paired-executor target fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	BystanderAI->SetTokenSubsystemForTesting(TokenSubsystem);
+	BystanderAI->SetCombatTarget(Player);
+	ConfigureSingleAttack(BystanderAI, AttackData, 500.0f);
+	TestTrue(TEXT("Bystander owns a token before the target begins a paired sequence"),
+		BystanderAI->TryInitiateAttack());
+	Player->PairedAnimationComponent->BeginPairedAnimation(
+		PairedData, EPairedReactionType::Finisher, false);
+
+	TestFalse(TEXT("Target paired start releases bystander ownership without a StateTree tick"),
+		BystanderAI->HasAttackToken());
+	TestFalse(TEXT("A paired executor is unavailable to a bystander attack"),
+		BystanderAI->TryInitiateAttack());
+	TestFalse(TEXT("Rejected paired-executor target owns no token"), BystanderAI->HasAttackToken());
+	TestNull(TEXT("Rejected paired-executor target retains no attack selection"),
+		BystanderAI->SelectedAttack.Get());
+	TestTrue(TEXT("Bystander rejection does not cancel the target's paired sequence"),
+		Player->PairedAnimationComponent->IsPairedAnimationActive());
+
+	Player->PairedAnimationComponent->EndPairedAnimation();
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_PairedOwnerPreservesTerminalTarget,
+	"KatanaCombat.EnemyAI.TargetLifecycle.PairedOwnerPreservesTerminalTarget",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_PairedOwnerPreservesTerminalTarget::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FEnemyAttackLifecycleFixture Fixture = CreateEnemyAttackLifecycleFixture();
+	UPairedAnimationData* PairedData = NewObject<UPairedAnimationData>();
+	UAnimMontage* VictimMontage = NewObject<UAnimMontage>(PairedData);
+	if (!TestTrue(TEXT("Paired-owner fixture should be valid"), Fixture.IsValid())
+		|| !TestNotNull(TEXT("Executor owns a paired component"), Fixture.Enemy->PairedAnimationComponent.Get())
+		|| !TestNotNull(TEXT("Victim owns a hit-reaction component"), Fixture.Player->HitReactionComponent.Get())
+		|| !TestNotNull(TEXT("Victim owns a paired component"), Fixture.Player->PairedAnimationComponent.Get())
+		|| !TestNotNull(TEXT("Paired data should be created"), PairedData)
+		|| !TestNotNull(TEXT("Victim montage should be created"), VictimMontage))
+	{
+		Fixture.Destroy();
+		return false;
+	}
+
+	PairedData->BaseDamage = 1.0f;
+	PairedData->DamageMultiplier = 1.0f;
+	PairedData->bIsLethal = true;
+	PairedData->VictimMontage = VictimMontage;
+	PairedData->VictimDeathOutcome = EReactionOutcome::Ragdoll;
+	Fixture.Player->CurrentHealth = 15.0f;
+	Fixture.Enemy->PairedAnimationComponent->AddPairedPartner(Fixture.Player);
+	Fixture.Player->PairedAnimationComponent->AddPairedPartner(Fixture.Enemy);
+	Fixture.Player->HitReactionComponent->EnterPairedAnimationState(
+		VictimMontage, EReactionOutcome::Ragdoll, 0.2f, true, Fixture.Enemy);
+	Fixture.Enemy->PairedAnimationComponent->BeginPairedAnimation(
+		PairedData, EPairedReactionType::Finisher, false);
+	TestTrue(TEXT("Executor recognizes its exact paired victim as retained ownership"),
+		Fixture.CombatAI->IsCombatTargetActionable());
+	FPairedWarpConfig AttackerWarpConfig;
+	AttackerWarpConfig.WarpTargetName = FName(TEXT("TargetLifecycleFinisherWarp"));
+	TestTrue(TEXT("Production-shaped completion tracks the paired victim for attacker warp"),
+		Fixture.Enemy->TargetingComponent->SetupAttackerPairedWarp(
+			Fixture.Player, AttackerWarpConfig));
+	TestTrue(TEXT("Attacker warp remains live until paired completion"),
+		Fixture.Enemy->TargetingComponent->IsTrackingAsAttacker());
+	TestEqual(TEXT("The victim records the exact legacy sequence owner"),
+		Fixture.Player->PairedAnimationComponent->LegacyPairedSequenceOwner.Get(),
+		Fixture.Enemy->PairedAnimationComponent.Get());
+
+	Fixture.Enemy->PairedAnimationComponent->HandlePairedSyncPoint(
+		FName(TEXT("Impact")), true);
+	TestTrue(TEXT("The authored paired sync enters Dying"), Fixture.Player->IsDying());
+	TestFalse(TEXT("The authored victim montage defers terminal presentation"),
+		Fixture.Player->IsDead());
+	TestTrue(TEXT("The victim reaction remains paired until completion"),
+		Fixture.Player->HitReactionComponent->IsInPairedAnimationState());
+	TestTrue(TEXT("Victim death does not invalidate the exact paired owner"),
+		Fixture.CombatAI->IsCombatTargetActionable());
+	TestEqual(TEXT("Victim death does not clear the paired owner's retained target"),
+		Fixture.CombatAI->CombatTarget.Get(), static_cast<AActor*>(Fixture.Player));
+	TestTrue(TEXT("Victim death does not cancel the executor's paired sequence"),
+		Fixture.Enemy->PairedAnimationComponent->IsPairedAnimationActive());
+
+	Fixture.Enemy->PairedAnimationComponent->CompletePairedAnimation();
+	TestNull(TEXT("Pair completion clears the terminal target without a later StateTree tick"),
+		Fixture.CombatAI->CombatTarget.Get());
+	TestTrue(TEXT("Pair completion commits the pending terminal outcome"),
+		Fixture.Player->IsDead());
+	TestFalse(TEXT("Pair completion cannot strand the victim in Dying"),
+		Fixture.Player->IsDying());
+	TestFalse(TEXT("Pair completion releases victim reaction ownership"),
+		Fixture.Player->HitReactionComponent->IsInPairedAnimationState());
+	TestEqual(TEXT("Pair completion releases the victim's accepted legacy generation"),
+		Fixture.Player->PairedAnimationComponent->ActiveLegacyPairedGeneration, 0);
+	TestNull(TEXT("Pair completion clears the victim's legacy sequence owner"),
+		Fixture.Player->PairedAnimationComponent->LegacyPairedSequenceOwner.Get());
+
+	Fixture.Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_FreshPairedTargetSelectionRejected,
+	"KatanaCombat.EnemyAI.TargetLifecycle.FreshPairedTargetSelectionRejected",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_FreshPairedTargetSelectionRejected::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(150.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* CombatAI = Enemy ? Enemy->GetCombatAIComponent() : nullptr;
+	if (!World || !Player || !Player->HitReactionComponent || !Enemy || !CombatAI)
+	{
+		AddError(TEXT("Failed to create fresh paired-target selection fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Player->HitReactionComponent->EnterPairedAnimationState(
+		nullptr, EReactionOutcome::Ragdoll, 0.2f, false, nullptr);
+	CombatAI->SetCombatTarget(Player);
+
+	TestNull(TEXT("A newly discovered paired-owned actor is not retained as a combat target"),
+		CombatAI->CombatTarget.Get());
+	TestEqual(TEXT("Rejected fresh selection leaves the AI idle"),
+		CombatAI->CurrentState, EEnemyAIState::Idle);
+
+	Player->HitReactionComponent->ExitPairedAnimationState();
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_MismatchedPairedPartnerRejected,
+	"KatanaCombat.EnemyAI.TargetLifecycle.MismatchedPairedPartnerRejected",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_MismatchedPairedPartnerRejected::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* ExactVictim = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector::ZeroVector);
+	APlayerCharacter* MismatchedTarget = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector(300.0f, 0.0f, 0.0f));
+	AEnemyCharacter* Executor = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(150.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* CombatAI = Executor ? Executor->GetCombatAIComponent() : nullptr;
+	UPairedAnimationComponent* Paired = Executor ? Executor->PairedAnimationComponent.Get() : nullptr;
+	UPairedAnimationData* PairedData = NewObject<UPairedAnimationData>();
+	if (!World || !ExactVictim || !MismatchedTarget || !Executor || !CombatAI || !Paired
+		|| !PairedData)
+	{
+		AddError(TEXT("Failed to create mismatched paired-partner fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	CombatAI->SetCombatTarget(MismatchedTarget);
+	Paired->AddPairedPartner(ExactVictim);
+	Paired->AddPairedPartner(MismatchedTarget);
+	Paired->BeginPairedAnimation(PairedData, EPairedReactionType::Finisher, false);
+	TestNull(TEXT("Multiple valid partners cannot infer an exact paired victim"),
+		Paired->CurrentFinisherVictim.Get());
+	TestFalse(TEXT("Multiple valid partners cannot infer ownership of the first partner"),
+		Paired->IsPairedSequenceOwnerFor(ExactVictim));
+	TestFalse(TEXT("Multiple valid partners cannot infer ownership of the second partner"),
+		Paired->IsPairedSequenceOwnerFor(MismatchedTarget));
+	Paired->CurrentFinisherVictim = ExactVictim;
+
+	MismatchedTarget->HitReactionComponent->EnterPairedAnimationState(
+		nullptr, EReactionOutcome::Ragdoll, 0.2f, false, nullptr);
+	TestFalse(TEXT("Generic partner membership cannot authorize a different paired-owned target"),
+		CombatAI->IsCombatTargetActionable());
+	MismatchedTarget->HitReactionComponent->ExitPairedAnimationState();
+	Paired->EndPairedAnimation();
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_RejectedLegacyPartnerCannotGrantExactOwner,
+	"KatanaCombat.EnemyAI.TargetLifecycle.RejectedLegacyPartnerCannotGrantExactOwner",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_RejectedLegacyPartnerCannotGrantExactOwner::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FEnemyAttackLifecycleFixture Fixture = CreateEnemyAttackLifecycleFixture();
+	AEnemyCharacter* ExistingPartner = Fixture.World
+		? FCombatTestHelpers::CreateTestEnemyCharacter(
+			Fixture.World, FVector(300.0f, 0.0f, 0.0f))
+		: nullptr;
+	UPairedAnimationData* ExistingData = NewObject<UPairedAnimationData>();
+	UPairedAnimationData* CompetingData = NewObject<UPairedAnimationData>();
+	UPairedAnimationComponent* TargetPaired = Fixture.Player
+		? Fixture.Player->PairedAnimationComponent.Get()
+		: nullptr;
+	UPairedAnimationComponent* ExistingPaired = ExistingPartner
+		? ExistingPartner->PairedAnimationComponent.Get()
+		: nullptr;
+	UPairedAnimationComponent* CompetingPaired = Fixture.Enemy
+		? Fixture.Enemy->PairedAnimationComponent.Get()
+		: nullptr;
+	if (!TestTrue(TEXT("Rejected-participation fixture should be valid"), Fixture.IsValid())
+		|| !TestNotNull(TEXT("Existing partner should be created"), ExistingPartner)
+		|| !TestNotNull(TEXT("Target owns a paired component"), TargetPaired)
+		|| !TestNotNull(TEXT("Existing owner owns a paired component"), ExistingPaired)
+		|| !TestNotNull(TEXT("Competing executor owns a paired component"), CompetingPaired)
+		|| !TestNotNull(TEXT("Existing paired data should be created"), ExistingData)
+		|| !TestNotNull(TEXT("Competing paired data should be created"), CompetingData))
+	{
+		Fixture.Destroy();
+		return false;
+	}
+
+	ExistingPaired->AddPairedPartner(Fixture.Player);
+	TargetPaired->AddPairedPartner(ExistingPartner);
+	Fixture.Player->HitReactionComponent->EnterPairedAnimationState(
+		nullptr, EReactionOutcome::Ragdoll, 0.2f, false, ExistingPartner);
+	ExistingPaired->BeginPairedAnimation(ExistingData, EPairedReactionType::Finisher, false);
+	TestTrue(TEXT("The target accepts the existing owner's legacy generation"),
+		TargetPaired->ActiveLegacyPairedGeneration < 0
+			&& !TargetPaired->bOwnsLegacyPairedGeneration);
+	TestFalse(TEXT("A target participating in another sequence is unavailable"),
+		Fixture.CombatAI->IsCombatTargetActionable());
+
+	CompetingData->BaseDamage = 25.0f;
+	CompetingData->DamageMultiplier = 1.0f;
+	CompetingData->bIsLethal = false;
+	CompetingPaired->AddPairedPartner(Fixture.Player);
+	CompetingPaired->BeginPairedAnimation(CompetingData, EPairedReactionType::Finisher, false);
+	TestNull(TEXT("A rejected sole partner is not inferred as the exact paired victim"),
+		CompetingPaired->CurrentFinisherVictim.Get());
+	CompetingPaired->CurrentFinisherVictim = Fixture.Player;
+	TestFalse(TEXT("A stale explicit victim cannot bypass rejected participation"),
+		CompetingPaired->IsPairedSequenceOwnerFor(Fixture.Player));
+	TestFalse(TEXT("Rejected participation cannot make the occupied target actionable"),
+		Fixture.CombatAI->IsCombatTargetActionable());
+	Fixture.Player->HitReactionComponent->ExitPairedAnimationState();
+	const float HealthBeforeRejectedDamage = Fixture.Player->CurrentHealth;
+	CompetingPaired->HandlePairedSyncPoint(FName(TEXT("RejectedImpact")), true);
+	TestEqual(TEXT("Rejected participation cannot authorize paired damage"),
+		Fixture.Player->CurrentHealth, HealthBeforeRejectedDamage);
+
+	CompetingPaired->EndPairedAnimation();
+	TestEqual(TEXT("A rejected owner cannot release another owner's matching generation"),
+		TargetPaired->ActiveLegacyPairedGeneration,
+		ExistingPaired->ActiveLegacyPairedGeneration);
+	ExistingPaired->EndPairedAnimation();
+	TestEqual(TEXT("The accepted owner releases its participant generation"),
+		TargetPaired->ActiveLegacyPairedGeneration, 0);
+	Fixture.Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_SuccessfulTaskResultSurvivesTerminalTarget,
+	"KatanaCombat.EnemyAI.TargetLifecycle.SuccessfulTaskResultSurvivesTerminalTarget",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_SuccessfulTaskResultSurvivesTerminalTarget::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FEnemyAttackLifecycleFixture Fixture = CreateEnemyAttackLifecycleFixture();
+	if (!TestTrue(TEXT("Successful task result fixture should be valid"), Fixture.IsValid()))
+	{
+		Fixture.Destroy();
+		return false;
+	}
+
+	TestTrue(TEXT("Attack request receives a token"), Fixture.CombatAI->TryInitiateAttack());
+	FAttackInstanceId ConsumedAttack;
+	const TWeakObjectPtr<UCombatComponent> WeakCombat = Fixture.Enemy->CombatComponent;
+	Fixture.CombatAI->SetPostExecuteAttackDataHookForTesting(
+		[WeakCombat, &ConsumedAttack]()
+		{
+			if (UCombatComponent* Combat = WeakCombat.Get())
+			{
+				ConsumedAttack = Combat->BuildAttackExecutionSnapshot().AttackInstance;
+				Combat->ConsumeActiveAttack(ConsumedAttack, EAttackConsumeReason::Cancelled);
+			}
+		});
+	FAttackInstanceId StartedAttack;
+	TestTrue(TEXT("The synchronously consumed attack reports a started identity"),
+		Fixture.CombatAI->ExecuteAttackWithIdentity(StartedAttack));
+	TestTrue(TEXT("Consumed and started identities match"),
+		ConsumedAttack.IsValid() && StartedAttack == ConsumedAttack);
+	TestTrue(TEXT("The target reaches terminal state after attack success is recorded"),
+		FCombatTestHelpers::DealLethalDamage(Fixture.Player, Fixture.Enemy));
+
+	TestEqual(TEXT("A terminal target cannot overwrite an already successful StateTree task result"),
+		EnemyCombatStateTree::ResolveAttackTaskTickStatus(Fixture.CombatAI, StartedAttack),
+		EStateTreeRunStatus::Succeeded);
+
+	Fixture.Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_TargetDyingCancelsQueuedGrantReentry,
+	"KatanaCombat.EnemyAI.TargetLifecycle.TargetDyingCancelsQueuedGrantReentry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_TargetDyingCancelsQueuedGrantReentry::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	AEnemyCharacter* Holder = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(100.0f, 0.0f, 0.0f));
+	AEnemyCharacter* Queued = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(150.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* HolderAI = Holder ? Holder->GetCombatAIComponent() : nullptr;
+	UEnemyCombatAIComponent* QueuedAI = Queued ? Queued->GetCombatAIComponent() : nullptr;
+	UCombatTokenSubsystem* TokenSubsystem = CreateTestTokenSubsystem();
+	UAttackData* AttackData = FCombatTestHelpers::CreateTestAttack();
+	if (!World || !Player || !Holder || !Queued || !HolderAI || !QueuedAI
+		|| !TokenSubsystem || !AttackData)
+	{
+		AddError(TEXT("Failed to create target-death queued-grant fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	for (UEnemyCombatAIComponent* CombatAI : {HolderAI, QueuedAI})
+	{
+		CombatAI->SetTokenSubsystemForTesting(TokenSubsystem);
+		CombatAI->SetCombatTarget(Player);
+		ConfigureSingleAttack(CombatAI, AttackData, 500.0f);
+	}
+	TestTrue(TEXT("The first enemy holds the only token"), HolderAI->TryInitiateAttack());
+	TestFalse(TEXT("The second enemy queues against the live target"), QueuedAI->TryInitiateAttack());
+	TestTrue(TEXT("The second enemy owns a queued request"), QueuedAI->IsWaitingForToken());
+
+	TestTrue(TEXT("The target reaches Dead after broadcasting Dying"),
+		FCombatTestHelpers::DealLethalDamage(Player, Holder));
+
+	TestFalse(TEXT("Target death releases the holder token"), HolderAI->HasAttackToken());
+	TestFalse(TEXT("Target death removes the queued request"), QueuedAI->IsWaitingForToken());
+	TestFalse(TEXT("A synchronous queued grant cannot retain the terminal target token"),
+		QueuedAI->HasAttackToken());
+	TestNull(TEXT("Holder clears terminal target attack selection"), HolderAI->SelectedAttack.Get());
+	TestNull(TEXT("Queued enemy clears terminal target attack selection"), QueuedAI->SelectedAttack.Get());
+	TestNull(TEXT("Holder clears the terminal combat target"), HolderAI->CombatTarget.Get());
+	TestNull(TEXT("Queued enemy clears the terminal combat target"), QueuedAI->CombatTarget.Get());
+	TestEqual(TEXT("Target death leaves no active token owners"),
+		TokenSubsystem->GetActiveAttackerCount(), 0);
+	TestEqual(TEXT("Target death leaves no queued token requests"),
+		TokenSubsystem->GetQueueLength(), 0);
+
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FEnemyCombatAI_PairedVictimCancelsQueuedAttack,
+	"KatanaCombat.EnemyAI.PairedVictim.CancelsQueuedAttack",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FEnemyCombatAI_PairedVictimCancelsQueuedAttack::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(
+		World, FVector::ZeroVector);
+	AEnemyCharacter* Holder = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(125.0f, 0.0f, 0.0f));
+	AEnemyCharacter* Victim = FCombatTestHelpers::CreateTestEnemyCharacter(
+		World, FVector(175.0f, 0.0f, 0.0f));
+	UEnemyCombatAIComponent* HolderAI = Holder ? Holder->GetCombatAIComponent() : nullptr;
+	UEnemyCombatAIComponent* VictimAI = Victim ? Victim->GetCombatAIComponent() : nullptr;
+	UCombatTokenSubsystem* TokenSubsystem = CreateTestTokenSubsystem();
+	UAttackData* AttackData = FCombatTestHelpers::CreateTestAttack();
+	if (!World || !Player || !Holder || !Victim || !HolderAI || !VictimAI
+		|| !TokenSubsystem || !AttackData || !Victim->HitReactionComponent)
+	{
+		AddError(TEXT("Failed to create queued paired-victim fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	for (UEnemyCombatAIComponent* CombatAI : {HolderAI, VictimAI})
+	{
+		CombatAI->SetTokenSubsystemForTesting(TokenSubsystem);
+		CombatAI->SetCombatTarget(Player);
+		ConfigureSingleAttack(CombatAI, AttackData, 500.0f);
+		CombatAI->CurrentState = EEnemyAIState::Circling;
+	}
+
+	TestTrue(TEXT("The holder acquires the only attack token"),
+		HolderAI->TryInitiateAttack());
+	TestFalse(TEXT("The future victim queues while the token is occupied"),
+		VictimAI->TryInitiateAttack());
+	TestTrue(TEXT("The future victim owns a queued request"),
+		VictimAI->IsWaitingForToken());
+
+	Victim->HitReactionComponent->EnterPairedAnimationState(
+		nullptr, EReactionOutcome::Ragdoll, 0.2f, false, Player);
+	TestFalse(TEXT("Paired takeover removes the victim from the token queue"),
+		VictimAI->IsWaitingForToken());
+	TestNull(TEXT("Paired takeover clears the victim's selected attack"),
+		VictimAI->SelectedAttack.Get());
+
+	HolderAI->AbortAttack();
+	TestFalse(TEXT("Releasing the holder cannot grant a stale token to the paired victim"),
+		VictimAI->HasAttackToken());
+	Victim->HitReactionComponent->ExitPairedAnimationState();
 
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;

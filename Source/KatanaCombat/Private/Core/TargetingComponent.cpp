@@ -28,6 +28,22 @@ DEFINE_LOG_CATEGORY_STATIC(LogTargeting, Log, All);
 
 namespace
 {
+FVector AdjustPairedLocationToGround(ACharacter* Character, const FVector& Location)
+{
+	const FGroundSampleResult Ground = UDebugUtils::SampleWalkableGroundAtLocation(Character->GetWorld(), Location, Character);
+	FVector Result = Location;
+	if (Ground.bFoundGround) { Result.Z = Ground.GroundLocation.Z + Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight(); }
+	return Result;
+}
+
+FRotator UprightPairedFacing(const ACharacter* Character, const FVector& From, const FVector& Toward)
+{
+	const FVector Direction = (Toward - From).GetSafeNormal2D();
+	// Ground adjustment affects position, never pitch/roll. Coincident XY has no
+	// facing direction, so retain the owner's heading instead of snapping to zero.
+	return FRotator(0, Direction.IsNearlyZero() ? Character->GetActorRotation().Yaw : Direction.Rotation().Yaw, 0);
+}
+
 struct FAlignmentTelemetryContext
 {
 	UCombatComponent* Sink = nullptr;
@@ -1699,7 +1715,7 @@ bool UTargetingComponent::SetupVictimWarp(AActor* Attacker, const FPairedWarpCon
 
     // Calculate initial victim position (will be updated each frame)
     const FVector AttackerLocation = Attacker->GetActorLocation();
-    const FRotator AttackerRotation = Attacker->GetActorRotation();
+    const FRotator AttackerRotation(0, Attacker->GetActorRotation().Yaw, 0);
 
     // Victim starts at offset from attacker's position
     // RelativeOffset is in attacker-local space (X = forward, Y = right)
@@ -1709,15 +1725,14 @@ bool UTargetingComponent::SetupVictimWarp(AActor* Attacker, const FPairedWarpCon
     // Terrain adjustment to prevent floating
     if (Config.bAdjustToTerrain)
     {
-        const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-        WarpLocation = UDebugUtils::AdjustLocationToGround(GetWorld(), WarpLocation, CapsuleHalfHeight, Owner, false);
+        WarpLocation = AdjustPairedLocationToGround(Owner, WarpLocation);
     }
 
     // Calculate rotation (face the attacker)
-    FRotator WarpRotation = FRotator::ZeroRotator;
+    FRotator WarpRotation = Owner->GetActorRotation();
     if (Config.bWarpRotation)
     {
-        WarpRotation = (AttackerLocation - WarpLocation).Rotation();
+        WarpRotation = UprightPairedFacing(Owner, WarpLocation, AttackerLocation);
     }
 
     // Set initial warp target
@@ -1777,7 +1792,7 @@ void UTargetingComponent::OnVictimMotionWarpingPreUpdate(UMotionWarpingComponent
 
     AActor* Attacker = TrackedAttacker.Get();
     const FVector AttackerLocation = Attacker->GetActorLocation();
-    const FRotator AttackerRotation = Attacker->GetActorRotation();
+    const FRotator AttackerRotation(0, Attacker->GetActorRotation().Yaw, 0);
 
     // Calculate victim's position relative to attacker's CURRENT location
     // This is the key difference from initial setup - tracks attacker's movement
@@ -1787,15 +1802,14 @@ void UTargetingComponent::OnVictimMotionWarpingPreUpdate(UMotionWarpingComponent
     // Terrain adjustment
     if (VictimWarpConfig.bAdjustToTerrain)
     {
-        const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-        WarpLocation = UDebugUtils::AdjustLocationToGround(GetWorld(), WarpLocation, CapsuleHalfHeight, Owner, false);
+        WarpLocation = AdjustPairedLocationToGround(Owner, WarpLocation);
     }
 
     // Rotation (face the attacker)
     FRotator WarpRotation = Owner->GetActorRotation();
     if (VictimWarpConfig.bWarpRotation)
     {
-        WarpRotation = (AttackerLocation - WarpLocation).Rotation();
+        WarpRotation = UprightPairedFacing(Owner, WarpLocation, AttackerLocation);
     }
 
     // Update warp target with attacker's current position
@@ -1890,7 +1904,7 @@ bool UTargetingComponent::SetupAttackerPairedWarp(AActor* Victim, const FPairedW
     // Calculate initial warp position (toward victim with offset, respecting max distance)
     const FVector OwnerLocation = Owner->GetActorLocation();
     const FVector VictimLocation = Victim->GetActorLocation();
-    const FRotator VictimRotation = Victim->GetActorRotation();
+    const FRotator VictimRotation(0, Victim->GetActorRotation().Yaw, 0);
 
     // Attacker warps to offset from victim (Gap 18.3 fix)
     // RelativeOffset is in victim's local space
@@ -1910,15 +1924,14 @@ bool UTargetingComponent::SetupAttackerPairedWarp(AActor* Victim, const FPairedW
     // Terrain adjustment to prevent floating
     if (Config.bAdjustToTerrain)
     {
-        const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-        WarpLocation = UDebugUtils::AdjustLocationToGround(GetWorld(), WarpLocation, CapsuleHalfHeight, Owner, false);
+        WarpLocation = AdjustPairedLocationToGround(Owner, WarpLocation);
     }
 
     // Calculate rotation (face the victim)
     FRotator WarpRotation = Owner->GetActorRotation();
     if (Config.bWarpRotation)
     {
-        WarpRotation = (VictimLocation - OwnerLocation).Rotation();
+        WarpRotation = UprightPairedFacing(Owner, OwnerLocation, VictimLocation);
     }
 
     // Set initial warp target
@@ -1979,7 +1992,7 @@ void UTargetingComponent::OnAttackerPairedWarpPreUpdate(UMotionWarpingComponent*
     AActor* Victim = TrackedVictim.Get();
     const FVector OwnerLocation = Owner->GetActorLocation();
     const FVector VictimLocation = Victim->GetActorLocation();
-    const FRotator VictimRotation = Victim->GetActorRotation();
+    const FRotator VictimRotation(0, Victim->GetActorRotation().Yaw, 0);
 
     // Calculate warp location with offset from victim (Gap 18.3 fix)
     // Uses stored config's RelativeOffset instead of warping directly to victim
@@ -1997,15 +2010,14 @@ void UTargetingComponent::OnAttackerPairedWarpPreUpdate(UMotionWarpingComponent*
     // Terrain adjustment
     if (AttackerPairedWarpConfig.bAdjustToTerrain)
     {
-        const float CapsuleHalfHeight = Owner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-        WarpLocation = UDebugUtils::AdjustLocationToGround(GetWorld(), WarpLocation, CapsuleHalfHeight, Owner, false);
+        WarpLocation = AdjustPairedLocationToGround(Owner, WarpLocation);
     }
 
     // Rotation (face the victim)
     FRotator WarpRotation = Owner->GetActorRotation();
     if (AttackerPairedWarpConfig.bWarpRotation)
     {
-        WarpRotation = (VictimLocation - OwnerLocation).Rotation();
+        WarpRotation = UprightPairedFacing(Owner, OwnerLocation, VictimLocation);
     }
 
     // Update warp target with victim's current position

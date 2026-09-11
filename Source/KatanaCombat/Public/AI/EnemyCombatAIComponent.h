@@ -13,6 +13,9 @@ class UCombatComponent;
 class UAttackData;
 class UAnimMontage;
 class UAnimInstance;
+class UHitReactionComponent;
+class UPairedAnimationComponent;
+class ABaseCombatCharacter;
 
 enum class EEnemyAttackExecutionStatus : uint8
 {
@@ -214,6 +217,20 @@ public:
 	UFUNCTION(BlueprintPure, Category = "AI|State")
 	bool CanAttemptAttack() const;
 
+	/** True while death, paired-animation ownership, or a defense sequence owns this actor. */
+	UFUNCTION(BlueprintPure, Category = "AI|State")
+	bool IsCombatActionSuppressed() const;
+
+	/** True when the retained target can participate in a new normal AI attack. */
+	UFUNCTION(BlueprintPure, Category = "AI|State")
+	bool IsCombatTargetActionable() const;
+
+	/** True when Candidate may be admitted as a new target for normal AI actions. */
+	bool CanSelectCombatTarget(const AActor* Candidate) const;
+
+	/** Abort stale attack ownership when the retained target is no longer actionable. */
+	bool RevalidateCombatTarget();
+
 	/** Retain attack suppression for one exact defense interaction. */
 	bool AcquireDefenseChainSuppression(const FDefenseInteractionId& InteractionId);
 
@@ -391,17 +408,50 @@ protected:
 	UFUNCTION()
 	void HandleOwnerDying(AActor* Killer);
 
+	UFUNCTION()
+	void HandleOwnerPairedAnimationStarted(EPairedReactionType Type, bool bIsCriticalMoment);
+
+	UFUNCTION()
+	void HandleOwnerPairedAnimationEnded(EPairedReactionType Type);
+
+	/** Called when the retained combat target enters Dying or Dead. */
+	UFUNCTION()
+	void HandleCombatTargetDying(AActor* Killer);
+
+	UFUNCTION()
+	void HandleCombatTargetPairedAnimationStarted(EPairedReactionType Type, bool bIsCriticalMoment);
+
+	UFUNCTION()
+	void HandleCombatTargetPairedAnimationEnded(EPairedReactionType Type);
+
+	void HandleCombatTargetPairedVictimStateChanged(bool bIsPairedVictim);
+	void HandleCombatTargetDefenseSequenceParticipationChanged(bool bIsParticipant);
+
 	/** Schedule circling direction change */
 	void ScheduleCirclingDirectionChange();
 
 	/** Replace cached token subsystem and keep delegate bindings consistent. */
 	void SetTokenSubsystem(UCombatTokenSubsystem* InTokenSubsystem);
 
-	/** Ensure owner death delegates are bound before this component can hold combat tokens. */
+	/** Ensure owner death and paired lifecycle delegates are bound before combat ownership. */
 	void BindOwnerDeathEvents();
+	void UnbindOwnerLifecycleEvents();
+
+	/** Keep target terminal-state delegates synchronized with CombatTarget. */
+	void BindCombatTargetLifecycle();
+	void UnbindCombatTargetLifecycle();
+
+	/** Exact paired ownership may retain a terminal victim until its sequence completes. */
+	bool OwnsPairedSequenceWithTarget(const AActor* TargetActor) const;
+	bool IsCombatTargetActionable(const AActor* TargetActor, bool bAllowOwnedSequence) const;
 
 	/** True only while this component is queued and waiting for an async token grant. */
 	bool bWaitingForTokenGrant = false;
+
+	TWeakObjectPtr<ABaseCombatCharacter> BoundCombatTargetCharacter;
+	TWeakObjectPtr<UPairedAnimationComponent> BoundOwnerPairedAnimationComponent;
+	TWeakObjectPtr<UPairedAnimationComponent> BoundCombatTargetPairedAnimationComponent;
+	TWeakObjectPtr<UHitReactionComponent> BoundCombatTargetHitReactionComponent;
 
 	TSet<FDefenseInteractionId> DefenseChainSuppressions;
 

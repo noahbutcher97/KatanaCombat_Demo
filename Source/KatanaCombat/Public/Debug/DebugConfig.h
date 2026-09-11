@@ -130,6 +130,12 @@ namespace CombatDebug
         return IsDebugEnabled() || CVarDebugHold.GetValueOnGameThread() != 0;
     }
 
+    /** Check whether CombatComponent needs its phase/queue/hold debug tick. */
+    FORCEINLINE bool IsCombatStateDebugEnabled()
+    {
+        return IsPhaseDebugEnabled() || IsQueueDebugEnabled() || IsHoldDebugEnabled();
+    }
+
     /** Check if verbose logging is enabled */
     FORCEINLINE bool IsVerboseLogEnabled()
     {

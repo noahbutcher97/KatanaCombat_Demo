@@ -7,7 +7,9 @@
 #include "Interfaces/CombatInterface.h"
 #include "Core/CombatComponent.h"
 #include "Core/HitReactionComponent.h"
+#include "Core/PairedAnimationComponent.h"
 #include "Core/TargetingComponent.h"
+#include "AIController.h"
 #include "GameFramework/Character.h"
 #include "Animation/AnimInstance.h"
 #include "Engine/World.h"
@@ -38,6 +40,8 @@ void UEnemyCombatAIComponent::BeginPlay()
 
 void UEnemyCombatAIComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	UnbindCombatTargetLifecycle();
+	UnbindOwnerLifecycleEvents();
 	++AttackStartupAttempt;
 	DefenseChainSuppressions.Reset();
 	ConsumedAttackHistory.Reset();
@@ -150,7 +154,7 @@ bool UEnemyCombatAIComponent::TryInitiateAttack()
 {
 	BindOwnerDeathEvents();
 
-	if (!CanAttemptAttack())
+	if (!RevalidateCombatTarget() || !CanAttemptAttack())
 	{
 		return false;
 	}
@@ -196,7 +200,9 @@ bool UEnemyCombatAIComponent::TryInitiateAttack()
 				&& AttackDataSnapshot.IsValid()
 				&& SelectedAttack.Get() == AttackDataSnapshot.Get()
 				&& TokenSubsystemSnapshot.IsValid()
-				&& TokenSubsystem.Get() == TokenSubsystemSnapshot.Get();
+				&& TokenSubsystem.Get() == TokenSubsystemSnapshot.Get()
+				&& IsCombatTargetActionable()
+				&& !IsCombatActionSuppressed();
 		};
 	const auto ReleaseOrphanedToken = [OwnerActor, TokenSubsystemSnapshot]()
 		{
@@ -401,7 +407,11 @@ bool UEnemyCombatAIComponent::ExecuteAttack()
 bool UEnemyCombatAIComponent::ExecuteAttackWithIdentity(FAttackInstanceId& OutStartedAttack)
 {
 	OutStartedAttack = {};
-	if (IsDefenseChainSuppressed())
+	if (!RevalidateCombatTarget())
+	{
+		return false;
+	}
+	if (IsCombatActionSuppressed())
 	{
 		ReleaseTokenAndReturnToReadyState();
 		return false;
@@ -553,7 +563,9 @@ bool UEnemyCombatAIComponent::ExecuteAttackWithIdentity(FAttackInstanceId& OutSt
 		|| !TargetSnapshot.IsValid()
 		|| !AreStartupDependenciesValid()
 		|| CombatComponentSnapshot->GetCurrentAttackGeneration() != BaseAttackGeneration
-		|| !HasAttackToken())
+		|| !HasAttackToken()
+		|| !IsCombatTargetActionable()
+		|| IsCombatActionSuppressed())
 	{
 		TerminatePendingAttack(
 			CombatTarget.IsValid() ? EEnemyAIState::Circling : EEnemyAIState::Idle,
@@ -580,7 +592,9 @@ bool UEnemyCombatAIComponent::ExecuteAttackWithIdentity(FAttackInstanceId& OutSt
 		|| !TargetSnapshot.IsValid()
 		|| !AreStartupDependenciesValid()
 		|| CombatComponentSnapshot->GetCurrentAttackGeneration() != BaseAttackGeneration
-		|| !HasAttackToken())
+		|| !HasAttackToken()
+		|| !IsCombatTargetActionable()
+		|| IsCombatActionSuppressed())
 	{
 		TerminatePendingAttack(
 			CombatTarget.IsValid() ? EEnemyAIState::Circling : EEnemyAIState::Idle,
@@ -631,7 +645,9 @@ bool UEnemyCombatAIComponent::ExecuteAttackWithIdentity(FAttackInstanceId& OutSt
 		&& AreStartupDependenciesValid()
 		&& CurrentState == EEnemyAIState::Attacking
 		&& !bAttackTerminationCommitted
-		&& HasAttackToken();
+		&& HasAttackToken()
+		&& IsCombatTargetActionable()
+		&& !IsCombatActionSuppressed();
 	const bool bConsumedDuringStartup = bSnapshotMatches
 		&& CombatComponentSnapshot.IsValid()
 		&& CombatComponentSnapshot->IsAttackConsumed(ExecutionSnapshot.AttackInstance);
@@ -828,6 +844,7 @@ bool UEnemyCombatAIComponent::ExecuteAttackWithIdentity(FAttackInstanceId& OutSt
 		&& PostBroadcastSnapshot.AttackInstance == ExpectedAttackInstance
 		&& PostBroadcastSnapshot.AttackData == AttackDataSnapshot.Get()
 		&& PostBroadcastSnapshot.ActiveMontage == AttackMontageSnapshot
+		&& IsCombatTargetActionable()
 		&& PostBroadcastSnapshot.AttackPhase != EAttackPhase::None;
 	if (!bPostBroadcastOwnershipValid)
 	{
@@ -973,7 +990,26 @@ void UEnemyCombatAIComponent::OnDeath()
 
 void UEnemyCombatAIComponent::SetCombatTarget(AActor* Target)
 {
-	CombatTarget = Target;
+	BindOwnerDeathEvents();
+	if (Target && CombatTarget.Get() != Target && !CanSelectCombatTarget(Target))
+	{
+		UE_LOG(LogTemp, Verbose,
+			TEXT("[EnemyAI] %s: Rejected unavailable combat target %s"),
+			*GetNameSafe(GetOwner()),
+			*GetNameSafe(Target));
+		return;
+	}
+
+	if (CombatTarget.Get() != Target)
+	{
+		UnbindCombatTargetLifecycle();
+		CombatTarget = Target;
+		BindCombatTargetLifecycle();
+	}
+	else if (Target && !BoundCombatTargetCharacter.IsValid())
+	{
+		BindCombatTargetLifecycle();
+	}
 
 	// Transition from Idle to Circling when we get a target
 	if (Target && CurrentState == EEnemyAIState::Idle)
@@ -1013,7 +1049,7 @@ void UEnemyCombatAIComponent::SetCombatTarget(AActor* Target)
 FVector UEnemyCombatAIComponent::GetCirclingDestination() const
 {
 	AActor* Target = CombatTarget.Get();
-	if (!Target)
+	if (!Target || !IsCombatTargetActionable())
 	{
 		return GetOwner()->GetActorLocation();
 	}
@@ -1041,6 +1077,11 @@ FVector UEnemyCombatAIComponent::GetCirclingDestination() const
 
 bool UEnemyCombatAIComponent::IsInAttackRange() const
 {
+	if (!IsCombatTargetActionable())
+	{
+		return false;
+	}
+
 	float Distance = GetDistanceToTarget();
 	if (Distance >= MAX_FLT)
 	{
@@ -1061,7 +1102,7 @@ bool UEnemyCombatAIComponent::IsInAttackRange() const
 float UEnemyCombatAIComponent::GetDistanceToTarget() const
 {
 	AActor* Target = CombatTarget.Get();
-	if (!Target)
+	if (!Target || !IsCombatTargetActionable())
 	{
 		return MAX_FLT;
 	}
@@ -1098,7 +1139,7 @@ bool UEnemyCombatAIComponent::IsWaitingForToken() const
 
 bool UEnemyCombatAIComponent::CanAttemptAttack() const
 {
-	if (IsDefenseChainSuppressed())
+	if (IsCombatActionSuppressed())
 	{
 		return false;
 	}
@@ -1117,7 +1158,7 @@ bool UEnemyCombatAIComponent::CanAttemptAttack() const
 	}
 
 	// Need a target
-	if (!CombatTarget.IsValid())
+	if (!IsCombatTargetActionable())
 	{
 		return false;
 	}
@@ -1129,6 +1170,121 @@ bool UEnemyCombatAIComponent::CanAttemptAttack() const
 	}
 
 	return true;
+}
+
+bool UEnemyCombatAIComponent::IsCombatActionSuppressed() const
+{
+	if (IsDefenseChainSuppressed())
+	{
+		return true;
+	}
+
+	const ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner());
+	return !OwnerCharacter
+		|| OwnerCharacter->IsDeadOrDying()
+		|| (OwnerCharacter->HitReactionComponent
+			&& OwnerCharacter->HitReactionComponent->IsInPairedAnimationState())
+		|| (OwnerCharacter->PairedAnimationComponent
+			&& OwnerCharacter->PairedAnimationComponent->IsPairedAnimationActive());
+}
+
+bool UEnemyCombatAIComponent::IsCombatTargetActionable() const
+{
+	return IsCombatTargetActionable(CombatTarget.Get(), true);
+}
+
+bool UEnemyCombatAIComponent::CanSelectCombatTarget(const AActor* Candidate) const
+{
+	return IsCombatTargetActionable(Candidate, false);
+}
+
+bool UEnemyCombatAIComponent::IsCombatTargetActionable(
+	const AActor* TargetActor,
+	const bool bAllowOwnedSequence) const
+{
+	if (!IsValid(TargetActor) || TargetActor == GetOwner())
+	{
+		return false;
+	}
+
+	const ABaseCombatCharacter* const TargetCharacter = Cast<ABaseCombatCharacter>(TargetActor);
+	if (!TargetCharacter)
+	{
+		return true;
+	}
+
+	if (bAllowOwnedSequence && OwnsPairedSequenceWithTarget(TargetActor))
+	{
+		return true;
+	}
+
+	return !TargetCharacter->IsDeadOrDying()
+		&& (!TargetCharacter->HitReactionComponent
+			|| !TargetCharacter->HitReactionComponent->IsInPairedAnimationState())
+		&& (!TargetCharacter->PairedAnimationComponent
+			|| (!TargetCharacter->PairedAnimationComponent->IsPairedAnimationActive()
+				&& !TargetCharacter->PairedAnimationComponent->IsDefenseSequenceParticipant()));
+}
+
+bool UEnemyCombatAIComponent::RevalidateCombatTarget()
+{
+	if (IsCombatTargetActionable())
+	{
+		return true;
+	}
+
+	AActor* const TargetActor = CombatTarget.Get();
+	const ABaseCombatCharacter* const TargetCharacter = Cast<ABaseCombatCharacter>(TargetActor);
+	const bool bClearTarget = !IsValid(TargetActor)
+		|| TargetActor == GetOwner()
+		|| (TargetCharacter && TargetCharacter->IsDeadOrDying());
+	const bool bOwnedAttackRequest = HasAttackToken()
+		|| IsWaitingForToken()
+		|| CurrentState == EEnemyAIState::Approaching
+		|| CurrentState == EEnemyAIState::Attacking;
+	if (bOwnedAttackRequest)
+	{
+		UE_LOG(LogTemp, Log,
+			TEXT("[EnemyAI] %s: Invalidating attack ownership for unavailable target %s (Terminal=%s, PairedVictim=%s, PairedOwner=%s)"),
+			GetOwner() ? *GetOwner()->GetName() : TEXT("None"),
+			TargetActor ? *TargetActor->GetName() : TEXT("None"),
+			TargetCharacter && TargetCharacter->IsDeadOrDying() ? TEXT("YES") : TEXT("NO"),
+			TargetCharacter && TargetCharacter->HitReactionComponent
+				&& TargetCharacter->HitReactionComponent->IsInPairedAnimationState() ? TEXT("YES") : TEXT("NO"),
+			TargetCharacter && TargetCharacter->PairedAnimationComponent
+				&& TargetCharacter->PairedAnimationComponent->IsPairedAnimationActive() ? TEXT("YES") : TEXT("NO"));
+	}
+
+	if (APawn* const OwnerPawn = Cast<APawn>(GetOwner()))
+	{
+		if (AAIController* const Controller = Cast<AAIController>(OwnerPawn->GetController()))
+		{
+			Controller->StopMovement();
+		}
+	}
+
+	const TWeakObjectPtr<UEnemyCombatAIComponent> ComponentSnapshot(this);
+	const TWeakObjectPtr<AActor> TargetSnapshot(TargetActor);
+	AbortAttack();
+	if (!ComponentSnapshot.IsValid())
+	{
+		return false;
+	}
+
+	if (bClearTarget && CombatTarget.Get() == TargetSnapshot.Get())
+	{
+		SetCombatTarget(nullptr);
+	}
+	return false;
+}
+
+bool UEnemyCombatAIComponent::OwnsPairedSequenceWithTarget(const AActor* TargetActor) const
+{
+	const ABaseCombatCharacter* const OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner());
+	const UPairedAnimationComponent* const OwnerPaired = OwnerCharacter
+		? OwnerCharacter->PairedAnimationComponent.Get()
+		: nullptr;
+	return OwnerPaired && OwnerPaired->IsPairedSequenceOwnerFor(TargetActor);
 }
 
 EEnemyAttackExecutionStatus UEnemyCombatAIComponent::GetAttackExecutionStatus(
@@ -1647,9 +1803,13 @@ void UEnemyCombatAIComponent::HandleTokenGranted(AActor* Attacker)
 	{
 		return;
 	}
-	if (IsDefenseChainSuppressed())
+	if (IsCombatActionSuppressed())
 	{
 		ReleaseTokenAndReturnToReadyState();
+		return;
+	}
+	if (!RevalidateCombatTarget())
+	{
 		return;
 	}
 
@@ -1683,7 +1843,9 @@ void UEnemyCombatAIComponent::HandleTokenGranted(AActor* Attacker)
 				&& AttackDataSnapshot.IsValid()
 				&& SelectedAttack.Get() == AttackDataSnapshot.Get()
 				&& TokenSubsystemSnapshot.IsValid()
-				&& TokenSubsystem.Get() == TokenSubsystemSnapshot.Get();
+				&& TokenSubsystem.Get() == TokenSubsystemSnapshot.Get()
+				&& IsCombatTargetActionable()
+				&& !IsCombatActionSuppressed();
 		};
 	const auto ReleaseOrphanedToken = [OwnerActor, TokenSubsystemSnapshot]()
 		{
@@ -1806,13 +1968,186 @@ void UEnemyCombatAIComponent::HandleOwnerDying(AActor* Killer)
 	OnDeath();
 }
 
+void UEnemyCombatAIComponent::HandleOwnerPairedAnimationStarted(
+	const EPairedReactionType Type,
+	const bool bIsCriticalMoment)
+{
+	(void)Type;
+	(void)bIsCriticalMoment;
+	AbortAttack();
+}
+
+void UEnemyCombatAIComponent::HandleOwnerPairedAnimationEnded(const EPairedReactionType Type)
+{
+	(void)Type;
+	RevalidateCombatTarget();
+}
+
+void UEnemyCombatAIComponent::HandleCombatTargetDying(AActor* Killer)
+{
+	(void)Killer;
+	RevalidateCombatTarget();
+}
+
+void UEnemyCombatAIComponent::HandleCombatTargetPairedAnimationStarted(
+	const EPairedReactionType Type,
+	const bool bIsCriticalMoment)
+{
+	(void)Type;
+	(void)bIsCriticalMoment;
+	RevalidateCombatTarget();
+}
+
+void UEnemyCombatAIComponent::HandleCombatTargetPairedAnimationEnded(
+	const EPairedReactionType Type)
+{
+	(void)Type;
+	RevalidateCombatTarget();
+}
+
+void UEnemyCombatAIComponent::HandleCombatTargetPairedVictimStateChanged(
+	const bool bIsPairedVictim)
+{
+	(void)bIsPairedVictim;
+	RevalidateCombatTarget();
+}
+
+void UEnemyCombatAIComponent::HandleCombatTargetDefenseSequenceParticipationChanged(
+	const bool bIsParticipant)
+{
+	(void)bIsParticipant;
+	RevalidateCombatTarget();
+}
+
 void UEnemyCombatAIComponent::BindOwnerDeathEvents()
 {
 	if (ABaseCombatCharacter* OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner()))
 	{
 		OwnerCharacter->OnCharacterDying.AddUniqueDynamic(this, &UEnemyCombatAIComponent::HandleOwnerDying);
 		OwnerCharacter->OnCharacterDeath.AddUniqueDynamic(this, &UEnemyCombatAIComponent::HandleOwnerDying);
+
+		UPairedAnimationComponent* const OwnerPaired = OwnerCharacter->PairedAnimationComponent.Get();
+		if (BoundOwnerPairedAnimationComponent.Get() != OwnerPaired)
+		{
+			if (UPairedAnimationComponent* const PreviousPaired =
+				BoundOwnerPairedAnimationComponent.Get())
+			{
+				PreviousPaired->OnPairedAnimationStarted.RemoveDynamic(
+					this,
+					&UEnemyCombatAIComponent::HandleOwnerPairedAnimationStarted);
+				PreviousPaired->OnPairedAnimationEnded.RemoveDynamic(
+					this,
+					&UEnemyCombatAIComponent::HandleOwnerPairedAnimationEnded);
+			}
+			BoundOwnerPairedAnimationComponent = OwnerPaired;
+		}
+		if (OwnerPaired)
+		{
+			OwnerPaired->OnPairedAnimationStarted.AddUniqueDynamic(
+				this,
+				&UEnemyCombatAIComponent::HandleOwnerPairedAnimationStarted);
+			OwnerPaired->OnPairedAnimationEnded.AddUniqueDynamic(
+				this,
+				&UEnemyCombatAIComponent::HandleOwnerPairedAnimationEnded);
+		}
 	}
+}
+
+void UEnemyCombatAIComponent::UnbindOwnerLifecycleEvents()
+{
+	if (ABaseCombatCharacter* const OwnerCharacter = Cast<ABaseCombatCharacter>(GetOwner()))
+	{
+		OwnerCharacter->OnCharacterDying.RemoveDynamic(
+			this,
+			&UEnemyCombatAIComponent::HandleOwnerDying);
+		OwnerCharacter->OnCharacterDeath.RemoveDynamic(
+			this,
+			&UEnemyCombatAIComponent::HandleOwnerDying);
+	}
+	if (UPairedAnimationComponent* const OwnerPaired = BoundOwnerPairedAnimationComponent.Get())
+	{
+		OwnerPaired->OnPairedAnimationStarted.RemoveDynamic(
+			this,
+			&UEnemyCombatAIComponent::HandleOwnerPairedAnimationStarted);
+		OwnerPaired->OnPairedAnimationEnded.RemoveDynamic(
+			this,
+			&UEnemyCombatAIComponent::HandleOwnerPairedAnimationEnded);
+	}
+	BoundOwnerPairedAnimationComponent.Reset();
+}
+
+void UEnemyCombatAIComponent::BindCombatTargetLifecycle()
+{
+	ABaseCombatCharacter* const TargetCharacter = Cast<ABaseCombatCharacter>(CombatTarget.Get());
+	if (!TargetCharacter)
+	{
+		return;
+	}
+
+	BoundCombatTargetCharacter = TargetCharacter;
+	TargetCharacter->OnCharacterDying.AddUniqueDynamic(
+		this,
+		&UEnemyCombatAIComponent::HandleCombatTargetDying);
+	TargetCharacter->OnCharacterDeath.AddUniqueDynamic(
+		this,
+		&UEnemyCombatAIComponent::HandleCombatTargetDying);
+
+	if (UPairedAnimationComponent* const TargetPaired =
+		TargetCharacter->PairedAnimationComponent.Get())
+	{
+		BoundCombatTargetPairedAnimationComponent = TargetPaired;
+		TargetPaired->OnPairedAnimationStarted.AddUniqueDynamic(
+			this,
+			&UEnemyCombatAIComponent::HandleCombatTargetPairedAnimationStarted);
+		TargetPaired->OnPairedAnimationEnded.AddUniqueDynamic(
+			this,
+			&UEnemyCombatAIComponent::HandleCombatTargetPairedAnimationEnded);
+		TargetPaired->OnDefenseSequenceParticipationChanged.RemoveAll(this);
+		TargetPaired->OnDefenseSequenceParticipationChanged.AddUObject(
+			this,
+			&UEnemyCombatAIComponent::HandleCombatTargetDefenseSequenceParticipationChanged);
+	}
+	if (UHitReactionComponent* const TargetHitReaction =
+		TargetCharacter->HitReactionComponent.Get())
+	{
+		BoundCombatTargetHitReactionComponent = TargetHitReaction;
+		TargetHitReaction->OnPairedVictimStateChanged.RemoveAll(this);
+		TargetHitReaction->OnPairedVictimStateChanged.AddUObject(
+			this,
+			&UEnemyCombatAIComponent::HandleCombatTargetPairedVictimStateChanged);
+	}
+}
+
+void UEnemyCombatAIComponent::UnbindCombatTargetLifecycle()
+{
+	if (UPairedAnimationComponent* const TargetPaired =
+		BoundCombatTargetPairedAnimationComponent.Get())
+	{
+		TargetPaired->OnPairedAnimationStarted.RemoveDynamic(
+			this,
+			&UEnemyCombatAIComponent::HandleCombatTargetPairedAnimationStarted);
+		TargetPaired->OnPairedAnimationEnded.RemoveDynamic(
+			this,
+			&UEnemyCombatAIComponent::HandleCombatTargetPairedAnimationEnded);
+		TargetPaired->OnDefenseSequenceParticipationChanged.RemoveAll(this);
+	}
+	if (UHitReactionComponent* const TargetHitReaction =
+		BoundCombatTargetHitReactionComponent.Get())
+	{
+		TargetHitReaction->OnPairedVictimStateChanged.RemoveAll(this);
+	}
+	if (ABaseCombatCharacter* const TargetCharacter = BoundCombatTargetCharacter.Get())
+	{
+		TargetCharacter->OnCharacterDying.RemoveDynamic(
+			this,
+			&UEnemyCombatAIComponent::HandleCombatTargetDying);
+		TargetCharacter->OnCharacterDeath.RemoveDynamic(
+			this,
+			&UEnemyCombatAIComponent::HandleCombatTargetDying);
+	}
+	BoundCombatTargetCharacter.Reset();
+	BoundCombatTargetPairedAnimationComponent.Reset();
+	BoundCombatTargetHitReactionComponent.Reset();
 }
 
 void UEnemyCombatAIComponent::ScheduleCirclingDirectionChange()

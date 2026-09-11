@@ -31,7 +31,8 @@ enum class EActionReactionTelemetryEvent : uint8
 	AITokenChanged,
 	AlignmentChanged,
 	OrbitMoveChanged,
-	AnimationLaneChanged
+	AnimationLaneChanged,
+	MovementInputDecisionChanged
 };
 
 enum class EActionReactionTelemetryReason : uint8
@@ -41,11 +42,13 @@ enum class EActionReactionTelemetryReason : uint8
 	MissingCombatSettings,
 	CombatStateRejected,
 	InputConsumed,
+	InputCanceled,
 	StatefulControlConsumed,
 	StatefulControlRejected,
 	ChainAdvanced,
 	ChainExpired,
 	DuplicatePendingInput,
+	PendingInputReplaced,
 	InvalidComboBranch,
 	FreshChainReset,
 	PriorityCancelled,
@@ -66,6 +69,8 @@ enum class EActionReactionTelemetryReason : uint8
 	TerminalCleanup,
 	HoldActivated,
 	HoldReleased,
+	HoldSourceRejected,
+	StaleHoldGeneration,
 	MissingAttackContext,
 	MovementDisabled,
 	MovementRestored,
@@ -87,7 +92,12 @@ enum class EActionReactionTelemetryReason : uint8
 	TokenGranted,
 	TokenReleased,
 	AlignmentRequested,
-	AlignmentReleased
+	AlignmentReleased,
+	MovementInputCleared,
+	MovementInputAllowed,
+	MovementInputSuppressedByHold,
+	MovementInputSuppressedByPaired,
+	MovementInputSuppressedByTerminalState
 };
 
 /** One observational event spanning input, action, reaction, AI, alignment, and animation ownership. */
@@ -125,6 +135,10 @@ struct KATANACOMBAT_API FActionReactionTelemetryRecord
 	FName ActionName = NAME_None;
 	int32 QueueDepth = 0;
 	FName MovementDisposition = NAME_None;
+	FName CharacterMovementMode = NAME_None;
+	uint8 CharacterCustomMovementMode = 0;
+	float MovementMagnitude = 0.0f;
+	bool bRootMotionActive = false;
 	FName TokenDisposition = NAME_None;
 	int32 ActiveTokenCount = 0;
 	FName AlignmentOwner = NAME_None;
