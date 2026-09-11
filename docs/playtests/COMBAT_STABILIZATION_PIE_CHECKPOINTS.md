@@ -55,9 +55,9 @@ Reproduce one anomaly per named run. Start from idle, clear both rings, perform 
 - Attack alignment is no longer capped by the 180-degree defense rate or 70-degree defense budget.
 - Targeted attack rotation continues to follow a moving target through each combo attack; targetless queued attacks retain their original world-space edge intent.
 - Exact-opposite attacks choose a stable positive turn and do not stall.
-- A normally ended montage returns phase to `None`, clears the combo indicator/queue, and never displays an 11-second false combo countdown or leaves guard-looking input lockout.
+- A normally ended montage returns phase to `None` and clears its queue. The queue overlay labels future windows as `opens in`, active windows as `remaining`, and stale-expired state explicitly instead of presenting a future checkpoint as an 11-second active window.
 
-**Not fixed yet:** configurable live steering influence during a warp, strict reachability/deadline rejection, final actor-yaw telemetry at contact, orbit jitter, asymmetric input policy, hold replacement, cancel windows, reaction/trade behavior, and guard/parry presentation. Current modified Gate A paired assets also fail the no-save manifest audit and the automatic counter-to-finisher proof; do not classify that transition as a source regression until the asset graph is reconciled.
+**Not fixed yet:** the legacy `bComboWindowActive` flag still represents a discovered checkpoint rather than only its live interval; configurable live steering influence during a warp, strict reachability/deadline rejection, final actor-yaw telemetry at contact, orbit jitter, cancel windows, reaction/trade behavior, and guard/parry presentation also remain open. Current modified Gate A paired assets also fail the no-save manifest audit and the automatic counter-to-finisher proof; do not classify that transition as a source regression until the asset graph is reconciled.
 
 ## Checkpoint 1B: One-Anomaly Telemetry Capture
 
@@ -72,6 +72,48 @@ Reproduce one anomaly per named run. Start from idle, clear both rings, perform 
 **Evidence expected:** every physical edge has one `InputCaptured` and one reason-coded `InputFinalized`; a hold activation and release share one hold generation while retaining their press/release serials; each movement disable has a later restore; every accepted queue entry has one terminal execution or cancellation; montage callbacks identify accepted versus stale generations. Record the player actor path and the first sequence number where visible behavior diverges.
 
 **Still open after capture:** the policy fix itself, one-slot arbitration, committed-hold protection, movement/guard cancel windows, orbit, reaction selection, parry readability, and Gate A asset reconciliation.
+
+## Checkpoint 1C: Finisher Ownership And Terminal Outcome
+
+**Run after:** `KatanaCombat.CombatInput` and `KatanaCombat.PairedAnimation` are green and every full-root failure is classified. Stop for any unclassified source or lifecycle failure. The current baseline is 732 passing tests plus seven known asset-gated failures: `KatanaCombat.Defense.GateA.PIEProof` and six DefenseAuthoring/DefenseMatrixAuthoring migration-contract tests blocked by the edited Gate A asset graph.
+
+**Latest evidence:** `dm-finisher-terminal-actions.csv` was captured in `Lvl_ThirdPerson1` with four enemies. It confirms executor movement becomes allowed immediately after paired completion. The matching log exposed a separate failure: damage waited for attacker montage completion, allowing the paired victim to receive a token and interrupt its victim montage before death.
+
+**Maps:** Run `Lvl_DefenseMatrix`, then `Lvl_ThirdPerson1`. Clear both telemetry rings immediately before one player-executed lethal finisher. During the paired sequence, hold movement and press Light once; after completion, release and press movement plus Light again. Dump each map to a correctly prefixed action telemetry file before ending PIE.
+
+**Should be fixed:**
+
+- Movement and attack input are rejected only while either paired role owns the sequence; ordinary and directional attacks cannot interrupt it.
+- The executor transitions from `MovementInputSuppressedByPaired` to `MovementInputAllowed` at completion without requiring a directional hold, range exit, or PIE restart.
+- At the primary `bApplyDamage` sync point, lethal damage immediately enters `Dying` once. The victim cannot move, queue/acquire a token, or start an attack during the paired sequence; ragdoll or freeze presentation may finalize when the victim montage or paired cleanup ends.
+- `KatanaCombat.log` contains one `[PAIRED DAMAGE]` commit before `[PAIRED COMPLETE]`; a completion-fallback warning is a content-authoring failure for these reviewed finisher montages.
+- Expected victim death does not cancel the owner sequence, discard the pending death outcome, restore a terminal movement baseline, snap the victim back into active play, or leave a paired notify lease behind.
+
+**Record as a failure:** any post-finisher movement lock; victim movement, token grant, or attack after paired takeover; health remaining above zero after the impact notify; a completion-fallback warning; repeated death/finisher triggering; or `MovementInputSuppressedByPaired` without a later allowed decision.
+
+## Checkpoint 1D: AI Target Lifecycle During Paired Sequences
+
+**Automated gate:** no-UBA editor build; `KatanaCombat.EnemyAI.TargetLifecycle` `11/11`; `KatanaCombat.Defense.Chain.NoMontageBystanderTargetLifecycle` `1/1`; `KatanaCombat.EnemyAI` `54/54`; `KatanaCombat.PairedAnimation` `51/51`; and `KatanaCombat.DeathSystem` `14/14`. The full run must be `732/739`, with only the seven classified asset-gated failures above.
+
+**Maps:** `Lvl_ThirdPerson1` with four observed enemies, then `Lvl_DefenseMatrix` with three. Keep at least two bystanders in combat range before starting a paired sequence.
+
+**Actions:**
+
+1. Wait until one enemy holds an attack token and another is visibly waiting or circling, then execute a player finisher without leaving combat range.
+2. During the finisher, attempt movement and one attack input while watching every bystander. Continue for five seconds after paired completion.
+3. Repeat through an enemy-executed paired sequence against the player when the authored combat state permits it.
+4. Repeat one nonlethal counter or cancelled paired sequence and verify surviving actors resume against the retained target without a range exit/re-entry.
+5. Dump both telemetry rings before stopping PIE and retain the matching `KatanaCombat.log` token and `[EnemyAI]` lifecycle lines.
+
+**Should be fixed:**
+
+- A paired executor or victim cannot be newly selected for a normal AI attack.
+- Existing attackers immediately stop movement and release active or queued token ownership when their target enters either paired role; no later StateTree tick is required.
+- Only the exact paired-sequence owner may retain its authored victim through expected terminal damage. Other tracked partners receive no exemption.
+- A surviving, temporarily paired target becomes actionable again after cleanup. A `Dying` or `Dead` target is cleared and cannot be approached, circled, granted a token, or attacked.
+- Pair completion cannot overwrite an already consumed or completed StateTree attack result, and token release or attack-end callbacks occur once.
+
+**Record as a failure:** any bystander montage start, approach, token grant, or queue retention during paired ownership; any attack against a corpse; failure to resume against a surviving target; range-exit dependence; repeated token release; or the paired owner losing its victim before the authored sequence completes.
 
 ## Checkpoint 2: Alignment And Orbit
 

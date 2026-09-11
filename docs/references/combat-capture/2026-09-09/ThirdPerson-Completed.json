@@ -1,0 +1,47 @@
+{
+  "reference_schema_version": 1,
+  "compatibility": {
+    "scenario": "FinisherRecovery",
+    "map_key": "ThirdPerson",
+    "variant": "Completed",
+    "definition_hash": "7e787f24a64ac6f38615f79f53b0db19c6ad89abbda6b5d07186e8dea6c93d44",
+    "evaluator_version": 1
+  },
+  "evaluator_identity": "e2ca6c17470338e834ece01d8eaabf99754f6180f6ef233e09a8b2620548910f",
+  "provenance": {
+    "source_identity": "ddc514e6d900c4da24e5ceda84a38e1e1c4ee993a27df738ea0194c4fb0a2555",
+    "execution_source_identity": "f5cfb717b362388ec28fc8b60f95fe5be04e8c8a15ba6bf7783df52677053147",
+    "assets_identity": "13565ff43885439adb59fd1d72bcbc4a21630b2628cb5c0c4a388ed61638ff71",
+    "capture_evaluator_identity": "422ee4332cb8428f87c24845c9cafb5d0e81ed89a1622a69ceca75740b8e94b6",
+    "declared_changes": []
+  },
+  "observed_maxima_cm": [
+    8.263205157828923,
+    8.341223880479856,
+    8.380752043639534
+  ],
+  "margin_cm": 10,
+  "max_actor_relative_step_cm": 18.380752043639532,
+  "acceptance_basis": "Three unchanged real-montage controls passed gameplay and pose/frame eligibility. Representative side-view frames were inspected for participant framing. A 10 cm margin above the largest observed step defines a conservative mechanical envelope; it is not artistic acceptance or a contact/foot-support threshold. Validate sensitivity with the separate 200 cm displacement control and fresh unmodified runs.",
+  "meaning": "A sampled displacement envelope for this scenario/point/resolution; neither a universal defect threshold nor artistic approval",
+  "examples": [
+    {
+      "run_id": "1ff592ad429d47ce8d6d5d855138f388",
+      "bundle_identity": "068e7cf6f363832bdb89bf300e57ccf0cc5e94f9185c615f7d62868b7ae5d480",
+      "capture": "Saved/CombatCaptures/20260909T211542-CEF5708C4B4E00ED60C3F7AC40539F7F"
+    },
+    {
+      "run_id": "64123e70c9e94c32a236146a0d83cc8c",
+      "bundle_identity": "43d5476b1569a03860618e2e0df31672474f0da8ec1efdaa1bb6b9da9094018c",
+      "capture": "Saved/CombatCaptures/20260909T211736-13C8A83148B2FAD988D911B4ED8D622D"
+    },
+    {
+      "run_id": "080205d8a2a2495495cc33f6cd7cc207",
+      "bundle_identity": "0a96ea505ec5bdf3ced5319696ef5cf4aea9cf18f065a02ebb680f587c441fef",
+      "capture": "Saved/CombatCaptures/20260909T211928-8D89379A423CD2FC3BEBE0A8737F640C"
+    }
+  ],
+  "reference_revision": 2,
+  "previous_reference_identity": "2396bbd3c8c188207f8c8bfa3b9f2cb2aeb7290c2210995aa0704ac79fede2a6",
+  "replacement_rationale": "Final report presentation adds explicit unmeasured outcomes, intervals and frame links, and corrects the capture-disabled link. The same immutable captures were re-evaluated; the measurement algorithm, observed values and thresholds are unchanged."
+}

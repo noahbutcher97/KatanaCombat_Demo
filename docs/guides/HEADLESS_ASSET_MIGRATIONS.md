@@ -29,7 +29,7 @@ Close the Editor and inspect `git status --short` before saving. Change `-Mode=A
 
 ### Gate A Proof Asset Authoring
 
-`DefenseProofAuthoring` owns the versioned, deterministic Gate A recipe. It has a fixed destination set and does not accept a target list or discover packages globally. Use it to create missing proof assets, rewrite recipe-owned montages, and validate existing paired/configuration/Guard assets. A mismatch in those validated assets fails closed instead of repairing them. Run `DefenseProofMigration` afterward to validate the manifest and dependency closure.
+`DefenseProofAuthoring` owns the versioned, deterministic Gate A recipe. It has a fixed destination set and does not accept a target list or discover packages globally. Use it to create missing proof assets, rewrite recipe-owned montages, and validate existing paired/configuration/Guard assets. A mismatch in those validated assets fails closed instead of repairing them. V5 owns twelve destination packages; the authored `AM_Finisher_Attacker` and `AM_Finisher_Victim` montages are required read-only dependencies, including their `Finisher` sections. It cannot rewrite them or recreate the retired `AM_Finisher_Defender`. Run `DefenseProofMigration` afterward to validate the manifest and dependency closure.
 
 ```powershell
 $editor = "C:\Program Files\Epic Games\UE_5.6\Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
@@ -39,7 +39,7 @@ $fingerprint = (Get-Content $plan -Raw | ConvertFrom-Json).plan_fingerprint
 & $editor "KatanaCombat.uproject" -run=KatanaAssetMigration -Operation=DefenseProofAuthoring -Mode=Apply "-ApprovedPlanReport=$plan" "-ApprovedPlanFingerprint=$fingerprint" -ReportPath="Saved/Logs/Commandlets/KatanaAssetMigration/defense-gate-a-authoring-apply.json" -unattended -nopause -NullRHI -nosplash -stdout
 ```
 
-Review the Plan row and ledger before Apply. Version 4 binds the exact recipe constants, direct source packages and animation skeletons, current destination packages, canonical Gate A manifest, planned additions, and package ledger. A loaded dirty source or destination package invalidates approval even when the destination does not yet have an on-disk file. Close the Editor before persistence, rerun with `-Mode=ApplyAndSave -AllowPackageSave`, then run a fresh `-Mode=Audit`. Success requires exactly the approved packages to save/reload and the post-save Audit to report `Unchanged`. Any bound recipe, dependency, destination, manifest, or plan drift invalidates the old fingerprint.
+Review the Plan row and ledger before Apply. Version 5 binds the exact recipe constants, direct source packages and animation skeletons, authored finisher montages and their animation sources, current destination packages, canonical Gate A manifest, planned additions, and package ledger. A loaded dirty source or destination package invalidates approval even when the destination does not yet have an on-disk file. Close the Editor before persistence, rerun with `-Mode=ApplyAndSave -AllowPackageSave`, then run a fresh `-Mode=Audit`. Success requires exactly the approved packages to save/reload and the post-save Audit to report `Unchanged`. Any bound recipe, dependency, destination, manifest, or plan drift invalidates the old fingerprint.
 
 ### Gate B Defense Matrix Authoring
 

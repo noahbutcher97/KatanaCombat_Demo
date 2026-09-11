@@ -145,14 +145,15 @@ AnimNotifyState_PairedAnimationSync (Sync Point Reached)
     ├─ Trigger hitstop through actor time-dilation leases
     ├─ Trigger slow motion through a world time-dilation lease
     ├─ Trigger camera shake (TriggerCameraShake)
+    ├─ If primary and bApplyDamage: commit generation-owned damage exactly once
+    │   ├─ The exact paired partner bypasses stale guard, i-frame, invulnerability, and resistance state
+    │   └─ Lethal finishers enter Dying immediately; the paired death outcome remains pending
     └─ Broadcast OnPairedAnimationSyncPoint delegate
     │
     ▼
 OnMontageEnded → CompletePairedAnimation()
-    ├─ Set: bDeathHandledByPairedAnimation = true (victim)
-    ├─ Calculate: damage = Max(BaseDamage * Multiplier, currentHealth + 1)
-    ├─ Apply: ApplyDamage() → triggers Die() → PlayDeathReaction()
-    │         └─ PlayDeathReaction checks flag → skips AM_Deaths
+    ├─ Apply damage only as a compatibility fallback when no authored damage sync fired
+    ├─ Finalize any pending paired death outcome after lethal health was committed
     └─ Release only this operation's input, warp, time, collision, and partner ownership
 ```
 
@@ -208,6 +209,14 @@ defined in `docs/superpowers/specs/2026-07-16-defense-interaction-design.md`. It
 is the accepted implementation authority for defense integration. Source slices 1-5 implement the runtime contracts, Gate A accepts the canonical asset-backed Chain path, and Gate B accepts the scoped single-player matrix, attacker responses, simultaneous-threat arbitration, unblockable contact, and perfect-parry regression. Multiplayer ordering, production AI, and catalog-wide pose quality remain outside that acceptance.
 
 ---
+
+### 3.4 Upright Paired Targets and Ground Support
+
+Paired attacker and victim targets use the partner's yaw to rotate `RelativeOffset` during setup and each motion-warp pre-update. Facing is yaw-only; terrain height and partner pitch/roll cannot tilt the character. Coincident horizontal positions retain the owner's heading. Disabling rotation retains the owner's current rotation at setup and refresh.
+
+When terrain adjustment is enabled, `UDebugUtils::SampleWalkableGroundAtLocation` searches downward along world Z for static or dynamic environment support. Pawns and their owned/attached objects are ineligible even if their collision object type advertises environment geometry. Accepted hits must satisfy the character movement component's walkability policy, permit character step-up and block the character's capsule channel. Rejected components are skipped, with at most 32 trace attempts. A missing eligible hit preserves the requested location; a valid hit supplies ground Z plus capsule half-height. This is a support sample, not a capsule-clearance or reachability guarantee.
+
+`Combat.Debug.GroundSampling 1` logs queried locations, actual hit actor/component identity and ground eligibility without debug drawing; its default is zero. `KatanaCombat.Targeting.PairedGrounding.*` covers initial targets, continuous refresh, character-owned geometry, steep ground, moving platforms, missing ground and upright facing through public APIs. See [grounding verification](../audits/PAIRED_WARP_GROUNDING_2026-09-10.md) for the rendered finisher evidence and remaining translation/contact defects. Target construction does not override montage modifier flags or enable CharacterMovement when a paired collision notify disables it.
 
 ## 4. EDITOR-TIME ANALYSIS
 

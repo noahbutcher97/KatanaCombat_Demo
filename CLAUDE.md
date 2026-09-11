@@ -163,6 +163,7 @@ Source/KatanaCombat/Public/
 | Future plans | `docs/reference/ROADMAP.md` (planned features, system status) |
 | Implementation plans | `docs/plans/` (active and archived feature plans) |
 | Audit findings | `docs/audits/AUDIT_SYNTHESIS_2026-02-03.md` (unified audit synthesis) |
+| Data asset audit | `docs/audits/DATA_ASSET_AUDIT_2026-07-21.md` (per-parameter wiring audit, dead code, improvement strategy) |
 
 ### AI Infrastructure Docs (`.claude/`)
 
@@ -289,6 +290,15 @@ This applies to ALL `BlueprintNativeEvent` interface methods:
 - **Make internal state variables `BlueprintReadOnly`**: If a parameter isn't meaningful to view/edit at runtime in the editor, don't expose it to Blueprint. This adds visual load and confusion. Reserve Blueprint visibility for intentional public API, not internal implementation details.
 
 ## Editor Tool Architecture Patterns
+
+The reusable capture engine is owned by the separate AnimationAnalysis repository.
+`Tools/AnimationAnalysis/dependency.json` pins its revision; run the adjacent setup
+script before a fresh build. `Plugins/AnimationAnalysis` is its ignored generated
+copy (`AnimationCapture` module), independently buildable without Katana. Keep project
+discovery, skeleton defaults and combat/warp telemetry in the `CombatCaptureSession`
+adapter. Follow `docs/architecture/ANIMATION_ANALYSIS_SUITE.md` for all existing and
+new capture/analysis tooling; native extraction does not complete the paired
+preview/evaluation or offline orchestration migration.
 
 **CRITICAL: These patterns MUST be followed for all editor tooling in KatanaCombatEditor module.**
 
@@ -504,20 +514,17 @@ Track ongoing work across sessions. This section provides detailed status of all
 | Defense catalog and animation tuning | P2 | Expand beyond the reviewed Gate A sequence and Gate B proof assets without weakening manifest, timing, trajectory, or continuity gates. |
 | Production Enemy AI | P2 | Minimal StateTree + `UCombatTokenSubsystem` combat proof is wired; perception, patrol, tactics, and production tuning remain future work. |
 
-#### Editor/Runtime Unification Gap (Needs Further Inquiry)
+#### Editor/Runtime Unification Gap (Updated 2026-07-21)
 
-> **Critical Architecture Issue**: Editor preview tools and runtime systems should use identical logic paths (WYSIWYG principle). Currently they diverge in several areas.
+> **WYSIWYG principle**: editor preview tools and runtime systems should use identical logic paths.
+
+RESOLVED (verified by 2026-07-21 data asset audit): `FAttackWarpConfig` now has `TargetRelativeOffset` and `SetupAttackWarp()` honors it (TargetingComponent.cpp:604,609) — the former schema/runtime parity gaps are closed.
 
 | Gap | Location | Issue |
 |-----|----------|-------|
-| **Schema Parity** | `CombatTypes.h` | `FAttackWarpConfig` (regular attacks) lacks `WarpTargetOffset` that `FPairedWarpConfig` has |
-| **Runtime Parity** | `TargetingComponent.cpp` | `SetupAttackWarp()` ignores offsets; paired animation warps correctly apply them |
 | **Logic Injection** | `WeaponComponent.cpp` | `PerformWeaponTrace` is private; editor cannot simulate hits without duplicating trace math |
 
-**Proposed Solutions** (pending further investigation):
-1. Add `FVector WarpTargetOffset` to `FAttackWarpConfig`
-2. Update `SetupAttackWarp()` to apply offset rotated by target direction
-3. Extract `PerformWeaponTrace` to public static function for shared editor/runtime use
+**Proposed Solution** (pending further investigation): extract `PerformWeaponTrace` to a public static function for shared editor/runtime use.
 
 **Goal**: What you see in the editor preview IS what happens at runtime.
 
@@ -590,7 +597,7 @@ Player Input → CombatComponent::ExecuteAction()
 
 ## Known Issues
 
-- **Pre-commit hooks have syntax errors**: PowerShell scripts in `.claude/hooks/` have parsing issues. Use `git commit --no-verify` to bypass until fixed.
+- **Commit hooks**: The pre-commit diagnostics, validation and post-commit PowerShell scripts parsed and ran during the September 11 checkpoint. Use normal Git commits; the earlier syntax-error note is obsolete. Hook reminders do not replace build and automation evidence.
 - **DX12 crashes with RTX 5090**: See Environment Notes below for workaround.
 
 ## Environment Notes
