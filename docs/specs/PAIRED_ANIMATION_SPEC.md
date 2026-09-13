@@ -140,8 +140,8 @@ Play Montages (Both Characters)
     │
     ▼
 AnimNotifyState_PairedAnimationSync (Sync Point Reached)
-    ├─ Validate alignment (warn if > MaxContactDistance)
-    ├─ Apply optional nudge correction
+    ├─ Legacy sequence owner validates its accepted target (warn if > MaxContactDistance)
+    ├─ Apply optional owner-authorized nudge; retained defense keeps scoped alignment
     ├─ Trigger hitstop through actor time-dilation leases
     ├─ Trigger slow motion through a world time-dilation lease
     ├─ Trigger camera shake (TriggerCameraShake)
@@ -212,11 +212,46 @@ is the accepted implementation authority for defense integration. Source slices 
 
 ### 3.4 Upright Paired Targets and Ground Support
 
-Paired attacker and victim targets use the partner's yaw to rotate `RelativeOffset` during setup and each motion-warp pre-update. Facing is yaw-only; terrain height and partner pitch/roll cannot tilt the character. Coincident horizontal positions retain the owner's heading. Disabling rotation retains the owner's current rotation at setup and refresh.
+Paired attacker and victim targets use the partner's yaw to rotate `RelativeOffset` during setup and each motion-warp pre-update. `FPairedWarpConfig::FacingPolicy` independently selects `FacePartner` (the existing asset default), `FaceAwayFromPartner`, or `MatchPartnerHeading`. Enabled facing is yaw-only; terrain height and partner pitch/roll cannot tilt the character. Coincident horizontal positions retain the owner's heading for positional policies; matching uses the partner's yaw even at coincidence. Disabling rotation retains the owner's current rotation at setup and refresh.
+
+`UPairedAnimationUtilityLibrary::ResolvePairedFacingRotation` is the actor-independent resolver used by direct paired targets and retained alignment. Direct victim positional facing is measured from its computed warp endpoint; direct attacker and retained positional facing are measured from the owner, preserving those existing contracts. Retained requests carry the role policy and resolve it at acquisition/update; this change does not add an automatic pre-update subscription to retained alignment. Their coincidence fallback is the request's desired heading. Bridge/stage turn-budget checks use the selected policy, while default defender bridge checks retain the resolved defense-contact yaw. Unknown policies fail validation before replacing ownership. `KatanaCombat.Targeting.PairedFacing.*` and `KatanaCombat.Defense.Chain.StagePreflightGeometry` cover policy resolution, refresh, lifecycle and retained-stage propagation.
 
 When terrain adjustment is enabled, `UDebugUtils::SampleWalkableGroundAtLocation` searches downward along world Z for static or dynamic environment support. Pawns and their owned/attached objects are ineligible even if their collision object type advertises environment geometry. Accepted hits must satisfy the character movement component's walkability policy, permit character step-up and block the character's capsule channel. Rejected components are skipped, with at most 32 trace attempts. A missing eligible hit preserves the requested location; a valid hit supplies ground Z plus capsule half-height. This is a support sample, not a capsule-clearance or reachability guarantee.
 
 `Combat.Debug.GroundSampling 1` logs queried locations, actual hit actor/component identity and ground eligibility without debug drawing; its default is zero. `KatanaCombat.Targeting.PairedGrounding.*` covers initial targets, continuous refresh, character-owned geometry, steep ground, moving platforms, missing ground and upright facing through public APIs. See [grounding verification](../audits/PAIRED_WARP_GROUNDING_2026-09-10.md) for the rendered finisher evidence and remaining translation/contact defects. Target construction does not override montage modifier flags or enable CharacterMovement when a paired collision notify disables it.
+
+### 3.5 Sync Correction Ownership
+
+`UPairedAnimationComponent::GetOwnedSyncCorrectionTarget` resolves a direct sync
+correction only for an active legacy paired sequence's accepted current target.
+Partner-list order cannot select the target, and tracking a partner alone does
+not establish authority. Participant notifies, removed targets and ended
+participation cannot reposition either actor. Retained defense sequences keep
+their scoped alignment requests and turn budgets; sync notifies do not add direct
+position corrections to those sequences.
+
+The notify resolves this authority after damage/presentation callbacks, since
+those callbacks can end participation. Primary-sync, validation, nudge-enable and
+distance gates still apply. The existing nudge remains an instantaneous position
+correction; ownership does not establish bounded entry motion or visible contact.
+`KatanaCombat.PairedAnimation.SyncAlignment.*` exercises notify order, accepted
+targets, inactive participation and authored gates through public APIs.
+`KatanaCombat.Defense.Chain.SyncPreservesAlignmentOwnership` exercises committed
+defense ownership through public Block input.
+
+The [ownership verification and entry-motion audit](../audits/PAIRED_SYNC_ALIGNMENT_OWNERSHIP_2026-09-11.md)
+records the rendered correction roles, remaining motion-warp amplification and
+contact limitations.
+
+### 3.6 Bounded Legacy Paired Entry
+
+`UPairedAnimationData::Entry` optionally prepares the accepted legacy pair before either montage starts. It defaults to disabled. `VictimRelativeTransform` declares the victim's upright preparation pose relative to the initiator; it is separate from the montage warp endpoint. No existing asset is automatically opted in.
+
+`AlignmentMotionLibrary` calculates bounded translation/yaw steps without actor dependencies. `UTargetingComponent` executes them through swept character movement under a scoped alignment request. The initiator holds its accepted world pose; the victim approaches the relative goal. Accepted duration, speed, travel, turn-rate, turn-budget and tolerances cannot be extended by updating the request. Limits use world simulation seconds: component delta is divided by positive actor time dilation. Zero or invalid actor time dilation fails closed; global pause/slowdown retain world-clock semantics.
+
+Preflight rejects invalid policy, missing playback dependencies and initially unreachable geometry before takeover. Preparation owns exact alignment and paired-state leases, stops locomotion and ignores collision only between the accepted partners. Environment collision remains active. Both live poses must satisfy readiness before playback. Obstruction, deadline/budget exhaustion, participant loss, ownership preemption or cancellation releases those leases and aborts without paired damage or a teleport back. Completion and sync callbacks cannot advance a pending preparation. An entry-enabled pair also suppresses the legacy sync nudge after preparation.
+
+Preparation bounds do not cap subsequent montage root motion. This is a collision-aware placement mechanism, not navigation, an authored approach animation, foot-support validation or contact approval. Those require separate policy and evidence. Coverage lives in `KatanaCombat.Targeting.BoundedAlignment` and `KatanaCombat.PairedAnimation.Entry`; the rendered runner accepts transient entry overrides described in the [evaluation guide](../guides/PAIRED_ANIMATION_EVALUATION.md).
 
 ## 4. EDITOR-TIME ANALYSIS
 
