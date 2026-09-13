@@ -24,6 +24,7 @@ inline TSharedRef<FJsonObject> Snapshot(const FPairedEntryConfig& C)
 	O->SetStringField(TEXT("movement_animation"), C.MovementAnimation ? C.MovementAnimation->GetPathName() : TEXT(""));
 	O->SetStringField(TEXT("movement_slot"), C.MovementSlot.ToString());
 	O->SetNumberField(TEXT("movement_play_rate"), C.MovementPlayRate);
+	O->SetNumberField(TEXT("movement_start_time_s"), C.MovementStartTime);
 	O->SetNumberField(TEXT("movement_blend_in_s"), C.MovementBlendIn);
 	O->SetNumberField(TEXT("movement_blend_out_s"), C.MovementBlendOut);
 	return O;
@@ -32,7 +33,7 @@ inline TSharedRef<FJsonObject> Snapshot(const FPairedEntryConfig& C)
 inline bool Read(const TSharedPtr<FJsonObject>& O,FPairedEntryConfig& C)
 {
 	C = FPairedEntryConfig();
-	if(!O || (O->Values.Num()!=10 && O->Values.Num()!=16) || !O->TryGetBoolField(TEXT("enabled"),C.bEnabled)) {return false;}
+	if(!O || (O->Values.Num()!=10 && O->Values.Num()!=16 && O->Values.Num()!=17) || !O->TryGetBoolField(TEXT("enabled"),C.bEnabled)) {return false;}
 	const TArray<TSharedPtr<FJsonValue>>* Values=nullptr;
 	if(!O->TryGetArrayField(TEXT("victim_offset_cm"),Values) || Values->Num()!=3) {return false;}
 	FVector Offset;
@@ -51,7 +52,7 @@ inline bool Read(const TSharedPtr<FJsonObject>& O,FPairedEntryConfig& C)
 	const TCHAR* Keys[]={TEXT("duration_s"),TEXT("translation_speed_cm_s"),TEXT("travel_budget_cm"),TEXT("turn_rate_deg_s"),TEXT("turn_budget_deg"),TEXT("position_tolerance_cm"),TEXT("yaw_tolerance_deg")};
 	float* Fields[]={&C.Limits.Duration,&C.Limits.TranslationSpeed,&C.Limits.TravelBudget,&C.Limits.TurnRate,&C.Limits.TurnBudget,&C.Limits.PositionTolerance,&C.Limits.YawTolerance};
 	for(int I=0;I<7;++I) {double Value; if(!Number(Keys[I],Value)) {return false;} *Fields[I]=Value;}
-	if (O->Values.Num() == 16)
+	if (O->Values.Num() >= 16)
 	{
 		FString Role, Animation, Slot; double Rate, BlendIn, BlendOut;
 		if (!O->TryGetStringField(TEXT("moving_role"), Role) || (Role != TEXT("initiator") && Role != TEXT("victim"))
@@ -68,6 +69,13 @@ inline bool Read(const TSharedPtr<FJsonObject>& O,FPairedEntryConfig& C)
 		}
 		C.MovementSlot = FName(*Slot); C.MovementPlayRate = Rate;
 		C.MovementBlendIn = BlendIn; C.MovementBlendOut = BlendOut;
+		if (O->Values.Num() == 17)
+		{
+			double Start;
+			if (!Number(TEXT("movement_start_time_s"), Start) || Start < 0 || Start > MAX_flt
+				|| (!C.MovementAnimation && Start != 0)) { return false; }
+			C.MovementStartTime = Start;
+		}
 	}
 	return AlignmentMotion::IsValid(C.Limits) && AlignmentMotion::IsValidGoal(C.VictimRelativeTransform);
 }

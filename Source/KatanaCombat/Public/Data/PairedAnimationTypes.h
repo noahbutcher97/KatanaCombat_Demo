@@ -63,6 +63,9 @@ struct KATANACOMBAT_API FPairedEntryConfig
     FName MovementSlot = TEXT("DefaultSlot");
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry|Presentation", meta = (ClampMin = "0.01", ClampMax = "10"))
     float MovementPlayRate = 1.f;
+    /** Source animation seconds, before asset RateScale and entry play rate. No wrapping. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry|Presentation", meta = (ClampMin = "0"))
+    float MovementStartTime = 0.f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry|Presentation", meta = (ClampMin = "0", ClampMax = "1"))
     float MovementBlendIn = .1f;
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry|Presentation", meta = (ClampMin = "0", ClampMax = "1"))

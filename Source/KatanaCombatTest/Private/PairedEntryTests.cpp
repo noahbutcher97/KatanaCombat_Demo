@@ -290,7 +290,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedEntryPresentationPreflight,"KatanaCombat
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FPairedEntryPresentationPreflight::RunTest(const FString&)
 {
-	for (int Mode=0; Mode<4; ++Mode)
+	for (int Mode=0; Mode<8; ++Mode)
 	{
 		FPairedEntryFixture F;
 		if (!TestTrue(TEXT("Fixture loads"), F.Initialize() && F.ConfigureInitiator())) { return false; }
@@ -298,9 +298,33 @@ bool FPairedEntryPresentationPreflight::RunTest(const FString&)
 		if (Mode==1) { F.Pair->Entry.MovementPlayRate = 10; }
 		if (Mode==2) { F.Pair->Entry.MovingRole = static_cast<EPairedEntryMovingRole>(255); }
 		if (Mode==3) { F.Pair->Entry.MovementSlot = TEXT("UnregisteredApproachSlot"); }
-		TestFalse(TEXT("Root motion, insufficient duration, invalid role/slot reject before takeover"), F.Start());
+		if (Mode==4) { F.Pair->Entry.MovementStartTime = -1; }
+		if (Mode==5) { F.Pair->Entry.MovementStartTime = F.Pair->Entry.MovementAnimation->GetPlayLength(); }
+		if (Mode==6) { F.Pair->Entry.MovementStartTime = F.Pair->Entry.MovementAnimation->GetPlayLength() - .01f; }
+		if (Mode==7) { F.Pair->Entry.MovementAnimation = nullptr; F.Pair->Entry.MovementStartTime = .1f; }
+		TestFalse(TEXT("Invalid presentation rejects before takeover"), F.Start());
 		TestFalse(TEXT("Rejected presentation owns no victim"), F.Victim->HitReactionComponent->IsInPairedAnimationState());
 		TestFalse(TEXT("Rejected presentation owns no input"), F.Owner->PairedAnimationComponent->IsInputBlocked());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedEntrySourcePhase,"KatanaCombat.PairedAnimation.Entry.SourcePhaseUsesAssetRate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FPairedEntrySourcePhase::RunTest(const FString&)
+{
+	for (const float AssetRate : {1.f, 2.f})
+	{
+		FPairedEntryFixture F;
+		if (!TestTrue(TEXT("Fixture loads"), F.Initialize() && F.ConfigureInitiator())) { return false; }
+		F.Pair->Entry.MovementAnimation = DuplicateObject<UAnimSequence>(F.Pair->Entry.MovementAnimation, GetTransientPackage());
+		F.Pair->Entry.MovementAnimation->RateScale = AssetRate;
+		F.Pair->Entry.MovementPlayRate = .5f;
+		F.Pair->Entry.MovementStartTime = .2f;
+		if (!TestTrue(TEXT("Nonzero source phase accepted"), F.Start())) { return false; }
+		auto* Instance = F.Owner->GetMesh()->GetAnimInstance();
+		TestTrue(TEXT("Active track starts at source seconds divided by asset rate"),
+			FMath::IsNearlyEqual(Instance->Montage_GetPosition(Instance->GetCurrentActiveMontage()), .2f / AssetRate));
 	}
 	return true;
 }
@@ -322,7 +346,7 @@ bool FPairedEntryTuningRoundTrip::RunTest(const FString&)
 	TestFalse(TEXT("Wrong moving role cannot validate"), PairedEntryTuning::ValidateOverride(F.Pair->Entry, Row));
 	Snapshot->SetStringField(TEXT("moving_role"), TEXT("unknown"));
 	TestFalse(TEXT("Unknown role cannot silently default"), PairedEntryTuning::Read(Snapshot, Parsed));
-	for (const TCHAR* Key : {TEXT("moving_role"), TEXT("movement_animation"), TEXT("movement_slot"), TEXT("movement_play_rate"), TEXT("movement_blend_in_s"), TEXT("movement_blend_out_s")}) { Snapshot->RemoveField(Key); }
+	for (const TCHAR* Key : {TEXT("moving_role"), TEXT("movement_animation"), TEXT("movement_slot"), TEXT("movement_play_rate"), TEXT("movement_blend_in_s"), TEXT("movement_blend_out_s"), TEXT("movement_start_time_s")}) { Snapshot->RemoveField(Key); }
 	TestTrue(TEXT("Original ten-field entry settings remain readable"), PairedEntryTuning::Read(Snapshot, Parsed));
 	TestEqual(TEXT("Original settings keep victim-moving behavior"), Parsed.MovingRole, EPairedEntryMovingRole::Victim);
 	TestNull(TEXT("Original settings have no presentation clip"), Parsed.MovementAnimation.Get());

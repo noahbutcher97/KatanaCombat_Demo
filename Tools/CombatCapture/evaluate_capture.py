@@ -166,7 +166,8 @@ def validate_entry_settings(settings):
     scalars = ("victim_yaw_deg", "duration_s", "translation_speed_cm_s", "travel_budget_cm",
                "turn_rate_deg_s", "turn_budget_deg", "position_tolerance_cm", "yaw_tolerance_deg")
     required = {"enabled", "victim_offset_cm", *scalars}
-    if (not isinstance(settings, dict) or set(settings) not in (required, required | set(presentation))
+    if (not isinstance(settings, dict) or set(settings) not in (required, required | set(presentation),
+            required | set(presentation) | {"movement_start_time_s"})
             or type(settings["enabled"]) is not bool):
         raise CaptureError("Entry configuration requires the complete typed pose and motion limits")
     tuning_numbers(settings["victim_offset_cm"], 3)
@@ -174,7 +175,7 @@ def validate_entry_settings(settings):
     if (not -180 <= values[0] <= 180 or values[1] <= 0 or any(v < 0 or v > 3.402823e38 for v in values[1:])
             or values[-1] > 180):
         raise CaptureError("Entry limits or upright yaw are outside their supported ranges")
-    result = presentation | settings
+    result = presentation | {"movement_start_time_s": 0.} | settings
     if (result["moving_role"] not in ("victim", "initiator")
             or not isinstance(result["movement_animation"], str)
             or (result["movement_animation"] and not result["movement_animation"].startswith("/Game/"))
@@ -185,6 +186,9 @@ def validate_entry_settings(settings):
         ("movement_play_rate", "movement_blend_in_s", "movement_blend_out_s")], 3)
     if not (.01 <= rate <= 10 and 0 <= blend_in <= 1 and 0 <= blend_out <= 1):
         raise CaptureError("Invalid entry presentation timing")
+    start, = tuning_numbers([result["movement_start_time_s"]], 1)
+    if not 0 <= start <= 3.402823e38 or (start and not result["movement_animation"]):
+        raise CaptureError("Invalid entry source start time")
     return result
 
 

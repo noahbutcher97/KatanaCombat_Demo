@@ -16,19 +16,21 @@ bool ValidPresentation(const FPairedEntryConfig& Entry, const ACharacter* Mover)
 {
 	if (Entry.MovingRole != EPairedEntryMovingRole::Victim && Entry.MovingRole != EPairedEntryMovingRole::Initiator) { return false; }
 	if (!FMath::IsFinite(Entry.MovementPlayRate) || Entry.MovementPlayRate < .01f || Entry.MovementPlayRate > 10
+		|| !FMath::IsFinite(Entry.MovementStartTime) || Entry.MovementStartTime < 0
 		|| !FMath::IsFinite(Entry.MovementBlendIn) || Entry.MovementBlendIn < 0 || Entry.MovementBlendIn > 1
 		|| !FMath::IsFinite(Entry.MovementBlendOut) || Entry.MovementBlendOut < 0 || Entry.MovementBlendOut > 1
 		|| Entry.MovementSlot.IsNone()) { return false; }
 	const UAnimSequence* Animation = Entry.MovementAnimation;
-	if (!Animation) { return true; }
+	if (!Animation) { return Entry.MovementStartTime == 0; }
 	const auto* Mesh = Mover && Mover->GetMesh() ? Mover->GetMesh()->GetSkeletalMeshAsset() : nullptr;
 	// This presentation path is deliberately in-place and single-cycle. No second
 	// root-motion authority or silent looping is introduced beside the swept executor.
-	return Mesh && Animation->GetSkeleton() == Mesh->GetSkeleton()
+	return Mesh && Animation->GetSkeleton() && Animation->GetSkeleton() == Mesh->GetSkeleton()
 		&& Animation->GetSkeleton()->ContainsSlotName(Entry.MovementSlot)
 		&& Animation->CanBeUsedInComposition() && !Animation->HasRootMotion()
 		&& FMath::IsFinite(Animation->RateScale) && Animation->RateScale > 0
-		&& Animation->GetPlayLength() / (Animation->RateScale * Entry.MovementPlayRate)
+		&& Entry.MovementStartTime < Animation->GetPlayLength()
+		&& (Animation->GetPlayLength() - Entry.MovementStartTime) / (Animation->RateScale * Entry.MovementPlayRate)
 			>= Entry.Limits.Duration * Mover->CustomTimeDilation + Entry.MovementBlendOut;
 }
 
@@ -120,7 +122,11 @@ bool UPairedAnimationComponent::StartEntryMovementPresentation(ACharacter* Mover
 		EntryConfig.MovementSlot, EntryConfig.MovementBlendIn, EntryConfig.MovementBlendOut);
 	if (!EntryMovementMontage) { return false; }
 	const int32 Generation = EntryGeneration;
-	if (Instance->Montage_Play(EntryMovementMontage, EntryConfig.MovementPlayRate) <= 0) { return false; }
+	// Dynamic montage tracks incorporate asset RateScale. The factory's start-time
+	// argument is unused in UE 5.6; start the actual instance at this track time.
+	const float TrackStart = EntryConfig.MovementStartTime / EntryConfig.MovementAnimation->RateScale;
+	if (Instance->Montage_Play(EntryMovementMontage, EntryConfig.MovementPlayRate,
+		EMontagePlayReturnType::MontageLength, TrackStart) <= 0) { return false; }
 	FAnimMontageInstance* Playback = Instance->GetActiveInstanceForMontage(EntryMovementMontage);
 	if (!Playback) { return false; }
 	EntryMovementAnimInstance = Instance;

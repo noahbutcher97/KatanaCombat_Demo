@@ -24,7 +24,7 @@ class EntryPresentationTests(unittest.TestCase):
         row = dict(notify_class="PairedAnimationData", before=self.fixture(), after=settings)
         validate_entry_override(settings, row)
         for key, value in dict(moving_role="victim", movement_animation="/Game/Other.Other",
-                               movement_slot="OtherSlot", movement_play_rate=2,
+                               movement_slot="OtherSlot", movement_play_rate=2, movement_start_time_s=.2,
                                movement_blend_in_s=.2, movement_blend_out_s=.2).items():
             changed = copy.deepcopy(row); changed["after"][key] = value
             with self.subTest(field=key), self.assertRaises(CaptureError):
@@ -36,10 +36,22 @@ class EntryPresentationTests(unittest.TestCase):
         cases += [full | {key: value} for key, value in [
             ("moving_role", "unknown"), ("movement_animation", None), ("movement_animation", "local"),
             ("movement_slot", "None"), ("movement_play_rate", True), ("movement_play_rate", 0),
-            ("movement_blend_in_s", float("nan")), ("movement_blend_out_s", -1)]]
+            ("movement_start_time_s", True), ("movement_start_time_s", -1),
+            ("movement_start_time_s", .1), ("movement_blend_in_s", float("nan")), ("movement_blend_out_s", -1)]]
         for settings in cases:
             with self.subTest(settings=settings), self.assertRaises(CaptureError):
                 validate_entry_settings(settings)
+
+    def test_explicit_phase_and_previous_presentation_schema(self):
+        settings = validate_entry_settings(self.fixture())
+        settings.update(movement_animation="/Game/Walk.Walk", movement_start_time_s=.375)
+        self.assertEqual(validate_entry_settings(settings)["movement_start_time_s"], .375)
+        previous = dict(settings)
+        previous.pop("movement_start_time_s")
+        self.assertEqual(validate_entry_settings(previous)["movement_start_time_s"], 0)
+        for value in (float("nan"), float("inf"), "0.375", True, -1):
+            with self.subTest(value=value), self.assertRaises(CaptureError):
+                validate_entry_settings(settings | {"movement_start_time_s": value})
 
 
 if __name__ == "__main__":
