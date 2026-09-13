@@ -69,5 +69,42 @@ explicitly defers the GPU check. The existing surface adapter remains synchronou
 new delayed surface consumers use the plugin's `FViewportAsyncCapture` API.
 
 See the [integration evidence](../../docs/audits/ANIMATION_ANALYSIS_INTEGRATION_2026-09-11.md)
-and the dependency's `docs/ASYNC_READBACK.md` for limits. This update does not add
-moving skeletal surfaces or continuous mesh penetration measurements.
+and the dependency's `docs/ASYNC_READBACK.md` for limits.
+
+## Mesh records and region-pair analysis
+
+The lock now selects merged commit `2fb0dc980dbdba1348b02e3a93b4512606aa5d16`,
+including native CPU/rigid references, bounded Skin Cache sampling, shared capture
+budgets and Python 0.4.0. Reinstall **and rebuild dependent native modules**; a
+Python-only update cannot integrate the changed public native types.
+
+The [consumer qualification](../../docs/audits/MESH_REGION_PAIR_INTEGRATION_2026-09-13.md)
+records a live finisher rejection and a separately selected authored reference.
+Neither establishes a body/weapon distance: live AnimBlueprint poses are currently
+unsupported, and native per-component acquisition stamps do not satisfy the exact
+pair-stamp contract. Masked/PDO facial-hair surfaces also remain outside visible
+surface coverage. No consumer retiming or pose-mode substitution is permitted.
+
+To retain effective live component inventory, set `KATANA_MESH_OUTPUT` to a unique
+existing evidence directory before launching the existing rendered finisher
+scenario. The opt-in test-module observer inspects the paired participants and
+attachments at attacker montage time 0.40–0.55 seconds, attempts CPU/GPU enrollment,
+and exclusively writes `live-inventory.json`. Absence of that file is missing
+evidence, never an implicit pass. The observer does not change live pose evaluation.
+
+Run `KatanaCombat.Capture.Mesh.AuthoredFinisherReference` through automation for the
+separate paused single-node source fixture. It exports five victim/katana samples
+and native budget control evidence to `authored-reference/` under that output root.
+Without the environment variable, this test chooses a unique `Saved/MeshReferences`
+directory and logs its location. It does not edit or save assets.
+
+```powershell
+python Tools/CombatCapture/measure_finisher_regions.py <reference-directory> --output <new-analysis-directory>
+```
+
+The adapter retains topology-bound triangle mappings, original component/pose/clock
+identities, pair results, actual gaps, costs and failure controls through the shared
+`measure_mesh_pair` and `summarize_mesh_interval` APIs. A successful command means
+the controls ran; inspect measurement/interval status for adequacy. Its same-region
+self-intersection control is not a finisher contact result. Analysis is offline;
+containment and between-sample behavior remain `not_evaluated`.
