@@ -20,13 +20,18 @@ only its accepted instance. Already-ready entry skips movement presentation.
 
 Preflight requires the exact mesh skeleton, a registered slot, composition support,
 root motion disabled, valid positive rates, and sufficient clip duration for the
-entry deadline plus blend-out, accounting for actor time dilation. Authors must
+entry deadline plus blend-out, accounting for actor time dilation. `MovementStartTime`
+selects source animation seconds without wrapping. Remaining duration is
+`(source length - start time) / (asset RateScale * MovementPlayRate)`; the native
+montage track starts at `MovementStartTime / RateScale`. A missing clip requires
+zero start time. Authors must
 also inspect the raw root track, gameplay notifies, actual AnimGraph slot coverage
 and directional suitability. Disabling a root-motion flag alone does not establish
 an in-place clip. A registered skeleton slot alone does not prove live graph coverage.
 
 The capture runner accepts the original complete ten-field entry JSON, or all six
-additional presentation fields. Partial/unknown fields fail validation. An example
+additional presentation fields, optionally followed by `movement_start_time_s`.
+Omitting the phase preserves zero. Partial/unknown fields fail validation. An example
 for the reviewed straight rear approach is:
 
 ```json
@@ -45,6 +50,7 @@ for the reviewed straight rear approach is:
   "movement_animation": "/Game/Assets/Animations/KatanaAnimset/InPlace/WalkForward_InPlace.WalkForward_InPlace",
   "movement_slot": "DefaultSlot",
   "movement_play_rate": 1,
+  "movement_start_time_s": 0,
   "movement_blend_in_s": 0.1,
   "movement_blend_out_s": 0.25
 }
@@ -59,6 +65,18 @@ The 0.25-second blend-out matches the reviewed finisher blend-in. It is an autho
 candidate, not a gameplay default or a guarantee of smooth motion. Gait phase,
 approach start/stop, oblique heading changes and floor support remain separate
 authoring decisions. See the [qualification audit](../audits/INITIATOR_FINISHER_APPROACH_2026-09-13.md).
+
+Named finisher capture placements declare `placement_support` with mode
+`walking_floor` and a maximum correction in centimetres. Immediately before public
+input, the fixture queries the live walking capsule and sweeps it to CMC floor
+clearance. It records requested and achieved positions, capsule dimensions, floor
+identity, distances and correction. Missing, unwalkable, line-only, penetrating,
+over-budget or unsuccessful support rejects setup; a failed settling sweep restores
+the requested position. This preparation does not run during entry or playback and
+does not give the entry executor navigation or terrain-following behavior.
+The [transition qualification](../audits/PAIRED_ENTRY_TRANSITION_2026-09-13.md)
+verifies floor continuity and source-time selection while retaining the candidate's
+mixed foot-motion results and the unresolved root-motion velocity handoff.
 
 Run native controls with `Automation RunTests KatanaCombat.PairedAnimation.Entry`
 and Python controls with `python -m unittest discover -s Tools/CombatCapture -p test_entry_presentation.py`.
