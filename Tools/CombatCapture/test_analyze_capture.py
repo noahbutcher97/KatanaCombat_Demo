@@ -118,6 +118,31 @@ class CaptureAnalysisTests(unittest.TestCase):
         with self.assertRaises(CaptureError):
             compare(current, baseline)
 
+    def test_readback_mode_and_diagnostic_policy_are_comparison_inputs(self):
+        baseline, _, _ = analyze(self.root)
+        self.assertEqual(baseline["compatibility"]["readback_mode"], "synchronous")
+        self.manifest.update(readback_mode="asynchronous", readback_diagnostic_resolution=False)
+        self.write()
+        asynchronous, _, _ = analyze(self.root)
+        self.assertTrue(any("enqueue cost" in note for note in asynchronous["notes"]))
+        with self.assertRaisesRegex(CaptureError, "incompatible"):
+            compare(asynchronous, baseline)
+        self.manifest["readback_diagnostic_resolution"] = True
+        self.write()
+        diagnostic, _, _ = analyze(self.root)
+        with self.assertRaisesRegex(CaptureError, "incompatible"):
+            compare(diagnostic, asynchronous)
+
+    def test_unknown_readback_policy_is_rejected(self):
+        self.manifest["readback_mode"] = "automatic"
+        self.write()
+        with self.assertRaisesRegex(CaptureError, "readback mode"):
+            analyze(self.root)
+        self.manifest.update(readback_mode="synchronous", readback_diagnostic_resolution=True)
+        self.write()
+        with self.assertRaisesRegex(CaptureError, "diagnostic-resolution"):
+            analyze(self.root)
+
     def test_report_escapes_marker_script(self):
         self.frames[0]["marker"] = "</script><script>alert(1)</script>"
         self.write()

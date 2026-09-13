@@ -17,7 +17,7 @@ from analyze_capture import CaptureError, analyze, read_json, write_report
 from animation_analysis.artifacts import atomic_json, digest, identity, file_manifest
 from capture_format import implementation_identity
 from evaluate_capture import evaluate_and_write
-from animation_analysis_dependency import dependency_source_manifest
+from animation_analysis_dependency import SOURCE_SUFFIXES, dependency_source_manifest
 
 REPO = Path(__file__).resolve().parents[2]
 TOOLS = Path(__file__).resolve().parent
@@ -25,7 +25,7 @@ TOOLS = Path(__file__).resolve().parent
 
 def source_state(repo=REPO):
     paths = [p for directory in ("Source", "Config", "Tools/CombatCapture", "Tools/AnimationAnalysis", "Plugins/AnimationAnalysis") for p in (repo / directory).rglob("*")
-             if p.is_file() and p.suffix in (".cpp", ".h", ".cs", ".ini", ".py", ".json", ".toml", ".uplugin", ".uproject")
+             if p.is_file() and p.suffix in SOURCE_SUFFIXES
              and not any(part in ("Binaries", "Intermediate", "Saved") for part in p.relative_to(repo).parts)]
     paths += list(repo.glob("*.uproject"))
     files = file_manifest(repo, (p.relative_to(repo) for p in paths))

@@ -10,6 +10,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Dom/JsonObject.h"
 #include "Engine/World.h"
+#include "Engine/GameViewportClient.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "Misc/FileHelper.h"
@@ -226,8 +227,12 @@ namespace
 class FCombatObservationCommand : public IAutomationLatentCommand
 {
 public:
-	FCombatObservationCommand(FAutomationTestBase* InTest, bool bInConsole)
-		: Test(InTest), bConsole(bInConsole) {}
+	FCombatObservationCommand(FAutomationTestBase* InTest, bool bInConsole, bool bInAsync = false)
+		: Test(InTest), bConsole(bInConsole), bAsync(bInAsync) {}
+	~FCombatObservationCommand()
+	{
+		if (AsyncViewport.IsValid()) { AsyncViewport->EngineShowFlags.SetAntiAliasing(bPreviousAntiAliasing); }
+	}
 	virtual bool Update() override
 	{
 		if (StartWall == 0) { StartWall = FPlatformTime::Seconds(); }
@@ -264,6 +269,7 @@ public:
 			Test->TestEqual(TEXT("Frame limit has its own reason"), OwnedCapture.GetStopReason(), FString(TEXT("frame_limit_reached")));
 			Test->TestTrue(TEXT("Final bounded PNG exists before stop returns"), FPaths::FileExists(OwnedCapture.GetOutputDirectory() / TEXT("frames/frame_000001.png")));
 			FString Error; FCombatCaptureSettings Settings; Settings.FrameHz = 5;
+			Settings.bUseAsyncReadback = bAsync; Settings.bUseAsyncDiagnosticResolution = bAsync;
 			bVerifyingImageFailure = OwnedCapture.Start(World, Settings, FCombatCaptureSession::DiscoverParticipants(World), Error);
 			Test->TestTrue(TEXT("Image failure session starts"), bVerifyingImageFailure);
 			if (bVerifyingImageFailure)
@@ -277,7 +283,15 @@ public:
 			auto Participants = FCombatCaptureSession::DiscoverParticipants(World);
 			if (Participants.IsEmpty()) { return false; }
 			FString Error;
-			Scenario = bConsole ? TEXT("ThirdPersonObservation") : TEXT("DefenseMatrixObservation");
+			Scenario = bAsync ? TEXT("ThirdPersonAsyncObservation") :
+				(bConsole ? TEXT("ThirdPersonObservation") : TEXT("DefenseMatrixObservation"));
+			if (bAsync)
+			{
+				AsyncViewport = World->GetGameViewport();
+				if (!AsyncViewport.IsValid()) { Test->AddError(TEXT("Async capture requires a PIE viewport")); return true; }
+				bPreviousAntiAliasing = AsyncViewport->EngineShowFlags.AntiAliasing;
+				AsyncViewport->EngineShowFlags.SetAntiAliasing(false);
+			}
 			if (bConsole)
 			{
 				Test->TestTrue(TEXT("Ordinary PIE console starts capture"), IConsoleManager::Get().ProcessUserConsoleInput(
@@ -287,6 +301,7 @@ public:
 			else
 			{
 				FCombatCaptureSettings Settings; Settings.Scenario = Scenario;
+				Settings.bUseAsyncReadback = bAsync; Settings.bUseAsyncDiagnosticResolution = bAsync;
 				Test->TestTrue(TEXT("C++ scenario starts same recorder"), OwnedCapture.Start(World, Settings, Participants, Error));
 				Capture = &OwnedCapture;
 			}
@@ -336,6 +351,30 @@ public:
 				Test->TestEqual(TEXT("Frame order survives asynchronous completion"), Frame->GetIntegerField(TEXT("index")), Index + 1);
 				Test->TestTrue(TEXT("Original observation predates image collection"), Frame->GetNumberField(TEXT("wall_elapsed_s")) <= Frame->GetNumberField(TEXT("image_collected_wall_elapsed_s")));
 				Test->TestTrue(TEXT("Frame references a persisted PNG"), FPaths::FileExists(Directory / Frame->GetStringField(TEXT("file"))));
+				if (bAsync)
+				{
+					Test->TestEqual(TEXT("Async consumer setting reaches the producer"), Frame->GetStringField(TEXT("readback_mode")), FString(TEXT("asynchronous")));
+					Test->TestTrue(TEXT("Readback completes after acquisition"), Frame->GetNumberField(TEXT("readback_completed_wall_elapsed_s")) >= Frame->GetNumberField(TEXT("wall_elapsed_s")));
+					Test->TestTrue(TEXT("Collection preserves an earlier acquisition frame"), Frame->GetNumberField(TEXT("readback_collected_engine_frame")) >= Frame->GetNumberField(TEXT("engine_frame")));
+					Test->TestTrue(TEXT("Actual renderer identity is retained"), Frame->GetNumberField(TEXT("renderer_frame_number")) > 0);
+					Test->TestTrue(TEXT("Decoder identity is explicit"), !Frame->GetStringField(TEXT("readback_decoder")).IsEmpty());
+				}
+			}
+			if (bAsync)
+			{
+				FString Text; TSharedPtr<FJsonObject> Manifest;
+				FFileHelper::LoadFileToString(Text, *(Directory / TEXT("session.json")));
+				FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Manifest);
+				if (Test->TestTrue(TEXT("Async session manifest parses"), Manifest.IsValid()))
+				{
+					Test->TestTrue(TEXT("Diagnostic view opt-in is explicit"), Manifest->GetBoolField(TEXT("readback_diagnostic_resolution")));
+					Test->TestEqual(TEXT("Stop drains native readback requests"), Manifest->GetIntegerField(TEXT("readback_pending_requests")), 0);
+					Test->TestTrue(TEXT("Combined pipeline respects its frame bound"), Manifest->GetIntegerField(TEXT("capture_pipeline_peak_frames")) <= 4);
+					Test->TestTrue(TEXT("Combined pipeline respects its byte bound"), Manifest->GetNumberField(TEXT("capture_pipeline_peak_reserved_bytes")) <= 64.0 * 1024 * 1024);
+					Test->TestEqual(TEXT("Supported async observations do not fail"), Manifest->GetIntegerField(TEXT("readback_failed")), 0);
+					Test->TestEqual(TEXT("Supported async observations do not time out"), Manifest->GetIntegerField(TEXT("readback_timed_out")), 0);
+				}
+				Test->TestTrue(TEXT("Terminal readback stream is retained"), FPaths::FileExists(Directory / TEXT("readbacks.jsonl")));
 			}
 		}
 		FFileHelper::SaveStringToFile(Directory, *(FPaths::ProjectSavedDir() / TEXT("CombatCaptures") / (Scenario + TEXT("-latest.txt"))));
@@ -344,6 +383,7 @@ public:
 		{
 			FCombatCaptureSettings LimitSettings; LimitSettings.Scenario = TEXT("RenderedFrameLimit");
 			LimitSettings.FrameHz = 60; LimitSettings.MaxFrames = 1; LimitSettings.MaxWallSeconds = 10;
+			LimitSettings.bUseAsyncReadback = bAsync; LimitSettings.bUseAsyncDiagnosticResolution = bAsync;
 			bVerifyingFrameLimit = OwnedCapture.Start(World, LimitSettings, FCombatCaptureSession::DiscoverParticipants(World), Error);
 			Test->TestTrue(TEXT("Frame budget session starts"), bVerifyingFrameLimit);
 			return !bVerifyingFrameLimit;
@@ -353,6 +393,9 @@ public:
 private:
 	FAutomationTestBase* Test;
 	bool bConsole;
+	bool bAsync;
+	bool bPreviousAntiAliasing = false;
+	TWeakObjectPtr<UGameViewportClient> AsyncViewport;
 	bool bInputSubmitted = false, bInputReleased = false;
 	bool bVerifyingFrameLimit = false;
 	bool bVerifyingImageFailure = false;
@@ -370,15 +413,22 @@ void FCombatCapturePIEObservationTest::GetTests(TArray<FString>& Names, TArray<F
 {
 	Names.Add(TEXT("ThirdPersonConsole")); Commands.Add(TEXT("ThirdPerson"));
 	Names.Add(TEXT("DefenseMatrixAPI")); Commands.Add(TEXT("DefenseMatrix"));
+	Names.Add(TEXT("ThirdPersonAsyncAPI")); Commands.Add(TEXT("ThirdPersonAsync"));
 }
 
 bool FCombatCapturePIEObservationTest::RunTest(const FString& Parameters)
 {
 	const bool bConsole = Parameters == TEXT("ThirdPerson");
-	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(bConsole ? TEXT("/Game/ProjectFiles/Levels/Lvl_ThirdPerson1") : TEXT("/Game/ProjectFiles/Levels/Test/Lvl_DefenseMatrix")));
+	const bool bAsync = Parameters == TEXT("ThirdPersonAsync");
+	if (bAsync && !FApp::CanEverRender())
+	{
+		AddWarning(TEXT("Async RGB integration requires rendered D3D11; deferred under NullRHI"));
+		return true;
+	}
+	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(bConsole || bAsync ? TEXT("/Game/ProjectFiles/Levels/Lvl_ThirdPerson1") : TEXT("/Game/ProjectFiles/Levels/Test/Lvl_DefenseMatrix")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitForShadersToFinishCompiling());
 	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
-	ADD_LATENT_AUTOMATION_COMMAND(FCombatObservationCommand(this, bConsole));
+	ADD_LATENT_AUTOMATION_COMMAND(FCombatObservationCommand(this, bConsole, bAsync));
 	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	return true;

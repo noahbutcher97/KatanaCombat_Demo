@@ -22,8 +22,16 @@ def analyze(root: Path, distances=()):
         raise CaptureError("Unsupported session schema; expected version 1 or 2")
     samples, frames, markers = (read_lines(root / f"{name}.jsonl") for name in ("samples", "frames", "markers"))
     issues = list(manifest.get("errors", []))
+    readback_mode = manifest.get("readback_mode", "synchronous")
+    if readback_mode not in ("synchronous", "asynchronous"):
+        raise CaptureError("Unsupported image readback mode")
+    diagnostic_resolution = manifest.get("readback_diagnostic_resolution", False)
+    if type(diagnostic_resolution) is not bool or (diagnostic_resolution and readback_mode != "asynchronous"):
+        raise CaptureError("Invalid async diagnostic-resolution policy")
     notes = ["Measurements describe sampled motion; they do not score feel, foot support, occlusion, or collision correctness.",
-             "Synchronous image readback adds overhead. Wall-time measurements are not performance benchmarks."]
+             "Capture adds overhead. Wall-time measurements are not performance benchmarks."]
+    if readback_mode == "asynchronous":
+        notes.append("Async frames retain acquisition time separately from completion. Readback API time measures enqueue cost, not completion latency. This motion analysis does not validate the terminal readback stream.")
     if manifest.get("status") != "complete":
         issues.append(f"Session is {manifest.get('status')!r}, not finalized successfully")
     for name, rows in (("sample", samples), ("frame", frames), ("marker", markers)):
@@ -225,6 +233,7 @@ def analyze(root: Path, distances=()):
               "motion": metrics, "point_distances": distance_results, "input_timing": latencies,
               "compatibility": {"scenario": manifest["scenario"], "map": manifest["map"],
                   "sample_hz": sample_hz, "frame_hz": frame_hz, "render_available": manifest["render_available"],
+                  "readback_mode": readback_mode, "readback_diagnostic_resolution": diagnostic_resolution,
                   "participants": sorted((role, sorted(data["points"])) for role, data in roles.items()),
                   "resolutions": sorted(resolutions), "distances": list(distances)}}
     return result, frames, markers
