@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scenario": "FinisherRecovery",
-  "version": 4,
+  "version": 6,
   "attack": "/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1.LightAttack_1",
   "maps": {
     "ThirdPerson": "/Game/ProjectFiles/Levels/Lvl_ThirdPerson1",
@@ -25,7 +25,7 @@
   "viewport_width": 960,
   "viewport_height": 540,
   "sample_hz": 60,
-  "capture_points": {"Attacker": ["weapon_start", "weapon_end"], "Victim": ["spine_03", "spine_05", "neck_01"]},
+  "capture_points": {"Attacker": ["weapon_start", "weapon_end"], "Victim": ["spine_03", "spine_05", "neck_01", "head"]},
   "frame_hz": 30,
   "random_seed": 12479,
   "pose_mode": "RequiredParticipantsAlwaysRefresh",

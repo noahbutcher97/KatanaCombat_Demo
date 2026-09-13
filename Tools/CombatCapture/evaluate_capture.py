@@ -131,9 +131,73 @@ def tuning_numbers(value, count):
     return value
 
 
+FACING_POLICIES = ("face-partner", "face-away-from-partner", "match-partner-heading")
+
+
+def validate_primary_sync_settings(settings):
+    if not isinstance(settings, dict) or not settings or set(settings) - {"time_s", "nudge_enabled"}:
+        raise CaptureError("Primary sync requires a time and/or nudge setting")
+    if "time_s" in settings:
+        time = tuning_numbers([settings["time_s"]], 1)[0]
+        if not 0 <= time <= 5:
+            raise CaptureError("Primary sync time must be within 0..5 seconds")
+    if "nudge_enabled" in settings and type(settings["nudge_enabled"]) is not bool:
+        raise CaptureError("Primary sync nudge setting must be boolean")
+    return settings
+
+
+def validate_primary_sync_override(settings, row):
+    before, after = row.get("before"), row.get("after")
+    for state in (before, after):
+        if not isinstance(state, dict) or set(state) != {"time_s", "end_s", "nudge_enabled"}:
+            raise CaptureError("Incomplete primary sync override")
+        start, end = tuning_numbers([state["time_s"], state["end_s"]], 2)
+        if not -.001 <= start < end <= 5 or type(state["nudge_enabled"]) is not bool:
+            raise CaptureError("Invalid primary sync override")
+    if (abs(after["time_s"] - settings.get("time_s", before["time_s"])) > 1e-5
+            or abs((after["end_s"]-after["time_s"]) - (before["end_s"]-before["time_s"])) > 1e-5
+            or after["nudge_enabled"] != settings.get("nudge_enabled", before["nudge_enabled"])):
+        raise CaptureError("Primary sync differs from the request or changes an unrequested field")
+
+
+def validate_entry_settings(settings):
+    scalars = ("victim_yaw_deg", "duration_s", "translation_speed_cm_s", "travel_budget_cm",
+               "turn_rate_deg_s", "turn_budget_deg", "position_tolerance_cm", "yaw_tolerance_deg")
+    if (not isinstance(settings, dict) or set(settings) != {"enabled", "victim_offset_cm", *scalars}
+            or type(settings["enabled"]) is not bool):
+        raise CaptureError("Entry configuration requires the complete typed pose and motion limits")
+    tuning_numbers(settings["victim_offset_cm"], 3)
+    values = tuning_numbers([settings[k] for k in scalars], len(scalars))
+    if (not -180 <= values[0] <= 180 or values[1] <= 0 or any(v < 0 or v > 3.402823e38 for v in values[1:])
+            or values[-1] > 180):
+        raise CaptureError("Entry limits or upright yaw are outside their supported ranges")
+    return settings
+
+
+def validate_entry_override(settings, row):
+    before = validate_entry_settings(row.get("before"))
+    after = validate_entry_settings(row.get("after"))
+    if row.get("notify_class") != "PairedAnimationData" or after["enabled"] != settings["enabled"]:
+        raise CaptureError("Entry override has inconsistent ownership or enable state")
+    for key, expected in settings.items():
+        if key == "enabled":
+            continue
+        actual = after[key]
+        pairs = zip(actual, expected) if isinstance(expected, list) else [(actual, expected)]
+        if any(abs((a-b+180) % 360-180 if key == "victim_yaw_deg" else a-b) > 1e-4 for a, b in pairs):
+            raise CaptureError("Entry override differs from the requested pose or limits")
+
+
 def validate_warp_tuning_settings(settings):
-    if not isinstance(settings, dict) or set(settings) != {"victim_window_s", "victim_offset_cm"}:
-        raise CaptureError("Warp tuning requires exactly a victim window and offset")
+    required = {"victim_window_s", "victim_offset_cm"}
+    if not isinstance(settings, dict) or not required <= set(settings) or set(settings) - required - {"victim_facing_policy", "primary_sync", "entry"}:
+        raise CaptureError("Warp tuning requires a victim window and offset, with an optional facing policy")
+    if "primary_sync" in settings:
+        validate_primary_sync_settings(settings["primary_sync"])
+    if "entry" in settings and not validate_entry_settings(settings["entry"])["enabled"]:
+        raise CaptureError("Requested entry preparation must be enabled")
+    if "victim_facing_policy" in settings and settings["victim_facing_policy"] not in FACING_POLICIES:
+        raise CaptureError("Unsupported victim facing policy")
     start, end = tuning_numbers(settings["victim_window_s"], 2)
     x, y, z = tuning_numbers(settings["victim_offset_cm"], 3)
     if not (0 <= start and end <= 5 and end - start >= .02 and abs(x) <= 200 and abs(y) <= 200 and z == 0):
@@ -143,30 +207,53 @@ def validate_warp_tuning_settings(settings):
 
 def validate_warp_tuning_overrides(overrides, context):
     settings = validate_warp_tuning_settings(context.get("warp_tuning"))
-    if len(overrides) != 5:
-        raise CaptureError("Warp tuning must describe all five overrides")
+    facing_requested = "victim_facing_policy" in settings
+    sync_requested = "primary_sync" in settings
+    entry_requested = "entry" in settings
+    if len(overrides) != 5 + int(facing_requested) + 2 * int(sync_requested) + int(entry_requested):
+        raise CaptureError("Warp tuning must describe every requested override")
     seen, assets, notify_ids = set(), {}, set()
     expected = {("Attacker", "bDisableMovement"), ("Victim", "bDisableMovement"),
                 ("Attacker", "RootMotionModifier.bWarpTranslation"), ("Victim", "TriggerWindowSeconds"),
                 ("Victim", "VictimWarpConfig.RelativeOffset")}
+    if facing_requested:
+        expected.add(("Victim", "VictimWarpConfig.FacingPolicy"))
+    if sync_requested:
+        expected.update((role, "PrimarySyncSettings") for role in ("Attacker", "Victim"))
+    if entry_requested:
+        expected.add(("Victim", "Entry"))
     for row in overrides:
         role, prop = row.get("role"), row.get("property")
         key = (role, prop)
         offset = prop == "VictimWarpConfig.RelativeOffset"
+        facing = prop == "VictimWarpConfig.FacingPolicy"
+        entry = prop == "Entry"
+        pair_property = offset or facing or entry
         asset, index = row.get("asset"), row.get("notify_index")
         if (key not in expected or key in seen or not isinstance(asset, str) or not asset.startswith("/Game/")
-                or type(index) is not int or (index != -1 if offset else index < 0)):
+                or type(index) is not int or (index != -1 if pair_property else index < 0)):
             raise CaptureError("Invalid or duplicate warp tuning override")
         notify_id = (role, asset, index)
-        if notify_id in notify_ids:
+        if not pair_property and notify_id in notify_ids:
             raise CaptureError("Duplicate tuning notify identity")
-        notify_ids.add(notify_id)
+        if not pair_property:
+            notify_ids.add(notify_id)
         seen.add(key)
-        asset_key = "pair" if offset else role
+        asset_key = "pair" if pair_property else role
         if asset_key in assets and assets[asset_key] != asset:
             raise CaptureError("Warp tuning role has inconsistent asset identity")
         assets[asset_key] = asset
-        if prop in ("TriggerWindowSeconds", "VictimWarpConfig.RelativeOffset"):
+        if entry:
+            validate_entry_override(settings["entry"], row)
+        elif prop == "PrimarySyncSettings":
+            if row.get("notify_class") != "AnimNotifyState_PairedAnimationSync":
+                raise CaptureError("Primary sync override must identify a paired sync notify")
+            validate_primary_sync_override(settings["primary_sync"], row)
+        elif facing:
+            if (row.get("notify_class") != "PairedAnimationData" or row.get("before") not in FACING_POLICIES
+                    or row.get("after") != settings["victim_facing_policy"]):
+                raise CaptureError("Facing override differs from the requested policy")
+        elif prop in ("TriggerWindowSeconds", "VictimWarpConfig.RelativeOffset"):
             values = settings["victim_offset_cm" if offset else "victim_window_s"]
             before = tuning_numbers(row.get("before"), len(values))
             after = tuning_numbers(row.get("after"), len(values))

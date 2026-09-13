@@ -7,6 +7,7 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotifyState_PairedAnimationCollision.h"
+#include "Animation/AnimNotifyState_PairedAnimationSync.h"
 #include "AnimNotifyState_MotionWarping.h"
 #include "RootMotionModifier.h"
 #include "AssetRegistry/AssetRegistryModule.h"
@@ -96,7 +97,29 @@ public:
 		UCombatComponent* Combat = Player->CombatComponent;
 		if (Definition->GetStringField(TEXT("scenario")) == TEXT("HoldReleaseRecovery")) { return UpdateHoldRecovery(); }
 		UPairedAnimationComponent* Paired = Player->PairedAnimationComponent;
+		if (bEntryRequested && bRequested && !bReleased)
+		{
+			if (Paired->IsPreparingPairedEntry())
+			{
+				if (!bEntryObserved) { Mark(TEXT("entry_preparation_observed")); bEntryObserved = true; }
+				bEntryNoEarlyPlayback &= !Player->GetMesh()->GetAnimInstance()->Montage_IsPlaying(TuningPair->AttackerMontage)
+					&& !Victim->GetMesh()->GetAnimInstance()->Montage_IsPlaying(TuningPair->VictimMontage);
+				bEntryNoEarlyDamage &= Victim->CurrentHealth == VictimHealthAtRequest && !Victim->IsDeadOrDying();
+			}
+			else if (bEntryObserved && !bEntryResultObserved)
+			{
+				EntryOutcome = Paired->GetLastPairedEntryOutcome(); bEntryResultObserved = true;
+				Mark(EntryOutcome == EAlignmentMotionOutcome::Reached ? TEXT("entry_ready_observed") : TEXT("entry_failure_observed"));
+			}
+		}
 		ObserveBystanders();
+		// Observe damage independently of capture sampling. This is the first
+		// automation observation, not an exact notify callback timestamp.
+		if (bRequested && !bReleased && Paired->IsPairedAnimationActive() && TuningPair.IsValid()
+			&& !FirstLethalMontageTime.IsSet() && Victim->IsDeadOrDying())
+		{
+			FirstLethalMontageTime = Player->GetMesh()->GetAnimInstance()->Montage_GetPosition(TuningPair->AttackerMontage);
+		}
 		if (!bRequested)
 		{
 			if (Now - BeginSimulation < Definition->GetNumberField(TEXT("warmup_s"))) { return false; }
@@ -107,6 +130,7 @@ public:
 			Victim->SetActorLocation(Base + ScenarioVector(Definition->GetArrayField(TEXT("victim_offset_cm"))), false, nullptr, ETeleportType::TeleportPhysics);
 			Victim->SetActorRotation(FRotator(0, 180, 0));
 			Victim->CurrentHealth = 1.0f;
+			VictimHealthAtRequest = Victim->CurrentHealth;
 			Player->TargetingComponent->SetCurrentTarget(Victim.Get());
 			Mark(TEXT("finisher_requested"));
 			Inject(Player->LightAttackAction, FInputActionValue(true));
@@ -164,6 +188,15 @@ public:
 			if (!bInterrupted && InterruptAfter >= 0 && Now - PairedStart >= InterruptAfter)
 			{
 				bVictimDeadAtInterruption = Victim->IsDeadOrDying();
+				if (ExpectedPrimarySyncTime.IsSet() && TuningPair.IsValid())
+				{
+					InterruptionMontageTime = Player->GetMesh()->GetAnimInstance()->Montage_GetPosition(TuningPair->AttackerMontage);
+					if (InterruptionMontageTime.GetValue() < ExpectedPrimarySyncTime.GetValue())
+					{
+						Check(TEXT("pre_sync_interruption_preserves_health"), Victim->CurrentHealth == VictimHealthAtRequest && !bVictimDeadAtInterruption,
+							TEXT("Interruption before the requested primary sync retains request-time health"));
+					}
+				}
 				Mark(TEXT("interruption_requested")); Paired->CancelPairedAnimation(); bInterrupted = true;
 			}
 			return false;
@@ -444,7 +477,9 @@ private:
 			Settings.Metadata.Add(TEXT("runtime_experiment"), Experiment);
 			Settings.Metadata.Add(TEXT("camera_view"), CameraView);
 			FString OverridesJson;
-			FJsonSerializer::Serialize(ExperimentOverrides, TJsonWriterFactory<>::Create(&OverridesJson));
+			// Metadata is bounded; compact serialization preserves every provenance
+			// field without spending that budget on display-only whitespace.
+			FJsonSerializer::Serialize(ExperimentOverrides, TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&OverridesJson));
 			Settings.Metadata.Add(TEXT("runtime_asset_overrides"), OverridesJson);
 			if (RunContext)
 			{
@@ -475,7 +510,20 @@ private:
 				UE_LOG(LogTemp, Error, TEXT("Warp tuning preflight failed: attacker translation=%d victim translation=%d rotation=%d"), Pair->AttackerWarpConfig.bWarpTranslation, Pair->VictimWarpConfig.bWarpTranslation, Pair->VictimWarpConfig.bWarpRotation);
 				return false;
 			}
-			TuningPair.Reset(Pair); OriginalVictimWarp = Pair->VictimWarpConfig;
+			TuningPair.Reset(Pair); OriginalVictimWarp = Pair->VictimWarpConfig; OriginalEntry = Pair->Entry;
+			if (RunContext->GetObjectField(TEXT("warp_tuning"))->HasField(TEXT("entry")))
+			{
+				FPairedEntryConfig Entry;
+				if (!PairedEntryTuning::Read(RunContext->GetObjectField(TEXT("warp_tuning"))->GetObjectField(TEXT("entry")), Entry)) { return false; }
+				auto EntryRow = MakeShared<FJsonObject>();
+				EntryRow->SetStringField(TEXT("role"), TEXT("Victim")); EntryRow->SetStringField(TEXT("asset"), Pair->GetPathName());
+				EntryRow->SetNumberField(TEXT("notify_index"), -1); EntryRow->SetStringField(TEXT("notify_class"), TEXT("PairedAnimationData"));
+				EntryRow->SetStringField(TEXT("property"), TEXT("Entry"));
+				EntryRow->SetObjectField(TEXT("before"), PairedEntryTuning::Snapshot(Pair->Entry));
+				EntryRow->SetObjectField(TEXT("after"), PairedEntryTuning::Snapshot(Entry));
+				ExperimentOverrides.Add(MakeShared<FJsonValueObject>(EntryRow)); Pair->Entry = Entry;
+				bEntryRequested = true;
+			}
 			auto Row = MakeShared<FJsonObject>(); Row->SetStringField(TEXT("role"), TEXT("Victim"));
 			Row->SetStringField(TEXT("asset"), Pair->GetPathName()); Row->SetNumberField(TEXT("notify_index"), -1);
 			Row->SetStringField(TEXT("notify_class"), TEXT("PairedAnimationData"));
@@ -484,14 +532,33 @@ private:
 			for (int32 I = 0; I < 3; ++I) { Before.Add(MakeShared<FJsonValueNumber>(OriginalVictimWarp.RelativeOffset[I])); After.Add(MakeShared<FJsonValueNumber>(Offset[I])); }
 			Row->SetArrayField(TEXT("before"), Before); Row->SetArrayField(TEXT("after"), After); ExperimentOverrides.Add(MakeShared<FJsonValueObject>(Row));
 			Pair->VictimWarpConfig.RelativeOffset = FVector(Offset[0], Offset[1], Offset[2]);
+			bool bFacingRequested = false;
+			EPairedFacingPolicy Facing = OriginalVictimWarp.FacingPolicy;
+			if (!PairedWarpTuning::ReadFacing(RunContext->GetObjectField(TEXT("warp_tuning")), Facing, bFacingRequested)) { return false; }
+			if (bFacingRequested)
+			{
+				auto FacingRow = MakeShared<FJsonObject>();
+				FacingRow->SetStringField(TEXT("role"), TEXT("Victim")); FacingRow->SetStringField(TEXT("asset"), Pair->GetPathName());
+				FacingRow->SetNumberField(TEXT("notify_index"), -1); FacingRow->SetStringField(TEXT("notify_class"), TEXT("PairedAnimationData"));
+				FacingRow->SetStringField(TEXT("property"), TEXT("VictimWarpConfig.FacingPolicy"));
+				FacingRow->SetStringField(TEXT("before"), PairedWarpTuning::FacingName(OriginalVictimWarp.FacingPolicy));
+				FacingRow->SetStringField(TEXT("after"), PairedWarpTuning::FacingName(Facing));
+				ExperimentOverrides.Add(MakeShared<FJsonValueObject>(FacingRow));
+				Pair->VictimWarpConfig.FacingPolicy = Facing;
+			}
 		}
 		UAnimMontage* Montages[] = {Pair->AttackerMontage, Pair->VictimMontage};
+		PairedSyncTuning::FSettings SyncSettings;
+		const bool bSyncTuning = bTuning && RunContext->GetObjectField(TEXT("warp_tuning"))->HasField(TEXT("primary_sync"));
+		if (bSyncTuning && !PairedSyncTuning::Read(RunContext->GetObjectField(TEXT("warp_tuning"))->GetObjectField(TEXT("primary_sync")), SyncSettings)) { return false; }
+		ExpectedPrimarySyncTime = SyncSettings.Time;
 		for (int32 Role = 0; Role < 2; ++Role)
 		{
 			auto* Montage = Montages[Role];
 			if (!Montage || Montage->GetOutermost()->IsDirty()) { return false; }
 			int32 Changed = 0;
 			int32 WarpChanged = 0;
+			int32 SyncChanged = 0;
 			const bool bSourceTranslation = (bTuning && Role == 0) || Experiment == (Role == 0 ? TEXT("attacker-source-translation") : TEXT("victim-source-translation"));
 			const bool bWindow = bTuning && Role == 1;
 			const bool bSourceRotation = Role == 1 && Experiment == TEXT("victim-source-rotation");
@@ -507,6 +574,16 @@ private:
 					auto* Copy = DuplicateObject<UAnimNotifyState_PairedAnimationCollision>(Collision, GetTransientPackage());
 					if (!Copy) { return false; }
 					Copy->bDisableMovement = false; Replacement = Copy; Property = TEXT("bDisableMovement"); ++Changed;
+				}
+				else if (auto* Sync = Cast<UAnimNotifyState_PairedAnimationSync>(Original); bSyncTuning && Sync && Sync->bIsPrimarySyncPoint && Sync->bApplyDamage)
+				{
+					const double Start = SyncSettings.Time.Get(static_cast<double>(Event.GetTriggerTime()));
+					const double End = Start + Event.GetEndTriggerTime() - Event.GetTriggerTime();
+					if (End > Montage->GetPlayLength() || End <= Start) { return false; }
+					auto* Copy = DuplicateObject<UAnimNotifyState_PairedAnimationSync>(Sync, GetTransientPackage());
+					if (!Copy) { return false; }
+					Copy->bNudgeOnMinorMisalignment = SyncSettings.Nudge.Get(Sync->bNudgeOnMinorMisalignment);
+					Replacement = Copy; Property = TEXT("PrimarySyncSettings"); ++SyncChanged;
 				}
 				else if (auto* Notify = Cast<UAnimNotifyState_MotionWarping>(Original); Notify && (bSourceTranslation || bSourceRotation || bWindow))
 				{
@@ -539,9 +616,21 @@ private:
 					if (!PairedWarpTuning::SetEffectiveWindow(Event, Montage, Window[0], Window[1])) { return false; }
 					Row->SetArrayField(TEXT("after"), {MakeShared<FJsonValueNumber>(Event.GetTriggerTime()), MakeShared<FJsonValueNumber>(Event.GetEndTriggerTime())});
 				}
+				else if (Property == TEXT("PrimarySyncSettings"))
+				{
+					const auto* Sync = CastChecked<UAnimNotifyState_PairedAnimationSync>(Original);
+					const auto* Copy = CastChecked<UAnimNotifyState_PairedAnimationSync>(Replacement);
+					Row->SetObjectField(TEXT("before"), PairedSyncTuning::Snapshot(Event.GetTriggerTime(), Event.GetEndTriggerTime(), Sync->bNudgeOnMinorMisalignment));
+					if (SyncSettings.Time.IsSet())
+					{
+						const double Duration = Event.GetEndTriggerTime() - Event.GetTriggerTime();
+						if (!PairedWarpTuning::SetEffectiveWindow(Event, Montage, SyncSettings.Time.GetValue(), SyncSettings.Time.GetValue() + Duration)) { return false; }
+					}
+					Row->SetObjectField(TEXT("after"), PairedSyncTuning::Snapshot(Event.GetTriggerTime(), Event.GetEndTriggerTime(), Copy->bNudgeOnMinorMisalignment));
+				}
 				ExperimentOverrides.Add(MakeShared<FJsonValueObject>(Row));
 			}
-			if (Changed == 0 || ((bSourceTranslation || bSourceRotation || bWindow) && WarpChanged != 1)) { return false; }
+			if (Changed == 0 || ((bSourceTranslation || bSourceRotation || bWindow) && WarpChanged != 1) || (bSyncTuning && SyncChanged != 1)) { return false; }
 		}
 		const bool bValid = !bTuning || PairedWarpTuning::Validate(RunContext, ExperimentOverrides, Pair->AttackerMontage->GetPathName(), Pair->VictimMontage->GetPathName(), Pair->GetPathName());
 		if (!bValid)
@@ -576,7 +665,9 @@ private:
 		if (TuningPair.IsValid())
 		{
 			TuningPair->VictimWarpConfig = OriginalVictimWarp;
-			bRestored &= !TuningPair->GetOutermost()->IsDirty() && TuningPair->VictimWarpConfig.RelativeOffset == OriginalVictimWarp.RelativeOffset;
+			TuningPair->Entry = OriginalEntry;
+			bRestored &= !TuningPair->GetOutermost()->IsDirty() && TuningPair->VictimWarpConfig.RelativeOffset == OriginalVictimWarp.RelativeOffset
+				&& TuningPair->VictimWarpConfig.FacingPolicy == OriginalVictimWarp.FacingPolicy;
 			TuningPair.Reset();
 		}
 		return bRestored;
@@ -620,6 +711,22 @@ private:
 	{
 		if (bDone) { return true; }
 		Mark(TEXT("scenario_finished"));
+		if (bEntryRequested)
+		{
+			EntryOutcome = Player.IsValid() ? Player->PairedAnimationComponent->GetLastPairedEntryOutcome() : EAlignmentMotionOutcome::Invalid;
+			Check(TEXT("entry_preparation_observed"), bEntryObserved, TEXT("Paired reservation was observed before playback"));
+			Check(TEXT("entry_defers_playback_and_damage"), bEntryNoEarlyPlayback && bEntryNoEarlyDamage,
+				TEXT("No paired montage playback or damage was observed during preparation"));
+			Check(TEXT("entry_outcome"), EntryOutcome == EAlignmentMotionOutcome::Reached || (bInterrupted && EntryOutcome == EAlignmentMotionOutcome::Cancelled),
+				TEXT("Entry reached its pose or was explicitly cancelled before playback"));
+		}
+		if (ExpectedPrimarySyncTime.IsSet())
+		{
+			Check(TEXT("primary_sync_damage_timing"),
+				(!FirstLethalMontageTime.IsSet() || FirstLethalMontageTime.GetValue() + 0.0001 >= ExpectedPrimarySyncTime.GetValue())
+				&& (bInterrupted || FirstLethalMontageTime.IsSet()),
+				TEXT("No lethal state observed before requested sync; completion observes lethal state during the pair"));
+		}
 		FString Error;
 		if (Capture.IsRecording()) { Check(TEXT("capture_export"), Capture.Stop(TEXT("scenario_finished"), Error), Error); }
 		else if (Mode != TEXT("disabled") && !Directory.IsEmpty()) { Check(TEXT("capture_export"), false, TEXT("Recorder stopped before the scenario")); }
@@ -632,7 +739,15 @@ private:
 			Result->SetNumberField(TEXT("control_offset_cm"), ControlOffsetCm); Result->SetObjectField(TEXT("definition"), Definition.ToSharedRef());
 			Result->SetStringField(TEXT("runtime_experiment"), Experiment); Result->SetArrayField(TEXT("runtime_asset_overrides"), ExperimentOverrides);
 			Result->SetStringField(TEXT("camera_view"), CameraView);
+			if (bEntryRequested) { Result->SetStringField(TEXT("entry_outcome"), UEnum::GetValueAsString(EntryOutcome)); }
 			Result->SetBoolField(TEXT("victim_dead_at_interruption"), bVictimDeadAtInterruption);
+			if (bRequested && Definition->GetStringField(TEXT("scenario")) == TEXT("FinisherRecovery"))
+			{
+				Result->SetNumberField(TEXT("victim_health_at_request"), VictimHealthAtRequest);
+			}
+			if (ExpectedPrimarySyncTime.IsSet()) { Result->SetNumberField(TEXT("requested_primary_sync_time_s"), ExpectedPrimarySyncTime.GetValue()); }
+			if (FirstLethalMontageTime.IsSet()) { Result->SetNumberField(TEXT("first_lethal_observed_montage_time_s"), FirstLethalMontageTime.GetValue()); }
+			if (InterruptionMontageTime.IsSet()) { Result->SetNumberField(TEXT("interruption_observed_montage_time_s"), InterruptionMontageTime.GetValue()); }
 			Result->SetArrayField(TEXT("checks"), Checks); Result->SetArrayField(TEXT("events"), Events);
 			// Export project package dependencies for the external runner to hash. No
 			// packages are loaded or saved by this identity walk; engine identity is separate.
@@ -695,6 +810,7 @@ private:
 	TArray<FNotifyOverride> NotifyOverrides;
 	TStrongObjectPtr<UPairedAnimationData> TuningPair;
 	FPairedWarpConfig OriginalVictimWarp;
+	FPairedEntryConfig OriginalEntry;
 	TArray<TSharedPtr<FJsonValue>> ExperimentOverrides;
 	FString Experiment = TEXT("none");
 	TSharedPtr<FJsonObject> Definition, RunContext;
@@ -715,6 +831,8 @@ private:
 	FIntPoint OriginalViewportSize = FIntPoint::ZeroValue;
 	EVisibilityBasedAnimTickOption OriginalPlayerTick, OriginalVictimTick;
 	double StartWall = 0, BeginSimulation = 0, PairedStart = 0, RecoveryStart = 0;
+	TOptional<double> ExpectedPrimarySyncTime, FirstLethalMontageTime, InterruptionMontageTime;
+	float VictimHealthAtRequest = 0;
 	float ControlOffsetCm = 0;
 	int32 InitialGeneration = 0, RecoveryGeneration = 0, OriginalRandomSeed = 0;
 	bool bDone = false, bRequested = false, bStarted = false, bReleased = false, bInterrupted = false, bRepressed = false;
@@ -723,6 +841,9 @@ private:
 	bool bPoseModeChanged = false, bSeedChanged = false, bControlApplied = false;
 	bool bVictimDeadAtInterruption = false;
 	bool bPairedCollisionObserved = false, bPairedCollisionHeld = true;
+	bool bEntryRequested = false, bEntryObserved = false, bEntryResultObserved = false;
+	bool bEntryNoEarlyPlayback = true, bEntryNoEarlyDamage = true;
+	EAlignmentMotionOutcome EntryOutcome = EAlignmentMotionOutcome::Invalid;
 	bool bOriginalFixedViewport = false;
 	int32 HoldStage = 0;
 	double HoldStageTime = 0, HoldStart = 0;
