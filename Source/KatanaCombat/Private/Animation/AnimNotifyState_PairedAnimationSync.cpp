@@ -60,14 +60,10 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
 
     if (bValidateAlignment && bIsPrimarySyncPoint && PairedComp)
     {
-        // Find the primary paired partner (victim in finisher scenario)
-        AActor* PairedPartner = nullptr;
-        if (PairedComp->PairedAnimationPartners.Num() > 0)
-        {
-            PairedPartner = PairedComp->PairedAnimationPartners[0].Get();
-        }
-
-        if (PairedPartner)
+        // Damage/effect delegates above may have ended participation. Resolve the
+        // current accepted target through the sequence owner after those callbacks.
+        // Participant notifies and retained defense alignment cannot teleport it.
+        if (AActor* PairedPartner = PairedComp->GetOwnedSyncCorrectionTarget())
         {
             const FVector AttackerLocation = Owner->GetActorLocation();
             const FVector VictimLocation = PairedPartner->GetActorLocation();
@@ -120,21 +116,13 @@ void UAnimNotifyState_PairedAnimationSync::NotifyBegin(
                 if (bLogMisalignment)
                 {
                     UE_LOG(LogCombat, Log,
-                        TEXT("[SYNC VALIDATION] Nudged victim %s: %.1f -> %.1f units from attacker"),
+                        TEXT("[SYNC VALIDATION] Nudged victim %s: %.1f -> %.1f units from attacker (Owner: %s)"),
                         *PairedPartner->GetName(),
                         ActualDistance,
-                        FVector::Dist(AttackerLocation, FinalLocation));
+                        FVector::Dist(AttackerLocation, FinalLocation),
+                        *Owner->GetName());
                 }
             }
-        }
-        else if (bLogMisalignment)
-        {
-            // Gap 19.2 fix: Log warning when paired partner is null at primary sync point
-            // This indicates the partner was destroyed/teleported mid-animation
-            UE_LOG(LogCombat, Warning,
-                TEXT("[SYNC VALIDATION] %s at sync point '%s' but PairedPartner is null (destroyed during animation?)"),
-                *Owner->GetName(),
-                *SyncPointName.ToString());
         }
     }
 

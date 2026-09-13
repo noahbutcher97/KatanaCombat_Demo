@@ -11,6 +11,7 @@
 
 // Forward declarations
 class ABaseCombatCharacter;
+class UTargetingComponent;
 class UCombatComponent;
 class UAttackData;
 class UPairedAnimationData;
@@ -84,6 +85,11 @@ class KATANACOMBAT_API UPairedAnimationComponent : public UActorComponent
 
 public:
 	UPairedAnimationComponent();
+
+	/** Reservation is active during entry; paired montages/damage wait for readiness. */
+	bool IsPreparingPairedEntry() const { return bEntryPending; }
+	EAlignmentMotionOutcome GetLastPairedEntryOutcome() const { return LastEntryOutcome; }
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	// ============================================================================
 	// CONFIGURATION / CACHED REFERENCES
@@ -450,6 +456,14 @@ public:
 	void HandlePairedSyncPoint(FName SyncPointName, bool bApplyDamage);
 
 	/**
+	 * Resolve the accepted target for a direct sync-position correction.
+	 * Only an active legacy paired sequence owner may correct its current target.
+	 * Participants and retained defense sequences return null; retained alignment
+	 * is controlled by its scoped targeting requests, not notify teleports.
+	 */
+	AActor* GetOwnedSyncCorrectionTarget() const;
+
+	/**
 	 * Check if a paired animation is currently active.
 	 *
 	 * @return True if ActivePairedAnimData is set
@@ -495,6 +509,23 @@ public:
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+	bool PreflightPairedEntry(AActor* Target, const UPairedAnimationData* Data) const;
+	bool PreparePairedEntry(AActor* Target, const UPairedAnimationData* Data);
+	void ReleasePairedEntry();
+	bool StartLegacyPairedMontages(AActor* TargetActor, UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType);
+	int32 EntryGeneration = 0;
+	bool bEntryPending = false;
+	double EntryElapsed = 0.0;
+	FPairedEntryConfig EntryConfig;
+	EAlignmentMotionOutcome LastEntryOutcome = EAlignmentMotionOutcome::Invalid;
+	TWeakObjectPtr<UTargetingComponent> EntryOwnerTargeting;
+	TWeakObjectPtr<UTargetingComponent> EntryVictimTargeting;
+	FAlignmentRequestHandle EntryOwnerAlignment;
+	FAlignmentRequestHandle EntryVictimAlignment;
+	FPairedSequenceLeaseHandle EntryOwnerState;
+	FPairedSequenceLeaseHandle EntryVictimState;
+	TWeakObjectPtr<UPairedAnimationComponent> EntryVictimComponent;
 
 	// ============================================================================
 	// COUNTER SYSTEM INTERNAL METHODS

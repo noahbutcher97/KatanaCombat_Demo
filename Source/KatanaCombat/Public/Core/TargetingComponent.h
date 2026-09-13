@@ -297,6 +297,7 @@ public:
     void ReleaseAlignmentRequest(FAlignmentRequestHandle Handle);
     void ReleaseAllAlignmentRequests(EAlignmentReleaseReason Reason);
     bool GetAlignmentRequestSpec(FAlignmentRequestHandle Handle, FAlignmentRequestSpec& OutSpec) const;
+    bool GetAlignmentMotionState(FAlignmentRequestHandle Handle, FAlignmentMotionState& OutState) const;
     FAlignmentRequestHandle GetActiveAlignmentRequest() const { return ActiveAlignmentRequest; }
 
     /** Configure and bind one runtime modifier clone to its active named request. */
@@ -391,6 +392,7 @@ private:
     {
         FAlignmentRequestHandle Handle;
         FAlignmentRequestSpec Spec;
+        FAlignmentMotionState MotionState;
         uint64 AcquisitionOrder = 0;
     };
 
@@ -563,6 +565,7 @@ private:
 
     bool EnsureAlignmentDependencies();
     bool ValidateAlignmentSpec(const FAlignmentRequestSpec& Spec) const;
+    void AdvanceBoundedAlignment(float DeltaTime);
     bool CaptureAlignmentRotationSettings();
     void RestoreAlignmentRotationSettings();
     FAlignmentRequestHandle ChooseActiveAlignmentRequest() const;

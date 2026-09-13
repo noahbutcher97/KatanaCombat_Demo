@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/TargetingComponent.h"
+#include "Utilities/AlignmentMotionLibrary.h"
 #include "Debug/DebugConfig.h"
 #include "Debug/DebugUtils.h"
 #include "GameFramework/Character.h"
@@ -23,6 +24,7 @@
 #include "Core/PairedAnimationComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "RootMotionModifier.h"
+#include "Utilities/PairedAnimationUtilityLibrary.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTargeting, Log, All);
 
@@ -34,14 +36,6 @@ FVector AdjustPairedLocationToGround(ACharacter* Character, const FVector& Locat
 	FVector Result = Location;
 	if (Ground.bFoundGround) { Result.Z = Ground.GroundLocation.Z + Character->GetCapsuleComponent()->GetScaledCapsuleHalfHeight(); }
 	return Result;
-}
-
-FRotator UprightPairedFacing(const ACharacter* Character, const FVector& From, const FVector& Toward)
-{
-	const FVector Direction = (Toward - From).GetSafeNormal2D();
-	// Ground adjustment affects position, never pitch/roll. Coincident XY has no
-	// facing direction, so retain the owner's heading instead of snapping to zero.
-	return FRotator(0, Direction.IsNearlyZero() ? Character->GetActorRotation().Yaw : Direction.Rotation().Yaw, 0);
 }
 
 struct FAlignmentTelemetryContext
@@ -150,6 +144,11 @@ void UTargetingComponent::TickComponent(
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
     FAlignmentRequestRecord* ActiveRecord = AlignmentRequests.Find(ActiveAlignmentRequest);
+    if (ActiveRecord && ActiveRecord->Spec.Executor == EAlignmentExecutor::BoundedMovement)
+    {
+        AdvanceBoundedAlignment(DeltaTime);
+        return;
+    }
     if (!ActiveRecord || ActiveRecord->Spec.Executor != EAlignmentExecutor::CharacterMovement)
     {
         return;
@@ -879,6 +878,7 @@ bool UTargetingComponent::UpdateAlignmentRequest(
     }
 
     if (Spec.OwnerId != Record->Spec.OwnerId
+        || (Spec.Executor == EAlignmentExecutor::BoundedMovement && !(Spec.MotionLimits == Record->Spec.MotionLimits))
         || Spec.OwnerGeneration != Record->Spec.OwnerGeneration
         || Spec.Priority != Record->Spec.Priority
         || Spec.Executor != Record->Spec.Executor
@@ -1060,10 +1060,12 @@ bool UTargetingComponent::ValidateAlignmentSpec(const FAlignmentRequestSpec& Spe
 		&& FMath::IsFinite(Spec.FinalFacingTolerance)
         && FMath::IsFinite(Spec.MaximumTranslation);
     if (Spec.OwnerId.IsNone()
-        || Spec.OwnerGeneration <= 0
+        || Spec.OwnerGeneration == 0
+        || (Spec.OwnerGeneration < 0 && Spec.Executor != EAlignmentExecutor::BoundedMovement)
         || Spec.Executor == EAlignmentExecutor::None
         || !bFiniteRotation
         || !bFiniteLimits
+		|| !UPairedAnimationUtilityLibrary::IsValidFacingPolicy(Spec.FacingPolicy)
 		|| Spec.TargetRelativeOffset.ContainsNaN()
         || Spec.MaximumTurnRate < 0.0f
         || Spec.RemainingTurnBudget < 0.0f
@@ -1078,6 +1080,11 @@ bool UTargetingComponent::ValidateAlignmentSpec(const FAlignmentRequestSpec& Spe
     if (!OwnerCharacter || !OwnerCharacter->GetCharacterMovement())
     {
         return false;
+    }
+
+    if (Spec.Executor == EAlignmentExecutor::BoundedMovement)
+    {
+        return AlignmentMotion::IsValid(Spec.MotionLimits) && AlignmentMotion::IsValidGoal(Spec.BoundedGoal);
     }
 
     if (Spec.Executor == EAlignmentExecutor::CharacterMovement)
@@ -1159,7 +1166,8 @@ bool UTargetingComponent::HasSmoothAlignmentRequest() const
 {
     for (const TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
     {
-        if (Pair.Value.Spec.Executor == EAlignmentExecutor::CharacterMovement)
+        if (Pair.Value.Spec.Executor == EAlignmentExecutor::CharacterMovement
+            || Pair.Value.Spec.Executor == EAlignmentExecutor::BoundedMovement)
         {
             return true;
         }
@@ -1615,12 +1623,9 @@ FRotator UTargetingComponent::ResolveAlignmentRotation(const FAlignmentRequestSp
 	float DesiredYaw = static_cast<float>(Spec.DesiredRotation.Yaw);
     if (Spec.bTrackTargetRotation && OwnerCharacter && Spec.Target.IsValid())
     {
-        FVector ToTarget = Spec.Target->GetActorLocation() - OwnerCharacter->GetActorLocation();
-        ToTarget.Z = 0.0f;
-        if (!ToTarget.IsNearlyZero())
-        {
-			DesiredYaw = static_cast<float>(ToTarget.Rotation().Yaw);
-        }
+        DesiredYaw = static_cast<float>(UPairedAnimationUtilityLibrary::ResolvePairedFacingRotation(
+            OwnerCharacter->GetActorLocation(), Spec.DesiredRotation,
+            Spec.Target->GetActorTransform(), Spec.FacingPolicy).Yaw);
     }
 
 	if (OwnerCharacter)
@@ -1665,6 +1670,7 @@ bool UTargetingComponent::IsAlignmentWarpTargetOwned(FName WarpTargetName) const
 
 bool UTargetingComponent::SetupVictimWarp(AActor* Attacker, const FPairedWarpConfig& Config)
 {
+    if (!IsValid(Attacker) || !UPairedAnimationUtilityLibrary::IsValidFacingPolicy(Config.FacingPolicy)) { return false; }
     ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
 
     // Lazy init for test compatibility: if BeginPlay hasn't run yet, find MotionWarpingComponent now
@@ -1728,11 +1734,12 @@ bool UTargetingComponent::SetupVictimWarp(AActor* Attacker, const FPairedWarpCon
         WarpLocation = AdjustPairedLocationToGround(Owner, WarpLocation);
     }
 
-    // Calculate rotation (face the attacker)
+    // Resolve the role's heading independently of its translation target.
     FRotator WarpRotation = Owner->GetActorRotation();
     if (Config.bWarpRotation)
     {
-        WarpRotation = UprightPairedFacing(Owner, WarpLocation, AttackerLocation);
+        WarpRotation = UPairedAnimationUtilityLibrary::ResolvePairedFacingRotation(
+            WarpLocation, Owner->GetActorRotation(), Attacker->GetActorTransform(), Config.FacingPolicy);
     }
 
     // Set initial warp target
@@ -1805,11 +1812,12 @@ void UTargetingComponent::OnVictimMotionWarpingPreUpdate(UMotionWarpingComponent
         WarpLocation = AdjustPairedLocationToGround(Owner, WarpLocation);
     }
 
-    // Rotation (face the attacker)
+    // Refresh the same facing policy against the partner's current transform.
     FRotator WarpRotation = Owner->GetActorRotation();
     if (VictimWarpConfig.bWarpRotation)
     {
-        WarpRotation = UprightPairedFacing(Owner, WarpLocation, AttackerLocation);
+        WarpRotation = UPairedAnimationUtilityLibrary::ResolvePairedFacingRotation(
+            WarpLocation, Owner->GetActorRotation(), Attacker->GetActorTransform(), VictimWarpConfig.FacingPolicy);
     }
 
     // Update warp target with attacker's current position
@@ -1852,6 +1860,7 @@ void UTargetingComponent::StopVictimWarpTracking()
 
 bool UTargetingComponent::SetupAttackerPairedWarp(AActor* Victim, const FPairedWarpConfig& Config)
 {
+    if (!IsValid(Victim) || !UPairedAnimationUtilityLibrary::IsValidFacingPolicy(Config.FacingPolicy)) { return false; }
     ACharacter* Owner = OwnerCharacter ? OwnerCharacter.Get() : Cast<ACharacter>(GetOwner());
 
     // Lazy init for test compatibility: if BeginPlay hasn't run yet, find MotionWarpingComponent now
@@ -1927,11 +1936,12 @@ bool UTargetingComponent::SetupAttackerPairedWarp(AActor* Victim, const FPairedW
         WarpLocation = AdjustPairedLocationToGround(Owner, WarpLocation);
     }
 
-    // Calculate rotation (face the victim)
+    // Resolve the role's heading independently of its translation target.
     FRotator WarpRotation = Owner->GetActorRotation();
     if (Config.bWarpRotation)
     {
-        WarpRotation = UprightPairedFacing(Owner, OwnerLocation, VictimLocation);
+        WarpRotation = UPairedAnimationUtilityLibrary::ResolvePairedFacingRotation(
+            OwnerLocation, Owner->GetActorRotation(), Victim->GetActorTransform(), Config.FacingPolicy);
     }
 
     // Set initial warp target
@@ -2013,11 +2023,12 @@ void UTargetingComponent::OnAttackerPairedWarpPreUpdate(UMotionWarpingComponent*
         WarpLocation = AdjustPairedLocationToGround(Owner, WarpLocation);
     }
 
-    // Rotation (face the victim)
+    // Refresh the same facing policy against the partner's current transform.
     FRotator WarpRotation = Owner->GetActorRotation();
     if (AttackerPairedWarpConfig.bWarpRotation)
     {
-        WarpRotation = UprightPairedFacing(Owner, OwnerLocation, VictimLocation);
+        WarpRotation = UPairedAnimationUtilityLibrary::ResolvePairedFacingRotation(
+            OwnerLocation, Owner->GetActorRotation(), Victim->GetActorTransform(), AttackerPairedWarpConfig.FacingPolicy);
     }
 
     // Update warp target with victim's current position

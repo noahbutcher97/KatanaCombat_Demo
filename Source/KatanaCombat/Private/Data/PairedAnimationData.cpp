@@ -1,9 +1,11 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Data/PairedAnimationData.h"
+#include "Utilities/AlignmentMotionLibrary.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_ChainStageTransition.h"
 #include "Sound/SoundBase.h"
+#include "Utilities/PairedAnimationUtilityLibrary.h"
 
 #if WITH_EDITOR
 #include "Misc/DataValidation.h"
@@ -55,6 +57,7 @@ bool HasValidReadySections(const UPairedAnimationData& Data)
 
 bool HasValidNumericConfiguration(const UPairedAnimationData& Data)
 {
+	if (Data.Entry.bEnabled && (!AlignmentMotion::IsValid(Data.Entry.Limits) || !AlignmentMotion::IsValidGoal(Data.Entry.VictimRelativeTransform))) { return false; }
 	return FMath::IsFinite(Data.SyncPointTime)
 		&& Data.SyncPointTime >= 0.0f
 		&& FMath::IsFinite(Data.VictimStartOffset)
@@ -79,9 +82,11 @@ bool HasValidNumericConfiguration(const UPairedAnimationData& Data)
 		&& FMath::IsFinite(Data.AttackerWarpConfig.MaxWarpDistance)
 		&& Data.AttackerWarpConfig.MaxWarpDistance >= 0.0f
 		&& !Data.AttackerWarpConfig.RelativeOffset.ContainsNaN()
+		&& UPairedAnimationUtilityLibrary::IsValidFacingPolicy(Data.AttackerWarpConfig.FacingPolicy)
 		&& FMath::IsFinite(Data.VictimWarpConfig.MaxWarpDistance)
 		&& Data.VictimWarpConfig.MaxWarpDistance >= 0.0f
 		&& !Data.VictimWarpConfig.RelativeOffset.ContainsNaN()
+		&& UPairedAnimationUtilityLibrary::IsValidFacingPolicy(Data.VictimWarpConfig.FacingPolicy)
 		&& FMath::IsFinite(Data.BaseDamage)
 		&& Data.BaseDamage >= 0.0f
 		&& FMath::IsFinite(Data.DamageMultiplier)

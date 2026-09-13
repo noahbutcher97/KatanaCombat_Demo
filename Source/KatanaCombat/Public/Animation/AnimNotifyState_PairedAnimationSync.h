@@ -114,7 +114,7 @@ public:
     // ALIGNMENT VALIDATION
     // ========================================================================
 
-    /** Enable alignment validation at sync point (checks distance between attacker and victim) */
+    /** Validate the owning paired sequence's accepted correction target at sync. Retained defense uses its scoped alignment requests. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Validation")
     bool bValidateAlignment = true;
 
@@ -128,7 +128,7 @@ public:
         meta = (EditCondition = "bValidateAlignment"))
     bool bLogMisalignment = true;
 
-    /** Auto-correct minor misalignment by nudging victim position (GAP 20.5: enabled by default to fix drift) */
+    /** Allow the active paired sequence owner to nudge its accepted victim; participant notifies cannot move the owner. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Validation",
         meta = (EditCondition = "bValidateAlignment"))
     bool bNudgeOnMinorMisalignment = true;

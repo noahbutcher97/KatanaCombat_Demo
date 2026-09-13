@@ -121,6 +121,10 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Chain")
     FPairedChainTransitionPolicy ChainTransitionPolicy;
 
+    /** Legacy paired preparation; retained defense stages use their own preflight/alignment. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Animation|Entry")
+    FPairedEntryConfig Entry;
+
     // ========================================================================
     // SYNC CONFIGURATION
     // ========================================================================

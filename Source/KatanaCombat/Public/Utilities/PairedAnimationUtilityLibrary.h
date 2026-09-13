@@ -60,6 +60,18 @@ class KATANACOMBAT_API UPairedAnimationUtilityLibrary : public UBlueprintFunctio
     GENERATED_BODY()
 
 public:
+    /** Closed policy validation for runtime requests and authored data. */
+    static bool IsValidFacingPolicy(EPairedFacingPolicy Policy);
+
+    /** Actor-independent yaw resolution. Coincident positional facing preserves
+     * FallbackRotation.Yaw; heading matching uses the partner even at coincidence.
+     * Callers validate policy before acquiring ownership. Invalid policies retain
+     * the fallback heading without inventing a facing direction. */
+    UFUNCTION(BlueprintPure, Category = "Paired Animation|Position")
+    static FRotator ResolvePairedFacingRotation(const FVector& FacingOrigin,
+        const FRotator& FallbackRotation, const FTransform& PartnerTransform,
+        EPairedFacingPolicy Policy);
+
     // ========================================================================
     // POSITION CALCULATION
     // ========================================================================
