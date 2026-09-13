@@ -5337,8 +5337,9 @@ void UPairedAnimationComponent::CancelPairedAnimation(float BlendOutTime)
 		}
 	}
 
-	// Stop any playing montage on the owner
-	if (AActor* Owner = GetOwner())
+	// Entry owns only its movement instance; a replacement must survive cancellation.
+	// ReleasePairedEntry retires that instance during EndPairedAnimation below.
+	if (AActor* Owner = IsPreparingPairedEntry() ? nullptr : GetOwner())
 	{
 		if (ACharacter* Character = Cast<ACharacter>(Owner))
 		{

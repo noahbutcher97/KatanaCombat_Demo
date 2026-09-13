@@ -161,9 +161,12 @@ def validate_primary_sync_override(settings, row):
 
 
 def validate_entry_settings(settings):
+    presentation = dict(moving_role="victim", movement_animation="", movement_slot="DefaultSlot",
+                        movement_play_rate=1., movement_blend_in_s=.1, movement_blend_out_s=.1)
     scalars = ("victim_yaw_deg", "duration_s", "translation_speed_cm_s", "travel_budget_cm",
                "turn_rate_deg_s", "turn_budget_deg", "position_tolerance_cm", "yaw_tolerance_deg")
-    if (not isinstance(settings, dict) or set(settings) != {"enabled", "victim_offset_cm", *scalars}
+    required = {"enabled", "victim_offset_cm", *scalars}
+    if (not isinstance(settings, dict) or set(settings) not in (required, required | set(presentation))
             or type(settings["enabled"]) is not bool):
         raise CaptureError("Entry configuration requires the complete typed pose and motion limits")
     tuning_numbers(settings["victim_offset_cm"], 3)
@@ -171,10 +174,22 @@ def validate_entry_settings(settings):
     if (not -180 <= values[0] <= 180 or values[1] <= 0 or any(v < 0 or v > 3.402823e38 for v in values[1:])
             or values[-1] > 180):
         raise CaptureError("Entry limits or upright yaw are outside their supported ranges")
-    return settings
+    result = presentation | settings
+    if (result["moving_role"] not in ("victim", "initiator")
+            or not isinstance(result["movement_animation"], str)
+            or (result["movement_animation"] and not result["movement_animation"].startswith("/Game/"))
+            or not isinstance(result["movement_slot"], str) or not result["movement_slot"]
+            or result["movement_slot"].lower() == "none"):
+        raise CaptureError("Invalid entry movement role or animation identity")
+    rate, blend_in, blend_out = tuning_numbers([result[k] for k in
+        ("movement_play_rate", "movement_blend_in_s", "movement_blend_out_s")], 3)
+    if not (.01 <= rate <= 10 and 0 <= blend_in <= 1 and 0 <= blend_out <= 1):
+        raise CaptureError("Invalid entry presentation timing")
+    return result
 
 
 def validate_entry_override(settings, row):
+    settings = validate_entry_settings(settings)
     before = validate_entry_settings(row.get("before"))
     after = validate_entry_settings(row.get("after"))
     if row.get("notify_class") != "PairedAnimationData" or after["enabled"] != settings["enabled"]:
@@ -183,6 +198,10 @@ def validate_entry_override(settings, row):
         if key == "enabled":
             continue
         actual = after[key]
+        if isinstance(expected, str):
+            if actual != expected:
+                raise CaptureError("Entry override differs from the requested presentation")
+            continue
         pairs = zip(actual, expected) if isinstance(expected, list) else [(actual, expected)]
         if any(abs((a-b+180) % 360-180 if key == "victim_yaw_deg" else a-b) > 1e-4 for a, b in pairs):
             raise CaptureError("Entry override differs from the requested pose or limits")

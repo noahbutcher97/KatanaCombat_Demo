@@ -3,6 +3,10 @@
 #include "Core/TargetingComponent.h"
 #include "Data/PairedAnimationData.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimSequence.h"
+#include "Components/BoxComponent.h"
+#include "Analysis/PairedEntryTuning.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
@@ -40,6 +44,17 @@ struct FPairedEntryFixture
 		return true;
 	}
 	bool Start() {return Owner->PairedAnimationComponent->TryExecuteFinisher(Attack);}
+	bool ConfigureInitiator()
+	{
+		Pair->Entry.MovingRole = EPairedEntryMovingRole::Initiator;
+		Pair->Entry.MovementAnimation = LoadObject<UAnimSequence>(nullptr,
+			TEXT("/Game/Assets/Animations/KatanaAnimset/InPlace/WalkForward_InPlace.WalkForward_InPlace"));
+		Pair->Entry.VictimRelativeTransform = FTransform(FRotator::ZeroRotator, FVector(100,0,0));
+		Pair->Entry.Limits.TranslationSpeed = 122;
+		Pair->Entry.Limits.Duration = .65f;
+		Victim->SetActorLocationAndRotation(FVector(150,0,0), FRotator::ZeroRotator);
+		return Pair->Entry.MovementAnimation != nullptr;
+	}
 	void Step(float Delta)
 	{
 		for(auto* Character : {static_cast<ABaseCombatCharacter*>(Owner),static_cast<ABaseCombatCharacter*>(Victim)})
@@ -157,5 +172,159 @@ bool FPairedEntryLiveGoal::RunTest(const FString&)
 			TestEqual(TEXT("Exhaustion cannot commit damage"),F.Victim->CurrentHealth,1.f);
 		}
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedEntryInitiatorGoal,"KatanaCombat.PairedAnimation.Entry.InitiatorMovesVictimAnchors",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FPairedEntryInitiatorGoal::RunTest(const FString&)
+{
+	for (const double Yaw : {0., 30.})
+	{
+		FPairedEntryFixture F;
+		if (!TestTrue(TEXT("Fixture and reviewed clip load"), F.Initialize() && F.ConfigureInitiator())) { return false; }
+		// Native inventory closes the Python reflection gap for protected notify data.
+		TestEqual(TEXT("Reviewed approach clip has no gameplay notifies"), F.Pair->Entry.MovementAnimation->Notifies.Num(), 0);
+		F.Victim->SetActorRotation(FRotator(0,Yaw,0));
+		const FTransform Anchor = F.Victim->GetActorTransform();
+		const FTransform Goal = F.Pair->Entry.VictimRelativeTransform.Inverse() * Anchor;
+		if (!TestTrue(TEXT("Initiator entry accepted"), F.Start())) { return false; }
+		for (int I=0; I<45 && F.Owner->PairedAnimationComponent->IsPreparingPairedEntry(); ++I)
+		{
+			F.Step(1.f/60);
+			TestTrue(TEXT("Victim remains at accepted anchor throughout entry"), F.Victim->GetActorTransform().Equals(Anchor));
+		}
+		TestEqual(TEXT("Initiator entry reaches readiness"), F.Owner->PairedAnimationComponent->GetLastPairedEntryOutcome(), EAlignmentMotionOutcome::Reached);
+		TestTrue(TEXT("Initiator resolves the inverse relative pose including heading"), F.Owner->GetActorLocation().Equals(Goal.GetLocation(),2)
+			&& F.Owner->GetActorRotation().Equals(Goal.Rotator(),3));
+		TestTrue(TEXT("Both paired montages start only after approach"), F.Owner->GetMesh()->GetAnimInstance()->Montage_IsPlaying(F.Pair->AttackerMontage)
+			&& F.Victim->GetMesh()->GetAnimInstance()->Montage_IsPlaying(F.Pair->VictimMontage));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedEntryPresentationOwnership,"KatanaCombat.PairedAnimation.Entry.MovementPresentationOwnership",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FPairedEntryPresentationOwnership::RunTest(const FString&)
+{
+	for (const bool bReplace : {false, true})
+	{
+		FPairedEntryFixture F;
+		if (!TestTrue(TEXT("Fixture loads"), F.Initialize() && F.ConfigureInitiator()) || !TestTrue(TEXT("Entry starts"), F.Start())) { return false; }
+		auto* Instance = F.Owner->GetMesh()->GetAnimInstance();
+		UAnimMontage* Approach = Instance->GetCurrentActiveMontage();
+		if (!TestNotNull(TEXT("Approach has an active instance"), Approach)) { return false; }
+		TestTrue(TEXT("Entry uses a transient movement montage"), Approach != F.Pair->AttackerMontage && Approach->GetPackage() == GetTransientPackage());
+		UAnimMontage* Replacement = nullptr;
+		if (bReplace)
+		{
+			Replacement = UAnimMontage::CreateSlotAnimationAsDynamicMontage(F.Pair->Entry.MovementAnimation, TEXT("DefaultSlot"));
+			TestTrue(TEXT("External replacement starts"), Instance->Montage_Play(Replacement) > 0);
+		}
+		else { Instance->Montage_Stop(0, Approach); }
+		F.Step(.02f);
+		TestEqual(TEXT("Lost approach ownership rejects readiness"), F.Owner->PairedAnimationComponent->GetLastPairedEntryOutcome(), EAlignmentMotionOutcome::Invalid);
+		TestFalse(TEXT("Replacement or early stop releases the pair"), F.Owner->PairedAnimationComponent->IsPairedAnimationActive());
+		TestFalse(TEXT("No early paired playback"), Instance->Montage_IsPlaying(F.Pair->AttackerMontage));
+		TestEqual(TEXT("No early damage"), F.Victim->CurrentHealth, 1.f);
+		if (bReplace) { TestTrue(TEXT("Entry cleanup preserves the replacement instance"), Instance->Montage_IsPlaying(Replacement)); }
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedEntryInitiatorObstruction,"KatanaCombat.PairedAnimation.Entry.InitiatorObstruction",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FPairedEntryInitiatorObstruction::RunTest(const FString&)
+{
+	FPairedEntryFixture F;
+	if (!TestTrue(TEXT("Fixture loads"), F.Initialize() && F.ConfigureInitiator())) { return false; }
+	const FVector Anchor = F.Victim->GetActorLocation();
+	const auto Movement = F.Owner->GetCharacterMovement()->MovementMode;
+	if (!TestTrue(TEXT("Clear approach accepted before obstruction appears"), F.Start())) { return false; }
+	// A wall present before public targeting can reject the target itself. Insert
+	// this obstacle after acceptance to exercise the entry executor's swept failure.
+	AActor* Wall = F.World->SpawnActor<AActor>();
+	auto* Box = NewObject<UBoxComponent>(Wall); Wall->SetRootComponent(Box); Box->SetBoxExtent(FVector(3,100,200));
+	Box->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics); Box->SetCollisionResponseToAllChannels(ECR_Block);
+	Box->SetCollisionObjectType(ECC_WorldStatic); Box->RegisterComponent(); Wall->SetActorLocation(FVector(65,0,0));
+	for (int I=0; I<45 && F.Owner->PairedAnimationComponent->IsPreparingPairedEntry(); ++I) { F.Step(1.f/60); }
+	TestEqual(TEXT("Obstruction is retained"), F.Owner->PairedAnimationComponent->GetLastPairedEntryOutcome(), EAlignmentMotionOutcome::Blocked);
+	TestTrue(TEXT("Initiator cannot cross the obstacle"), F.Owner->GetActorLocation().X < 50);
+	TestTrue(TEXT("Victim stays anchored"), F.Victim->GetActorLocation().Equals(Anchor));
+	TestFalse(TEXT("Obstruction releases input and participation"), F.Owner->PairedAnimationComponent->IsInputBlocked() || F.Victim->HitReactionComponent->IsInPairedAnimationState());
+	TestEqual(TEXT("Movement mode restored"), F.Owner->GetCharacterMovement()->MovementMode, Movement);
+	TestFalse(TEXT("No montage begins after obstruction"), F.Owner->GetMesh()->GetAnimInstance()->Montage_IsPlaying(F.Pair->AttackerMontage));
+	TestEqual(TEXT("Obstruction never damages"), F.Victim->CurrentHealth, 1.f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedEntryInitiatorCancelReady,"KatanaCombat.PairedAnimation.Entry.InitiatorCancellationAndReady",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FPairedEntryInitiatorCancelReady::RunTest(const FString&)
+{
+	FPairedEntryFixture F;
+	if (!TestTrue(TEXT("Fixture loads"), F.Initialize() && F.ConfigureInitiator())) { return false; }
+	const auto Movement = F.Owner->GetCharacterMovement()->MovementMode;
+	for (int Attempt=0; Attempt<2; ++Attempt)
+	{
+		if (!TestTrue(TEXT("Approach can be retried"), F.Start())) { return false; }
+		F.Step(.05f);
+		const FVector Position = F.Owner->GetActorLocation();
+		F.Owner->PairedAnimationComponent->CancelPairedAnimation(0);
+		F.Step(.2f);
+		TestTrue(TEXT("Cancellation does not teleport or continue approach"), F.Owner->GetActorLocation().Equals(Position));
+		TestEqual(TEXT("Cancellation restores initiator movement"), F.Owner->GetCharacterMovement()->MovementMode, Movement);
+		TestFalse(TEXT("Cancellation releases input"), F.Owner->PairedAnimationComponent->IsInputBlocked());
+		TestEqual(TEXT("Cancelled approach retains health"), F.Victim->CurrentHealth, 1.f);
+	}
+	F.Owner->GetMesh()->GetAnimInstance()->Montage_Stop(0);
+	F.Owner->SetActorLocation(FVector(50,0,0));
+	if (!TestTrue(TEXT("Ready pair accepted"), F.Start())) { return false; }
+	TestNull(TEXT("Already-ready pair skips the approach montage"), F.Owner->GetMesh()->GetAnimInstance()->GetCurrentActiveMontage());
+	F.Step(.01f);
+	TestEqual(TEXT("Ready pair proceeds without displacement"), F.Owner->PairedAnimationComponent->GetLastPairedEntryOutcome(), EAlignmentMotionOutcome::Reached);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedEntryPresentationPreflight,"KatanaCombat.PairedAnimation.Entry.PresentationPreflight",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FPairedEntryPresentationPreflight::RunTest(const FString&)
+{
+	for (int Mode=0; Mode<4; ++Mode)
+	{
+		FPairedEntryFixture F;
+		if (!TestTrue(TEXT("Fixture loads"), F.Initialize() && F.ConfigureInitiator())) { return false; }
+		if (Mode==0) { F.Pair->Entry.MovementAnimation = LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Assets/Animations/KatanaAnimset/RootMotion/WalkForward_Root.WalkForward_Root")); }
+		if (Mode==1) { F.Pair->Entry.MovementPlayRate = 10; }
+		if (Mode==2) { F.Pair->Entry.MovingRole = static_cast<EPairedEntryMovingRole>(255); }
+		if (Mode==3) { F.Pair->Entry.MovementSlot = TEXT("UnregisteredApproachSlot"); }
+		TestFalse(TEXT("Root motion, insufficient duration, invalid role/slot reject before takeover"), F.Start());
+		TestFalse(TEXT("Rejected presentation owns no victim"), F.Victim->HitReactionComponent->IsInPairedAnimationState());
+		TestFalse(TEXT("Rejected presentation owns no input"), F.Owner->PairedAnimationComponent->IsInputBlocked());
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FPairedEntryTuningRoundTrip,"KatanaCombat.PairedAnimation.Entry.PresentationTuningIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FPairedEntryTuningRoundTrip::RunTest(const FString&)
+{
+	FPairedEntryFixture F;
+	if (!TestTrue(TEXT("Fixture loads"), F.Initialize() && F.ConfigureInitiator())) { return false; }
+	const auto Snapshot = PairedEntryTuning::Snapshot(F.Pair->Entry);
+	FPairedEntryConfig Parsed;
+	TestTrue(TEXT("Typed presentation round trips"), PairedEntryTuning::Read(Snapshot, Parsed));
+	TestEqual(TEXT("Animation identity retained"), Parsed.MovementAnimation.Get(), F.Pair->Entry.MovementAnimation.Get());
+	auto Row = MakeShared<FJsonObject>(); Row->SetObjectField(TEXT("before"), PairedEntryTuning::Snapshot({}));
+	Row->SetObjectField(TEXT("after"), Snapshot);
+	TestTrue(TEXT("Requested presentation matches recorded override"), PairedEntryTuning::ValidateOverride(F.Pair->Entry, Row));
+	Snapshot->SetStringField(TEXT("moving_role"), TEXT("victim"));
+	TestFalse(TEXT("Wrong moving role cannot validate"), PairedEntryTuning::ValidateOverride(F.Pair->Entry, Row));
+	Snapshot->SetStringField(TEXT("moving_role"), TEXT("unknown"));
+	TestFalse(TEXT("Unknown role cannot silently default"), PairedEntryTuning::Read(Snapshot, Parsed));
+	for (const TCHAR* Key : {TEXT("moving_role"), TEXT("movement_animation"), TEXT("movement_slot"), TEXT("movement_play_rate"), TEXT("movement_blend_in_s"), TEXT("movement_blend_out_s")}) { Snapshot->RemoveField(Key); }
+	TestTrue(TEXT("Original ten-field entry settings remain readable"), PairedEntryTuning::Read(Snapshot, Parsed));
+	TestEqual(TEXT("Original settings keep victim-moving behavior"), Parsed.MovingRole, EPairedEntryMovingRole::Victim);
+	TestNull(TEXT("Original settings have no presentation clip"), Parsed.MovementAnimation.Get());
 	return true;
 }

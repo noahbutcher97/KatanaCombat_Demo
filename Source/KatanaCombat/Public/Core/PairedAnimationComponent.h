@@ -10,6 +10,8 @@
 #include "PairedAnimationComponent.generated.h"
 
 // Forward declarations
+class ACharacter;
+class UAnimInstance;
 class ABaseCombatCharacter;
 class UTargetingComponent;
 class UCombatComponent;
@@ -513,11 +515,19 @@ protected:
 	bool PreflightPairedEntry(AActor* Target, const UPairedAnimationData* Data) const;
 	bool PreparePairedEntry(AActor* Target, const UPairedAnimationData* Data);
 	void ReleasePairedEntry();
+	bool StartEntryMovementPresentation(ACharacter* Mover);
+	bool IsEntryMovementPresentationValid() const;
+	void StopEntryMovementPresentation();
 	bool StartLegacyPairedMontages(AActor* TargetActor, UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType);
 	int32 EntryGeneration = 0;
 	bool bEntryPending = false;
 	double EntryElapsed = 0.0;
 	FPairedEntryConfig EntryConfig;
+	TWeakObjectPtr<UAnimInstance> EntryMovementAnimInstance;
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> EntryMovementMontage;
+	int32 EntryMovementInstanceId = INDEX_NONE;
+	int32 EntryMovementGeneration = 0;
 	EAlignmentMotionOutcome LastEntryOutcome = EAlignmentMotionOutcome::Invalid;
 	TWeakObjectPtr<UTargetingComponent> EntryOwnerTargeting;
 	TWeakObjectPtr<UTargetingComponent> EntryVictimTargeting;
