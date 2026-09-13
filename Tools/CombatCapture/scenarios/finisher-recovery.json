@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "scenario": "FinisherRecovery",
-  "version": 6,
+  "version": 8,
   "attack": "/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1.LightAttack_1",
   "maps": {
     "ThirdPerson": "/Game/ProjectFiles/Levels/Lvl_ThirdPerson1",
@@ -13,6 +13,21 @@
   "paired_input_after_s": 0.15,
   "recovery_observation_s": 2.0,
   "victim_offset_cm": [150, 0, 0],
+  "placement_support": {"mode": "walking_floor", "max_adjustment_cm": 20},
+  "placements": {
+    "rear-reference": {
+      "Attacker": {"offset_cm": [0, 0, 0], "yaw_deg": 0},
+      "Victim": {"offset_cm": [100, 0, 0], "yaw_deg": 0}
+    },
+    "rear-distant": {
+      "Attacker": {"offset_cm": [0, 0, 0], "yaw_deg": 0},
+      "Victim": {"offset_cm": [150, 0, 0], "yaw_deg": 0}
+    },
+    "rear-oblique": {
+      "Attacker": {"offset_cm": [0, 0, 0], "yaw_deg": 0},
+      "Victim": {"offset_cm": [120, 20, 0], "yaw_deg": 30}
+    }
+  },
   "bystander_offsets_cm": [[300, 300, 0], [-300, 300, 0], [-350, -200, 0]],
   "camera_offset_cm": [0, -850, 230],
   "camera_focus_cm": [50, 0, 45],

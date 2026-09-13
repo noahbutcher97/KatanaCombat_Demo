@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import math
@@ -14,6 +15,7 @@ from animation_analysis.artifacts import digest, identity, atomic_text, atomic_j
 from animation_analysis.metrics import STATUSES, summarize_statuses
 from analyze_capture import analyze
 from capture_format import bundle_identity, implementation_identity, event_interval, window_rows
+from scenario_placement import validate_placement
 
 
 VERSION = 1
@@ -119,6 +121,8 @@ def compatibility(scenario):
     # Source/assets are reported as candidate changes, not blindly required to match.
     value = dict(scenario=scenario["scenario"], map_key=scenario["map_key"], variant=scenario["variant"],
                  definition_hash=identity(scenario["definition"]), evaluator_version=VERSION)
+    if scenario.get("placement", "default") != "default":
+        value["placement"] = scenario["placement"]
     if scenario.get("runtime_experiment", "none") != "none":
         value["runtime_experiment"] = scenario["runtime_experiment"]
         value["runtime_overrides_identity"] = identity(scenario.get("runtime_asset_overrides", []))
@@ -291,7 +295,7 @@ def validate_warp_tuning_overrides(overrides, context):
         raise CaptureError("Missing required warp tuning override")
 
 
-def validate_runtime_experiment(scenario, context, metadata=None):
+def validate_runtime_experiment(scenario, context, metadata=None, override_bytes=None):
     experiment = scenario.get("runtime_experiment", "none")
     overrides = scenario.get("runtime_asset_overrides", [])
     warp_role = {"attacker-source-translation": "Attacker", "victim-source-translation": "Victim", "victim-source-rotation": "Victim"}.get(experiment)
@@ -327,8 +331,17 @@ def validate_runtime_experiment(scenario, context, metadata=None):
         if movement_roles != {"Attacker", "Victim"} or warp_roles != ([warp_role] if warp_role else []):
             raise CaptureError("Runtime experiment does not describe its required movement and warp overrides")
     if metadata is not None:
-        if (metadata.get("runtime_experiment", "none") != experiment
-                or json.loads(metadata.get("runtime_asset_overrides", "[]")) != overrides):
+        if "runtime_asset_overrides_sha1" in metadata:
+            if ("runtime_asset_overrides" in metadata or override_bytes is None
+                    or hashlib.sha1(override_bytes).hexdigest() != metadata["runtime_asset_overrides_sha1"]):
+                raise CaptureError("Runtime override sidecar is missing, ambiguous or does not match capture metadata")
+            try:
+                recorded = json.loads(override_bytes)
+            except (ValueError, UnicodeError) as error:
+                raise CaptureError("Runtime override sidecar is not valid JSON") from error
+        else:
+            recorded = json.loads(metadata.get("runtime_asset_overrides", "[]"))
+        if metadata.get("runtime_experiment", "none") != experiment or recorded != overrides:
             raise CaptureError("Capture metadata disagrees with the runtime experiment")
     return dict(name=experiment, asset_overrides=overrides, identity=identity(overrides))
 
@@ -377,7 +390,10 @@ def evaluate(root, reference=None):
         if not context["editor_binaries"] or not assets["files"]:
             raise CaptureError("No editor binary or asset identity")
         metadata = read_json(root / "session.json")["metadata"] if scenario["capture_mode"] != "disabled" else None
-        result["runtime_experiment"] = validate_runtime_experiment(scenario, context, metadata)
+        override_path = root / "runtime-overrides.json"
+        override_bytes = override_path.read_bytes() if override_path.is_file() else None
+        result["runtime_experiment"] = validate_runtime_experiment(scenario, context, metadata, override_bytes)
+        result["placement"] = validate_placement(scenario, context, metadata)
         execution_files = {name: sha for name, sha in context["source"]["files"].items()
                            if (not name.startswith(("Tools/CombatCapture/", "Tools/AnimationAnalysis/", "Dependencies/AnimationAnalysis/Python/"))
                                or name.startswith("Tools/CombatCapture/scenarios/"))}

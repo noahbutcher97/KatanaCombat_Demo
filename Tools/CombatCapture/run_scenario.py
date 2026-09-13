@@ -17,6 +17,7 @@ from analyze_capture import CaptureError, analyze, read_json, write_report
 from animation_analysis.artifacts import atomic_json, digest, identity, file_manifest
 from capture_format import implementation_identity
 from evaluate_capture import evaluate_and_write
+from scenario_placement import resolve_placement
 from animation_analysis_dependency import SOURCE_SUFFIXES, dependency_source_manifest
 
 REPO = Path(__file__).resolve().parents[2]
@@ -118,6 +119,7 @@ def run_one(args, batch_dir, source, map_key, variant, mode, iteration):
                        editor_binaries=editor_binary_state(),
                        build_this_batch=not args.skip_build, declared_changes=args.declare_change,
                        runtime_experiment=args.finisher_experiment, warp_tuning=args.warp_tuning, camera_view=args.camera_view,
+                       placement=args.placement,
                        scenario_path=args.scenario.relative_to(REPO).as_posix())
         atomic_json(run_dir / "run-context.json", context)
         before = content_snapshot()
@@ -186,6 +188,7 @@ def main():
     parser.add_argument("--skip-build", action="store_true", help="Record use of an existing build; caller must ensure it matches source")
     parser.add_argument("--render-world", action="store_true", help="Keep rendering enabled for disabled/motion modes to isolate recorder overhead")
     parser.add_argument("--camera-view", default="default", help="Named camera view from the registered scenario; default preserves its standard camera")
+    parser.add_argument("--placement", default="default", help="Named participant placement from the registered scenario; applied as fixture setup before public input")
     parser.add_argument("--timeout", type=int, default=240, help="Per-process wall deadline including editor startup")
     parser.add_argument("--control-offset-cm", type=float, default=0, help="Deliberate transient PIE mesh displacement for detector validation")
     parser.add_argument("--finisher-experiment", choices=("none", "permit-root-motion", "attacker-source-translation", "victim-source-translation", "victim-source-rotation", "paired-warp-tuning"), default="none",
@@ -230,6 +233,10 @@ def main():
     if args.scenario.parent != (TOOLS / "scenarios").resolve() or args.scenario.name not in registered:
         parser.error("Scenario must be a registered repository definition")
     args.definition = read_json(args.scenario)
+    try:
+        resolve_placement(args.definition, args.placement)
+    except CaptureError as error:
+        parser.error(str(error))
     if args.camera_view != "default" and args.camera_view not in args.definition.get("camera_views", {}):
         parser.error("Camera view must be declared in the registered scenario")
     if args.definition["scenario"] != registered[args.scenario.name]:

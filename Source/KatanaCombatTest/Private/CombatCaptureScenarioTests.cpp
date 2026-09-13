@@ -1,7 +1,10 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 #include "Misc/AutomationTest.h"
+#include "CombatScenarioPlacement.h"
+#include "CombatScenarioGrounding.h"
 #include "Analysis/CombatCaptureSession.h"
 #include "Analysis/PairedWarpTuning.h"
+#include "Analysis/MontagePlaybackInspection.h"
 #include "AI/CombatTokenSubsystem.h"
 #include "AI/EnemyCombatAIComponent.h"
 #include "Animation/AnimInstance.h"
@@ -40,6 +43,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Parse.h"
 #include "Misc/Paths.h"
+#include "Misc/SecureHash.h"
 #include "Serialization/JsonSerializer.h"
 #include "Slate/SceneViewport.h"
 #include "Tests/AutomationCommon.h"
@@ -130,6 +134,17 @@ public:
 			Victim->SetActorLocation(Base + ScenarioVector(Definition->GetArrayField(TEXT("victim_offset_cm"))), false, nullptr, ETeleportType::TeleportPhysics);
 			Victim->SetActorRotation(FRotator(0, 180, 0));
 			Victim->CurrentHealth = 1.0f;
+			if (!ApplyNamedPlacement(true)) { return Finish(); }
+			if (bEntryRequested && TuningPair.IsValid())
+			{
+				const auto& Entry = TuningPair->Entry;
+				const FTransform OwnerPose(Player->GetActorRotation(), Player->GetActorLocation());
+				const FTransform VictimPose(Victim->GetActorRotation(), Victim->GetActorLocation());
+				const bool bMoveInitiator = Entry.MovingRole == EPairedEntryMovingRole::Initiator;
+				bEntryReadyAtRequest = AlignmentMotion::CalculateStep(bMoveInitiator ? OwnerPose : VictimPose,
+					bMoveInitiator ? Entry.VictimRelativeTransform.Inverse() * VictimPose : Entry.VictimRelativeTransform * OwnerPose,
+					Entry.Limits, FAlignmentMotionState(), 0).Outcome == EAlignmentMotionOutcome::Reached;
+			}
 			VictimHealthAtRequest = Victim->CurrentHealth;
 			Player->TargetingComponent->SetCurrentTarget(Victim.Get());
 			Mark(TEXT("finisher_requested"));
@@ -272,6 +287,7 @@ private:
 			Check(TEXT("authored_hold_available"), true, HoldSource->GetPathName() + TEXT(" -> ") + ExpectedFollowUp->GetPathName());
 			Player->TargetingComponent->SetCurrentTarget(nullptr);
 			CastChecked<APlayerController>(Player->GetController())->SetControlRotation(FRotator::ZeroRotator);
+			if (!ApplyNamedPlacement(true)) { return Finish(); }
 			Mark(TEXT("hold_requested")); HoldStage = 1; HoldStageTime = Now;
 		}
 		if (HoldStage == 1)
@@ -345,6 +361,39 @@ private:
 		return false;
 	}
 
+	bool ApplyNamedPlacement(bool bObserve)
+	{
+		if (PlacementPoses.IsEmpty()) { return true; }
+		double GroundingBudget;
+		if (!CombatScenarioGrounding::ReadBudget(Definition, GroundingBudget)) { Check(TEXT("placement_support"), false, TEXT("Invalid floor preparation contract")); return false; }
+		auto Roles = MakeShared<FJsonObject>();
+		for (const TCHAR* Role : {TEXT("Attacker"), TEXT("Victim")})
+		{
+			ACharacter* Character = FString(Role) == TEXT("Attacker") ? static_cast<ACharacter*>(Player.Get()) : static_cast<ACharacter*>(Victim.Get());
+			const FTransform& Pose = PlacementPoses.FindChecked(Role);
+			Character->GetCharacterMovement()->StopMovementImmediately();
+			Character->SetActorLocationAndRotation(Base + Pose.GetLocation(), Pose.Rotator(), false, nullptr, ETeleportType::TeleportPhysics);
+			auto Observation = MakeShared<FJsonObject>();
+			if (bObserve && GroundingBudget > 0)
+			{
+				auto Support = MakeShared<FJsonObject>();
+				const bool bGrounded = CombatScenarioGrounding::Prepare(Character, GroundingBudget, Support);
+				Observation->SetObjectField(TEXT("support"), Support);
+				if (!bGrounded) { Check(TEXT("placement_support"), false, FString(Role) + TEXT(": ") + Support->GetStringField(TEXT("status"))); return false; }
+			}
+			Observation->SetArrayField(TEXT("location_cm"), CombatScenarioPlacement::VectorJson(Character->GetActorLocation()));
+			Observation->SetNumberField(TEXT("yaw_deg"), Character->GetActorRotation().Yaw);
+			Roles->SetObjectField(Role, Observation);
+		}
+		if (bObserve)
+		{
+			PlacementObservation = MakeShared<FJsonObject>();
+			PlacementObservation->SetArrayField(TEXT("origin_cm"), CombatScenarioPlacement::VectorJson(Base));
+			PlacementObservation->SetObjectField(TEXT("roles"), Roles);
+		}
+		return true;
+	}
+
 	bool Initialize()
 	{
 		APlayerController* PC = World->GetFirstPlayerController();
@@ -360,12 +409,26 @@ private:
 			Check(TEXT("fixture_ready"), false, TEXT("Input mapping or authored finisher dependency unavailable")); return false;
 		}
 		AssetRoots = {FName(*Definition->GetObjectField(TEXT("maps"))->GetStringField(MapKey)), Attack->GetOutermost()->GetFName(), Player->GetClass()->GetOutermost()->GetFName()};
+		if (const auto* Pair = Attack->FinisherData.Get(); Pair && Pair->AttackerMontage && Pair->VictimMontage)
+		{
+			PlaybackLayout = MakeShared<FJsonObject>();
+			PlaybackLayout->SetObjectField(TEXT("Attacker"), MontagePlaybackInspection::Snapshot(*Pair->AttackerMontage, Pair->AttackerMontageSection));
+			PlaybackLayout->SetObjectField(TEXT("Victim"), MontagePlaybackInspection::Snapshot(*Pair->VictimMontage, Pair->VictimMontageSection));
+		}
 		for (const auto& Enemy : Enemies) { AssetRoots.AddUnique(Enemy->GetClass()->GetOutermost()->GetFName()); }
 		Mode = TEXT("rendered"); FParse::Value(FCommandLine::Get(), TEXT("CombatCaptureMode="), Mode);
 		FParse::Value(FCommandLine::Get(), TEXT("CombatCaptureControlOffset="), ControlOffsetCm);
 		FString ContextPath;
 		if (FParse::Value(FCommandLine::Get(), TEXT("CombatCaptureRunContext="), ContextPath)) { RunContext = ReadScenarioJson(ContextPath); }
 		RunId = RunContext ? RunContext->GetStringField(TEXT("run_id")) : FGuid::NewGuid().ToString(EGuidFormats::Digits);
+		if (RunContext && RunContext->HasField(TEXT("placement")) && !RunContext->TryGetStringField(TEXT("placement"), PlacementName))
+		{
+			Check(TEXT("placement_ready"), false, TEXT("Placement selector must be a string")); return false;
+		}
+		if (!CombatScenarioPlacement::Read(Definition, PlacementName, PlacementPoses))
+		{
+			Check(TEXT("placement_ready"), false, TEXT("Named placement requires complete bounded poses for both registered roles")); return false;
+		}
 		CameraOffset = ScenarioVector(Definition->GetArrayField(TEXT("camera_offset_cm")));
 		CameraFocus = ScenarioVector(Definition->GetArrayField(TEXT("camera_focus_cm")));
 		double CameraFov = Definition->GetNumberField(TEXT("camera_fov_deg"));
@@ -425,6 +488,7 @@ private:
 			Enemy->SetActorRotation(FRotator(0, 180, 0));
 			FCombatCaptureParticipant& P = Participants.AddDefaulted_GetRef(); P.Role = I == 0 ? TEXT("Victim") : FString::Printf(TEXT("Bystander%d"), I); P.Actor = Enemy; P.Mesh = Enemy->GetMesh();
 		}
+		if (!ApplyNamedPlacement(false)) { return false; }
 		OriginalPlayerTick = Player->GetMesh()->VisibilityBasedAnimTickOption;
 		const TSharedPtr<FJsonObject>* ContactPoints = nullptr;
 		if (Definition->TryGetObjectField(TEXT("capture_points"), ContactPoints))
@@ -476,11 +540,13 @@ private:
 			Settings.Metadata.Add(TEXT("map_key"), MapKey); Settings.Metadata.Add(TEXT("variant"), Variant); Settings.Metadata.Add(TEXT("capture_mode"), Mode);
 			Settings.Metadata.Add(TEXT("runtime_experiment"), Experiment);
 			Settings.Metadata.Add(TEXT("camera_view"), CameraView);
-			FString OverridesJson;
-			// Metadata is bounded; compact serialization preserves every provenance
-			// field without spending that budget on display-only whitespace.
-			FJsonSerializer::Serialize(ExperimentOverrides, TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&OverridesJson));
-			Settings.Metadata.Add(TEXT("runtime_asset_overrides"), OverridesJson);
+			Settings.Metadata.Add(TEXT("placement"), PlacementName);
+			// Bind the bounded recorder metadata to a full sidecar, rather than
+			// making detailed authoring experiments depend on a string-size limit.
+			FJsonSerializer::Serialize(ExperimentOverrides, TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&RuntimeOverridesJson));
+			const FTCHARToUTF8 OverrideBytes(*RuntimeOverridesJson);
+			FSHAHash OverrideHash; FSHA1::HashBuffer(OverrideBytes.Get(), OverrideBytes.Length(), OverrideHash.Hash);
+			Settings.Metadata.Add(TEXT("runtime_asset_overrides_sha1"), OverrideHash.ToString().ToLower());
 			if (RunContext)
 			{
 				for (const FString& Field : {TEXT("source_identity"), TEXT("scenario_hash"), TEXT("evaluator_identity")})
@@ -492,6 +558,10 @@ private:
 			Directory = Capture.GetOutputDirectory();
 		}
 		else { Directory = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("CombatCaptures") / (RunId + TEXT("-disabled-")) + FGuid::NewGuid().ToString(EGuidFormats::Digits)); IFileManager::Get().MakeDirectory(*Directory, true); }
+		if (Mode != TEXT("disabled") && !FFileHelper::SaveStringToFile(RuntimeOverridesJson, *(Directory / TEXT("runtime-overrides.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+		{
+			Check(TEXT("override_provenance_written"), false, TEXT("Cannot retain complete runtime override provenance")); return false;
+		}
 		Mark(TEXT("scenario_ready"));
 		return true;
 	}
@@ -522,6 +592,7 @@ private:
 				EntryRow->SetObjectField(TEXT("before"), PairedEntryTuning::Snapshot(Pair->Entry));
 				EntryRow->SetObjectField(TEXT("after"), PairedEntryTuning::Snapshot(Entry));
 				ExperimentOverrides.Add(MakeShared<FJsonValueObject>(EntryRow)); Pair->Entry = Entry;
+				if (Entry.MovementAnimation) { AssetRoots.AddUnique(Entry.MovementAnimation->GetOutermost()->GetFName()); }
 				bEntryRequested = true;
 			}
 			auto Row = MakeShared<FJsonObject>(); Row->SetStringField(TEXT("role"), TEXT("Victim"));
@@ -714,9 +785,13 @@ private:
 		if (bEntryRequested)
 		{
 			EntryOutcome = Player.IsValid() ? Player->PairedAnimationComponent->GetLastPairedEntryOutcome() : EAlignmentMotionOutcome::Invalid;
-			Check(TEXT("entry_preparation_observed"), bEntryObserved, TEXT("Paired reservation was observed before playback"));
-			Check(TEXT("entry_defers_playback_and_damage"), bEntryNoEarlyPlayback && bEntryNoEarlyDamage,
-				TEXT("No paired montage playback or damage was observed during preparation"));
+			Check(TEXT("entry_start_eligibility"), bEntryObserved || (bEntryReadyAtRequest && EntryOutcome == EAlignmentMotionOutcome::Reached),
+				TEXT("Preparation was observed or the request pose already satisfied entry readiness"));
+			if (bEntryObserved)
+			{
+				Check(TEXT("entry_defers_playback_and_damage"), bEntryNoEarlyPlayback && bEntryNoEarlyDamage,
+					TEXT("No paired montage playback or damage was observed during sampled preparation"));
+			}
 			Check(TEXT("entry_outcome"), EntryOutcome == EAlignmentMotionOutcome::Reached || (bInterrupted && EntryOutcome == EAlignmentMotionOutcome::Cancelled),
 				TEXT("Entry reached its pose or was explicitly cancelled before playback"));
 		}
@@ -739,7 +814,15 @@ private:
 			Result->SetNumberField(TEXT("control_offset_cm"), ControlOffsetCm); Result->SetObjectField(TEXT("definition"), Definition.ToSharedRef());
 			Result->SetStringField(TEXT("runtime_experiment"), Experiment); Result->SetArrayField(TEXT("runtime_asset_overrides"), ExperimentOverrides);
 			Result->SetStringField(TEXT("camera_view"), CameraView);
-			if (bEntryRequested) { Result->SetStringField(TEXT("entry_outcome"), UEnum::GetValueAsString(EntryOutcome)); }
+			Result->SetStringField(TEXT("placement"), PlacementName);
+			if (PlacementObservation) { Result->SetObjectField(TEXT("placement_observation"), PlacementObservation); }
+			if (PlaybackLayout) { Result->SetObjectField(TEXT("authored_playback_layout"), PlaybackLayout); }
+			if (bEntryRequested)
+			{
+				Result->SetStringField(TEXT("entry_outcome"), UEnum::GetValueAsString(EntryOutcome));
+				Result->SetBoolField(TEXT("entry_ready_at_request"), bEntryReadyAtRequest);
+				Result->SetBoolField(TEXT("entry_preparation_observed"), bEntryObserved);
+			}
 			Result->SetBoolField(TEXT("victim_dead_at_interruption"), bVictimDeadAtInterruption);
 			if (bRequested && Definition->GetStringField(TEXT("scenario")) == TEXT("FinisherRecovery"))
 			{
@@ -816,6 +899,11 @@ private:
 	TSharedPtr<FJsonObject> Definition, RunContext;
 	FString MapKey, Variant, Mode, Directory, RunId;
 	FString CameraView = TEXT("default");
+	FString PlacementName = TEXT("default");
+	FString RuntimeOverridesJson;
+	TMap<FString, FTransform> PlacementPoses;
+	TSharedPtr<FJsonObject> PlacementObservation;
+	TSharedPtr<FJsonObject> PlaybackLayout;
 	FVector CameraOffset = FVector::ZeroVector, CameraFocus = FVector::ZeroVector;
 	TWeakObjectPtr<UWorld> World;
 	TWeakObjectPtr<APlayerCharacter> Player;
@@ -842,6 +930,7 @@ private:
 	bool bVictimDeadAtInterruption = false;
 	bool bPairedCollisionObserved = false, bPairedCollisionHeld = true;
 	bool bEntryRequested = false, bEntryObserved = false, bEntryResultObserved = false;
+	bool bEntryReadyAtRequest = false;
 	bool bEntryNoEarlyPlayback = true, bEntryNoEarlyDamage = true;
 	EAlignmentMotionOutcome EntryOutcome = EAlignmentMotionOutcome::Invalid;
 	bool bOriginalFixedViewport = false;

@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import unittest
 
@@ -7,6 +8,19 @@ from evaluate_capture import validate_runtime_experiment, validate_warp_tuning_s
 
 
 class WarpTuningTests(unittest.TestCase):
+    def test_override_sidecar_is_bound_to_capture_and_scenario(self):
+        scenario, context, metadata = self.fixture()
+        raw = json.dumps(scenario["runtime_asset_overrides"]).encode("utf-8")
+        metadata.pop("runtime_asset_overrides")
+        metadata["runtime_asset_overrides_sha1"] = hashlib.sha1(raw).hexdigest()
+        validate_runtime_experiment(scenario, context, metadata, raw)
+        for supplied in (None, b"[]", raw + b" "):
+            with self.assertRaises(CaptureError): validate_runtime_experiment(scenario, context, metadata, supplied)
+        changed = copy.deepcopy(scenario); changed["runtime_asset_overrides"][-1]["after"] = [66, 0, 0]
+        with self.assertRaises(CaptureError): validate_runtime_experiment(changed, context, metadata, raw)
+        metadata["runtime_asset_overrides"] = raw.decode("utf-8")
+        with self.assertRaises(CaptureError): validate_runtime_experiment(scenario, context, metadata, raw)
+
     def fixture(self):
         settings = dict(victim_window_s=[.2, .87], victim_offset_cm=[65, 0, 0])
         rows = []
