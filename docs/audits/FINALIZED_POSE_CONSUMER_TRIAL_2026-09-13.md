@@ -25,9 +25,12 @@ certify the separate mesh-contact question.
   `2fb0dc980dbdba1348b02e3a93b4512606aa5d16`.
 - Trial: `D:\UnrealProjects\5.6\KatanaCombat\Saved\FinalizedPoseTrial`, branch
   `integrate/finalized-pose-trial`.
-- Exact local candidate: `ea890e38dced51e21503c5ff637b26ac0b6170b5`, from
+- Exact tested revision: `ea890e38dced51e21503c5ff637b26ac0b6170b5`, originally from
   `D:\UnrealProjects\Plugins\AnimationAnalysis\Saved\FinalizedPoseWorktree`.
-  This trial did not push, merge or promote the unpublished candidate.
+  The revision was unpublished when the trial began. On 2026-09-13,
+  `git ls-remote https://github.com/noahbutcher97/AnimationAnalysis.git refs/heads/main`
+  confirmed that upstream `main` now points to this exact commit. No dependency
+  bytes changed after qualification; this consumer did not publish shared source.
 - Dependency commit: `e9246996dd8912f9027cbae87513a43ed7dc4826`.
 - Consumer implementation commit: `c2cec986b4ce0320bbcd9b310d8f7e874c9f2236`.
 
@@ -205,9 +208,9 @@ not broadening all pose/deformation paths or GPU grouping automatically.
 Katana owns the next region-authoring decision: select and review the intended
 anatomical patch and weapon sub-surface explicitly before interpreting these generic
 intersections as a finisher cut. Do not narrow regions merely to obtain a pass.
-Adoption into the primary checkout waits for the reviewed upstream delivery to be
-published/merged and an intentional consumer-pin promotion. The primary combat work
-can continue independently.
+The tested upstream revision is now published on `main`. Adoption into the primary
+checkout still requires review and integration of the consumer branch. The primary
+combat work can continue independently.
 
 ## Durable evidence
 

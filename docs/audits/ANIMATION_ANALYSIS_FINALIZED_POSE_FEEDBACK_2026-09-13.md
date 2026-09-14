@@ -73,5 +73,7 @@ acquisition mismatches. No shared correctness defect was established by this tri
 
 Katana owns explicit anatomical/weapon-region authoring and gameplay interpretation.
 Containment, continuous collision, physical contact and artistic acceptance remain
-unevaluated. Review/publish the upstream candidate through its own repository workflow;
-Katana's primary pin promotion is a separate consumer action.
+unevaluated. Upstream `main` now points to the exact tested `ea890e3` revision
+(verified 2026-09-13 through `git ls-remote`); publication is no longer outstanding.
+Review the performance and coverage findings independently. Katana's primary pin
+promotion remains a separate consumer action.

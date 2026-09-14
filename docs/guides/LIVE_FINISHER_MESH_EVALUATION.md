@@ -4,9 +4,11 @@ This consumer workflow observes the existing paired-finisher scenario. Katana ow
 the participants, explicit triangle profile and interpretation. AnimationAnalysis
 owns acquisition, mesh replay, surface queries and interval summaries.
 
-The candidate integration is isolated on `integrate/finalized-pose-trial`. Its
-dependency revision is local and unpublished; use the reviewed source checkout
-with the normal installer's `--repository` option until upstream publishes it.
+The integration is isolated on `integrate/finalized-pose-trial`. Its exact tested
+dependency revision, `ea890e38dced51e21503c5ff637b26ac0b6170b5`, is available on
+AnimationAnalysis `main` (verified 2026-09-13). Install it from the public repository
+with `python Tools/AnimationAnalysis/setup_dependency.py`; a local source override
+is optional.
 See the [trial report](../audits/FINALIZED_POSE_CONSUMER_TRIAL_2026-09-13.md) for
 the exact revision, source location and tested environment. Rebuild the editor
 after installing native changes; updating Python alone is insufficient.
