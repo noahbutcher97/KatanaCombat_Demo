@@ -23,13 +23,15 @@ class DependencyTests(unittest.TestCase):
             "README.md": "Neutral fixture\n",
             "AnimationAnalysis.uplugin": "{}\n",
             "Source/AnimationCapture/Fixture.cpp": "// source revision one\n",
+            "Shaders/Private/Fixture.usf": '#include "Fixture.ush"\n',
+            "Shaders/Private/Fixture.ush": "#define FIXTURE_VALUE 1\n",
             "Python/pyproject.toml": '[project]\nname="fixture"\n',
             "Python/src/animation_analysis/__init__.py": "VALUE = 1\r\n",
         }.items():
             path = self.upstream / name
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data.encode())
-        git(self.upstream, "add", "--", ".gitignore", "README.md", "AnimationAnalysis.uplugin", "Source", "Python")
+        git(self.upstream, "add", "--", ".gitignore", "README.md", "AnimationAnalysis.uplugin", "Source", "Shaders", "Python")
         self.commit()
         self.revision = git(self.upstream, "rev-parse", "HEAD").decode().strip()
         self.project = self.root / "consumer"
@@ -55,6 +57,41 @@ class DependencyTests(unittest.TestCase):
         manifest = dependency_source_manifest(self.project)
         self.assertIn("Dependencies/AnimationAnalysis/Python/src/animation_analysis/__init__.py", manifest)
         self.assertIn("Dependencies/AnimationAnalysis/Source/AnimationCapture/Fixture.cpp", manifest)
+
+    def test_shader_resources_are_installed_and_identified(self):
+        install(self.upstream, self.project)
+        manifest = dependency_source_manifest(self.project)
+        for name in ("Shaders/Private/Fixture.usf", "Shaders/Private/Fixture.ush"):
+            self.assertEqual((self.project / "Plugins/AnimationAnalysis" / name).read_bytes(),
+                             (self.upstream / name).read_bytes())
+            self.assertIn("Dependencies/AnimationAnalysis/" + name, manifest)
+
+    def test_modified_installed_shader_is_preserved_and_rejected(self):
+        install(self.upstream, self.project)
+        path = self.project / "Plugins/AnimationAnalysis/Shaders/Private/Fixture.usf"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("// local shader edit\n")
+        with self.assertRaisesRegex(ValueError, "differs from the pinned"):
+            dependency_source_manifest(self.project)
+        with self.assertRaisesRegex(ValueError, "modified source"):
+            install(project=self.project)
+        self.assertEqual(path.read_text(), "// local shader edit\n")
+
+    def test_untracked_installed_shader_is_rejected(self):
+        install(self.upstream, self.project)
+        path = self.project / "Plugins/AnimationAnalysis/Shaders/Private/Unexpected.ush"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("// unowned shader include\n")
+        with self.assertRaisesRegex(ValueError, "differs from the pinned"):
+            dependency_source_manifest(self.project)
+
+    def test_ignored_cached_shader_cannot_shadow_the_pin(self):
+        install(self.upstream, self.project)
+        root = checkout(self.project)
+        (root / ".git/info/exclude").write_text("Shaders/Private/Unexpected.ush\n")
+        (root / "Shaders/Private/Unexpected.ush").write_text("// ignored shader include\n")
+        with self.assertRaisesRegex(ValueError, "Unexpected dependency source"):
+            checkout(self.project)
 
     def test_modified_cached_package_is_rejected(self):
         install(self.upstream, self.project)

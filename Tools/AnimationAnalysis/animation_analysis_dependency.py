@@ -8,7 +8,8 @@ import re
 import subprocess
 
 PROJECT = Path(__file__).resolve().parents[2]
-SOURCE_SUFFIXES = {".cpp", ".h", ".cs", ".ini", ".py", ".json", ".toml", ".uplugin", ".uproject"}
+SOURCE_SUFFIXES = {".cpp", ".h", ".cs", ".ini", ".py", ".json", ".toml", ".uplugin", ".uproject", ".usf", ".ush"}
+NATIVE_RESOURCE_DIRECTORIES = ("Source", "Shaders")
 
 
 def git(root, *arguments):
@@ -45,7 +46,7 @@ def verified_files(root, revision):
     if git(root, "ls-files", "--others", "--exclude-standard").strip():
         raise ValueError("Unexpected untracked files in the pinned dependency checkout")
     # Ignored bytecode/build outputs are allowed, but ignored source cannot shadow a tracked module.
-    for directory in (root / "Python/src", root / "Source"):
+    for directory in (root / "Python/src", *(root / name for name in NATIVE_RESOURCE_DIRECTORIES)):
         for path in directory.rglob("*"):
             if path.is_file() and path.suffix in SOURCE_SUFFIXES and path.relative_to(root).as_posix() not in files:
                 raise ValueError(f"Unexpected dependency source: {path.relative_to(root)}")
@@ -70,11 +71,12 @@ def package_source(project=PROJECT):
 
 def native_files(files):
     return {name: sha for name, sha in files.items()
-            if name in ("AnimationAnalysis.uplugin", "README.md") or name.startswith("Source/")}
+            if name in ("AnimationAnalysis.uplugin", "README.md")
+            or any(name.startswith(directory + "/") for directory in NATIVE_RESOURCE_DIRECTORIES)}
 
 
 def installed_plugin_files(plugin):
-    paths = list((plugin / "Source").rglob("*"))
+    paths = [path for name in NATIVE_RESOURCE_DIRECTORIES for path in (plugin / name).rglob("*")]
     paths += [plugin / "AnimationAnalysis.uplugin", plugin / "README.md"]
     return {path.relative_to(plugin).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in paths if path.is_file()}

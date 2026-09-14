@@ -309,6 +309,8 @@ bool FCombatCaptureSession::Start(UWorld *World, const FCombatCaptureSettings &S
 	Native.OutputRoot = FPaths::ProjectSavedDir() / TEXT("CombatCaptures");
 	Native.SampleHz = Settings.SampleHz;
 	Native.FrameHz = Settings.FrameHz;
+	Native.bUseAsyncReadback = Settings.bUseAsyncReadback;
+	Native.bUseAsyncDiagnosticResolution = Settings.bUseAsyncDiagnosticResolution;
 	Native.MaxWallSeconds = Settings.MaxWallSeconds;
 	Native.MaxSamples = Settings.MaxSamples;
 	Native.MaxFrames = Settings.MaxFrames;

@@ -8,6 +8,7 @@
 
 // Forward declarations
 class UAnimMontage;
+class UAnimSequence;
 class UPairedAnimationData;
 
 // ============================================================================
@@ -30,6 +31,46 @@ enum class EFinisherTriggerReason : uint8
 // ============================================================================
 // STRUCTS
 // ============================================================================
+
+/** Participant moved into the relative entry pose; the other participant anchors it. */
+UENUM(BlueprintType)
+enum class EPairedEntryMovingRole : uint8
+{
+    Victim,
+    Initiator
+};
+
+/** Optional preparation pose, distinct from the montage's motion-warp endpoint. */
+USTRUCT(BlueprintType)
+struct KATANACOMBAT_API FPairedEntryConfig
+{
+    GENERATED_BODY()
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry")
+    bool bEnabled = false;
+    /** Upright victim pose relative to the initiating character, before montage playback. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry", meta = (EditCondition = "bEnabled"))
+    FTransform VictimRelativeTransform = FTransform(FRotator(0, 180, 0), FVector(80, 0, 0));
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry", meta = (EditCondition = "bEnabled"))
+    FAlignmentMotionLimits Limits;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry", meta = (EditCondition = "bEnabled"))
+    EPairedEntryMovingRole MovingRole = EPairedEntryMovingRole::Victim;
+    /** Optional single-cycle in-place presentation on the moving participant. The bounded
+     * executor owns displacement; this clip must cover the deadline at its effective rate.
+     * Authors must review root tracks, notifies, slot coverage and directional suitability. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry|Presentation", meta = (EditCondition = "bEnabled"))
+    TObjectPtr<UAnimSequence> MovementAnimation = nullptr;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry|Presentation")
+    FName MovementSlot = TEXT("DefaultSlot");
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry|Presentation", meta = (ClampMin = "0.01", ClampMax = "10"))
+    float MovementPlayRate = 1.f;
+    /** Source animation seconds, before asset RateScale and entry play rate. No wrapping. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry|Presentation", meta = (ClampMin = "0"))
+    float MovementStartTime = 0.f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry|Presentation", meta = (ClampMin = "0", ClampMax = "1"))
+    float MovementBlendIn = .1f;
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Entry|Presentation", meta = (ClampMin = "0", ClampMax = "1"))
+    float MovementBlendOut = .1f;
+};
 
 /**
  * Motion warping configuration for paired animations (finishers, counters)
@@ -66,6 +107,11 @@ struct KATANACOMBAT_API FPairedWarpConfig
     /** Enable rotation warping (face toward/away from partner) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paired Animation")
     bool bWarpRotation = true;
+
+    /** Desired upright heading while rotation warping is enabled. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paired Animation",
+        meta = (EditCondition = "bWarpRotation"))
+    EPairedFacingPolicy FacingPolicy = EPairedFacingPolicy::FacePartner;
 
     /** Adjust warp target Z to match terrain height (prevents floating) */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Paired Animation")

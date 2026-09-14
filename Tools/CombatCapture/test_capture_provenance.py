@@ -24,11 +24,18 @@ class CaptureProvenanceTests(unittest.TestCase):
             generated = plugin / "Intermediate/generated.cpp"
             generated.parent.mkdir()
             generated.write_text("// generated cache\n")
+            shader = plugin / "Shaders/Private/Readback.usf"
+            shader.parent.mkdir(parents=True)
+            shader.write_text("// shader one\n")
             before = source_state(root)
             self.assertIn(descriptor.relative_to(root).as_posix(), before["files"])
+            self.assertIn(shader.relative_to(root).as_posix(), before["files"])
             self.assertNotIn(generated.relative_to(root).as_posix(), before["files"])
             code.write_text("// producer two\n")
             self.assertNotEqual(before["identity"], source_state(root)["identity"])
+            before_shader = source_state(root)
+            shader.write_text("// shader two\n")
+            self.assertNotEqual(before_shader["identity"], source_state(root)["identity"])
             binaries = editor_binary_state(root)
             self.assertIn(binary.relative_to(root).as_posix(), binaries)
             binary.write_bytes(b"second producer binary")

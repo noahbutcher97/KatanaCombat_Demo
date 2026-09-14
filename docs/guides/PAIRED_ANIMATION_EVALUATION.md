@@ -1,8 +1,8 @@
 # Paired animation contact and alignment evaluation
 
-This editor tool evaluates declared contact intent on existing paired animation assets. It shares measurements and authored pose sampling between the paired preview and a commandlet. It remains in `KatanaCombatEditor`; no plugin or external Python package is required.
+The Katana editor adapter evaluates declared contact intent on existing paired animation assets. It shares measurements and authored pose sampling between the paired preview and a commandlet. Install the pinned AnimationAnalysis dependency before building or running the tools; project-specific interpretation remains in `KatanaCombatEditor`.
 
-The [suite architecture contract](../architecture/ANIMATION_ANALYSIS_SUITE.md) includes this existing evaluator, commandlet, preview integration and profiles. Portable geometry and evaluation contracts must be separated from Unreal pose sampling and Katana paired-data/weapon/sync interpretation. Current paths and APIs below remain valid during migration; a separate distribution has not yet been implemented.
+The [suite architecture contract](../architecture/ANIMATION_ANALYSIS_SUITE.md) includes this evaluator, commandlet, preview integration and profiles. Shared capture, geometry and review code is consumed through the pinned [AnimationAnalysis dependency](../../Tools/AnimationAnalysis/README.md). Katana owns its paired-data, weapon and sync interpretation. The project commands and APIs below remain the consumer entry points.
 
 ## Run an existing pair
 
@@ -28,9 +28,32 @@ Use the capture path printed by the first command. Run the second command separa
 
 For DefenseMatrix, use `--profile Tools/CombatCapture/pairs/finisher-contact-mannequin.json`: that map uses `SKM_Manny_Simple` as its victim. The profile changes only the victim mesh and its explanatory basis. The default finisher profile matches ThirdPerson's mercenary. The tool rejects a mesh/profile mismatch instead of inferring compatibility.
 
-Runtime comparison requires a complete schema-2 scenario capture with matching current project asset hashes and the required point-source metadata. Older captures remain readable by the general analyzer but cannot establish these new contact assertions. The finisher scenario is version 4; this version adds contact camera views without changing gameplay or contact criteria. Prior versions' displacement references must not silently be reused.
+Runtime comparison requires a complete schema-2 scenario capture with matching current project asset hashes and the required point-source metadata. Older captures remain readable by the general analyzer but cannot establish these new contact assertions. The finisher scenario is version 6; this version adds bounded-entry observations and checks. Prior versions' displacement references must not silently be reused.
 
 Authored, runtime and relative-alignment cases are reported separately. No capture means runtime is `not_run`. Missing or stale poses, changed component identities, incompatible assets, unsupported time dilation/play rate, repeated paired instances, a reversed montage clock, or gaps exceeding the declared bound produce inconclusive evidence. Runtime contact uses the actual final evaluated world points, including gameplay blending. It does not substitute preview poses for gameplay.
+
+## Evaluate bounded entry preparation
+
+Entry is opt-in and is a separate placement policy from the montage warp endpoint. Supply a complete JSON object to `run_scenario.py --entry-config <path>` together with `--finisher-experiment paired-warp-tuning` and its usual warp arguments. For example:
+
+```json
+{
+  "enabled": true,
+  "victim_offset_cm": [80, 0, 0],
+  "victim_yaw_deg": 0,
+  "duration_s": 0.5,
+  "translation_speed_cm_s": 300,
+  "travel_budget_cm": 150,
+  "turn_rate_deg_s": 540,
+  "turn_budget_deg": 180,
+  "position_tolerance_cm": 2,
+  "yaw_tolerance_deg": 3
+}
+```
+
+These are diagnostic settings, not approved authoring. Overrides are transient, recorded with complete before/after provenance and restored without saving assets. Both Python and native evaluators reject missing, malformed or mismatched entry settings. Preparation defers both montages and paired damage until the live goal is reached. Limits use world simulation seconds even when the roles have different positive actor time dilation; zero actor time dilation is unsupported and aborts preparation.
+
+The scenario checks preparation was observed, neither montage nor paired damage started early, and the final entry outcome is consistent with completion or interruption. The interruption clock begins at reservation, so slow entry can exercise cancellation before montage playback. Such captures legitimately have no paired-montage interval and must be reviewed on their simulation clock. A passing scenario establishes lifecycle behavior; preparation has no authored approach animation and its limits do not constrain later montage root motion. Review both intervals and visible contact separately.
 
 ## Cross-check visible contact before tuning
 
@@ -106,7 +129,7 @@ The finisher runner supports bounded transient controls through `--finisher-expe
 | `attacker-source-translation` | Movement permitted on both; attacker warp notify's `RootMotionModifier.bWarpTranslation=false` |
 | `victim-source-translation` | Movement permitted on both; victim warp notify's `RootMotionModifier.bWarpTranslation=false` |
 | `victim-source-rotation` | Movement permitted on both; victim warp notify's `RootMotionModifier.bWarpRotation=false` |
-| `paired-warp-tuning` | Movement permitted on both; attacker translation warping disabled to match pair configuration; requested victim warp window and horizontal relative offset |
+| `paired-warp-tuning` | Movement permitted on both; attacker translation warping disabled to match pair configuration; requested victim warp window, horizontal relative offset and optional facing policy |
 
 The controls substitute transient copies of notify states and their instanced modifiers, preserving other properties, montage clocks, input ownership and original objects. Translation controls retain rotation warping; the rotation control retains translation warping. They require exactly one matching warp notify for the selected role. Original notify objects and flags are checked on restoration; no packages are saved. Capture metadata, scenario results and runner context identify the experiment; exact notify/property changes are retained in `runtime_asset_overrides`. Both evaluators reject missing, duplicate, wrong-role or unsupported overrides. Native runtime evaluation reports the control explicitly while using unchanged disk assets for authored playback. Experimental captures cannot reuse an unmodified scenario reference as if their effective configuration were identical. These are diagnostic controls, not approved animation corrections.
 
@@ -116,7 +139,15 @@ For a bounded placement/window comparison:
 python Tools/CombatCapture/run_scenario.py --map ThirdPerson --variant Completed --mode motion --render-world --finisher-experiment paired-warp-tuning --victim-warp-window 0.20 0.43 --victim-warp-offset 50 0 0
 ```
 
-The window uses effective montage trigger seconds, including the authored trigger offsets. Its duration must be at least 0.02 seconds, lie within 0–5 seconds and fit the loaded victim montage. Horizontal offsets are bounded to +/-200 cm; vertical offset must be zero. Both arguments are required and are rejected for other experiments. The fixture records and restores the complete notify events and original victim warp configuration. The request, scenario and capture must agree on all five changes; neither evaluator accepts partial or additional overrides. Victim translation/rotation and attacker rotation stay enabled.
+The window uses effective montage trigger seconds, including the authored trigger offsets. Its duration must be at least 0.02 seconds, lie within 0–5 seconds and fit the loaded victim montage. Horizontal offsets are bounded to +/-200 cm; vertical offset must be zero. Both arguments are required and are rejected for other experiments. The fixture records and restores the complete notify events and original victim warp configuration. The request, scenario and capture must agree on all five changes. Victim translation/rotation and attacker rotation stay enabled.
+
+Optionally add `--victim-facing-policy face-partner`, `face-away-from-partner`, or `match-partner-heading`. Omission preserves the asset's current policy. An explicit policy requires a sixth override recording `VictimWarpConfig.FacingPolicy` before/after; both evaluators reject missing, inconsistent or unrequested policy changes. The runtime setting is transient and restored with the rest of the role config. Authored evaluation still reads unchanged disk assets, so this control is not saved-authoring parity. Initial source-pair spacing and the moving runtime warp endpoint are separate quantities; do not copy a source placement into `--victim-warp-offset` without evaluating the resulting motion.
+
+For primary-sync diagnostics, add `--primary-sync-time 0.6` and/or `--sync-nudge disabled` (or `enabled`). These independently set the primary damage notify's effective start time and position-nudge flag on both participants. Omitted fields retain their original values. The 0.6-second value is an example, not an approved impact time. Timing must be finite within 0..5 seconds and the retained notify duration must fit each montage. Exactly one primary damage notify per role is required; missing or ambiguous notifies fail setup. Two `PrimarySyncSettings` override rows record each role's effective start, end and nudge before/after. Native and Python validation require matching provenance, preserved durations and unchanged omitted fields. The fixture uses transient notify copies and restores original events and objects without saving assets.
+
+The finisher scenario records its request-time victim health separately from sampled health. Optional timing experiments also record the first observed lethal montage position and interruption position, check for premature lethal state, and verify unchanged health when interruption precedes the requested sync. These are automation observations, not exact callback timestamps. Scenario version 5 adds the victim's `head` capture point for anatomical observations; contact criteria remain unchanged. Moving a sync event does not establish visible blade contact or solve entry alignment. Review rendered evidence alongside the geometric report before selecting authoring changes.
+
+The [entry/sync comparison](../audits/FINISHER_ENTRY_SYNC_2026-09-11.md) records the three-control experiment, notify-order ownership defect, remaining abrupt motion, pre-sync cancellation, visual/contact limits and image retention.
 
 Use `--mode motion --render-world` for numerical screening without PNG export. Use `--mode rendered` for selected frame reviews and image eligibility checks. A recorded movement lease is not proof of collision isolation: the finisher scenario also checks reciprocal movement-ignore relationships while both collision windows are active. Actor displacement includes collision corrections as well as root motion; native `-LogCmds="LogMovement Verbose"` logging identifies depenetration when those measurements disagree.
 

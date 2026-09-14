@@ -5,6 +5,8 @@
 
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_ChainStageTransition.h"
+#include "Animation/AnimNotifyState_PairedAnimationSync.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "AI/CombatTokenSubsystem.h"
 #include "AI/EnemyCombatAIComponent.h"
 #include "Containers/Ticker.h"
@@ -308,6 +310,35 @@ int32 CountActionReactionTelemetry(
 	}
 	return Count;
 }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDefenseSyncPreservesAlignmentOwnership,
+	"KatanaCombat.Defense.Chain.SyncPreservesAlignmentOwnership",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+bool FDefenseSyncPreservesAlignmentOwnership::RunTest(const FString&)
+{
+	FDefenseChainFixture Fixture;
+	if (!TestTrue(TEXT("Defense fixture initialized"), Fixture.Initialize())
+		|| !TestTrue(TEXT("Public Block input commits the retained sequence"), Fixture.StartCommittedParry()))
+	{
+		Fixture.Destroy(); return false;
+	}
+	auto* Notify = NewObject<UAnimNotifyState_PairedAnimationSync>();
+	Notify->bApplyDamage = false; Notify->bLogMisalignment = false;
+	for (const bool bDefenderFirst : {true, false})
+	{
+		Fixture.Defender->SetActorLocation(FVector::ZeroVector);
+		Fixture.SourceAttacker->SetActorLocation(FVector(140, 0, 0));
+		for (const bool bDefender : {bDefenderFirst, !bDefenderFirst})
+		{
+			Notify->NotifyBegin(bDefender ? Fixture.Defender->GetMesh() : Fixture.SourceAttacker->GetMesh(),
+				nullptr, .08f, FAnimNotifyEventReference());
+		}
+		TestTrue(TEXT("Notify cannot bypass defender alignment ownership"), Fixture.Defender->GetActorLocation().Equals(FVector::ZeroVector));
+		TestTrue(TEXT("Notify cannot bypass source alignment ownership"), Fixture.SourceAttacker->GetActorLocation().Equals(FVector(140, 0, 0)));
+		TestEqual(TEXT("Retained sequence survives presentation-only sync"), Fixture.Paired->GetChainState(), EChainCounterState::ParryActive);
+	}
+	Fixture.Destroy(); return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -1797,6 +1828,26 @@ bool FDefenseChainStagePreflightGeometryTest::RunTest(const FString& Parameters)
 		Fixture.PreflightStage(CounterData, EPairedReactionType::Counter, FailureReason));
 	TestTrue(TEXT("Rotation refusal reports an actionable reason"),
 		FailureReason.Contains(TEXT("rotation budget")));
+	CounterData->VictimWarpConfig.FacingPolicy = EPairedFacingPolicy::MatchPartnerHeading;
+	TestTrue(TEXT("Matching headings requires no victim half-turn and fits the same retained budget"),
+		Fixture.PreflightStage(CounterData, EPairedReactionType::Counter, FailureReason));
+	CounterData->AttackerWarpConfig.FacingPolicy = EPairedFacingPolicy::FaceAwayFromPartner;
+	TestFalse(TEXT("Facing away still rejects a defender half-turn beyond its budget"),
+		Fixture.PreflightStage(CounterData, EPairedReactionType::Counter, FailureReason));
+	CounterData->AttackerWarpConfig.FacingPolicy = static_cast<EPairedFacingPolicy>(255);
+	TestFalse(TEXT("An unknown role policy cannot enter a retained stage"),
+		Fixture.PreflightStage(CounterData, EPairedReactionType::Counter, FailureReason));
+	CounterData->AttackerWarpConfig.FacingPolicy = EPairedFacingPolicy::FacePartner;
+	Fixture.CounterAttack->CounterData = CounterData;
+	Fixture.DefenderCombat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
+	TestEqual(TEXT("Policy-aware preflight permits the actual counter transition"),
+		Fixture.Paired->GetChainState(), EChainCounterState::CounterActive);
+	const FDefenseSequenceContext& Sequence = Fixture.Paired->GetActiveDefenseSequenceContext();
+	FAlignmentRequestSpec DefenderSpec, VictimSpec;
+	TestTrue(TEXT("Defender stage owns its alignment request"), Fixture.Defender->TargetingComponent->GetAlignmentRequestSpec(Sequence.AttackerAlignmentLease, DefenderSpec));
+	TestTrue(TEXT("Victim stage owns its alignment request"), Fixture.SourceAttacker->TargetingComponent->GetAlignmentRequestSpec(Sequence.VictimAlignmentLease, VictimSpec));
+	TestEqual(TEXT("Stage carries defender policy into alignment"), DefenderSpec.FacingPolicy, EPairedFacingPolicy::FacePartner);
+	TestEqual(TEXT("Stage carries victim policy into alignment"), VictimSpec.FacingPolicy, EPairedFacingPolicy::MatchPartnerHeading);
 
 	Fixture.Destroy();
 	return true;

@@ -45,8 +45,11 @@ approval-contract and defense-continuity failures were repaired in subsequent wo
 the current full run includes successful authoring/approval and defense PIE results.
 The initial health report remains historical evidence, not the current pass state.
 
-The next bounded Katana task is the finisher source-pair review recorded in
-[the visual contact investigation](FINISHER_VISUAL_CONTACT_2026-09-10.md):
+The following source-review task is now completed in the
+[finisher source-pair review](FINISHER_SOURCE_PAIR_REVIEW_2026-09-11.md).
+It identifies a rear-approach facing mismatch and prepares the next explicit
+paired-facing policy and gameplay comparison. The original sequence from
+[the visual contact investigation](FINISHER_VISUAL_CONTACT_2026-09-10.md) was:
 
 1. Inspect the unwarped attacker/victim source choreography using the existing
    paired preview, intended meshes and equipped weapon attachment.

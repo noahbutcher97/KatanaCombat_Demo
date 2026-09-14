@@ -11,6 +11,11 @@ Project capture tests exercise its Katana compatibility adapter. The separate
 a minimal host and runs `AnimationAnalysis.Capture.Portability.*` controls without Katana
 modules/assets. Those host tests are not part of the normal project test module.
 
+`KatanaCombat.Capture.PIE.ThirdPersonAsyncAPI` verifies the opt-in asynchronous
+recorder through Katana's C++ adapter with an explicitly configured diagnostic view.
+Run it with D3D11 rendering; under NullRHI it records a deferral, not GPU evidence.
+The existing console/API observation variants retain synchronous compatibility.
+
 `python Tools/CombatCapture/run_scenario.py --map all --variant all --mode rendered` builds and runs completed/interrupted finisher input/recovery scenarios on both project maps, then publishes per-assertion evaluations. The driver uses public gameplay and Enhanced Input interfaces with active bystanders. Rendered evidence eligibility and calibrated displacement checks are separate from gameplay assertions. See the guide for repeated runs, fixed render resolution, source/asset identity, explicit references and capture-overhead controls.
 
 ## Module Configuration

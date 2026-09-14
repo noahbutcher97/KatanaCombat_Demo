@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import math
@@ -14,6 +15,7 @@ from animation_analysis.artifacts import digest, identity, atomic_text, atomic_j
 from animation_analysis.metrics import STATUSES, summarize_statuses
 from analyze_capture import analyze
 from capture_format import bundle_identity, implementation_identity, event_interval, window_rows
+from scenario_placement import validate_placement
 
 
 VERSION = 1
@@ -119,6 +121,8 @@ def compatibility(scenario):
     # Source/assets are reported as candidate changes, not blindly required to match.
     value = dict(scenario=scenario["scenario"], map_key=scenario["map_key"], variant=scenario["variant"],
                  definition_hash=identity(scenario["definition"]), evaluator_version=VERSION)
+    if scenario.get("placement", "default") != "default":
+        value["placement"] = scenario["placement"]
     if scenario.get("runtime_experiment", "none") != "none":
         value["runtime_experiment"] = scenario["runtime_experiment"]
         value["runtime_overrides_identity"] = identity(scenario.get("runtime_asset_overrides", []))
@@ -131,9 +135,96 @@ def tuning_numbers(value, count):
     return value
 
 
+FACING_POLICIES = ("face-partner", "face-away-from-partner", "match-partner-heading")
+
+
+def validate_primary_sync_settings(settings):
+    if not isinstance(settings, dict) or not settings or set(settings) - {"time_s", "nudge_enabled"}:
+        raise CaptureError("Primary sync requires a time and/or nudge setting")
+    if "time_s" in settings:
+        time = tuning_numbers([settings["time_s"]], 1)[0]
+        if not 0 <= time <= 5:
+            raise CaptureError("Primary sync time must be within 0..5 seconds")
+    if "nudge_enabled" in settings and type(settings["nudge_enabled"]) is not bool:
+        raise CaptureError("Primary sync nudge setting must be boolean")
+    return settings
+
+
+def validate_primary_sync_override(settings, row):
+    before, after = row.get("before"), row.get("after")
+    for state in (before, after):
+        if not isinstance(state, dict) or set(state) != {"time_s", "end_s", "nudge_enabled"}:
+            raise CaptureError("Incomplete primary sync override")
+        start, end = tuning_numbers([state["time_s"], state["end_s"]], 2)
+        if not -.001 <= start < end <= 5 or type(state["nudge_enabled"]) is not bool:
+            raise CaptureError("Invalid primary sync override")
+    if (abs(after["time_s"] - settings.get("time_s", before["time_s"])) > 1e-5
+            or abs((after["end_s"]-after["time_s"]) - (before["end_s"]-before["time_s"])) > 1e-5
+            or after["nudge_enabled"] != settings.get("nudge_enabled", before["nudge_enabled"])):
+        raise CaptureError("Primary sync differs from the request or changes an unrequested field")
+
+
+def validate_entry_settings(settings):
+    presentation = dict(moving_role="victim", movement_animation="", movement_slot="DefaultSlot",
+                        movement_play_rate=1., movement_blend_in_s=.1, movement_blend_out_s=.1)
+    scalars = ("victim_yaw_deg", "duration_s", "translation_speed_cm_s", "travel_budget_cm",
+               "turn_rate_deg_s", "turn_budget_deg", "position_tolerance_cm", "yaw_tolerance_deg")
+    required = {"enabled", "victim_offset_cm", *scalars}
+    if (not isinstance(settings, dict) or set(settings) not in (required, required | set(presentation),
+            required | set(presentation) | {"movement_start_time_s"})
+            or type(settings["enabled"]) is not bool):
+        raise CaptureError("Entry configuration requires the complete typed pose and motion limits")
+    tuning_numbers(settings["victim_offset_cm"], 3)
+    values = tuning_numbers([settings[k] for k in scalars], len(scalars))
+    if (not -180 <= values[0] <= 180 or values[1] <= 0 or any(v < 0 or v > 3.402823e38 for v in values[1:])
+            or values[-1] > 180):
+        raise CaptureError("Entry limits or upright yaw are outside their supported ranges")
+    result = presentation | {"movement_start_time_s": 0.} | settings
+    if (result["moving_role"] not in ("victim", "initiator")
+            or not isinstance(result["movement_animation"], str)
+            or (result["movement_animation"] and not result["movement_animation"].startswith("/Game/"))
+            or not isinstance(result["movement_slot"], str) or not result["movement_slot"]
+            or result["movement_slot"].lower() == "none"):
+        raise CaptureError("Invalid entry movement role or animation identity")
+    rate, blend_in, blend_out = tuning_numbers([result[k] for k in
+        ("movement_play_rate", "movement_blend_in_s", "movement_blend_out_s")], 3)
+    if not (.01 <= rate <= 10 and 0 <= blend_in <= 1 and 0 <= blend_out <= 1):
+        raise CaptureError("Invalid entry presentation timing")
+    start, = tuning_numbers([result["movement_start_time_s"]], 1)
+    if not 0 <= start <= 3.402823e38 or (start and not result["movement_animation"]):
+        raise CaptureError("Invalid entry source start time")
+    return result
+
+
+def validate_entry_override(settings, row):
+    settings = validate_entry_settings(settings)
+    before = validate_entry_settings(row.get("before"))
+    after = validate_entry_settings(row.get("after"))
+    if row.get("notify_class") != "PairedAnimationData" or after["enabled"] != settings["enabled"]:
+        raise CaptureError("Entry override has inconsistent ownership or enable state")
+    for key, expected in settings.items():
+        if key == "enabled":
+            continue
+        actual = after[key]
+        if isinstance(expected, str):
+            if actual != expected:
+                raise CaptureError("Entry override differs from the requested presentation")
+            continue
+        pairs = zip(actual, expected) if isinstance(expected, list) else [(actual, expected)]
+        if any(abs((a-b+180) % 360-180 if key == "victim_yaw_deg" else a-b) > 1e-4 for a, b in pairs):
+            raise CaptureError("Entry override differs from the requested pose or limits")
+
+
 def validate_warp_tuning_settings(settings):
-    if not isinstance(settings, dict) or set(settings) != {"victim_window_s", "victim_offset_cm"}:
-        raise CaptureError("Warp tuning requires exactly a victim window and offset")
+    required = {"victim_window_s", "victim_offset_cm"}
+    if not isinstance(settings, dict) or not required <= set(settings) or set(settings) - required - {"victim_facing_policy", "primary_sync", "entry"}:
+        raise CaptureError("Warp tuning requires a victim window and offset, with an optional facing policy")
+    if "primary_sync" in settings:
+        validate_primary_sync_settings(settings["primary_sync"])
+    if "entry" in settings and not validate_entry_settings(settings["entry"])["enabled"]:
+        raise CaptureError("Requested entry preparation must be enabled")
+    if "victim_facing_policy" in settings and settings["victim_facing_policy"] not in FACING_POLICIES:
+        raise CaptureError("Unsupported victim facing policy")
     start, end = tuning_numbers(settings["victim_window_s"], 2)
     x, y, z = tuning_numbers(settings["victim_offset_cm"], 3)
     if not (0 <= start and end <= 5 and end - start >= .02 and abs(x) <= 200 and abs(y) <= 200 and z == 0):
@@ -143,30 +234,53 @@ def validate_warp_tuning_settings(settings):
 
 def validate_warp_tuning_overrides(overrides, context):
     settings = validate_warp_tuning_settings(context.get("warp_tuning"))
-    if len(overrides) != 5:
-        raise CaptureError("Warp tuning must describe all five overrides")
+    facing_requested = "victim_facing_policy" in settings
+    sync_requested = "primary_sync" in settings
+    entry_requested = "entry" in settings
+    if len(overrides) != 5 + int(facing_requested) + 2 * int(sync_requested) + int(entry_requested):
+        raise CaptureError("Warp tuning must describe every requested override")
     seen, assets, notify_ids = set(), {}, set()
     expected = {("Attacker", "bDisableMovement"), ("Victim", "bDisableMovement"),
                 ("Attacker", "RootMotionModifier.bWarpTranslation"), ("Victim", "TriggerWindowSeconds"),
                 ("Victim", "VictimWarpConfig.RelativeOffset")}
+    if facing_requested:
+        expected.add(("Victim", "VictimWarpConfig.FacingPolicy"))
+    if sync_requested:
+        expected.update((role, "PrimarySyncSettings") for role in ("Attacker", "Victim"))
+    if entry_requested:
+        expected.add(("Victim", "Entry"))
     for row in overrides:
         role, prop = row.get("role"), row.get("property")
         key = (role, prop)
         offset = prop == "VictimWarpConfig.RelativeOffset"
+        facing = prop == "VictimWarpConfig.FacingPolicy"
+        entry = prop == "Entry"
+        pair_property = offset or facing or entry
         asset, index = row.get("asset"), row.get("notify_index")
         if (key not in expected or key in seen or not isinstance(asset, str) or not asset.startswith("/Game/")
-                or type(index) is not int or (index != -1 if offset else index < 0)):
+                or type(index) is not int or (index != -1 if pair_property else index < 0)):
             raise CaptureError("Invalid or duplicate warp tuning override")
         notify_id = (role, asset, index)
-        if notify_id in notify_ids:
+        if not pair_property and notify_id in notify_ids:
             raise CaptureError("Duplicate tuning notify identity")
-        notify_ids.add(notify_id)
+        if not pair_property:
+            notify_ids.add(notify_id)
         seen.add(key)
-        asset_key = "pair" if offset else role
+        asset_key = "pair" if pair_property else role
         if asset_key in assets and assets[asset_key] != asset:
             raise CaptureError("Warp tuning role has inconsistent asset identity")
         assets[asset_key] = asset
-        if prop in ("TriggerWindowSeconds", "VictimWarpConfig.RelativeOffset"):
+        if entry:
+            validate_entry_override(settings["entry"], row)
+        elif prop == "PrimarySyncSettings":
+            if row.get("notify_class") != "AnimNotifyState_PairedAnimationSync":
+                raise CaptureError("Primary sync override must identify a paired sync notify")
+            validate_primary_sync_override(settings["primary_sync"], row)
+        elif facing:
+            if (row.get("notify_class") != "PairedAnimationData" or row.get("before") not in FACING_POLICIES
+                    or row.get("after") != settings["victim_facing_policy"]):
+                raise CaptureError("Facing override differs from the requested policy")
+        elif prop in ("TriggerWindowSeconds", "VictimWarpConfig.RelativeOffset"):
             values = settings["victim_offset_cm" if offset else "victim_window_s"]
             before = tuning_numbers(row.get("before"), len(values))
             after = tuning_numbers(row.get("after"), len(values))
@@ -181,7 +295,7 @@ def validate_warp_tuning_overrides(overrides, context):
         raise CaptureError("Missing required warp tuning override")
 
 
-def validate_runtime_experiment(scenario, context, metadata=None):
+def validate_runtime_experiment(scenario, context, metadata=None, override_bytes=None):
     experiment = scenario.get("runtime_experiment", "none")
     overrides = scenario.get("runtime_asset_overrides", [])
     warp_role = {"attacker-source-translation": "Attacker", "victim-source-translation": "Victim", "victim-source-rotation": "Victim"}.get(experiment)
@@ -217,8 +331,17 @@ def validate_runtime_experiment(scenario, context, metadata=None):
         if movement_roles != {"Attacker", "Victim"} or warp_roles != ([warp_role] if warp_role else []):
             raise CaptureError("Runtime experiment does not describe its required movement and warp overrides")
     if metadata is not None:
-        if (metadata.get("runtime_experiment", "none") != experiment
-                or json.loads(metadata.get("runtime_asset_overrides", "[]")) != overrides):
+        if "runtime_asset_overrides_sha1" in metadata:
+            if ("runtime_asset_overrides" in metadata or override_bytes is None
+                    or hashlib.sha1(override_bytes).hexdigest() != metadata["runtime_asset_overrides_sha1"]):
+                raise CaptureError("Runtime override sidecar is missing, ambiguous or does not match capture metadata")
+            try:
+                recorded = json.loads(override_bytes)
+            except (ValueError, UnicodeError) as error:
+                raise CaptureError("Runtime override sidecar is not valid JSON") from error
+        else:
+            recorded = json.loads(metadata.get("runtime_asset_overrides", "[]"))
+        if metadata.get("runtime_experiment", "none") != experiment or recorded != overrides:
             raise CaptureError("Capture metadata disagrees with the runtime experiment")
     return dict(name=experiment, asset_overrides=overrides, identity=identity(overrides))
 
@@ -267,7 +390,10 @@ def evaluate(root, reference=None):
         if not context["editor_binaries"] or not assets["files"]:
             raise CaptureError("No editor binary or asset identity")
         metadata = read_json(root / "session.json")["metadata"] if scenario["capture_mode"] != "disabled" else None
-        result["runtime_experiment"] = validate_runtime_experiment(scenario, context, metadata)
+        override_path = root / "runtime-overrides.json"
+        override_bytes = override_path.read_bytes() if override_path.is_file() else None
+        result["runtime_experiment"] = validate_runtime_experiment(scenario, context, metadata, override_bytes)
+        result["placement"] = validate_placement(scenario, context, metadata)
         execution_files = {name: sha for name, sha in context["source"]["files"].items()
                            if (not name.startswith(("Tools/CombatCapture/", "Tools/AnimationAnalysis/", "Dependencies/AnimationAnalysis/Python/"))
                                or name.startswith("Tools/CombatCapture/scenarios/"))}

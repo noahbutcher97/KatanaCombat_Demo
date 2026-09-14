@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Core/PairedAnimationComponent.h"
+#include "Utilities/AlignmentMotionLibrary.h"
 #include "Core/CombatComponent.h"
 #include "Core/TargetingComponent.h"
 #include "Core/HitReactionComponent.h"
@@ -62,6 +63,7 @@ FDefensePresentationSelectionContext BuildDefenseBridgeSelectionContext(
 
 bool HasValidPairedRuntimeNumerics(const UPairedAnimationData& Data)
 {
+	if (Data.Entry.bEnabled && (!AlignmentMotion::IsValid(Data.Entry.Limits) || !AlignmentMotion::IsValidGoal(Data.Entry.VictimRelativeTransform))) { return false; }
 	const bool bFinitePlayback = FMath::IsFinite(Data.SyncPointTime)
 		&& Data.SyncPointTime >= 0.0f
 		&& FMath::IsFinite(Data.VictimStartOffset)
@@ -94,9 +96,11 @@ bool HasValidPairedRuntimeNumerics(const UPairedAnimationData& Data)
 		&& FMath::IsFinite(Data.AttackerWarpConfig.MaxWarpDistance)
 		&& Data.AttackerWarpConfig.MaxWarpDistance >= 0.0f
 		&& !Data.AttackerWarpConfig.RelativeOffset.ContainsNaN()
+		&& UPairedAnimationUtilityLibrary::IsValidFacingPolicy(Data.AttackerWarpConfig.FacingPolicy)
 		&& FMath::IsFinite(Data.VictimWarpConfig.MaxWarpDistance)
 		&& Data.VictimWarpConfig.MaxWarpDistance >= 0.0f
 		&& !Data.VictimWarpConfig.RelativeOffset.ContainsNaN()
+		&& UPairedAnimationUtilityLibrary::IsValidFacingPolicy(Data.VictimWarpConfig.FacingPolicy)
 		&& FMath::IsFinite(Data.ChainTransitionPolicy.ResponseWindowOverride)
 		&& Data.ChainTransitionPolicy.ResponseWindowOverride >= 0.0f;
 	const bool bFiniteEffects = !Data.bApplySlowMotion
@@ -108,19 +112,15 @@ bool HasValidPairedRuntimeNumerics(const UPairedAnimationData& Data)
 	return bFinitePlayback && bFiniteDamage && bFinitePositioning && bFiniteEffects;
 }
 
-float GetAbsoluteYawToTarget(const AActor* Actor, const AActor* Target)
+float GetAbsolutePairedYaw(const AActor* Actor, const AActor* Target, EPairedFacingPolicy Policy)
 {
 	if (!Actor || !Target)
 	{
 		return TNumericLimits<float>::Max();
 	}
 
-	const FVector ToTarget = Target->GetActorLocation() - Actor->GetActorLocation();
-	if (ToTarget.IsNearlyZero())
-	{
-		return 0.0f;
-	}
-	const float DesiredYaw = ToTarget.Rotation().Yaw;
+	const float DesiredYaw = UPairedAnimationUtilityLibrary::ResolvePairedFacingRotation(
+		Actor->GetActorLocation(), Actor->GetActorRotation(), Target->GetActorTransform(), Policy).Yaw;
 	return FMath::Abs(FMath::FindDeltaAngleDegrees(Actor->GetActorRotation().Yaw, DesiredYaw));
 }
 
@@ -290,7 +290,8 @@ void AppendDefenseSequenceTelemetry(
 
 UPairedAnimationComponent::UPairedAnimationComponent()
 {
-	PrimaryComponentTick.bCanEverTick = false;
+	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.TickGroup = TG_PostPhysics;
 	PrimaryComponentTick.bStartWithTickEnabled = false;
 }
 
@@ -1245,6 +1246,7 @@ bool UPairedAnimationComponent::ApplyActivePairedDamageOnce()
 
 bool UPairedAnimationComponent::ApplyLegacyPairedDamageOnce()
 {
+	if (IsPreparingPairedEntry()) { return false; }
 	const int32 LegacyGeneration = ActiveLegacyPairedGeneration;
 	if (!bOwnsLegacyPairedGeneration
 		|| LegacyGeneration >= 0
@@ -2035,7 +2037,9 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 		|| !FMath::IsFinite(Presentation.MaximumTranslation)
 		|| Presentation.MaximumTranslation < 0.0f
 		|| BridgeData->AttackerWarpConfig.RelativeOffset.ContainsNaN()
-		|| BridgeData->VictimWarpConfig.RelativeOffset.ContainsNaN())
+		|| BridgeData->VictimWarpConfig.RelativeOffset.ContainsNaN()
+		|| !UPairedAnimationUtilityLibrary::IsValidFacingPolicy(BridgeData->AttackerWarpConfig.FacingPolicy)
+		|| !UPairedAnimationUtilityLibrary::IsValidFacingPolicy(BridgeData->VictimWarpConfig.FacingPolicy))
 	{
 		OutFailureReason = TEXT("a role has an invalid translation budget");
 		return false;
@@ -2113,7 +2117,9 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 
 	const float RequiredDefenderTurn = FMath::Max(
 		0.0f,
-		FMath::Abs(Resolution.Decision.MeasuredYawDegrees)
+		(BridgeData->AttackerWarpConfig.FacingPolicy == EPairedFacingPolicy::FacePartner
+			? FMath::Abs(Resolution.Decision.MeasuredYawDegrees)
+			: GetAbsolutePairedYaw(Defender, SourceAttacker, BridgeData->AttackerWarpConfig.FacingPolicy))
 			- Resolution.Decision.RequiredFinalTolerance);
 	const float ConfiguredDefenderTurnBudget = DefenderConfiguration
 		? DefenderConfiguration->MaximumAutomaticTurn
@@ -2127,7 +2133,7 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 	const float ConfiguredSourceTurnRate = SourceConfiguration
 		? SourceConfiguration->DefenseTurnRate
 		: 0.0f;
-	const float SourceYawToDefender = GetAbsoluteYawToTarget(SourceAttacker, Defender);
+	const float SourceYawToDefender = GetAbsolutePairedYaw(SourceAttacker, Defender, BridgeData->VictimWarpConfig.FacingPolicy);
 	const float RequiredSourceTurn = FMath::Max(
 		0.0f,
 		SourceYawToDefender - Resolution.Decision.RequiredFinalTolerance);
@@ -3144,6 +3150,12 @@ bool UPairedAnimationComponent::PreflightDefenseChainStage(
 
 	const FPairedWarpConfig& DefenderWarp = PairedAnimData->AttackerWarpConfig;
 	const FPairedWarpConfig& SourceWarp = PairedAnimData->VictimWarpConfig;
+	if (!UPairedAnimationUtilityLibrary::IsValidFacingPolicy(DefenderWarp.FacingPolicy)
+		|| !UPairedAnimationUtilityLibrary::IsValidFacingPolicy(SourceWarp.FacingPolicy))
+	{
+		OutFailureReason = TEXT("retained stage has an invalid facing policy");
+		return false;
+	}
 	if (!FMath::IsFinite(PairedAnimData->MaxWarpDistance)
 		|| PairedAnimData->MaxWarpDistance < 0.0f
 		|| !FMath::IsFinite(DefenderWarp.MaxWarpDistance)
@@ -3207,9 +3219,10 @@ bool UPairedAnimationComponent::PreflightDefenseChainStage(
 	auto IsRoleRotationValid = [RequiredTolerance](
 		const AActor* Role,
 		const AActor* Target,
+		EPairedFacingPolicy Policy,
 		const FDefenseStageAlignmentLimits& Limits)
 	{
-		const float RequiredYaw = GetAbsoluteYawToTarget(Role, Target);
+		const float RequiredYaw = GetAbsolutePairedYaw(Role, Target, Policy);
 		if (!FMath::IsFinite(RequiredYaw)
 			|| !FMath::IsFinite(RequiredTolerance)
 			|| RequiredTolerance < 0.0f
@@ -3223,8 +3236,8 @@ bool UPairedAnimationComponent::PreflightDefenseChainStage(
 			&& (RequiredCorrection <= KINDA_SMALL_NUMBER
 				|| Limits.MaximumTurnRate > KINDA_SMALL_NUMBER);
 	};
-	if (!IsRoleRotationValid(Defender, SourceAttacker, DefenderAlignmentLimits)
-		|| !IsRoleRotationValid(SourceAttacker, Defender, SourceAlignmentLimits))
+	if (!IsRoleRotationValid(Defender, SourceAttacker, DefenderWarp.FacingPolicy, DefenderAlignmentLimits)
+		|| !IsRoleRotationValid(SourceAttacker, Defender, SourceWarp.FacingPolicy, SourceAlignmentLimits))
 	{
 		OutFailureReason = TEXT("a retained role exceeds its remaining rotation budget");
 		return false;
@@ -3438,8 +3451,10 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 		Spec.Executor = EAlignmentExecutor::MotionWarping;
 		Spec.Target = Target;
 		Spec.TargetRelativeOffset = Warp.RelativeOffset;
+		Spec.FacingPolicy = Warp.FacingPolicy;
 		Spec.DesiredRotation = Target
-			? (Target->GetActorLocation() - Owner->GetActorLocation()).Rotation()
+			? UPairedAnimationUtilityLibrary::ResolvePairedFacingRotation(
+				Owner->GetActorLocation(), Owner->GetActorRotation(), Target->GetActorTransform(), Warp.FacingPolicy)
 			: Owner->GetActorRotation();
 		Spec.MaximumTurnRate = Limits.MaximumTurnRate;
 		Spec.RemainingTurnBudget = Limits.RemainingTurnBudget;
@@ -3927,8 +3942,13 @@ bool UPairedAnimationComponent::TryStartPairedAnimationWithTarget(AActor* Target
 		return false;
 	}
 
-	bool bAttackerMontageSuccess = false;
-	bool bVictimMontageSuccess = false;
+	if (PairedAnimData->Entry.bEnabled && !PreflightPairedEntry(TargetActor, PairedAnimData))
+	{
+		LastEntryOutcome = EAlignmentMotionOutcome::Exhausted;
+		return false;
+	}
+	bEntryPending = PairedAnimData->Entry.bEnabled;
+	LastEntryOutcome = EAlignmentMotionOutcome::Running;
 
 	const bool bTreatAsLethal = ShouldTreatPairedAnimationAsLethal(ReactionType, PairedAnimData);
 	if (ReactionType == EPairedReactionType::Counter && PairedAnimData->bIsLethal && !bTreatAsLethal)
@@ -3952,6 +3972,26 @@ bool UPairedAnimationComponent::TryStartPairedAnimationWithTarget(AActor* Target
 	}
 
 	BeginPairedAnimation(PairedAnimData, ReactionType, true);
+
+	if (PairedAnimData->Entry.bEnabled)
+	{
+		if (!ActivePairedAnimData || !HasAcceptedLegacyPairedParticipant(TargetActor)) { return false; }
+		if (PreparePairedEntry(TargetActor, PairedAnimData)) { return true; }
+		LastEntryOutcome = EAlignmentMotionOutcome::Invalid;
+		CancelPairedAnimation(0); return false;
+	}
+	return StartLegacyPairedMontages(TargetActor, PairedAnimData, ReactionType);
+}
+
+bool UPairedAnimationComponent::StartLegacyPairedMontages(AActor* TargetActor, UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType)
+{
+	ABaseCombatCharacter* AttackerCharacter = GetOwnerCharacter();
+	UTargetingComponent* TargetingComp = AttackerCharacter ? AttackerCharacter->GetTargetingComponent() : nullptr;
+	UHitReactionComponent* TargetHitReaction = TargetActor ? TargetActor->FindComponentByClass<UHitReactionComponent>() : nullptr;
+	UPairedAnimationComponent* TargetPairedComp = TargetActor ? TargetActor->FindComponentByClass<UPairedAnimationComponent>() : nullptr;
+	if (!TargetingComp || !TargetHitReaction || !PairedAnimData) { return false; }
+	bool bAttackerMontageSuccess = false;
+	bool bVictimMontageSuccess = false;
 
 	ACharacter* AttackerChar = Cast<ACharacter>(AttackerCharacter);
 	if (AttackerChar && PairedAnimData->AttackerMontage)
@@ -4938,6 +4978,7 @@ void UPairedAnimationComponent::BeginPairedAnimation(UPairedAnimationData* Paire
 
 void UPairedAnimationComponent::EndPairedAnimation()
 {
+	ReleasePairedEntry();
 	if (ChainState != EChainCounterState::None
 		&& ActiveDefenseSequence.OriginatingInteraction.IsValid())
 	{
@@ -4990,10 +5031,25 @@ void UPairedAnimationComponent::EndPairedAnimation()
 	}
 }
 
+AActor* UPairedAnimationComponent::GetOwnedSyncCorrectionTarget() const
+{
+	// Resolve from sequence identity, not the order of collision/partner tracking.
+	// Retained defense alignment already has its own scoped executor and budgets.
+	AActor* Target = CurrentFinisherVictim.Get();
+	if (!ActivePairedAnimData || ActivePairedAnimData->Entry.bEnabled || ChainState != EChainCounterState::None
+		|| ActiveDefenseSequence.OriginatingInteraction.IsValid()
+		|| !HasAcceptedLegacyPairedParticipant(Target) || !IsPairedPartner(Target))
+	{
+		return nullptr;
+	}
+	return Target;
+}
+
 void UPairedAnimationComponent::HandlePairedSyncPoint(
 	const FName SyncPointName,
 	const bool bApplyDamage)
 {
+	if (IsPreparingPairedEntry() || (LegacyPairedSequenceOwner.IsValid() && LegacyPairedSequenceOwner->IsPreparingPairedEntry())) { return; }
 	TriggerSyncPointEffects(SyncPointName);
 	if (!bApplyDamage)
 	{
@@ -5281,8 +5337,9 @@ void UPairedAnimationComponent::CancelPairedAnimation(float BlendOutTime)
 		}
 	}
 
-	// Stop any playing montage on the owner
-	if (AActor* Owner = GetOwner())
+	// Entry owns only its movement instance; a replacement must survive cancellation.
+	// ReleasePairedEntry retires that instance during EndPairedAnimation below.
+	if (AActor* Owner = IsPreparingPairedEntry() ? nullptr : GetOwner())
 	{
 		if (ACharacter* Character = Cast<ACharacter>(Owner))
 		{
@@ -5331,6 +5388,7 @@ void UPairedAnimationComponent::CancelPairedAnimation(float BlendOutTime)
 
 void UPairedAnimationComponent::CompletePairedAnimation()
 {
+	if (IsPreparingPairedEntry()) { return; }
 	if (ChainState != EChainCounterState::None
 		&& ActiveDefenseSequence.OriginatingInteraction.IsValid())
 	{

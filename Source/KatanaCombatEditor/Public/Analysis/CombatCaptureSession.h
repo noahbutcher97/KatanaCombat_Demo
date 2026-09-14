@@ -28,6 +28,10 @@ struct KATANACOMBATEDITOR_API FCombatCaptureSettings
 	double SampleHz = 60.0;
 	/** Zero disables PNG capture. Actual cadence is limited by game viewport draws. */
 	double FrameHz = 5.0;
+	/** Opt in to bounded asynchronous RGB acquisition; synchronous capture remains the default. */
+	bool bUseAsyncReadback = false;
+	/** Async-only full-resolution diagnostic view policy. Caller still owns AA and camera settings. */
+	bool bUseAsyncDiagnosticResolution = false;
 	double MaxWallSeconds = 60.0;
 	int32 MaxSamples = 7200;
 	int32 MaxFrames = 600;

@@ -17,6 +17,31 @@
 // POSITION CALCULATION
 // ============================================================================
 
+bool UPairedAnimationUtilityLibrary::IsValidFacingPolicy(EPairedFacingPolicy Policy)
+{
+    return Policy == EPairedFacingPolicy::FacePartner
+        || Policy == EPairedFacingPolicy::FaceAwayFromPartner
+        || Policy == EPairedFacingPolicy::MatchPartnerHeading;
+}
+
+FRotator UPairedAnimationUtilityLibrary::ResolvePairedFacingRotation(
+    const FVector& FacingOrigin, const FRotator& FallbackRotation,
+    const FTransform& PartnerTransform, EPairedFacingPolicy Policy)
+{
+    if (Policy == EPairedFacingPolicy::MatchPartnerHeading)
+    {
+        return FRotator(0, PartnerTransform.Rotator().Yaw, 0);
+    }
+    FVector Direction = PartnerTransform.GetLocation() - FacingOrigin;
+    Direction.Z = 0;
+    if (!IsValidFacingPolicy(Policy) || Direction.IsNearlyZero())
+    {
+        return FRotator(0, FallbackRotation.Yaw, 0);
+    }
+    if (Policy == EPairedFacingPolicy::FaceAwayFromPartner) { Direction *= -1; }
+    return FRotator(0, Direction.Rotation().Yaw, 0);
+}
+
 FTransform UPairedAnimationUtilityLibrary::CalculateVictimTransform(
     const FTransform& AttackerTransform,
     const FVector& RelativePosition,

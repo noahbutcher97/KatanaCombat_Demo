@@ -17,7 +17,8 @@ from analyze_capture import CaptureError, analyze, read_json, write_report
 from animation_analysis.artifacts import atomic_json, digest, identity, file_manifest
 from capture_format import implementation_identity
 from evaluate_capture import evaluate_and_write
-from animation_analysis_dependency import dependency_source_manifest
+from scenario_placement import resolve_placement
+from animation_analysis_dependency import SOURCE_SUFFIXES, dependency_source_manifest
 
 REPO = Path(__file__).resolve().parents[2]
 TOOLS = Path(__file__).resolve().parent
@@ -25,7 +26,7 @@ TOOLS = Path(__file__).resolve().parent
 
 def source_state(repo=REPO):
     paths = [p for directory in ("Source", "Config", "Tools/CombatCapture", "Tools/AnimationAnalysis", "Plugins/AnimationAnalysis") for p in (repo / directory).rglob("*")
-             if p.is_file() and p.suffix in (".cpp", ".h", ".cs", ".ini", ".py", ".json", ".toml", ".uplugin", ".uproject")
+             if p.is_file() and p.suffix in SOURCE_SUFFIXES
              and not any(part in ("Binaries", "Intermediate", "Saved") for part in p.relative_to(repo).parts)]
     paths += list(repo.glob("*.uproject"))
     files = file_manifest(repo, (p.relative_to(repo) for p in paths))
@@ -118,6 +119,7 @@ def run_one(args, batch_dir, source, map_key, variant, mode, iteration):
                        editor_binaries=editor_binary_state(),
                        build_this_batch=not args.skip_build, declared_changes=args.declare_change,
                        runtime_experiment=args.finisher_experiment, warp_tuning=args.warp_tuning, camera_view=args.camera_view,
+                       placement=args.placement,
                        scenario_path=args.scenario.relative_to(REPO).as_posix())
         atomic_json(run_dir / "run-context.json", context)
         before = content_snapshot()
@@ -186,12 +188,18 @@ def main():
     parser.add_argument("--skip-build", action="store_true", help="Record use of an existing build; caller must ensure it matches source")
     parser.add_argument("--render-world", action="store_true", help="Keep rendering enabled for disabled/motion modes to isolate recorder overhead")
     parser.add_argument("--camera-view", default="default", help="Named camera view from the registered scenario; default preserves its standard camera")
+    parser.add_argument("--placement", default="default", help="Named participant placement from the registered scenario; applied as fixture setup before public input")
     parser.add_argument("--timeout", type=int, default=240, help="Per-process wall deadline including editor startup")
     parser.add_argument("--control-offset-cm", type=float, default=0, help="Deliberate transient PIE mesh displacement for detector validation")
     parser.add_argument("--finisher-experiment", choices=("none", "permit-root-motion", "attacker-source-translation", "victim-source-translation", "victim-source-rotation", "paired-warp-tuning"), default="none",
                         help="Transient movement and per-role warp controls; restored without saving and recorded in capture provenance")
     parser.add_argument("--victim-warp-window", type=float, nargs=2, metavar=("START_S", "END_S"), help="Effective victim warp window for paired-warp-tuning")
     parser.add_argument("--victim-warp-offset", type=float, nargs=3, metavar=("X", "Y", "Z"), help="Victim relative offset in cm for paired-warp-tuning")
+    parser.add_argument("--victim-facing-policy", choices=("face-partner", "face-away-from-partner", "match-partner-heading"),
+                        help="Transient victim facing for paired-warp-tuning; omitted preserves the asset policy")
+    parser.add_argument("--primary-sync-time", type=float, help="Transient primary sync start on both roles; preserves notify durations")
+    parser.add_argument("--sync-nudge", choices=("enabled", "disabled"), help="Transient primary-sync position nudge on both roles")
+    parser.add_argument("--entry-config", type=Path, help="Complete transient paired-entry configuration JSON for paired-warp-tuning")
     parser.add_argument("--references", type=Path, help="Explicitly selected reference directory; never automatically promotes current results")
     parser.add_argument("--declare-change", action="append", default=[], help="Document each intended source/asset difference from a reference")
     args = parser.parse_args()
@@ -203,16 +211,32 @@ def main():
     if args.finisher_experiment == "paired-warp-tuning":
         from evaluate_capture import validate_warp_tuning_settings
         try:
-            args.warp_tuning = validate_warp_tuning_settings(dict(victim_window_s=args.victim_warp_window, victim_offset_cm=args.victim_warp_offset))
+            settings = dict(victim_window_s=args.victim_warp_window, victim_offset_cm=args.victim_warp_offset)
+            if args.entry_config is not None:
+                settings["entry"] = read_json(args.entry_config)
+            if args.victim_facing_policy is not None:
+                settings["victim_facing_policy"] = args.victim_facing_policy
+            sync = {}
+            if args.primary_sync_time is not None:
+                sync["time_s"] = args.primary_sync_time
+            if args.sync_nudge is not None:
+                sync["nudge_enabled"] = args.sync_nudge == "enabled"
+            if sync:
+                settings["primary_sync"] = sync
+            args.warp_tuning = validate_warp_tuning_settings(settings)
         except CaptureError as error:
             parser.error(str(error))
-    elif args.victim_warp_window is not None or args.victim_warp_offset is not None:
+    elif any(value is not None for value in (args.victim_warp_window, args.victim_warp_offset, args.victim_facing_policy, args.primary_sync_time, args.sync_nudge, args.entry_config)):
         parser.error("Victim warp settings require paired-warp-tuning")
     args.scenario = args.scenario.resolve()
     registered = {"finisher-recovery.json": "FinisherRecovery", "hold-release-recovery.json": "HoldReleaseRecovery"}
     if args.scenario.parent != (TOOLS / "scenarios").resolve() or args.scenario.name not in registered:
         parser.error("Scenario must be a registered repository definition")
     args.definition = read_json(args.scenario)
+    try:
+        resolve_placement(args.definition, args.placement)
+    except CaptureError as error:
+        parser.error(str(error))
     if args.camera_view != "default" and args.camera_view not in args.definition.get("camera_views", {}):
         parser.error("Camera view must be declared in the registered scenario")
     if args.definition["scenario"] != registered[args.scenario.name]:

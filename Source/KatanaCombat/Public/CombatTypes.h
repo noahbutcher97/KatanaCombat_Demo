@@ -253,6 +253,15 @@ enum class EPairedAnimationRole : uint8
 	Victim
 };
 
+/** Desired heading for a paired role, independent of its translation target. */
+UENUM(BlueprintType)
+enum class EPairedFacingPolicy : uint8
+{
+	FacePartner = 0,
+	FaceAwayFromPartner,
+	MatchPartnerHeading
+};
+
 /** Gameplay transitions authored into the driver montage for a retained Chain. */
 UENUM(BlueprintType)
 enum class EChainStageTransitionType : uint8
@@ -434,7 +443,56 @@ enum class EAlignmentExecutor : uint8
 {
 	None,
 	CharacterMovement,
-	MotionWarping
+	MotionWarping,
+	BoundedMovement
+};
+
+UENUM(BlueprintType)
+enum class EAlignmentMotionOutcome : uint8
+{
+	Running,
+	Reached,
+	Blocked,
+	Exhausted,
+	Invalid,
+	Cancelled
+};
+
+/** Limits for swept preparation movement, in world simulation seconds and centimeters. */
+USTRUCT(BlueprintType)
+struct FAlignmentMotionLimits
+{
+	GENERATED_BODY()
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alignment", meta = (ClampMin = "0.001"))
+	float Duration = 0.5f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alignment", meta = (ClampMin = "0.0"))
+	float TranslationSpeed = 300.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alignment", meta = (ClampMin = "0.0"))
+	float TravelBudget = 150.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alignment", meta = (ClampMin = "0.0"))
+	float TurnRate = 540.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alignment", meta = (ClampMin = "0.0"))
+	float TurnBudget = 180.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alignment", meta = (ClampMin = "0.0"))
+	float PositionTolerance = 2.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Alignment", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float YawTolerance = 3.0f;
+
+	bool operator==(const FAlignmentMotionLimits& Other) const
+	{
+		return Duration == Other.Duration && TranslationSpeed == Other.TranslationSpeed && TravelBudget == Other.TravelBudget
+			&& TurnRate == Other.TurnRate && TurnBudget == Other.TurnBudget
+			&& PositionTolerance == Other.PositionTolerance && YawTolerance == Other.YawTolerance;
+	}
+};
+
+/** Measured movement consumed by one scoped alignment request. */
+struct FAlignmentMotionState
+{
+	EAlignmentMotionOutcome Outcome = EAlignmentMotionOutcome::Running;
+	double Elapsed = 0.0;
+	double Travel = 0.0;
+	double Turn = 0.0;
 };
 
 UENUM(BlueprintType)
@@ -2938,6 +2996,10 @@ struct FAlignmentRequestSpec
 	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
 	FRotator DesiredRotation = FRotator::ZeroRotator;
 
+	/** Applied when tracking a target; existing alignment requests face that target. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EPairedFacingPolicy FacingPolicy = EPairedFacingPolicy::FacePartner;
+
 	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
 	float MaximumTurnRate = 0.0f;
 
@@ -2959,6 +3021,12 @@ struct FAlignmentRequestSpec
 
 	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
 	bool bWarpTranslation = false;
+
+	/** BoundedMovement only: relative to Target when supplied, otherwise a world transform. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FTransform BoundedGoal = FTransform::Identity;
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FAlignmentMotionLimits MotionLimits;
 };
 
 USTRUCT(BlueprintType)

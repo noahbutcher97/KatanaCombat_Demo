@@ -2,14 +2,46 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "CombatTypes.h"
+#include "Analysis/PairedSyncTuning.h"
+#include "Analysis/PairedEntryTuning.h"
 #include "Animation/AnimTypes.h"
 #include "Dom/JsonObject.h"
 
 // Bounded diagnostic settings shared by the PIE fixture and native evaluator.
 // The movement override and attacker translation-off control are fixed; only
-// the victim's effective notify window and relative offset are varied.
+// the victim's effective notify window, offset and facing, plus optional primary
+// sync timing/nudging on both roles, vary through recorded transient overrides.
 namespace PairedWarpTuning
 {
+inline FString FacingName(EPairedFacingPolicy Policy)
+{
+	switch (Policy)
+	{
+	case EPairedFacingPolicy::FacePartner: return TEXT("face-partner");
+	case EPairedFacingPolicy::FaceAwayFromPartner: return TEXT("face-away-from-partner");
+	case EPairedFacingPolicy::MatchPartnerHeading: return TEXT("match-partner-heading");
+	default: return TEXT("");
+	}
+}
+
+inline bool ParseFacing(const FString& Name, EPairedFacingPolicy& Policy)
+{
+	for (const auto Candidate : {EPairedFacingPolicy::FacePartner, EPairedFacingPolicy::FaceAwayFromPartner, EPairedFacingPolicy::MatchPartnerHeading})
+	{
+		if (Name == FacingName(Candidate)) { Policy = Candidate; return true; }
+	}
+	return false;
+}
+
+// Absence preserves the asset's policy. Present but malformed never becomes a default.
+inline bool ReadFacing(const TSharedPtr<FJsonObject>& Settings, EPairedFacingPolicy& Policy, bool& bRequested)
+{
+	bRequested = Settings && Settings->HasField(TEXT("victim_facing_policy"));
+	FString Name;
+	return !bRequested || (Settings->TryGetStringField(TEXT("victim_facing_policy"), Name) && ParseFacing(Name, Policy));
+}
+
 inline bool SetEffectiveWindow(FAnimNotifyEvent& Event, UAnimMontage* Montage, double Start, double End)
 {
 	Event.Link(Montage, Start - Event.TriggerTimeOffset);
@@ -36,7 +68,16 @@ inline bool Numbers(const TSharedPtr<FJsonObject>& Object, const FString& Key, i
 inline bool Read(const TSharedPtr<FJsonObject>& Context, TArray<double>& Window, TArray<double>& Offset)
 {
 	const TSharedPtr<FJsonObject>* Settings = nullptr;
-	return Context && Context->TryGetObjectField(TEXT("warp_tuning"), Settings) && (*Settings)->Values.Num() == 2
+	EPairedFacingPolicy Policy = EPairedFacingPolicy::FacePartner;
+	bool bFacingRequested = false;
+	if (!Context || !Context->TryGetObjectField(TEXT("warp_tuning"), Settings)) { return false; }
+	const bool bSyncRequested = (*Settings)->HasField(TEXT("primary_sync"));
+	const bool bEntryRequested = (*Settings)->HasField(TEXT("entry"));
+	const TSharedPtr<FJsonObject>* Entry = nullptr; FPairedEntryConfig EntryConfig;
+	if (bEntryRequested && (!(*Settings)->TryGetObjectField(TEXT("entry"), Entry) || !PairedEntryTuning::Read(*Entry, EntryConfig) || !EntryConfig.bEnabled)) { return false; }
+	const TSharedPtr<FJsonObject>* Sync = nullptr; PairedSyncTuning::FSettings SyncSettings;
+	if (bSyncRequested && (!(*Settings)->TryGetObjectField(TEXT("primary_sync"), Sync) || !PairedSyncTuning::Read(*Sync, SyncSettings))) { return false; }
+	return ReadFacing(*Settings, Policy, bFacingRequested) && (*Settings)->Values.Num() == 2 + int32(bFacingRequested) + int32(bSyncRequested) + int32(bEntryRequested)
 		&& Numbers(*Settings, TEXT("victim_window_s"), 2, Window) && Numbers(*Settings, TEXT("victim_offset_cm"), 3, Offset)
 		&& Window[0] >= 0 && Window[1] <= 5 && Window[1] - Window[0] >= .02
 		&& FMath::Abs(Offset[0]) <= 200 && FMath::Abs(Offset[1]) <= 200 && Offset[2] == 0;
@@ -46,7 +87,18 @@ inline bool Validate(const TSharedPtr<FJsonObject>& Context, const TArray<TShare
 	const FString& AttackerMontage, const FString& VictimMontage, const FString& PairAsset)
 {
 	TArray<double> Window, Offset;
-	if (!Read(Context, Window, Offset) || Overrides.Num() != 5) { return false; }
+	if (!Read(Context, Window, Offset)) { return false; }
+	EPairedFacingPolicy Policy = EPairedFacingPolicy::FacePartner;
+	bool bFacingRequested = false;
+	ReadFacing(Context->GetObjectField(TEXT("warp_tuning")), Policy, bFacingRequested);
+	const auto Settings = Context->GetObjectField(TEXT("warp_tuning"));
+	const bool bSyncRequested = Settings->HasField(TEXT("primary_sync"));
+	const bool bEntryRequested = Settings->HasField(TEXT("entry"));
+	FPairedEntryConfig EntryConfig;
+	if (bEntryRequested) { PairedEntryTuning::Read(Settings->GetObjectField(TEXT("entry")), EntryConfig); }
+	PairedSyncTuning::FSettings SyncSettings;
+	if (bSyncRequested) { PairedSyncTuning::Read(Settings->GetObjectField(TEXT("primary_sync")), SyncSettings); }
+	if (Overrides.Num() != 5 + int32(bFacingRequested) + (bSyncRequested ? 2 : 0) + int32(bEntryRequested)) { return false; }
 	TSet<FString> Seen, NotifyIds;
 	for (const auto& Value : Overrides)
 	{
@@ -60,13 +112,31 @@ inline bool Validate(const TSharedPtr<FJsonObject>& Context, const TArray<TShare
 		const FString Key = Role + TEXT("|") + Property;
 		if (Seen.Contains(Key)) { return false; }
 		Seen.Add(Key);
-		const FString NotifyId = Role + TEXT("|") + Asset + FString::Printf(TEXT("|%.0f"), Index);
-		if (NotifyIds.Contains(NotifyId)) { return false; }
-		NotifyIds.Add(NotifyId);
 		const bool bOffset = Role == TEXT("Victim") && Property == TEXT("VictimWarpConfig.RelativeOffset");
-		if (Asset != (bOffset ? PairAsset : Role == TEXT("Attacker") ? AttackerMontage : VictimMontage)
-			|| (bOffset ? Index != -1 : Index < 0)) { return false; }
-		if (bOffset || (Role == TEXT("Victim") && Property == TEXT("TriggerWindowSeconds")))
+		const bool bFacing = bFacingRequested && Role == TEXT("Victim") && Property == TEXT("VictimWarpConfig.FacingPolicy");
+		const bool bEntry = bEntryRequested && Role == TEXT("Victim") && Property == TEXT("Entry");
+		const bool bPairProperty = bOffset || bFacing || bEntry;
+		const FString NotifyId = Role + TEXT("|") + Asset + FString::Printf(TEXT("|%.0f"), Index);
+		if (!bPairProperty && NotifyIds.Contains(NotifyId)) { return false; }
+		if (!bPairProperty) { NotifyIds.Add(NotifyId); }
+		if (Asset != (bPairProperty ? PairAsset : Role == TEXT("Attacker") ? AttackerMontage : VictimMontage)
+			|| (bPairProperty ? Index != -1 : Index < 0)) { return false; }
+		if (bEntry)
+		{
+			if (Class != TEXT("PairedAnimationData") || !PairedEntryTuning::ValidateOverride(EntryConfig, Row)) { return false; }
+		}
+		else if (bSyncRequested && Property == TEXT("PrimarySyncSettings"))
+		{
+			if (Class != TEXT("AnimNotifyState_PairedAnimationSync") || !PairedSyncTuning::ValidateOverride(SyncSettings, Row)) { return false; }
+		}
+		else if (bFacing)
+		{
+			FString Before, After; EPairedFacingPolicy BeforePolicy = EPairedFacingPolicy::FacePartner;
+			if (Class != TEXT("PairedAnimationData") || !Row->TryGetStringField(TEXT("before"), Before)
+				|| !ParseFacing(Before, BeforePolicy) || !Row->TryGetStringField(TEXT("after"), After)
+				|| After != FacingName(Policy)) { return false; }
+		}
+		else if (bOffset || (Role == TEXT("Victim") && Property == TEXT("TriggerWindowSeconds")))
 		{
 			TArray<double> Before, After;
 			const auto& Expected = bOffset ? Offset : Window;
@@ -86,6 +156,9 @@ inline bool Validate(const TSharedPtr<FJsonObject>& Context, const TArray<TShare
 	}
 	return Seen.Contains(TEXT("Attacker|bDisableMovement")) && Seen.Contains(TEXT("Victim|bDisableMovement"))
 		&& Seen.Contains(TEXT("Attacker|RootMotionModifier.bWarpTranslation")) && Seen.Contains(TEXT("Victim|TriggerWindowSeconds"))
-		&& Seen.Contains(TEXT("Victim|VictimWarpConfig.RelativeOffset"));
+		&& Seen.Contains(TEXT("Victim|VictimWarpConfig.RelativeOffset"))
+		&& (!bEntryRequested || Seen.Contains(TEXT("Victim|Entry")))
+		&& (!bFacingRequested || Seen.Contains(TEXT("Victim|VictimWarpConfig.FacingPolicy")))
+		&& (!bSyncRequested || (Seen.Contains(TEXT("Attacker|PrimarySyncSettings")) && Seen.Contains(TEXT("Victim|PrimarySyncSettings"))));
 }
 }
