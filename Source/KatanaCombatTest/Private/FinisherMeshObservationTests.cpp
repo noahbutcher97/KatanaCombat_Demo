@@ -1,4 +1,5 @@
 #include "Misc/AutomationTest.h"
+#include "FinisherMeshObservation.h"
 #include "AnimationCapture/AnimationCaptureMeshReference.h"
 #include "AnimationCapture/AnimationCaptureMeshGPU.h"
 #include "Animation/AnimInstance.h"
@@ -100,6 +101,12 @@ TSharedRef<FJsonObject> Inventory(UMeshComponent* Mesh, const FString& Role)
 		J->SetBoolField(TEXT("blend_physics"), S->bBlendPhysics);
 		J->SetBoolField(TEXT("parallel_evaluation_running"), S->IsRunningParallelEvaluation());
 		J->SetBoolField(TEXT("ref_pose_override"), S->GetRefPoseOverride().IsValid());
+		J->SetBoolField(TEXT("forced_reference_pose"), S->bForceRefpose);
+		J->SetNumberField(TEXT("linked_instances"), static_cast<const USkeletalMeshComponent*>(S)->GetLinkedAnimInstances().Num());
+		J->SetBoolField(TEXT("post_evaluating"), S->IsPostEvaluatingAnimation());
+		J->SetBoolField(TEXT("anim_initialized"), S->GetAnimInstance() && S->GetAnimInstance()->IsInitialized());
+		J->SetBoolField(TEXT("anim_needs_update"), S->GetAnimInstance() && S->GetAnimInstance()->NeedsUpdate());
+		J->SetNumberField(TEXT("bone_revision"), S->GetBoneTransformRevisionNumber());
 		J->SetNumberField(TEXT("predicted_lod"), S->GetPredictedLODLevel());
 		J->SetNumberField(TEXT("render_object_lod"), S->MeshObject ? S->MeshObject->GetLOD() : -1);
 		J->SetNumberField(TEXT("required_bones"), S->RequiredBones.Num());
