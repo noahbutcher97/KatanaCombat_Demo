@@ -1,4 +1,5 @@
 #include "Analysis/CombatCaptureSession.h"
+#include "Analysis/CombatCaptureContactObserver.h"
 #include "AnimationCapture/AnimationCaptureSession.h"
 #include "AnimationCapture/AnimationCaptureJson.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -285,11 +286,20 @@ class FCombatCaptureExtension final : public IAnimationCaptureExtension
 struct FCombatCaptureSession::FImpl
 {
 	FAnimationCaptureSession Session;
+	TStrongObjectPtr<UCombatCaptureContactObserver> Observer;
+	void ReleaseObserver()
+	{
+		if (Observer.IsValid()) { Observer->Unbind(); }
+		Observer.Reset();
+	}
 };
 FCombatCaptureSession::FCombatCaptureSession() : Impl(MakeUnique<FImpl>())
 {
 }
-FCombatCaptureSession::~FCombatCaptureSession() = default;
+FCombatCaptureSession::~FCombatCaptureSession()
+{
+	Impl->ReleaseObserver();
+}
 
 bool FCombatCaptureSession::Start(UWorld *World, const FCombatCaptureSettings &Settings,
 								  TConstArrayView<FCombatCaptureParticipant> Participants, FString &Error)
@@ -335,11 +345,40 @@ bool FCombatCaptureSession::Start(UWorld *World, const FCombatCaptureSettings &S
 }
 bool FCombatCaptureSession::Stop(const FString &Reason, FString &Error)
 {
-	return Impl->Session.Stop(Reason, Error);
+	const bool bSaved = Impl->Session.Stop(Reason, Error);
+	Impl->ReleaseObserver();
+	return bSaved;
 }
 void FCombatCaptureSession::Mark(const FString &Label)
 {
 	Impl->Session.Mark(Label);
+}
+void FCombatCaptureSession::Mark(const FString &Label, const TSharedPtr<FJsonObject> &Payload)
+{
+	Impl->Session.Mark(Label, Payload);
+}
+bool FCombatCaptureSession::ObserveContacts(ABaseCombatCharacter *Attacker, const FString &AttackerRole,
+											ABaseCombatCharacter *Victim, const FString &VictimRole, FString &Error)
+{
+	if (!IsRecording())
+	{
+		Error = TEXT("Start the capture before observing contacts");
+		return false;
+	}
+	if (!IsValid(Attacker) || !IsValid(Victim) || !Attacker->GetWeaponComponent() || !Attacker->PairedAnimationComponent)
+	{
+		Error = TEXT("Contact observation needs a live attacker with a weapon and paired animation component, and a live victim");
+		return false;
+	}
+	Impl->ReleaseObserver();
+	Impl->Observer.Reset(NewObject<UCombatCaptureContactObserver>(GetTransientPackage()));
+	Impl->Observer->Bind(this, Attacker, AttackerRole, Victim, VictimRole);
+	return true;
+}
+void FCombatCaptureSession::GetContactCounts(int32 &OutWeapon, int32 &OutPaired) const
+{
+	OutWeapon = Impl->Observer.IsValid() ? Impl->Observer->GetWeaponContactCount() : 0;
+	OutPaired = Impl->Observer.IsValid() ? Impl->Observer->GetPairedContactCount() : 0;
 }
 bool FCombatCaptureSession::IsRecording() const
 {

@@ -556,6 +556,7 @@ private:
 			}
 			FString Error; if (!Capture.Start(World.Get(), Settings, Participants, Error)) { Check(TEXT("capture_started"), false, Error); return false; }
 			Directory = Capture.GetOutputDirectory();
+			Check(TEXT("contact_observer_bound"), Capture.ObserveContacts(Player.Get(), TEXT("Attacker"), Victim.Get(), TEXT("Victim"), Error), Error);
 		}
 		else { Directory = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("CombatCaptures") / (RunId + TEXT("-disabled-")) + FGuid::NewGuid().ToString(EGuidFormats::Digits)); IFileManager::Get().MakeDirectory(*Directory, true); }
 		if (Mode != TEXT("disabled") && !FFileHelper::SaveStringToFile(RuntimeOverridesJson, *(Directory / TEXT("runtime-overrides.json")), FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
@@ -761,6 +762,23 @@ private:
 		}
 	}
 
+	static int32 CountContactMarkers(const FString& Path)
+	{
+		FString Text; TArray<FString> Lines; int32 Count = 0;
+		if (!FFileHelper::LoadFileToString(Text, *Path)) { return 0; }
+		Text.ParseIntoArrayLines(Lines, true);
+		for (const FString& Line : Lines)
+		{
+			TSharedPtr<FJsonObject> Row; const TSharedPtr<FJsonObject>* Payload = nullptr; const TArray<TSharedPtr<FJsonValue>>* Direction = nullptr;
+			if (!FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Line), Row) || !Row.IsValid() || Row->GetStringField(TEXT("marker")) != TEXT("contact")) { continue; }
+			if (!Row->TryGetObjectField(TEXT("payload"), Payload) || (*Payload)->GetStringField(TEXT("stage")) != TEXT("contact")) { continue; }
+			if ((*Payload)->GetStringField(TEXT("hit")).IsEmpty() || (*Payload)->GetStringField(TEXT("attacker")) != TEXT("Attacker") || (*Payload)->GetStringField(TEXT("victim")) != TEXT("Victim")) { continue; }
+			if (!(*Payload)->TryGetArrayField(TEXT("direction_cm"), Direction) || Direction->Num() != 3) { continue; }
+			++Count;
+		}
+		return Count;
+	}
+
 	void Mark(const FString& Name)
 	{
 		Capture.Mark(Name);
@@ -803,8 +821,23 @@ private:
 				TEXT("No lethal state observed before requested sync; completion observes lethal state during the pair"));
 		}
 		FString Error;
+		Capture.GetContactCounts(WeaponContactMarkers, PairedContactMarkers);
 		if (Capture.IsRecording()) { Check(TEXT("capture_export"), Capture.Stop(TEXT("scenario_finished"), Error), Error); }
 		else if (Mode != TEXT("disabled") && !Directory.IsEmpty()) { Check(TEXT("capture_export"), false, TEXT("Recorder stopped before the scenario")); }
+		if (Mode != TEXT("disabled") && !Directory.IsEmpty())
+		{
+			// Contact markers carry the reaction-review payload: stage, hit, attacker, victim, region,
+			// direction_cm and the gameplay source that observed the contact.
+			const int32 ContactRows = CountContactMarkers(Directory / TEXT("markers.jsonl"));
+			if (Definition->GetStringField(TEXT("scenario")) == TEXT("FinisherRecovery"))
+			{
+				Check(TEXT("contact_markers_present"), ContactRows > 0, FString::Printf(TEXT("%d contact marker row(s) with stage, hit, subjects and direction_cm"), ContactRows));
+			}
+			else
+			{
+				Check(TEXT("contact_markers_observed"), true, FString::Printf(TEXT("%d weapon contact marker row(s); none is required by this scenario"), ContactRows));
+			}
+		}
 		if (Experiment != TEXT("none")) { Check(TEXT("experiment_restored"), RestoreMovementExperiment(), TEXT("Original notify objects and package dirty state restored without saving")); }
 		if (!Directory.IsEmpty())
 		{
@@ -824,6 +857,7 @@ private:
 				Result->SetBoolField(TEXT("entry_preparation_observed"), bEntryObserved);
 			}
 			Result->SetBoolField(TEXT("victim_dead_at_interruption"), bVictimDeadAtInterruption);
+			Result->SetNumberField(TEXT("weapon_contact_markers"), WeaponContactMarkers); Result->SetNumberField(TEXT("paired_contact_markers"), PairedContactMarkers);
 			if (bRequested && Definition->GetStringField(TEXT("scenario")) == TEXT("FinisherRecovery"))
 			{
 				Result->SetNumberField(TEXT("victim_health_at_request"), VictimHealthAtRequest);
@@ -923,6 +957,7 @@ private:
 	float VictimHealthAtRequest = 0;
 	float ControlOffsetCm = 0;
 	int32 InitialGeneration = 0, RecoveryGeneration = 0, OriginalRandomSeed = 0;
+	int32 WeaponContactMarkers = 0, PairedContactMarkers = 0;
 	bool bDone = false, bRequested = false, bStarted = false, bReleased = false, bInterrupted = false, bRepressed = false;
 	bool bBlockedInputSent = false, bMovementSampleObserved = false, bInputSuppressionHeld = true;
 	bool bRecoveryAttackObserved = false, bRecoveryMovementObserved = false, bBystanderLogicActive = true, bBystanderAttackObserved = false;

@@ -4,6 +4,8 @@
 #include "CoreMinimal.h"
 
 class AActor;
+class ABaseCombatCharacter;
+class FJsonObject;
 class USkeletalMeshComponent;
 class USceneComponent;
 class UWorld;
@@ -60,6 +62,15 @@ public:
 		TConstArrayView<FCombatCaptureParticipant> Participants, FString& OutError);
 	bool Stop(const FString& Reason, FString& OutError);
 	void Mark(const FString& Label);
+	/** Marker with a bounded JSON payload the recorder stores verbatim (native 0.4.0). */
+	void Mark(const FString& Label, const TSharedPtr<FJsonObject>& Payload);
+	/** Writes `contact` markers with the reaction-review payload when the attacker's weapon
+	 * trace hits the victim or the attacker's paired animation reaches a sync point. Requires a
+	 * recording session; the observer is released by Stop. */
+	bool ObserveContacts(ABaseCombatCharacter* Attacker, const FString& AttackerRole,
+		ABaseCombatCharacter* Victim, const FString& VictimRole, FString& OutError);
+	/** Weapon-trace and paired-sync contact markers written so far by ObserveContacts. */
+	void GetContactCounts(int32& OutWeapon, int32& OutPaired) const;
 	bool IsRecording() const;
 	FString GetOutputDirectory() const;
 	int32 GetSampleCount() const;
