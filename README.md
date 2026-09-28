@@ -1,3 +1,32 @@
+<!-- Paste this at the very top of the repo's root README.md.
+     Images are expected at docs/readme/ (copy banner.png + site-preview.png there). -->
+
+<p align="center">
+  <a href="https://noahbutcher97.github.io/KatanaCombat_Demo/">
+    <img src="docs/readme/banner.png" alt="KatanaCombat — Samurai melee combat framework for Unreal Engine 5.6" width="100%" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://noahbutcher97.github.io/KatanaCombat_Demo/"><b>🌐 Visit the KatanaCombat site →</b></a>
+  &nbsp;·&nbsp;
+  <a href="docs/guides/GETTING_STARTED.md">Getting started</a>
+  &nbsp;·&nbsp;
+  <a href="docs/architecture/ARCHITECTURE.md">Architecture</a>
+  &nbsp;·&nbsp;
+  <a href="docs/reference/ROADMAP.md">Roadmap</a>
+</p>
+
+<p align="center">
+  <a href="https://noahbutcher97.github.io/KatanaCombat_Demo/">
+    <img src="docs/readme/site-preview.png" alt="Preview of the KatanaCombat landing page — click to open" width="820" />
+  </a>
+  <br />
+  <sub>Click the preview to open the live page.</sub>
+</p>
+
+---
+
 # KatanaCombat - Samurai Combat System for Unreal Engine 5.6
 
 [![UE5 CI](https://github.com/noahbutcher97/KatanaCombat_Demo/actions/workflows/ue5-ci.yml/badge.svg)](https://github.com/noahbutcher97/KatanaCombat_Demo/actions/workflows/ue5-ci.yml)
@@ -369,3 +398,4 @@ Special thanks to the UE5 community and action game developers who inspired this
 **Last Updated**: 2026-02-09
 
 [View Full Documentation](docs/README.md) | [CI/CD Guide](.github/README.md) | [API Reference](docs/API_REFERENCE.md)
+
