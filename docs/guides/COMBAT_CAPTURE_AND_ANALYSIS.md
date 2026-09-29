@@ -138,6 +138,43 @@ The current authored finisher commits lethal damage at its initial sync notify. 
 
 The scenario forces pose evaluation for its two required participants and restores their previous policies. It also restores its camera and fixed viewport size. The recorder itself remains observational. Participant and nominated-mesh enrollment are fixed for a session: destruction produces missing evidence; replacements/new actors require a new session. Asset replacement on the same mesh is recorded and invalidates the current transition criterion.
 
+## Contact markers and reaction review
+
+`FCombatCaptureSession::ObserveContacts(Attacker, "Attacker", Victim, "Victim", Error)` writes a
+`contact` marker each time the attacker's weapon trace hits the victim (`UWeaponComponent::OnWeaponHit`)
+or the attacker's paired animation reaches a sync point (`UPairedAnimationComponent::OnPairedAnimationSyncPoint`).
+Call it after `Start`; `Stop` releases the observer. The marker row carries a `payload` the
+AnimationAnalysis recorder (native 0.4.0) stores verbatim:
+
+| Key | Weapon trace | Paired sync point |
+|---|---|---|
+| `stage` | `contact` | `contact` |
+| `hit` | `weapon-<n>` | `paired-<n>` |
+| `attacker`, `victim` | the roles given to `ObserveContacts` | same |
+| `source` | `weapon_trace` | `paired_sync` |
+| `region` | hit bone name | empty |
+| `direction_cm` | negated impact normal (unit) | victim minus attacker position (unit) |
+| `impact_cm` / `sync_point` | impact point | sync point name |
+
+A finisher's damage is applied at its paired sync point, not by the weapon trace, so finisher
+captures carry `paired_sync` contacts; every sync point of the pair writes one marker, named in
+`sync_point`. A swing that touches nothing writes none. `FCombatCaptureSession::Mark(Label, Payload)`
+writes any other payload marker; the recorder limits it to 4 KiB and rejects non-finite numbers.
+
+The AnimationAnalysis Python package (0.5.0) measures the reaction from the bundle:
+
+```powershell
+animation-reaction-review --session 'Saved/CombatCaptures/<recording>' --criteria criteria.json --output report.json
+```
+
+with criteria naming the roles and bones, for example `{"victim": "Victim", "attacker": "Attacker",
+"victim_bones": ["spine_03", "head"], "attacker_bone": "weapon_end"}`. The report gives per-bone onset
+after contact, displacement direction relative to the strike, rotation over the window and the
+stage chain, each stating whether the contact and direction came from the marker or were estimated
+from pose. Its guide is `docs/guides/reaction-review.md` in the AnimationAnalysis repository. These
+are sampled bone measurements relative to a stated contact; they are not contact, penetration or
+quality verdicts.
+
 ## Bundle schema (version 2)
 
 | File | Contents |
@@ -145,7 +182,7 @@ The scenario forces pose evaluation for its two required participants and restor
 | `session.json` | Status (`recording`, `complete`, `error`), stop reason, engine/map/world identity, UTC start, settings, roles, source actor/mesh paths, counts, telemetry loss/reset counts, export errors |
 | `samples.jsonl` | Simulation/wall/engine-frame clocks, time dilation/pause state, actor transforms/velocity, world/component/actor-relative points and bone quaternions, explicit pose-finalization serial/frame/time, mesh identity, contributing montage instances/weights/rates, combat/paired/victim/AI ownership, input suppression and movement acceleration |
 | `frames.jsonl` | PNG file, actual resolution, simulation/wall timestamps, last preceding sample index, exact PIE world and draw index, pixel-variation check, compilation readiness, active camera transform/view target |
-| `markers.jsonl` | Timestamped user/scenario labels plus capture start/stop |
+| `markers.jsonl` | Timestamped user/scenario labels plus capture start/stop; `contact` markers carry a `payload` object (see below) |
 | `<Role>.actions.csv` | Existing action/reaction telemetry schema, including input serial, queue identity, action start, montage and movement/AI events |
 | `<Role>.defense.csv` | Existing defense telemetry schema, including stage/alignment/damage/cleanup events |
 | `frames/*.png` | Images from the exact selected PIE game viewport after drawing |
@@ -208,4 +245,4 @@ Analysis and evaluation replace previous success with an explicit in-progress st
 python -m unittest discover -s Tools/CombatCapture -p 'test_*.py' -v
 ```
 
-After an editor build, run `Automation RunTests KatanaCombat.Capture;Quit` once with rendering and once with `-NullRHI`. The suite covers world/viewport identity, invalid roles, concurrent capture, lifecycle/limits, teardown restoration, and two real-map integrations. See [the implementation plan](../plans/COMBAT_CAPTURE_AND_ANALYSIS.md) for scope and acceptance.
+After an editor build, run `Automation RunTests KatanaCombat.Capture;Quit` once with rendering and once with `-NullRHI`. The suite covers world/viewport identity, invalid roles, concurrent capture, lifecycle/limits, teardown restoration, and two real-map integrations. The finisher scenario additionally asserts that at least one `contact` marker with the reaction payload was written (`contact_markers_present`); the hold-release scenario records the count without requiring one. See [the implementation plan](../plans/COMBAT_CAPTURE_AND_ANALYSIS.md) for scope and acceptance.
