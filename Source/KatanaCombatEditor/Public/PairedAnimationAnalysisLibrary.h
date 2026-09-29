@@ -261,4 +261,18 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Paired Animation|Math")
 	static float CalculateDistance2D(FVector LocationA, FVector LocationB);
+
+	/**
+	 * Weighted average of locations. A missing weight counts as 1; nonpositive total weight
+	 * returns zero. Callers pass only locations that exist on their skeleton.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Paired Animation|Math")
+	static FVector CalculateWeightedCenter(const TArray<FVector>& Locations, const TArray<float>& Weights);
+
+	/**
+	 * Representative humanoid bones (UE5 mannequin names) with approximate body-segment mass
+	 * fractions, for estimating a character's center of mass from its pose.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Paired Animation|Math")
+	static void GetHumanoidMassWeights(TArray<FName>& OutBoneNames, TArray<float>& OutWeights);
 };

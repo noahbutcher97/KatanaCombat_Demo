@@ -450,3 +450,37 @@ FPairedContactEvaluation UPairedAnimationAnalysisLibrary::EvaluateIntendedContac
 	Result.Reason = Rule.bSustained ? TEXT("All observed poses must satisfy the sustained contact intent") : TEXT("At least one observed pose must satisfy contact within the intended interval");
 	return Result;
 }
+
+FVector UPairedAnimationAnalysisLibrary::CalculateWeightedCenter(const TArray<FVector>& Locations, const TArray<float>& Weights)
+{
+	FVector WeightedSum = FVector::ZeroVector;
+	double TotalWeight = 0.0;
+	for (int32 Index = 0; Index < Locations.Num(); ++Index)
+	{
+		const double Weight = Weights.IsValidIndex(Index) ? Weights[Index] : 1.0;
+		WeightedSum += Locations[Index] * Weight;
+		TotalWeight += Weight;
+	}
+	return TotalWeight > 0.0 ? WeightedSum / TotalWeight : FVector::ZeroVector;
+}
+
+void UPairedAnimationAnalysisLibrary::GetHumanoidMassWeights(TArray<FName>& OutBoneNames, TArray<float>& OutWeights)
+{
+	// Approximate body-segment mass fractions (biomechanics tables); arms and legs are per side.
+	static const TPair<const TCHAR*, float> Segments[] = {
+		{ TEXT("head"), 0.08f }, { TEXT("neck_01"), 0.02f },
+		{ TEXT("spine_03"), 0.20f }, { TEXT("spine_01"), 0.15f }, { TEXT("pelvis"), 0.10f },
+		{ TEXT("upperarm_l"), 0.03f }, { TEXT("lowerarm_l"), 0.02f }, { TEXT("hand_l"), 0.01f },
+		{ TEXT("upperarm_r"), 0.03f }, { TEXT("lowerarm_r"), 0.02f }, { TEXT("hand_r"), 0.01f },
+		{ TEXT("thigh_l"), 0.10f }, { TEXT("calf_l"), 0.05f }, { TEXT("foot_l"), 0.02f },
+		{ TEXT("thigh_r"), 0.10f }, { TEXT("calf_r"), 0.05f }, { TEXT("foot_r"), 0.02f },
+	};
+
+	OutBoneNames.Reset(UE_ARRAY_COUNT(Segments));
+	OutWeights.Reset(UE_ARRAY_COUNT(Segments));
+	for (const TPair<const TCHAR*, float>& Segment : Segments)
+	{
+		OutBoneNames.Add(FName(Segment.Key));
+		OutWeights.Add(Segment.Value);
+	}
+}

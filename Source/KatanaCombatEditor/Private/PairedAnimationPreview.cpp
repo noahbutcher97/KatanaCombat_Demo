@@ -43,6 +43,7 @@
 #include "HAL/PlatformProcess.h"
 #include "Misc/ScopedSlowTask.h"
 #include "DesktopPlatformModule.h"
+#include "PairedAnimationAnalysisLibrary.h"
 
 #define LOCTEXT_NAMESPACE "PairedAnimationPreview"
 
@@ -1558,16 +1559,33 @@ FVector SPairedAnimationPreview::ComputeCenterOfMass(UDebugSkelMeshComponent* Me
 {
 	if (!Mesh) return FVector::ZeroVector;
 
-	FVector COM = FVector::ZeroVector;
-	TArray<FName> Bones = GetAllBoneNames(Mesh);
+	// Mass-weighted body segments; an unweighted mean of every bone is pulled toward the
+	// hands by finger, twist and IK bones.
+	TArray<FName> SegmentBones;
+	TArray<float> SegmentWeights;
+	UPairedAnimationAnalysisLibrary::GetHumanoidMassWeights(SegmentBones, SegmentWeights);
 
-	if (Bones.Num() == 0) return COM;
-
-	for (const FName& BoneName : Bones)
+	TArray<FVector> Locations;
+	TArray<float> Weights;
+	for (int32 Index = 0; Index < SegmentBones.Num(); ++Index)
 	{
-		COM += GetBoneWorldLocation(Mesh, BoneName);
+		if (Mesh->GetBoneIndex(SegmentBones[Index]) != INDEX_NONE)
+		{
+			Locations.Add(GetBoneWorldLocation(Mesh, SegmentBones[Index]));
+			Weights.Add(SegmentWeights[Index]);
+		}
 	}
-	return COM / Bones.Num();
+	if (Locations.Num() > 0)
+	{
+		return UPairedAnimationAnalysisLibrary::CalculateWeightedCenter(Locations, Weights);
+	}
+
+	// Skeletons without mannequin segment names: fall back to the mean of all bones.
+	for (const FName& BoneName : GetAllBoneNames(Mesh))
+	{
+		Locations.Add(GetBoneWorldLocation(Mesh, BoneName));
+	}
+	return UPairedAnimationAnalysisLibrary::CalculateWeightedCenter(Locations, {});
 }
 
 TArray<FName> SPairedAnimationPreview::GetAllBoneNames(UDebugSkelMeshComponent* Mesh) const
