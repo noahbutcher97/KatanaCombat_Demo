@@ -511,11 +511,13 @@ public:
 
     /**
      * Calculate hit direction relative to character facing
-     * @param DirectionToAttacker - World space direction FROM the victim TOWARD the attacker
+     * @param HitDirection - World space direction FROM the victim TOWARD the attacker, i.e.
+     *        FHitReactionInfo::DirectionToAttacker. The parameter keeps its published name so
+     *        existing Blueprint pins stay connected.
      * @return Directional enum; Forward means the attacker is in front of this character
      */
     UFUNCTION(BlueprintPure, Category = "Hit Reaction")
-    EAttackDirection GetHitDirectionRelativeToFacing(const FVector& DirectionToAttacker) const;
+    EAttackDirection GetHitDirectionRelativeToFacing(const FVector& HitDirection) const;
 
     // ============================================================================
     // REACTION VARIETY

@@ -619,16 +619,16 @@ UAnimMontage* UHitReactionComponent::SelectHitReactionMontage(const FHitReaction
     }
 }
 
-EAttackDirection UHitReactionComponent::GetHitDirectionRelativeToFacing(const FVector& DirectionToAttacker) const
+EAttackDirection UHitReactionComponent::GetHitDirectionRelativeToFacing(const FVector& HitDirection) const
 {
     // Use helper for lazy initialization (works in test environments)
     ACharacter* CharOwner = GetOwnerCharacterCached();
-    if (!CharOwner || DirectionToAttacker.IsNearlyZero())
+    if (!CharOwner || HitDirection.IsNearlyZero())
     {
         return EAttackDirection::Forward;
     }
 
-    return CombatMath::ClassifyRelativeToFacing(CharOwner->GetActorTransform(), DirectionToAttacker);
+    return CombatMath::ClassifyRelativeToFacing(CharOwner->GetActorTransform(), HitDirection);
 }
 
 void UHitReactionComponent::UpdateStun(float DeltaTime)

@@ -1194,13 +1194,11 @@ void ASamuraiCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult& Hi
     if (!Damageable)
         return;
 
-    // Calculate hit direction
-    FVector HitDirection = (HitActor->GetActorLocation() - GetActorLocation()).GetSafeNormal();
-
-    // Construct hit info
+    // Construct hit info. DirectionToAttacker points FROM the victim TOWARD the attacker;
+    // the victim classifies it against its facing (attacker in front = Forward).
     FHitReactionInfo HitInfo;
     HitInfo.Attacker = this;
-    HitInfo.HitDirection = HitDirection;
+    HitInfo.DirectionToAttacker = CombatMath::DirectionToAttacker(HitActor->GetActorLocation(), GetActorLocation());
     HitInfo.AttackData = AttackData;
     HitInfo.Damage = AttackData->BaseDamage;
     HitInfo.StunDuration = AttackData->HitStunDuration;
@@ -1669,7 +1667,7 @@ struct FAttackPhaseTiming
 struct FHitReactionInfo
 {
     AActor* Attacker;
-    FVector HitDirection;
+    FVector DirectionToAttacker;  // victim -> attacker (renamed from HitDirection)
     UAttackData* AttackData;
     float Damage;
     float StunDuration;

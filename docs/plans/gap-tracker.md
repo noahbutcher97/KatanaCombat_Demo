@@ -294,7 +294,7 @@
 | 22.3 | const_cast UB in GetAttackForInput() -- make non-const | P1 | **Reclassified** — Not UB, just unnecessary const_cast leftovers (function already non-const). Fixed in a57eedd. |
 | 22.4 | Static variable cross-instance contamination in DrawDebugInfo | P2 | Pending |
 | 22.5 | ~~ActionQueue reverse iteration = LIFO not FIFO~~ | ~~P1~~ | **FALSE POSITIVE** — LIFO is intentional "last-input-wins" design for action games |
-| 22.6 | HitDirection reversed in finisher vs normal hit | P2 | Done (2480e68 — fixed counter damage direction to Owner→Enemy) |
+| 22.6 | HitDirection reversed in finisher vs normal hit | P2 | Done (PR #129: unified as `FHitReactionInfo::DirectionToAttacker`, victim → attacker, via `CombatMath::DirectionToAttacker`; the 2480e68 fix had left paired writers on the opposite convention) |
 | 22.7 | Unnecessary tick enabled on BaseCombatCharacter | P3 | Pending — Add empty Tick() override as safeguard or disable after verifying Blueprint subclass dependency |
 | 22.8 | Fragile reflection-based CombatSettings access in WeaponComponent | P2 | **INVESTIGATE** — May be intentional for editor dropdown support. Also: paired finisher asset needs montage section dropdown UI. |
 | 22.9 | const_cast in TargetingComponent filter methods | P3 | Pending |
