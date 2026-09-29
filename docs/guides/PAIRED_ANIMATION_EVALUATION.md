@@ -78,6 +78,34 @@ Record visual contact as observed, apparently separated or obscured/indeterminat
 
 For a bounded automated pixel/telemetry check, the shared library includes `calibrate_segment_alignment.py` and `detect_segment_alignment.py`. They fit visible coloured segments inside reviewed regions and require matching instrument controls. Pillow is an optional dependency for these image-decoding commands. The [segment alignment audit](../audits/VISUAL_SEGMENT_ALIGNMENT_2026-09-11.md) records the first calibration and fresh oblique/elevated results, including abstentions and the separate visual contact finding. This check does not infer blade/body contact from a matching projected line.
 
+## Named gameplay starting poses
+
+The registered capture scenarios can declare `placements`, each containing
+`Attacker` and `Victim` poses with `offset_cm` and upright `yaw_deg`. Offsets are
+world-axis centimeters relative to the fixture origin; yaw is in world degrees.
+`run_scenario.py --placement <name>` selects one. The default selector retains the
+existing scenario setup. Unknown names, partial poses, extra roles and non-finite
+or out-of-range values are rejected before running a batch.
+
+For the finisher, `rear-reference`, `rear-distant` and `rear-oblique` provide named
+starting contexts. These place actors during fixture setup and immediately before
+the public input request. They do not implement or prove gameplay alignment.
+The evaluator checks the actual request-boundary actor transforms against the
+declared poses, and requires matching placement identity in the run context and
+capture metadata. Different selected placements are incompatible as automatic
+regression references; deliberate comparisons must explain the changed setup.
+
+`scenario.json` also records `authored_playback_layout` for the paired montages:
+sections, source segments, rates, looping and saved blend times. Use this mapping
+when converting an authored source sample to montage time. It is saved-asset
+metadata, not an observation of live montage weight or effective actor dilation.
+
+Complete runtime override rows are stored in `runtime-overrides.json`; a SHA-1
+digest of its exact UTF-8 bytes binds it to the recorder metadata. The evaluator
+requires the digest and parsed rows to match the scenario report. This avoids the
+recorder's per-value metadata length limit without truncating provenance. Older
+captures with inline override rows remain readable.
+
 ## Preview workflow
 
 Open **Window > Paired Animation Preview**. In **Contact evaluation**, enter the profile path, choose **Load pair and criteria**, scrub or play the pair, adjust placement or weapon configuration, and choose **Evaluate and open report**. Reports preserve effective transforms and configured weapon sources so an adjustment is reviewable. Each evaluation creates a separate directory; compare observations at the same pair times before and after the adjustment.
