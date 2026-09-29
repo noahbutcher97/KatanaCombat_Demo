@@ -33,7 +33,7 @@
 | 20. Testing Session | 9 | 5 | 4 | 0 |
 | 21. Death Animation | 1 | 1 | 0 | 0 |
 | PT. Preview Tool | 9 | 9 | 0 | 0 |
-| Phase 5c Math | 5 | 5 | 0 | 0 |
+| Phase 5c Math (libraries removed 2026-09; superseded by CombatMath/CombatTargetQuery) | 5 | 5 | 0 | 0 |
 | 22. Audit Findings | 14 | 5 | 7 | 2 (deferred/closed) |
 | 23. Camera & Collision | 4 | 2 | 2 | 0 |
 | 24. Hit Detection | 7 | 7 | 0 | 0 |

@@ -183,10 +183,8 @@ Source/KatanaCombat/Public/
 │   ├── MontageUtilityLibrary.h            # 27 montage utility functions
 │   ├── PairedAnimationUtilityLibrary.h    # Paired animation validation
 │   ├── CinematicEffectsUtilityLibrary.h   # Time dilation, camera shake
-│   ├── SpatialQueryLibrary.h              # Spatial queries
-│   ├── SkeletalAnalysisLibrary.h          # Skeleton analysis
-│   ├── PhysicsIntegrationLibrary.h        # Physics integration
-│   ├── GeometryMathLibrary.h              # Geometry math
+│   ├── CombatMath.h                       # Direction math, hit-direction convention
+│   ├── CombatTargetQuery.h                # Shared target gathering
 │   └── CombatUtils.h                      # General utilities
 └── Debug/
     ├── CombatDebugHUD.h       # Debug HUD overlay
@@ -394,10 +392,8 @@ The project includes 8 Blueprint-callable utility libraries for common operation
 - **MontageUtilityLibrary**: 27 functions for montage timing, blending, section navigation
 - **PairedAnimationUtilityLibrary**: Validation and contact point analysis for paired animations
 - **CinematicEffectsUtilityLibrary**: Time dilation, hitstop, camera shake
-- **SpatialQueryLibrary**: Spatial queries and geometry tests
-- **SkeletalAnalysisLibrary**: Skeleton bone analysis and hierarchy queries
-- **PhysicsIntegrationLibrary**: Physics integration utilities
-- **GeometryMathLibrary**: Geometry and math operations
+- **CombatMath**: Guarded angles, cones, direction classification and the DirectionToAttacker convention
+- **CombatTargetQuery**: Shared target gathering with alive/hostile/damageable rules
 - **CombatUtils**: General combat utility functions
 
 These are preferred over implementing custom solutions. Check if functionality exists before writing new code.
