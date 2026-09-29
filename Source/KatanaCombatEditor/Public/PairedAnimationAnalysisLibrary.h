@@ -275,4 +275,14 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Paired Animation|Math")
 	static void GetHumanoidMassWeights(TArray<FName>& OutBoneNames, TArray<float>& OutWeights);
+
+	/**
+	 * Mass-weighted center from the segment bones a skeleton actually has. Succeeds only when
+	 * the matched weights cover at least MinimumCoverage of TableTotalWeight, so a skeleton that
+	 * merely shares a name such as "pelvis" is not summarized by that one bone.
+	 * @return False (OutCenter zero) when coverage is insufficient; callers use a fallback.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Paired Animation|Math")
+	static bool CalculateSegmentCenterOfMass(const TArray<FVector>& Locations, const TArray<float>& Weights,
+		float TableTotalWeight, float MinimumCoverage, FVector& OutCenter);
 };

@@ -484,3 +484,26 @@ void UPairedAnimationAnalysisLibrary::GetHumanoidMassWeights(TArray<FName>& OutB
 		OutWeights.Add(Segment.Value);
 	}
 }
+
+bool UPairedAnimationAnalysisLibrary::CalculateSegmentCenterOfMass(const TArray<FVector>& Locations, const TArray<float>& Weights,
+	float TableTotalWeight, float MinimumCoverage, FVector& OutCenter)
+{
+	OutCenter = FVector::ZeroVector;
+	if (Locations.Num() == 0 || Weights.Num() != Locations.Num() || !(TableTotalWeight > 0.0f))
+	{
+		return false;
+	}
+
+	double MatchedWeight = 0.0;
+	for (const float Weight : Weights)
+	{
+		MatchedWeight += Weight;
+	}
+	if (MatchedWeight / TableTotalWeight < MinimumCoverage)
+	{
+		return false;
+	}
+
+	OutCenter = CalculateWeightedCenter(Locations, Weights);
+	return true;
+}

@@ -28,5 +28,25 @@ bool FPairedCenterOfMassWeightingTest::RunTest(const FString&)
 		Total += Weight;
 	}
 	TestEqual(TEXT("Segment mass fractions sum to about one body"), Total, 1.01f, 0.02f);
+
+	// Coverage gate: a skeleton sharing only one common name must not use the segment path.
+	FVector Center;
+	TestFalse(TEXT("No matched segments fails the coverage gate"),
+		UPairedAnimationAnalysisLibrary::CalculateSegmentCenterOfMass({}, {}, Total, 0.8f, Center));
+	TArray<FVector> AllLocations;
+	for (int32 Index = 0; Index < Bones.Num(); ++Index)
+	{
+		AllLocations.Add(FVector(Index * 10.0f, 0.0f, 0.0f));
+	}
+	TestTrue(TEXT("All segments present passes the coverage gate"),
+		UPairedAnimationAnalysisLibrary::CalculateSegmentCenterOfMass(AllLocations, Weights, Total, 0.8f, Center));
+	TestTrue(TEXT("Passing result equals the weighted center"),
+		Center.Equals(UPairedAnimationAnalysisLibrary::CalculateWeightedCenter(AllLocations, Weights), 1e-3));
+
+	const int32 PelvisIndex = Bones.IndexOfByKey(FName(TEXT("pelvis")));
+	TestFalse(TEXT("Only the pelvis (10% of mass) fails the coverage gate"),
+		UPairedAnimationAnalysisLibrary::CalculateSegmentCenterOfMass(
+			{ FVector(1, 2, 3) }, { Weights[PelvisIndex] }, Total, 0.8f, Center));
+	TestTrue(TEXT("Failed gate leaves the center at zero"), Center.IsZero());
 	return true;
 }

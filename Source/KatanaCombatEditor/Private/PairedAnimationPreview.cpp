@@ -1567,20 +1567,28 @@ FVector SPairedAnimationPreview::ComputeCenterOfMass(UDebugSkelMeshComponent* Me
 
 	TArray<FVector> Locations;
 	TArray<float> Weights;
+	float TableTotalWeight = 0.0f;
 	for (int32 Index = 0; Index < SegmentBones.Num(); ++Index)
 	{
+		TableTotalWeight += SegmentWeights[Index];
 		if (Mesh->GetBoneIndex(SegmentBones[Index]) != INDEX_NONE)
 		{
 			Locations.Add(GetBoneWorldLocation(Mesh, SegmentBones[Index]));
 			Weights.Add(SegmentWeights[Index]);
 		}
 	}
-	if (Locations.Num() > 0)
+
+	// Require most of the body's mass to be represented before trusting the segment map.
+	constexpr float MinimumSegmentMassCoverage = 0.8f;
+	FVector Center;
+	if (UPairedAnimationAnalysisLibrary::CalculateSegmentCenterOfMass(
+		Locations, Weights, TableTotalWeight, MinimumSegmentMassCoverage, Center))
 	{
-		return UPairedAnimationAnalysisLibrary::CalculateWeightedCenter(Locations, Weights);
+		return Center;
 	}
 
-	// Skeletons without mannequin segment names: fall back to the mean of all bones.
+	// Skeletons that do not use the mannequin segment names: mean of all bones.
+	Locations.Reset();
 	for (const FName& BoneName : GetAllBoneNames(Mesh))
 	{
 		Locations.Add(GetBoneWorldLocation(Mesh, BoneName));

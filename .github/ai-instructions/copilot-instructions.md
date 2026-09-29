@@ -281,9 +281,6 @@ Enhances the `UAttackData` details panel with intelligent editing tools.
 - **Validation Warnings**: Highlights section conflicts, missing notifies, bad montages
 - **Batch Operations**: Generate notifies for multiple attacks at once
 
-#### HitReactionDataCustomization
-Streamlined editor for reaction montages with section selection and validation.
-
 ### Utility Classes (Blueprint-Callable)
 
 #### UMontageAnalyzerTools
@@ -387,7 +384,7 @@ Documentation in `.claude/context-modes/` and `.gemini/context-modes/`
 
 ### Utility Libraries
 
-The project includes 8 Blueprint-callable utility libraries for common operations:
+The project includes six utility libraries for common operations. CombatMath and CombatTargetQuery are C++-only namespaces; the others are Blueprint-callable:
 
 - **MontageUtilityLibrary**: 27 functions for montage timing, blending, section navigation
 - **PairedAnimationUtilityLibrary**: Validation and contact point analysis for paired animations
