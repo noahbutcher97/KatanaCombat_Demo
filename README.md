@@ -39,7 +39,7 @@
 
 KatanaCombat is a deep, technical combat system emphasizing:
 - **Responsive Attack Chains**: Hybrid combo system with input buffering and animation canceling
-- **Contextual Counter System**: AC3-style instant counters and chain counter sequences with parry windows
+- **Contextual Counter System**: chain counter sequences (parry → counter → finisher) resolved from parry windows
 - **Data-Driven Design**: Reusable attack definitions with designer-friendly data assets
 - **Cinematic Motion**: Motion warping for dynamic target tracking and distance closing
 - **Component Architecture**: Modular, event-driven systems attachable to any character
@@ -336,7 +336,7 @@ float ParryWindowEnd = 0.3f;       // Parry window duration
 ### Current Focus: Paired Animation System
 - [x] 5-component extraction (Combat, Targeting, Weapon, HitReaction, PairedAnimation)
 - [x] Finisher execution flow with cinematic effects
-- [x] Counter system foundation (AC3 + Chain modes)
+- [x] Counter system foundation (Chain mode)
 - [ ] Counter animations (parry, counter attack, chain finisher)
 - [ ] AI attack token system
 

@@ -30,7 +30,7 @@ DECLARE_MULTICAST_DELEGATE_OneParam(FOnDefenseSequenceParticipationChanged, bool
  *
  * Responsibilities:
  * - Finisher execution flow (TryExecuteFinisher -> CompletePairedAnimation)
- * - Counter system (AC3 instant counter-kill + Chain parry->counter->finisher)
+ * - Counter system (Chain parry->counter->finisher, entered through the defense resolver)
  * - Counter/Parry window state management
  * - Partner tracking and collision management
  * - Paired animation effects (slow-mo, camera shake, audio, VFX)
@@ -54,14 +54,8 @@ class KATANACOMBAT_API UPairedAnimationComponent : public UActorComponent
 	// ============================================================================
 
 	// Counter system tests
-	friend class FCounter_AC3LethalDamage;
-	friend class FCounter_AC3StaggersEnemy;
-	friend class FCounter_AC3HitInfoMarkedAsCounter;
-	friend class FCounter_AC3SpecificCounterDataFallbackDamage;
-	friend class FCounter_AC3NullAttackerFails;
 	friend class FCounter_CancelNoopWhenNone;
 	friend class FCounter_CounterAttackRequiresWindow;
-	friend class FCounter_ChainNullAttackerFails;
 	friend class FDefenseInput_ChainPreflightFailureExpires;
 	friend class FDefenseChainMarkerIdentityTest;
 	friend class FDefenseChainRetainedStageLifecycleTest;
@@ -181,40 +175,6 @@ public:
 	// ============================================================================
 
 	/**
-	 * Attempt to perform a counter action
-	 * Routes to AC3 mode (instant counter-kill) or Chain mode (parry initiation)
-	 * based on CounterMode setting
-	 * @return True if counter was initiated successfully
-	 */
-	UFUNCTION(BlueprintCallable, Category = "Combat|Counter")
-	bool TryCounter();
-
-	/**
-	 * Check if this character can currently perform a counter
-	 * Validates combat state, nearby counterable enemies, and mode-specific requirements
-	 * @return True if CanCounter conditions are met
-	 */
-	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	bool CanCounter() const;
-
-	/**
-	 * Find the nearest enemy currently in their counter window
-	 * Searches within soft-lock range for enemies with active counter windows
-	 * @return Enemy actor if found, nullptr otherwise
-	 */
-	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	AActor* FindCounterableEnemy() const;
-
-	/**
-	 * Get counter context for a specific enemy
-	 * Used to retrieve pose-matching data when executing counter
-	 * @param Enemy The enemy to get counter context from
-	 * @return Counter context with attack type, swing direction, and counter data
-	 */
-	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	FCounterContext GetEnemyCounterContext(AActor* Enemy) const;
-
-	/**
 	 * Get counter context for an enemy in their parry window.
 	 * Used by Chain mode, where the attacker is parryable before they expose a counter window.
 	 * @param Enemy The enemy to get parry context from
@@ -222,14 +182,6 @@ public:
 	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	FCounterContext GetEnemyParryContext(AActor* Enemy) const;
-
-	/**
-	 * Find the nearest enemy currently in their parry window.
-	 * Used by Chain counter mode to find parryable enemies.
-	 * @return Enemy actor if found, nullptr otherwise
-	 */
-	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	AActor* FindParryableEnemy() const;
 
 	/**
 	 * Advance an active Chain counter from the waiting window using selected attack data.
@@ -541,17 +493,11 @@ protected:
 	// COUNTER SYSTEM INTERNAL METHODS
 	// ============================================================================
 
-	/** AC3 mode: Instant counter-kill. Slow-mo -> paired animation -> lethal damage. */
-	bool TryCounter_AC3Mode(const FCounterContext& Context);
-
 	/** Start a paired animation directly against a known target using explicit paired data. */
 	bool TryStartPairedAnimationWithTarget(AActor* TargetActor, UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType);
 
 	/** True when a paired animation may legally start against TargetActor. */
 	bool IsValidPairedTarget(AActor* TargetActor) const;
-
-	/** Retired Chain entry primitive retained only for null-safety compatibility tests. */
-	bool TryCounter_ChainMode(const FCounterContext& Context);
 
 	/** Chain mode step 2: Execute counter attack during the player's counter window. */
 	bool ExecuteChainCounterAttack(UAttackData* ChainAttackData);
@@ -674,11 +620,7 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
 	FCounterContext CounterWindowData;
 
-	/** Counter system mode - AC3 (one-step) vs Chain (three-step) */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat|Counter")
-	ECounterSystemMode CounterMode = ECounterSystemMode::Chain;
-
-	/** Chain mode state machine (only used when CounterMode == Chain) */
+	/** Chain counter state machine */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Combat|Counter")
 	EChainCounterState ChainState = EChainCounterState::None;
 

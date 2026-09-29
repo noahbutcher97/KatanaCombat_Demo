@@ -206,22 +206,8 @@ enum class EReactionOutcome : uint8
 };
 
 /**
- * Counter system mode for AB testing
- * Determines the flow and feel of the counter mechanic
- */
-UENUM(BlueprintType)
-enum class ECounterSystemMode : uint8
-{
-    /** AC3/Arkham style: One-step pose-matched counter-kills */
-    AC3             UMETA(DisplayName = "AC3 (One-Step Counter-Kill)"),
-
-    /** Chain style: Three-step parry → counter → finisher flow */
-    Chain           UMETA(DisplayName = "Chain (Parry → Counter → Finisher)")
-};
-
-/**
- * Chain counter state machine states
- * Only used when ECounterSystemMode::Chain is active
+ * Chain counter state machine states (parry -> counter -> finisher).
+ * Counters enter this chain through the defense resolver on Block input.
  */
 UENUM(BlueprintType)
 enum class EChainCounterState : uint8

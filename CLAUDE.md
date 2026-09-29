@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **KatanaCombat** is a cinematic free-flow melee combat system (AC3/4 + Batman Arkham) for Unreal Engine 5.6 (C++). The system features:
 - 5-component architecture (Combat, Targeting, Weapon, HitReaction, PairedAnimation)
 - Hybrid combo system (responsive input buffering + snappy animation cancels + procedural blending)
-- Contextual stagger defense with counter system (AC3 mode + Chain mode)
+- Contextual stagger defense with a Chain counter system (parry → counter → finisher)
 - Data-driven attack configuration via AttackData assets
 - Per-hit impact effects (hitstop, audio, VFX) with pooled FX data assets
 - Death system with directional animations and ragdoll transitions
@@ -496,7 +496,6 @@ Track ongoing work across sessions. This section provides detailed status of all
 #### Scaffolded (Code Complete, Needs Animations)
 | Component | Files | Status |
 |-----------|-------|--------|
-| Counter AC3 Mode | PairedAnimationComponent.cpp | `TryCounter_AC3Mode()` — instant counter-kill via slow-mo + lethal damage |
 | Counter Chain Mode | PairedAnimationComponent.cpp | Public Block/attack input drives retained Parry→Counter→Finisher ownership; protected helpers are compatibility primitives only |
 | Chain State Machine | PairedAnimationComponent.h | `ParryActive -> CounterWindow -> CounterActive -> FinisherReady -> FinisherActive -> None`, keyed by interaction and stage generation |
 | Parry Window | CombatComponent.h/.cpp | Canonical attacker-side window records use attack generation, montage instance, and runtime notify-source identity |
@@ -558,7 +557,7 @@ Player Input → CombatComponent::ExecuteAction()
 | 5-Component Architecture | ✅ Stable | Combat, Targeting, Weapon, HitReaction, PairedAnimation |
 | Input Buffering | ✅ Stable | Last-input-wins queue, input always captured |
 | Combo System | ✅ Stable | Phase-derived combo timing + PendingComboTransitions counter (INPUT-1 fixed) |
-| Stagger/Counter | ✅ Scaffolded | Posture deprecated → contextual stagger. AC3 + Chain counter modes. |
+| Stagger/Counter | ✅ Scaffolded | Posture deprecated → contextual stagger. Chain counters via the defense resolver (AC3 mode removed). |
 | Hit Detection | ✅ Stable | Socket-based weapon traces, substep sweeps |
 | Impact Effects | ✅ Stable | Per-hit hitstop, audio, VFX with pooled FX data assets |
 | Procedural Blending | ✅ Stable | 6 easing strategies, wired in PlayAttackMontage |

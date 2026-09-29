@@ -1439,19 +1439,13 @@ void UCombatComponent::OnInputEventInternal(
 		const bool bPerfectParryCommitted = bBlockStarted
 			&& EventType == EInputEventType::Press
 			&& TryCommitPerfectParry(BlockPressSimulationTime, FPlatformTime::Seconds());
-		const bool bLegacyCounterStarted = bBlockStarted
-			&& !bPerfectParryCommitted
-			&& EventType == EInputEventType::Press
-			&& !LockedDefenseThreat.AttackInstance.IsValid()
-			&& PairedAnimComp
-			&& PairedAnimComp->TryCounter();
 		FinalizeCombatInput(
 			InputSerial,
 			ECombatInputRoute::StatefulControl,
-			(bBlockStarted || bPerfectParryCommitted || bLegacyCounterStarted)
+			(bBlockStarted || bPerfectParryCommitted)
 				? ECombatInputDisposition::Consumed
 				: ECombatInputDisposition::Rejected,
-			(bBlockStarted || bPerfectParryCommitted || bLegacyCounterStarted)
+			(bBlockStarted || bPerfectParryCommitted)
 				? EActionReactionTelemetryReason::StatefulControlConsumed
 				: EActionReactionTelemetryReason::StatefulControlRejected);
 		return;
@@ -6882,31 +6876,6 @@ void UCombatComponent::ClearCounterWindowData()
 	{
 		CachedPairedAnimComp->ClearCounterWindowData();
 	}
-}
-
-bool UCombatComponent::TryCounter()
-{
-	return CachedPairedAnimComp ? CachedPairedAnimComp->TryCounter() : false;
-}
-
-bool UCombatComponent::CanCounter() const
-{
-	return CachedPairedAnimComp ? CachedPairedAnimComp->CanCounter() : false;
-}
-
-AActor* UCombatComponent::FindCounterableEnemy() const
-{
-	return CachedPairedAnimComp ? CachedPairedAnimComp->FindCounterableEnemy() : nullptr;
-}
-
-FCounterContext UCombatComponent::GetEnemyCounterContext(AActor* Enemy) const
-{
-	return CachedPairedAnimComp ? CachedPairedAnimComp->GetEnemyCounterContext(Enemy) : FCounterContext();
-}
-
-AActor* UCombatComponent::FindParryableEnemy() const
-{
-	return CachedPairedAnimComp ? CachedPairedAnimComp->FindParryableEnemy() : nullptr;
 }
 
 bool UCombatComponent::TryExecuteFinisher(UAttackData* AttackData)

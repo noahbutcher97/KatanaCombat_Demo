@@ -173,7 +173,7 @@ BaseCombatCharacter
 │
 ├── PairedAnimationComponent (~1500 lines)
 │   ├── Finisher execution flow
-│   ├── Counter system (AC3 + Chain modes)
+│   ├── Counter system (Chain mode)
 │   ├── Partner collision management
 │   ├── Input blocking during paired animations
 │   └── Counter window management
