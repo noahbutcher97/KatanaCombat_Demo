@@ -19,7 +19,11 @@ Assets, maps, animation assets, and data assets live under `Content/`; engine an
 ## Build, Test, and Development Commands
 
 Before building a fresh checkout, install the locked AnimationAnalysis dependency
-using `python Tools/AnimationAnalysis/setup_dependency.py`.
+using `python Tools/AnimationAnalysis/setup_dependency.py`. Re-run it whenever a pull
+changes `Tools/AnimationAnalysis/dependency.json`. Builds stop with
+`[AnimationAnalysis pin mismatch]` until the installed plugin matches the pin; follow
+that message rather than setting `KATANA_ALLOW_PLUGIN_DRIFT`, which is only for
+deliberate local plugin edits. The standard baseline runs setup automatically.
 See [dependency setup](Tools/AnimationAnalysis/README.md); the generated plugin is
 ignored, and shared implementation edits belong in its separate repository.
 
