@@ -201,8 +201,7 @@ Source/KatanaCombatEditor/Public/  # EDITOR-ONLY MODULE
 ├── PairedMontageAnalyzer.h        # Paired animation analysis engine
 ├── MontageAnalyzerTools.h         # General montage analysis utilities
 └── Customizations/
-    ├── AttackDataCustomization.h  # Custom AttackData editor UI
-    └── HitReactionDataCustomization.h # Custom HitReactionData editor UI
+    └── AttackDataCustomization.h  # Custom AttackData editor UI
 ```
 
 ## Development Standards

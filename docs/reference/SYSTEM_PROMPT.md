@@ -229,7 +229,6 @@ Heavy1  Heavy2   Heavy3   Heavy4  (Heavy branches)
 - `EAttackPhase`: None, Windup, Active, Recovery
   - **NOTE**: Hold, HoldWindow, CancelWindow are WINDOWS (tracked as booleans), NOT phases
 - `EAttackDirection`: None, Forward, Backward, Left, Right
-- `EHitReactionType`: None, Flinch, Light, Medium, Heavy, Knockback, Knockdown, Launch, Custom
 - `EInputType`: None, LightAttack, HeavyAttack, Block, Evade, Special
 - `ETimingFallbackMode`: AutoCalculate, RequireManualOverride, UseSafeDefaults, DisallowMontage
 
@@ -237,7 +236,6 @@ Heavy1  Heavy2   Heavy3   Heavy4  (Heavy branches)
 - `FAttackPhaseTimingOverride`: Manual timing values (windup, active, recovery, hold window)
 - `FBufferedInput`: Input type, direction, timestamp, consumed flag
 - `FAttackPhaseTiming`: Complete phase timing (start/end times for all phases)
-- `FHitReactionData`: Reaction type, stun duration, knockback force, launch force, custom montage
 - `FHitReactionInfo`: Attacker, hit direction, attack data, damage, stun, counter flag, impact point
 - `FHitReactionAnimSet`: Directional hit reactions (front/back/left/right montages)
 - `FMotionWarpingConfig`: Warp settings (min/max distance, rotation speed, line of sight)

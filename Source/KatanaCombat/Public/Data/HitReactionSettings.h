@@ -7,26 +7,22 @@
 #include "CombatTypes.h"
 #include "HitReactionSettings.generated.h"
 
-class UHitReactionData;
-
 /**
  * Container for hit reaction configuration
  *
  * Architecture:
- * - Directional reactions: Inline FHitReactionEntry structs (no separate assets needed)
- * - Special reactions: UHitReactionData assets (for complex config, reusability)
- * - Paired reactions: UHitReactionData assets (named lookup for counter/finisher)
+ * - Directional reactions: inline FHitReactionEntry structs (Intensity x Direction)
+ * - Death reactions: inline FHitReactionEntry structs keyed by direction
+ * - Paired victim animation (counters, finishers) is owned by UPairedAnimationData
  *
- * Selection Priority:
- * 1. Special reactions (GuardBroken, Knockdown, Launch, Death) - checked first
- * 2. Paired reactions (Counter, Finisher) - when triggered explicitly
- * 3. Directional reactions (Intensity × Direction) - default fallback
+ * Swapping reaction sets per character is done at the asset level: assign a different
+ * settings asset through UHitReactionComponent::HitReactionSettingsOverride or
+ * CombatSettings->HitReactionSettings.
  *
  * Usage:
  * 1. Create HitReactionSettings asset
- * 2. Configure directional reactions inline (Light/Heavy × Front/Back/Left/Right)
- * 3. Add special reaction assets as needed
- * 4. Reference from CombatSettings or HitReactionComponent override
+ * 2. Configure directional and death reactions inline
+ * 3. Reference from CombatSettings or HitReactionComponent override
  */
 UCLASS(BlueprintType)
 class KATANACOMBAT_API UHitReactionSettings : public UPrimaryDataAsset
@@ -52,26 +48,6 @@ public:
     TMap<EHitIntensity, FDirectionalReactionSet> DirectionalReactions;
 
     // ========================================================================
-    // SPECIAL REACTIONS (non-directional)
-    // ========================================================================
-
-    /** [NOT WIRED] PlayGuardBrokenReaction currently plays the component's legacy GuardBrokenMontage, not this slot (pending wire-or-delete, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Special")
-    TObjectPtr<UHitReactionData> GuardBrokenReaction;
-
-    /** [NOT WIRED] Reachable only via PlaySpecialReaction, which has no callers. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Special")
-    TObjectPtr<UHitReactionData> KnockdownReaction;
-
-    /** [NOT WIRED] No launcher system exists; reachable only via PlaySpecialReaction (no callers). */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Special")
-    TObjectPtr<UHitReactionData> LaunchReaction;
-
-    /** [NOT WIRED] The live death path uses the DeathReactions map below; this slot is unreached. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Special")
-    TObjectPtr<UHitReactionData> DeathReaction;
-
-    // ========================================================================
     // DEATH REACTIONS (directional)
     // ========================================================================
 
@@ -91,19 +67,6 @@ public:
      * @return Death reaction entry, or nullptr if no deaths configured
      */
     const FHitReactionEntry* GetDeathReaction(EAttackDirection Direction) const;
-
-    // ========================================================================
-    // PAIRED REACTIONS (keyed by name) - Extension Point
-    // Built now, wired when AttackData extended with counter/finisher names
-    // ========================================================================
-
-    /** [NOT WIRED] GetPairedReaction has no runtime callers; pairing is handled by UPairedAnimationData. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Paired")
-    TMap<FName, TObjectPtr<UHitReactionData>> CounterReactions;
-
-    /** [NOT WIRED] GetPairedReaction has no runtime callers; pairing is handled by UPairedAnimationData. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Reactions|Paired")
-    TMap<FName, TObjectPtr<UHitReactionData>> FinisherVictimReactions;
 
     // ========================================================================
     // SELECTION PARAMETERS
@@ -135,24 +98,6 @@ public:
      * @return Pointer to reaction entry, or nullptr if intensity not configured
      */
     const FHitReactionEntry* GetDirectionalReaction(EHitIntensity Intensity, EAttackDirection Direction) const;
-
-    /**
-     * Get special reaction by type (returns asset reference)
-     * @param SpecialType - GuardBroken, Knockdown, Launch, or Death
-     * @return HitReactionData or nullptr if not configured
-     */
-    UFUNCTION(BlueprintPure, Category = "Selection")
-    UHitReactionData* GetSpecialReaction(ESpecialReactionType SpecialType) const;
-
-    /**
-     * Get paired reaction by type and name (returns asset reference)
-     * Extension point: Called when AttackData has counter/finisher name
-     * @param PairedType - Counter or Finisher
-     * @param ReactionName - Name identifier matching attacker's attack
-     * @return HitReactionData or nullptr if not found
-     */
-    UFUNCTION(BlueprintPure, Category = "Selection")
-    UHitReactionData* GetPairedReaction(EPairedReactionType PairedType, FName ReactionName) const;
 
     /**
      * Determine intensity from attack type and damage percentage

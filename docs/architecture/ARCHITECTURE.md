@@ -1629,7 +1629,6 @@ enum class EAttackType : uint8;           // None, Light, Heavy, Special
 enum class EAttackPhase : uint8;          // None, Windup, Active, Recovery
                                           // NOTE: Hold, HoldWindow, CancelWindow are WINDOWS (booleans), NOT phases
 enum class EAttackDirection : uint8;      // None, Forward, Backward, Left, Right
-enum class EHitReactionType : uint8;      // 9 types (Flinch, Light, Medium, Heavy, etc.)
 enum class EInputType : uint8;            // None, LightAttack, HeavyAttack, Block, Evade, Special
 enum class ETimingFallbackMode : uint8;   // AutoCalculate, RequireManualOverride, etc.
 ```
