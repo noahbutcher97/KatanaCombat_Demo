@@ -148,7 +148,7 @@ public:
     // BLEND TIMES
     // ========================================================================
 
-    /** Blend-in time for attacker montage (applied on the defense-chain play path; the legacy finisher path plays without blend) */
+    /** Defense-chain attacker blend-in override; legacy playback uses the montage asset's blend settings. */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Blending",
         meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float AttackerBlendIn = 0.1f;
