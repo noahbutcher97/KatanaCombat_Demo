@@ -20,6 +20,7 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Utilities/CombatMath.h"
 
 namespace
 {
@@ -392,9 +393,9 @@ void ABaseCombatCharacter::DispatchCommittedDying(
     EAttackDirection DeathDirection = EAttackDirection::Forward;
     if (Killer && HitReactionComponent)
     {
-        // Direction FROM killer TO victim (used to determine which way victim was facing killer)
-        FVector ToKiller = (Killer->GetActorLocation() - GetActorLocation()).GetSafeNormal();
-        DeathDirection = HitReactionComponent->GetHitDirectionRelativeToFacing(ToKiller);
+        // Same convention as hit reactions: direction from this victim toward the killer
+        DeathDirection = HitReactionComponent->GetHitDirectionRelativeToFacing(
+            CombatMath::DirectionToAttacker(GetActorLocation(), Killer->GetActorLocation()));
     }
 
     // Play death reaction through HitReactionComponent
@@ -1534,18 +1535,18 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         FHitReactionInfo HitInfo;
         HitInfo.Attacker = this;
 
-        // HitDirection convention: points FROM victim TOWARD attacker (direction the hit came from)
+        // DirectionToAttacker: points FROM victim TOWARD attacker (direction the hit came from)
         // Used by victim's HitReactionComponent to select correct directional animation
         // Prefer weapon tip velocity (negated to match convention) over position-based fallback
         if (WeaponComponent && WeaponComponent->GetWeaponTipVelocity().SizeSquared() > KINDA_SMALL_NUMBER)
         {
             // Negate: weapon travels attacker→victim, convention needs victim→attacker
-            HitInfo.HitDirection = -WeaponComponent->GetWeaponTipVelocity().GetSafeNormal();
+            HitInfo.DirectionToAttacker = -WeaponComponent->GetWeaponTipVelocity().GetSafeNormal();
         }
         else
         {
             // Fallback: position-based (attacker pos - victim pos = victim→attacker)
-            HitInfo.HitDirection = (GetActorLocation() - HitActor->GetActorLocation()).GetSafeNormal();
+            HitInfo.DirectionToAttacker = CombatMath::DirectionToAttacker(HitActor->GetActorLocation(), GetActorLocation());
         }
 
         HitInfo.AttackData = AttackData;
@@ -1583,7 +1584,8 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         else
         {
             // Fallback: approximate from hit direction and damage magnitude
-            HitInfo.WeaponVelocity = HitInfo.HitDirection * HitInfo.Damage;
+            // Weapon travels attacker -> victim, the opposite of DirectionToAttacker.
+            HitInfo.WeaponVelocity = -HitInfo.DirectionToAttacker * HitInfo.Damage;
         }
 
         // Populate animation time from current montage

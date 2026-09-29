@@ -12,6 +12,7 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/WorldSettings.h"
 #include "Camera/PlayerCameraManager.h"
+#include "Utilities/CombatMath.h"
 
 // ============================================================================
 // POSITION CALCULATION
@@ -155,9 +156,8 @@ FPairedAnimationValidation UPairedAnimationUtilityLibrary::ValidatePairedAnimati
         return Result;
     }
 
-    // Calculate angle from attacker to victim
-    const FVector ToVictim = (VictimLocation - AttackerLocation).GetSafeNormal2D();
-    Result.Angle = FMath::RadiansToDegrees(FMath::Acos(ToVictim.X));  // Simplified, assumes forward is +X
+    // Only positions are known here, so report the world-space bearing (see FPairedAnimationValidation::Angle)
+    Result.Angle = static_cast<float>(CombatMath::BearingDegrees(CombatMath::FlatDirection(AttackerLocation, VictimLocation)));
 
     // Check path is clear
     TArray<AActor*> EmptyIgnoreList;
@@ -247,13 +247,8 @@ bool UPairedAnimationUtilityLibrary::IsVictimInAngleRange(
     const FVector& VictimLocation,
     float MaxAngle)
 {
-    const FVector AttackerForward = AttackerTransform.GetRotation().GetForwardVector();
-    const FVector ToVictim = (VictimLocation - AttackerTransform.GetLocation()).GetSafeNormal();
-
-    const float DotProduct = FVector::DotProduct(AttackerForward, ToVictim);
-    const float AngleDegrees = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(DotProduct, -1.0f, 1.0f)));
-
-    return AngleDegrees <= MaxAngle;
+    return CombatMath::IsWithinCone(AttackerTransform.GetRotation().GetForwardVector(),
+        VictimLocation - AttackerTransform.GetLocation(), MaxAngle);
 }
 
 // ============================================================================

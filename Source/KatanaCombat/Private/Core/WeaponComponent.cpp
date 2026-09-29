@@ -18,6 +18,7 @@
 #include "Engine/StaticMesh.h"
 #include "Animation/AnimInstance.h"
 #include "HAL/PlatformTime.h"
+#include "Utilities/CombatMath.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogWeaponComponent, Log, All);
 
@@ -948,12 +949,12 @@ FDefenseContactRequest UWeaponComponent::BuildDefenseContactRequest(
 	Request.bIncomingTrajectoryRateNormalized = bRateNormalizedTrajectoryUsable;
 	if (!ContactVelocity.ContainsNaN() && !ContactVelocity.IsNearlyZero())
 	{
-		HitInfo.HitDirection = -ContactVelocity.GetSafeNormal();
+		HitInfo.DirectionToAttacker = -ContactVelocity.GetSafeNormal();
 		HitInfo.WeaponVelocity = ContactVelocity;
 	}
 	else if (Source && Target)
 	{
-		HitInfo.HitDirection = (Source->GetActorLocation() - Target->GetActorLocation()).GetSafeNormal();
+		HitInfo.DirectionToAttacker = CombatMath::DirectionToAttacker(Target->GetActorLocation(), Source->GetActorLocation());
 	}
 
 	if (Target && Source)

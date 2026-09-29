@@ -876,7 +876,7 @@ bool FDefenseWeaponContactVelocityTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Rich contact prefers the declared source socket velocity"),
 		SourceSocketRequest.HitInfo.WeaponVelocity, SourceSocketVelocity);
 	TestEqual(TEXT("Hit direction opposes the declared source socket velocity"),
-		SourceSocketRequest.HitInfo.HitDirection, -SourceSocketVelocity.GetSafeNormal());
+		SourceSocketRequest.HitInfo.DirectionToAttacker, -SourceSocketVelocity.GetSafeNormal());
 	TestEqual(TEXT("Accepted trace start remains available as fallback evidence"),
 		SourceSocketRequest.TraceStart, Hit.TraceStart);
 	TestEqual(TEXT("Accepted trace end remains available as fallback evidence"),
@@ -910,7 +910,7 @@ bool FDefenseWeaponContactVelocityTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("Accepted swept blade point velocity is the source-socket fallback"),
 		SweepFallbackRequest.HitInfo.WeaponVelocity, AcceptedSweepVelocity);
 	TestEqual(TEXT("Fallback hit direction opposes the accepted swept velocity"),
-		SweepFallbackRequest.HitInfo.HitDirection,
+		SweepFallbackRequest.HitInfo.DirectionToAttacker,
 		-AcceptedSweepVelocity.GetSafeNormal());
 
 	const FDefenseContactRequest TraceOnlyFallbackRequest =

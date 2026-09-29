@@ -711,9 +711,14 @@ struct FHitReactionInfo
     UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction")
     TObjectPtr<AActor> Attacker = nullptr;
 
-    /** Direction of the hit (normalized, in world space) */
+    /**
+     * Unit world-space direction FROM the victim TOWARD the attacker (where the hit came from).
+     * Directional reactions classify it against the victim's facing: attacker in front = Forward.
+     * Position-based writers use CombatMath::DirectionToAttacker; velocity-based writers negate
+     * the weapon velocity. Renamed from HitDirection (CoreRedirect in DefaultEngine.ini).
+     */
     UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction")
-    FVector HitDirection = FVector::ForwardVector;
+    FVector DirectionToAttacker = FVector::ForwardVector;
 
     /** Attack data that caused this hit */
     UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction")
@@ -773,7 +778,7 @@ struct FHitReactionInfo
 
     FHitReactionInfo()
         : Attacker(nullptr)
-        , HitDirection(FVector::ForwardVector)
+        , DirectionToAttacker(FVector::ForwardVector)
         , AttackData(nullptr)
         , Damage(0.0f)
         , StunDuration(0.0f)

@@ -25,6 +25,8 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "RootMotionModifier.h"
 #include "Utilities/PairedAnimationUtilityLibrary.h"
+#include "Utilities/CombatMath.h"
+#include "Utilities/CombatTargetQuery.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTargeting, Log, All);
 
@@ -380,11 +382,7 @@ bool UTargetingComponent::IsTargetInCone(AActor* Target, const FVector& Directio
         ConeAngle = Settings ? Settings->DirectionalConeAngle : 60.0f;
     }
 
-    const FVector ToTarget = (Target->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
-    const float DotProduct = FVector::DotProduct(Direction, ToTarget);
-    const float Angle = FMath::RadiansToDegrees(FMath::Acos(DotProduct));
-
-    return Angle <= ConeAngle;
+    return CombatMath::IsWithinCone(Direction, Target->GetActorLocation() - Owner->GetActorLocation(), ConeAngle);
 }
 
 bool UTargetingComponent::HasLineOfSightTo(AActor* Target) const
@@ -480,19 +478,8 @@ float UTargetingComponent::GetAngleToTarget(AActor* Target) const
         return 0.0f;
     }
 
-    const FVector Forward = Owner->GetActorForwardVector();
-    const FVector ToTarget = (Target->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
-    
-    const float DotProduct = FVector::DotProduct(Forward, ToTarget);
-    const float CrossZ = FVector::CrossProduct(Forward, ToTarget).Z;
-    
-    float Angle = FMath::RadiansToDegrees(FMath::Acos(DotProduct));
-    if (CrossZ < 0.0f)
-    {
-        Angle = -Angle;
-    }
-    
-    return Angle;
+    return static_cast<float>(CombatMath::SignedYawDegrees(
+        Owner->GetActorForwardVector(), Target->GetActorLocation() - Owner->GetActorLocation()));
 }
 
 float UTargetingComponent::GetDistanceToTarget(AActor* Target) const
@@ -2416,57 +2403,15 @@ void UTargetingComponent::GetActorsInRange(TArray<AActor*>& OutActors, float Max
         return;
     }
 
-    const FVector OwnerLocation = Owner->GetActorLocation();
     const UTargetingSettings* Settings = GetEffectiveSettings();
     const float ConfiguredRadius = Settings ? Settings->MaxTargetDistance : 1000.0f;
-    const float SearchRadius = FMath::IsFinite(MaxRange) && MaxRange >= 0.0f
+
+    // Damageable, alive and hostile candidates, each once, nearest first.
+    FCombatTargetQuery Query;
+    Query.Radius = FMath::IsFinite(MaxRange) && MaxRange >= 0.0f
         ? FMath::Min(FMath::Max(0.0f, ConfiguredRadius), MaxRange)
         : FMath::Max(0.0f, ConfiguredRadius);
-
-    TArray<FOverlapResult> Overlaps;
-    FCollisionQueryParams QueryParams;
-    QueryParams.AddIgnoredActor(Owner);
-
-    GetWorld()->OverlapMultiByChannel(
-        Overlaps,
-        OwnerLocation,
-        FQuat::Identity,
-        ECC_Pawn,
-        FCollisionShape::MakeSphere(SearchRadius),
-        QueryParams
-    );
-
-    for (const FOverlapResult& Overlap : Overlaps)
-    {
-        AActor* Actor = Overlap.GetActor();
-        if (!Actor)
-        {
-            continue;
-        }
-
-        // Must implement IDamageableInterface (can be targeted)
-        if (!Actor->Implements<UDamageableInterface>())
-        {
-            continue;
-        }
-
-        // Must be alive
-        if (!IDamageableInterface::Execute_IsAlive(Actor))
-        {
-            continue;
-        }
-
-        // Check team hostility (if owner implements ITeamMemberInterface)
-        if (Owner->Implements<UTeamMemberInterface>())
-        {
-            if (!ITeamMemberInterface::Execute_IsHostileTo(Owner, Actor))
-            {
-                continue; // Skip friendly actors
-            }
-        }
-
-        OutActors.Add(Actor);
-    }
+    CombatTargetQuery::GatherTargets(Owner, Query, OutActors);
 }
 
 void UTargetingComponent::FilterByTargetableClass(TArray<AActor*>& InOutActors) const
@@ -2670,22 +2615,5 @@ EAttackDirection UTargetingComponent::GetAttackDirectionFromInput(FVector InputD
         return EAttackDirection::Forward;
     }
 
-    // Convert to local space
-    FVector LocalInput = Owner->GetActorTransform().InverseTransformVector(InputDirection);
-    LocalInput.Z = 0;
-    LocalInput.Normalize();
-    
-    // Determine cardinal direction
-    const float ForwardDot = FVector::DotProduct(LocalInput, FVector::ForwardVector);
-    const float RightDot = FVector::DotProduct(LocalInput, FVector::RightVector);
-    
-    // Use absolute values to determine which axis is dominant
-    if (FMath::Abs(ForwardDot) > FMath::Abs(RightDot))
-    {
-        return (ForwardDot > 0) ? EAttackDirection::Forward : EAttackDirection::Backward;
-    }
-    else
-    {
-        return (RightDot > 0) ? EAttackDirection::Right : EAttackDirection::Left;
-    }
+    return CombatMath::ClassifyRelativeToFacing(Owner->GetActorTransform(), InputDirection);
 }

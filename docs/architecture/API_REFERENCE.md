@@ -833,7 +833,8 @@ void AMyCharacter::HandleWeaponHit(AActor* HitActor, const FHitResult& HitResult
         FHitReactionInfo HitInfo;
         HitInfo.Attacker = this;
         HitInfo.Damage = AttackData->BaseDamage;
-        HitInfo.HitDirection = GetActorForwardVector();
+        // Victim toward attacker (see FHitReactionInfo::DirectionToAttacker)
+        HitInfo.DirectionToAttacker = CombatMath::DirectionToAttacker(HitActor->GetActorLocation(), GetActorLocation());
         Damageable->Execute_ApplyDamage(HitActor, HitInfo);
     }
 
@@ -1899,8 +1900,9 @@ struct FHitReactionInfo
     UPROPERTY(BlueprintReadWrite)
     TObjectPtr<AActor> Attacker;
 
+    /** Unit direction FROM the victim TOWARD the attacker (renamed from HitDirection) */
     UPROPERTY(BlueprintReadWrite)
-    FVector HitDirection;
+    FVector DirectionToAttacker;
 
     UPROPERTY(BlueprintReadWrite)
     TObjectPtr<UAttackData> AttackData;
@@ -2039,7 +2041,8 @@ void AMyCharacter::HandleWeaponHit(AActor* HitActor, const FHitResult& HitResult
         HitInfo.Attacker = this;
         HitInfo.AttackData = AttackData;
         HitInfo.Damage = AttackData->BaseDamage;
-        HitInfo.HitDirection = GetActorForwardVector();
+        // Victim toward attacker (see FHitReactionInfo::DirectionToAttacker)
+        HitInfo.DirectionToAttacker = CombatMath::DirectionToAttacker(HitActor->GetActorLocation(), GetActorLocation());
         HitInfo.ImpactPoint = HitResult.ImpactPoint;
 
         Damageable->Execute_ApplyDamage(HitActor, HitInfo);

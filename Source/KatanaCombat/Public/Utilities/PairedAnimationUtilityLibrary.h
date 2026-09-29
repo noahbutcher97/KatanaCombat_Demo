@@ -36,7 +36,11 @@ struct KATANACOMBAT_API FPairedAnimationValidation
     UPROPERTY(BlueprintReadOnly, Category = "Validation")
     float Distance = 0.0f;
 
-    /** Angle from attacker's forward to victim */
+    /**
+     * World-space yaw bearing from attacker to victim in degrees, measured from world +X
+     * (positive toward +Y). Validation receives positions only, so this is not relative to
+     * the attacker's facing; use IsVictimInAngleRange for a facing-relative check.
+     */
     UPROPERTY(BlueprintReadOnly, Category = "Validation")
     float Angle = 0.0f;
 };
