@@ -99,6 +99,26 @@ $BuildArgs = @(
     "-Log=$BuildLog"
 )
 
+# Bring the generated AnimationAnalysis plugin to the pinned revision. A no-op when current;
+# refuses (non-zero) when the plugin holds local edits, which must be preserved, not overwritten.
+$DependencySetup = Join-Path $Root "Tools\AnimationAnalysis\setup_dependency.py"
+if (Test-Path -LiteralPath (Join-Path $Root "Tools\AnimationAnalysis\dependency.json")) {
+    $DependencyCode = Invoke-LoggedProcess `
+        -Label "Sync AnimationAnalysis plugin to pinned revision" `
+        -FilePath "python" `
+        -Arguments @($DependencySetup) `
+        -WorkingDirectory $Root `
+        -StdOutPath "$Prefix-dependency.out.log" `
+        -StdErrPath "$Prefix-dependency.err.log"
+
+    if ($DependencyCode -ne 0) {
+        Write-Error ("AnimationAnalysis dependency setup failed with exit code $DependencyCode. See $Prefix-dependency.err.log. " +
+            "A file-in-use error means an Unreal Editor is running; close it and retry. " +
+            "An 'unowned or modified source' error means local plugin edits exist; preserve them before re-running.")
+        exit $DependencyCode
+    }
+}
+
 $BuildCode = Invoke-LoggedProcess `
     -Label "Build KatanaCombatEditor Win64 Development" `
     -FilePath $BuildBat `

@@ -293,7 +293,9 @@ This applies to ALL `BlueprintNativeEvent` interface methods:
 
 The reusable capture engine is owned by the separate AnimationAnalysis repository.
 `Tools/AnimationAnalysis/dependency.json` pins its revision; run the adjacent setup
-script before a fresh build. `Plugins/AnimationAnalysis` is its ignored generated
+script before a fresh build and after any pull that moves the pin. A stale plugin
+stops the build with `[AnimationAnalysis pin mismatch]` and the exact fix; don't bypass
+it with `KATANA_ALLOW_PLUGIN_DRIFT=1` unless deliberately building local plugin edits. `Plugins/AnimationAnalysis` is its ignored generated
 copy (`AnimationCapture` module), independently buildable without Katana. Keep project
 discovery, skeleton defaults and combat/warp telemetry in the `CombatCaptureSession`
 adapter. Follow `docs/architecture/ANIMATION_ANALYSIS_SUITE.md` for all existing and
