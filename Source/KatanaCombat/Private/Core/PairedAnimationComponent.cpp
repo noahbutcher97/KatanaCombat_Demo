@@ -36,6 +36,7 @@
 #include "TimerManager.h"
 #include "HAL/PlatformTime.h"
 #include "Utilities/CombatMath.h"
+#include "Utilities/CombatTargetQuery.h"
 
 // ============================================================================
 // LOG CATEGORY DEFINITION
@@ -4303,62 +4304,28 @@ AActor* UPairedAnimationComponent::FindCounterableEnemy() const
 		}
 	}
 
-	TArray<FOverlapResult> Overlaps;
-	FCollisionQueryParams QueryParams;
-	QueryParams.AddIgnoredActor(Owner);
+	// Damageable, alive and hostile candidates, each once, nearest first.
+	FCombatTargetQuery Query;
+	Query.Radius = SearchRange;
+	TArray<AActor*> Candidates;
+	CombatTargetQuery::GatherTargets(Owner, Query, Candidates);
 
-	Owner->GetWorld()->OverlapMultiByChannel(
-		Overlaps,
-		Owner->GetActorLocation(),
-		FQuat::Identity,
-		ECC_Pawn,
-		FCollisionShape::MakeSphere(SearchRange),
-		QueryParams
-	);
-
-	AActor* BestTarget = nullptr;
-	float BestDistance = FLT_MAX;
-
-	for (const FOverlapResult& Overlap : Overlaps)
+	for (AActor* Candidate : Candidates)
 	{
-		AActor* OtherActor = Overlap.GetActor();
-		if (!OtherActor)
-		{
-			continue;
-		}
-
-		// Check if this is an enemy (different team)
-		if (OtherActor->Implements<UTeamMemberInterface>() && Owner->Implements<UTeamMemberInterface>())
-		{
-			ETeamId OtherTeam = ITeamMemberInterface::Execute_GetTeamId(OtherActor);
-			ETeamId MyTeam = ITeamMemberInterface::Execute_GetTeamId(Owner);
-			if (OtherTeam == MyTeam)
-			{
-				continue;
-			}
-		}
-
-		// Check if enemy has an active counter window. PairedAnimationComponent owns
-		// the state after CP-2; CombatComponent fallback keeps older delegates safe.
-		const UPairedAnimationComponent* EnemyPaired = OtherActor->FindComponentByClass<UPairedAnimationComponent>();
-		const UCombatComponent* EnemyCombat = OtherActor->FindComponentByClass<UCombatComponent>();
+		// PairedAnimationComponent owns the counter window after CP-2; the
+		// CombatComponent fallback keeps older delegates safe.
+		const UPairedAnimationComponent* EnemyPaired = Candidate->FindComponentByClass<UPairedAnimationComponent>();
+		const UCombatComponent* EnemyCombat = Candidate->FindComponentByClass<UCombatComponent>();
 		const bool bEnemyInCounterWindow = EnemyPaired
 			? EnemyPaired->IsInCounterWindow()
 			: (EnemyCombat && EnemyCombat->IsInCounterWindow());
-		if (!bEnemyInCounterWindow)
+		if (bEnemyInCounterWindow)
 		{
-			continue;
-		}
-
-		float Distance = FVector::Dist(Owner->GetActorLocation(), OtherActor->GetActorLocation());
-		if (Distance < BestDistance)
-		{
-			BestDistance = Distance;
-			BestTarget = OtherActor;
+			return Candidate;
 		}
 	}
 
-	return BestTarget;
+	return nullptr;
 }
 
 FCounterContext UPairedAnimationComponent::GetEnemyCounterContext(AActor* Enemy) const

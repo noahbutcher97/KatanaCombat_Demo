@@ -26,6 +26,7 @@
 #include "RootMotionModifier.h"
 #include "Utilities/PairedAnimationUtilityLibrary.h"
 #include "Utilities/CombatMath.h"
+#include "Utilities/CombatTargetQuery.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTargeting, Log, All);
 
@@ -2402,57 +2403,15 @@ void UTargetingComponent::GetActorsInRange(TArray<AActor*>& OutActors, float Max
         return;
     }
 
-    const FVector OwnerLocation = Owner->GetActorLocation();
     const UTargetingSettings* Settings = GetEffectiveSettings();
     const float ConfiguredRadius = Settings ? Settings->MaxTargetDistance : 1000.0f;
-    const float SearchRadius = FMath::IsFinite(MaxRange) && MaxRange >= 0.0f
+
+    // Damageable, alive and hostile candidates, each once, nearest first.
+    FCombatTargetQuery Query;
+    Query.Radius = FMath::IsFinite(MaxRange) && MaxRange >= 0.0f
         ? FMath::Min(FMath::Max(0.0f, ConfiguredRadius), MaxRange)
         : FMath::Max(0.0f, ConfiguredRadius);
-
-    TArray<FOverlapResult> Overlaps;
-    FCollisionQueryParams QueryParams;
-    QueryParams.AddIgnoredActor(Owner);
-
-    GetWorld()->OverlapMultiByChannel(
-        Overlaps,
-        OwnerLocation,
-        FQuat::Identity,
-        ECC_Pawn,
-        FCollisionShape::MakeSphere(SearchRadius),
-        QueryParams
-    );
-
-    for (const FOverlapResult& Overlap : Overlaps)
-    {
-        AActor* Actor = Overlap.GetActor();
-        if (!Actor)
-        {
-            continue;
-        }
-
-        // Must implement IDamageableInterface (can be targeted)
-        if (!Actor->Implements<UDamageableInterface>())
-        {
-            continue;
-        }
-
-        // Must be alive
-        if (!IDamageableInterface::Execute_IsAlive(Actor))
-        {
-            continue;
-        }
-
-        // Check team hostility (if owner implements ITeamMemberInterface)
-        if (Owner->Implements<UTeamMemberInterface>())
-        {
-            if (!ITeamMemberInterface::Execute_IsHostileTo(Owner, Actor))
-            {
-                continue; // Skip friendly actors
-            }
-        }
-
-        OutActors.Add(Actor);
-    }
+    CombatTargetQuery::GatherTargets(Owner, Query, OutActors);
 }
 
 void UTargetingComponent::FilterByTargetableClass(TArray<AActor*>& InOutActors) const
