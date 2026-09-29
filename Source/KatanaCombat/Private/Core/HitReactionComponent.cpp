@@ -26,6 +26,7 @@
 #include "AlphaBlend.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Utilities/CombatMath.h"
 
 // Static snapshot name for death pose - use in AnimBP with "Pose Snapshot" node
 const FName UHitReactionComponent::DeathPoseSnapshotName = FName(TEXT("DeathPose"));
@@ -627,23 +628,7 @@ EAttackDirection UHitReactionComponent::GetHitDirectionRelativeToFacing(const FV
         return EAttackDirection::Forward;
     }
 
-    // Convert to local space
-    FVector LocalDirection = CharOwner->GetActorTransform().InverseTransformVector(HitDirection);
-    LocalDirection.Z = 0;
-    LocalDirection.Normalize();
-    
-    const float ForwardDot = FVector::DotProduct(LocalDirection, FVector::ForwardVector);
-    const float RightDot = FVector::DotProduct(LocalDirection, FVector::RightVector);
-    
-    // Determine quadrant
-    if (FMath::Abs(ForwardDot) > FMath::Abs(RightDot))
-    {
-        return (ForwardDot > 0) ? EAttackDirection::Forward : EAttackDirection::Backward;
-    }
-    else
-    {
-        return (RightDot > 0) ? EAttackDirection::Right : EAttackDirection::Left;
-    }
+    return CombatMath::ClassifyRelativeToFacing(CharOwner->GetActorTransform(), HitDirection);
 }
 
 void UHitReactionComponent::UpdateStun(float DeltaTime)

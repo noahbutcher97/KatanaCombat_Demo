@@ -25,6 +25,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "RootMotionModifier.h"
 #include "Utilities/PairedAnimationUtilityLibrary.h"
+#include "Utilities/CombatMath.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogTargeting, Log, All);
 
@@ -380,11 +381,7 @@ bool UTargetingComponent::IsTargetInCone(AActor* Target, const FVector& Directio
         ConeAngle = Settings ? Settings->DirectionalConeAngle : 60.0f;
     }
 
-    const FVector ToTarget = (Target->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
-    const float DotProduct = FVector::DotProduct(Direction, ToTarget);
-    const float Angle = FMath::RadiansToDegrees(FMath::Acos(DotProduct));
-
-    return Angle <= ConeAngle;
+    return CombatMath::IsWithinCone(Direction, Target->GetActorLocation() - Owner->GetActorLocation(), ConeAngle);
 }
 
 bool UTargetingComponent::HasLineOfSightTo(AActor* Target) const
@@ -480,19 +477,8 @@ float UTargetingComponent::GetAngleToTarget(AActor* Target) const
         return 0.0f;
     }
 
-    const FVector Forward = Owner->GetActorForwardVector();
-    const FVector ToTarget = (Target->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
-    
-    const float DotProduct = FVector::DotProduct(Forward, ToTarget);
-    const float CrossZ = FVector::CrossProduct(Forward, ToTarget).Z;
-    
-    float Angle = FMath::RadiansToDegrees(FMath::Acos(DotProduct));
-    if (CrossZ < 0.0f)
-    {
-        Angle = -Angle;
-    }
-    
-    return Angle;
+    return static_cast<float>(CombatMath::SignedYawDegrees(
+        Owner->GetActorForwardVector(), Target->GetActorLocation() - Owner->GetActorLocation()));
 }
 
 float UTargetingComponent::GetDistanceToTarget(AActor* Target) const
@@ -2670,22 +2656,5 @@ EAttackDirection UTargetingComponent::GetAttackDirectionFromInput(FVector InputD
         return EAttackDirection::Forward;
     }
 
-    // Convert to local space
-    FVector LocalInput = Owner->GetActorTransform().InverseTransformVector(InputDirection);
-    LocalInput.Z = 0;
-    LocalInput.Normalize();
-    
-    // Determine cardinal direction
-    const float ForwardDot = FVector::DotProduct(LocalInput, FVector::ForwardVector);
-    const float RightDot = FVector::DotProduct(LocalInput, FVector::RightVector);
-    
-    // Use absolute values to determine which axis is dominant
-    if (FMath::Abs(ForwardDot) > FMath::Abs(RightDot))
-    {
-        return (ForwardDot > 0) ? EAttackDirection::Forward : EAttackDirection::Backward;
-    }
-    else
-    {
-        return (RightDot > 0) ? EAttackDirection::Right : EAttackDirection::Left;
-    }
+    return CombatMath::ClassifyRelativeToFacing(Owner->GetActorTransform(), InputDirection);
 }
