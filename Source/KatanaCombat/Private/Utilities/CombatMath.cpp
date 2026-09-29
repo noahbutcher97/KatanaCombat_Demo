@@ -21,6 +21,11 @@ bool IsWithinCone(const FVector& Forward, const FVector& Direction, double HalfA
 	return AngleBetweenDegrees(Forward, Direction) <= HalfAngleDegrees;
 }
 
+FVector DirectionToAttacker(const FVector& VictimLocation, const FVector& AttackerLocation)
+{
+	return (AttackerLocation - VictimLocation).GetSafeNormal();
+}
+
 FVector FlatDirection(const FVector& From, const FVector& To)
 {
 	return (To - From).GetSafeNormal2D();

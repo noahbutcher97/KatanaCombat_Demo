@@ -35,6 +35,7 @@
 #include "Engine/OverlapResult.h"
 #include "TimerManager.h"
 #include "HAL/PlatformTime.h"
+#include "Utilities/CombatMath.h"
 
 // ============================================================================
 // LOG CATEGORY DEFINITION
@@ -1221,7 +1222,7 @@ bool UPairedAnimationComponent::ApplyActivePairedDamageOnce()
 	}
 	FHitReactionInfo HitInfo;
 	HitInfo.Attacker = DamageSource;
-	HitInfo.HitDirection = (Victim->GetActorLocation() - DamageSource->GetActorLocation()).GetSafeNormal();
+	HitInfo.DirectionToAttacker = CombatMath::DirectionToAttacker(Victim->GetActorLocation(), DamageSource->GetActorLocation());
 	HitInfo.ImpactPoint = Victim->GetActorLocation();
 	HitInfo.bWasCounter = ActivePairedReactionType == EPairedReactionType::Counter;
 	HitInfo.PhaseWhenHit = EAttackPhase::Active;
@@ -1295,7 +1296,7 @@ bool UPairedAnimationComponent::ApplyLegacyPairedDamageOnce()
 
 	FHitReactionInfo HitInfo;
 	HitInfo.Attacker = DamageSource;
-	HitInfo.HitDirection = (Victim->GetActorLocation() - DamageSource->GetActorLocation()).GetSafeNormal();
+	HitInfo.DirectionToAttacker = CombatMath::DirectionToAttacker(Victim->GetActorLocation(), DamageSource->GetActorLocation());
 	HitInfo.ImpactPoint = Victim->GetActorLocation();
 	HitInfo.bWasCounter = ActivePairedReactionType == EPairedReactionType::Counter;
 	HitInfo.PhaseWhenHit = EAttackPhase::Active;
@@ -4534,10 +4535,10 @@ bool UPairedAnimationComponent::TryCounter_AC3Mode(const FCounterContext& Contex
 			EnemyHitReact->ApplyStagger(2.0f);
 		}
 
-		// Apply lethal damage — direction is FROM attacker TO victim (hit travels toward enemy)
+		// Apply lethal damage. The countered enemy is the victim; this owner is the attacker.
 		FHitReactionInfo HitInfo;
 		HitInfo.Attacker = Owner;
-		HitInfo.HitDirection = (Context.Attacker->GetActorLocation() - Owner->GetActorLocation()).GetSafeNormal();
+		HitInfo.DirectionToAttacker = CombatMath::DirectionToAttacker(Context.Attacker->GetActorLocation(), Owner->GetActorLocation());
 		HitInfo.Damage = IDamageableInterface::Execute_GetCurrentHealth(Context.Attacker.Get()) + 1.0f;
 		HitInfo.bWasCounter = true;
 		HitInfo.PhaseWhenHit = EAttackPhase::Active;

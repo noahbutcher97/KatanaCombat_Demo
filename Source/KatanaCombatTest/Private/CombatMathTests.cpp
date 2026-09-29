@@ -85,6 +85,28 @@ bool FCombatMathClassifyTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCombatMathDirectionToAttackerTest, "KatanaCombat.CombatMath.DirectionToAttacker", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FCombatMathDirectionToAttackerTest::RunTest(const FString& Parameters)
+{
+	const FVector Victim(0, 0, 0);
+	const FVector AttackerInFront(200, 0, 0);
+	TestTrue(TEXT("Points from victim toward attacker"),
+		CombatMath::DirectionToAttacker(Victim, AttackerInFront).Equals(FVector(1, 0, 0), 1e-6));
+	TestTrue(TEXT("Coincident actors have no direction"),
+		CombatMath::DirectionToAttacker(Victim, Victim).IsZero());
+
+	// The convention every hit writer shares: an attacker in front classifies as Forward.
+	const FTransform VictimFacingX(FRotator::ZeroRotator, Victim);
+	TestEqual(TEXT("Attacker in front reads Forward"),
+		CombatMath::ClassifyRelativeToFacing(VictimFacingX, CombatMath::DirectionToAttacker(Victim, AttackerInFront)),
+		EAttackDirection::Forward);
+	TestEqual(TEXT("Attacker behind reads Backward"),
+		CombatMath::ClassifyRelativeToFacing(VictimFacingX, CombatMath::DirectionToAttacker(Victim, FVector(-200, 0, 0))),
+		EAttackDirection::Backward);
+	return true;
+}
+
 // ============================================================================
 // Component regressions fixed by routing through CombatMath
 // ============================================================================

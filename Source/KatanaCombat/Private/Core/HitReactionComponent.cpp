@@ -456,7 +456,7 @@ void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
     }
 
     // Get relative hit direction
-    const EAttackDirection RelativeDir = GetHitDirectionRelativeToFacing(HitInfo.HitDirection);
+    const EAttackDirection RelativeDir = GetHitDirectionRelativeToFacing(HitInfo.DirectionToAttacker);
 
     // Try settings-based approach first
     if (UHitReactionSettings* Settings = GetEffectiveSettings())
@@ -604,7 +604,7 @@ UAnimMontage* UHitReactionComponent::SelectHitReactionMontage(const FHitReaction
     // Determine hit direction relative to character
 
     // Select directional animation
-    switch (const EAttackDirection Direction = GetHitDirectionRelativeToFacing(HitInfo.HitDirection))
+    switch (const EAttackDirection Direction = GetHitDirectionRelativeToFacing(HitInfo.DirectionToAttacker))
     {
         case EAttackDirection::Forward:
             return AnimSet.FrontHit;
@@ -619,16 +619,16 @@ UAnimMontage* UHitReactionComponent::SelectHitReactionMontage(const FHitReaction
     }
 }
 
-EAttackDirection UHitReactionComponent::GetHitDirectionRelativeToFacing(const FVector& HitDirection) const
+EAttackDirection UHitReactionComponent::GetHitDirectionRelativeToFacing(const FVector& DirectionToAttacker) const
 {
     // Use helper for lazy initialization (works in test environments)
     ACharacter* CharOwner = GetOwnerCharacterCached();
-    if (!CharOwner || HitDirection.IsNearlyZero())
+    if (!CharOwner || DirectionToAttacker.IsNearlyZero())
     {
         return EAttackDirection::Forward;
     }
 
-    return CombatMath::ClassifyRelativeToFacing(CharOwner->GetActorTransform(), HitDirection);
+    return CombatMath::ClassifyRelativeToFacing(CharOwner->GetActorTransform(), DirectionToAttacker);
 }
 
 void UHitReactionComponent::UpdateStun(float DeltaTime)

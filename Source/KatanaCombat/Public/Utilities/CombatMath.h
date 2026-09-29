@@ -23,6 +23,13 @@ KATANACOMBAT_API double AngleBetweenDegrees(const FVector& A, const FVector& B);
 /** True when Direction lies within HalfAngleDegrees of Forward (3D, inclusive). */
 KATANACOMBAT_API bool IsWithinCone(const FVector& Forward, const FVector& Direction, double HalfAngleDegrees);
 
+/**
+ * FHitReactionInfo::DirectionToAttacker for a position-based hit: unit vector from the
+ * victim toward the attacker, or zero when they coincide. This is the single definition
+ * of the hit-direction convention; velocity-based writers negate the weapon velocity.
+ */
+KATANACOMBAT_API FVector DirectionToAttacker(const FVector& VictimLocation, const FVector& AttackerLocation);
+
 /** Horizontal unit direction From -> To, or zero when the points coincide horizontally. */
 KATANACOMBAT_API FVector FlatDirection(const FVector& From, const FVector& To);
 

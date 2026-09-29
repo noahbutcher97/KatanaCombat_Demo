@@ -313,7 +313,7 @@ public:
      * Create a hit reaction info for testing damage application
      * @param Attacker - Actor dealing the damage
      * @param Damage - Base damage amount
-     * @param HitDirection - Direction of the hit (world space)
+     * @param HitDirection - FHitReactionInfo::DirectionToAttacker (victim toward attacker, world space)
      * @param AttackData - Optional attack data for damage type
      * @return Configured FHitReactionInfo
      */
@@ -326,7 +326,7 @@ public:
         FHitReactionInfo HitInfo;
         HitInfo.Attacker = Attacker;
         HitInfo.Damage = Damage;
-        HitInfo.HitDirection = HitDirection;
+        HitInfo.DirectionToAttacker = HitDirection;
         HitInfo.AttackData = AttackData;
         HitInfo.StunDuration = 0.2f;
         HitInfo.bWasCounter = false;
