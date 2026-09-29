@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **KatanaCombat** is a cinematic free-flow melee combat system (AC3/4 + Batman Arkham) for Unreal Engine 5.6 (C++). The system features:
 - 5-component architecture (Combat, Targeting, Weapon, HitReaction, PairedAnimation)
 - Hybrid combo system (responsive input buffering + snappy animation cancels + procedural blending)
-- Contextual stagger defense with counter system (AC3 mode + Chain mode)
+- Contextual stagger defense with a Chain counter system (parry → counter → finisher)
 - Data-driven attack configuration via AttackData assets
 - Per-hit impact effects (hitstop, audio, VFX) with pooled FX data assets
 - Death system with directional animations and ragdoll transitions
@@ -122,17 +122,13 @@ Source/KatanaCombat/Public/
 │   ├── DamageableInterface.h  ← Damage/health contract
 │   ├── CombatInterface.h      ← Combat state contract
 │   └── TeamMemberInterface.h  ← Team/faction contract
-├── Math/
-│   ├── CombatMathEnums.h      ← 10 enums (distance formulas, bone chains, contact types)
-│   └── CombatMathTypes.h      ← 10 structs (skeletal hierarchy, reach, contact predictions)
 └── Utilities/
+    ├── CombatMath.h                      ← Authoritative direction math (angles, cones, classification, DirectionToAttacker)
+    ├── CombatTargetQuery.h               ← Shared target gathering (dedup, alive/hostile filters)
+    ├── AlignmentMotionLibrary.h          ← Bounded turn/translation stepping
     ├── MontageUtilityLibrary.h           ← 27 montage utility functions
     ├── PairedAnimationUtilityLibrary.h   ← 15 functions (validation, contact points)
-    ├── CinematicEffectsUtilityLibrary.h  ← Time dilation, hitstop, camera shake
-    ├── SkeletalAnalysisLibrary.h         ← 18 functions (bone chains, reach envelopes)
-    ├── GeometryMathLibrary.h             ← 20 functions (distance, bounding volumes)
-    ├── SpatialQueryLibrary.h             ← 15 functions (sphere/box/cone queries)
-    └── PhysicsIntegrationLibrary.h       ← 15 functions (Verlet, trajectory prediction)
+    └── CinematicEffectsUtilityLibrary.h  ← Time dilation, hitstop, camera shake
 ```
 
 ## Key Default Values
@@ -430,18 +426,22 @@ Track ongoing work across sessions. This section provides detailed status of all
 **Overall Status**: ~60% complete | Component extracted, core flow implemented, animations needed
 
 > The Paired Animation System (finishers, counters, parries) is the heart and soul of this project.
-> UPairedAnimationComponent extracted from CombatComponent (Phase 3 complete). Math libraries complete.
+> UPairedAnimationComponent extracted from CombatComponent (Phase 3 complete).
 > Core combat flow (parry, counter, finisher chain) needs animation assets to become playable.
 
-#### Phase 5c: Math & Utility Libraries - COMPLETE (83 functions, 3,128 lines)
+#### Combat Math & Utility Libraries
 
-| Library | Functions | Lines | Key Capabilities |
-|---------|-----------|-------|------------------|
-| SkeletalAnalysisLibrary | 18 | 814 | Bone chains, reach envelopes, center of mass |
-| GeometryMathLibrary | 20 | 499 | Distance calculations (5 formulas), bounding volumes |
-| SpatialQueryLibrary | 15 | 706 | Sphere/box/cone queries, FOV checks |
-| PhysicsIntegrationLibrary | 15 | 610 | Verlet integration, trajectory prediction |
-| PairedAnimationUtilityLibrary | 15 | 499 | Contact points, obstacle validation |
+Direction math lives in `CombatMath` and target gathering in `CombatTargetQuery`; both were
+built from in-use code (PR #129). The Phase 5c libraries (SkeletalAnalysis, GeometryMath,
+SpatialQuery, PhysicsIntegration) never had consumers and were removed in 2026-09; their
+weighted center of mass now lives in `UPairedAnimationAnalysisLibrary`.
+
+| Library | Key Capabilities |
+|---------|------------------|
+| CombatMath | Guarded angles, cones, signed yaw, 4-way classification, hit-direction convention |
+| CombatTargetQuery | Overlap target gathering: one entry per actor, nearest first, alive/hostile rules |
+| AlignmentMotionLibrary | Bounded turn/translation stepping for alignment |
+| PairedAnimationUtilityLibrary | Contact points, obstacle validation |
 
 #### Phase 5d: Preview Tool Enhancements - Foundation Complete, Ongoing (6,000+ lines)
 
@@ -496,7 +496,6 @@ Track ongoing work across sessions. This section provides detailed status of all
 #### Scaffolded (Code Complete, Needs Animations)
 | Component | Files | Status |
 |-----------|-------|--------|
-| Counter AC3 Mode | PairedAnimationComponent.cpp | `TryCounter_AC3Mode()` — instant counter-kill via slow-mo + lethal damage |
 | Counter Chain Mode | PairedAnimationComponent.cpp | Public Block/attack input drives retained Parry→Counter→Finisher ownership; protected helpers are compatibility primitives only |
 | Chain State Machine | PairedAnimationComponent.h | `ParryActive -> CounterWindow -> CounterActive -> FinisherReady -> FinisherActive -> None`, keyed by interaction and stage generation |
 | Parry Window | CombatComponent.h/.cpp | Canonical attacker-side window records use attack generation, montage instance, and runtime notify-source identity |
@@ -558,7 +557,7 @@ Player Input → CombatComponent::ExecuteAction()
 | 5-Component Architecture | ✅ Stable | Combat, Targeting, Weapon, HitReaction, PairedAnimation |
 | Input Buffering | ✅ Stable | Last-input-wins queue, input always captured |
 | Combo System | ✅ Stable | Phase-derived combo timing + PendingComboTransitions counter (INPUT-1 fixed) |
-| Stagger/Counter | ✅ Scaffolded | Posture deprecated → contextual stagger. AC3 + Chain counter modes. |
+| Stagger/Counter | ✅ Scaffolded | Posture deprecated → contextual stagger. Chain counters via the defense resolver (AC3 mode removed). |
 | Hit Detection | ✅ Stable | Socket-based weapon traces, substep sweeps |
 | Impact Effects | ✅ Stable | Per-hit hitstop, audio, VFX with pooled FX data assets |
 | Procedural Blending | ✅ Stable | 6 easing strategies, wired in PlayAttackMontage |

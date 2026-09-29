@@ -470,7 +470,6 @@ DA_LightCombo3
 ```
 DA_LightCombo3:
   bCanHold: true
-  bEnforceMaxHoldTime: false (or true with MaxHoldTime: 1.5)
 ```
 
 **2. Add Hold Window Start to Montage**:

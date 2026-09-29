@@ -185,8 +185,7 @@ public:
      * Counter lock has priority over normal targeting - prevents target switching
      * until the parry/counter chain completes or is explicitly released.
      *
-     * Chain Mode: Called when player parries, remains until finisher or disengage
-     * AC3 Mode: Called briefly during counter-kill execution
+     * Called when the player parries; remains until the finisher or a disengage.
      *
      * @param Target - Enemy to lock onto
      */

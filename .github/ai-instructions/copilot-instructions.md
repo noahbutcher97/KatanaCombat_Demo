@@ -183,10 +183,8 @@ Source/KatanaCombat/Public/
 │   ├── MontageUtilityLibrary.h            # 27 montage utility functions
 │   ├── PairedAnimationUtilityLibrary.h    # Paired animation validation
 │   ├── CinematicEffectsUtilityLibrary.h   # Time dilation, camera shake
-│   ├── SpatialQueryLibrary.h              # Spatial queries
-│   ├── SkeletalAnalysisLibrary.h          # Skeleton analysis
-│   ├── PhysicsIntegrationLibrary.h        # Physics integration
-│   ├── GeometryMathLibrary.h              # Geometry math
+│   ├── CombatMath.h                       # Direction math, hit-direction convention
+│   ├── CombatTargetQuery.h                # Shared target gathering
 │   └── CombatUtils.h                      # General utilities
 └── Debug/
     ├── CombatDebugHUD.h       # Debug HUD overlay
@@ -201,8 +199,7 @@ Source/KatanaCombatEditor/Public/  # EDITOR-ONLY MODULE
 ├── PairedMontageAnalyzer.h        # Paired animation analysis engine
 ├── MontageAnalyzerTools.h         # General montage analysis utilities
 └── Customizations/
-    ├── AttackDataCustomization.h  # Custom AttackData editor UI
-    └── HitReactionDataCustomization.h # Custom HitReactionData editor UI
+    └── AttackDataCustomization.h  # Custom AttackData editor UI
 ```
 
 ## Development Standards
@@ -283,9 +280,6 @@ Enhances the `UAttackData` details panel with intelligent editing tools.
   - `AnimNotifyState_ComboWindow` (recovery phase window)
 - **Validation Warnings**: Highlights section conflicts, missing notifies, bad montages
 - **Batch Operations**: Generate notifies for multiple attacks at once
-
-#### HitReactionDataCustomization
-Streamlined editor for reaction montages with section selection and validation.
 
 ### Utility Classes (Blueprint-Callable)
 
@@ -390,15 +384,13 @@ Documentation in `.claude/context-modes/` and `.gemini/context-modes/`
 
 ### Utility Libraries
 
-The project includes 8 Blueprint-callable utility libraries for common operations:
+The project includes six utility libraries for common operations. CombatMath and CombatTargetQuery are C++-only namespaces; the others are Blueprint-callable:
 
 - **MontageUtilityLibrary**: 27 functions for montage timing, blending, section navigation
 - **PairedAnimationUtilityLibrary**: Validation and contact point analysis for paired animations
 - **CinematicEffectsUtilityLibrary**: Time dilation, hitstop, camera shake
-- **SpatialQueryLibrary**: Spatial queries and geometry tests
-- **SkeletalAnalysisLibrary**: Skeleton bone analysis and hierarchy queries
-- **PhysicsIntegrationLibrary**: Physics integration utilities
-- **GeometryMathLibrary**: Geometry and math operations
+- **CombatMath**: Guarded angles, cones, direction classification and the DirectionToAttacker convention
+- **CombatTargetQuery**: Shared target gathering with alive/hostile/damageable rules
 - **CombatUtils**: General combat utility functions
 
 These are preferred over implementing custom solutions. Check if functionality exists before writing new code.

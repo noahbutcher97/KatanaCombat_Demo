@@ -87,27 +87,12 @@ class UPairedAnimationData : public UPrimaryDataAsset
 };
 ```
 
-### 2.2 Math Foundation Types (CombatMathTypes.h)
+### 2.2 Combat Math
 
-| Type | Purpose |
-|------|---------|
-| FSkeletalHierarchy | Complete bone tree with parent-child relationships |
-| FBoneChain | Ordered bone sequence from root to tip with total length |
-| FReachQueryResult | Reachability analysis (distance, extension ratio) |
-| FJointConstraint | Anatomical rotation limits per joint |
-| FContactPointPrediction | Predicted contact location with confidence score |
-| FBoneFrameTransform | Bone transform at specific animation frame |
-
-### 2.3 Math Foundation Enums (CombatMathEnums.h)
-
-| Enum | Values |
-|------|--------|
-| EDistanceFormula | Euclidean, Euclidean2D, Manhattan, Chebyshev, SquaredEuclidean |
-| ESpatialQueryShape | Sphere, Box, Capsule, Cone, ConvexHull |
-| EBoneChainType | Spine, LeftArm, RightArm, LeftLeg, RightLeg, Neck, etc. |
-| EAnatomicalRegion | Head, Neck, Chest, Abdomen, UpperArm, LowerArm, Hand, etc. |
-| EContactType | WeaponToBody, HandToBody, FootToBody, WeaponToWeapon, etc. |
-| EIKSolverType | TwoBone, FABRIK, CCD, FullBody |
+Direction math is owned by `Utilities/CombatMath.h` (guarded angles, cones, signed yaw,
+four-way classification and the `DirectionToAttacker` hit-direction convention). Target
+gathering is owned by `Utilities/CombatTargetQuery.h`. The earlier CombatMathTypes.h /
+CombatMathEnums.h foundation had no consumers and was removed in 2026-09.
 
 ---
 
@@ -336,14 +321,12 @@ Minimal Blueprint nodes:
 | PairedAnimationUtilityLibrary | Contact point calculation, reach validation |
 | CinematicEffectsUtilityLibrary | Unified time dilation coordinator |
 
-### 6.2 New Libraries (Create)
+### 6.2 Shared Math and Queries
 
 | Library | Purpose |
 |---------|---------|
-| SkeletalAnalysisLibrary | BuildSkeletalHierarchy, GetBoneChain, CalculateReachEnvelope |
-| GeometryMathLibrary | Distance formulas, bounding volumes, convex hulls |
-| SpatialQueryLibrary | Sphere/box/cone queries, FOV checks |
-| PhysicsIntegrationLibrary | Trajectory prediction, collision prediction |
+| CombatMath | Direction math and the hit-direction convention |
+| CombatTargetQuery | Shared, filtered target gathering |
 
 ---
 
@@ -440,8 +423,8 @@ Combat.Debug.PairedAnim.Vulnerability 1 // Finisher vulnerability indicators
 |------|---------|
 | PairedAnimationData.h | Main data asset |
 | PairedAnimationTypes.h | FPairedWarpConfig, FFinisherTriggerConfig |
-| CombatMathEnums.h | Distance formulas, bone chains, contact types |
-| CombatMathTypes.h | Skeletal hierarchy, reach results, contact predictions |
+| Utilities/CombatMath.h | Direction math and hit-direction convention |
+| Utilities/CombatTargetQuery.h | Shared target gathering |
 
 ### 9.3 Editor Tools (Phase 5d)
 

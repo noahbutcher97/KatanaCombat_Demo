@@ -323,6 +323,21 @@ Update CLAUDE.md: remove/replace the stale "Editor/Runtime Unification Gap" item
 - Validation: `UPairedAnimationData::IsDataValid` now warns on `/Engine/VREditor` / `/Engine/EditorSounds` sound references (packaging risk found in Counter_LightAttack assets) and the AnimationName warning no longer claims TMap lookups.
 - Deliberately NOT touched: any property deletion (requires deprecation workflow), anything on a ⚡ decision, `CalculateChargeLevel` (tied to charge decision), test-referenced utility functions.
 
+**2026-09-29 — Step 2 deletions (user-approved decisions)**:
+- Removed `bEnforceMaxHoldTime`/`MaxHoldTime` and `StaggerPower` (commit 2ffa1cb4). A binary scan of `Content` found no saved asset serializing them, so plain deletion was safe.
+- Removed AC3 counter mode and the unreachable legacy counter entry path (commit 44abc8eb).
+- Removed `UHitReactionData`, its six `UHitReactionSettings` slots, `GetSpecialReaction`/`GetPairedReaction`, `UHitReactionComponent::PlayReactionFromData`/`PlayPairedReaction`/`PlaySpecialReaction`, `FHitReactionDataCustomization`, and the now-unused `ESpecialReactionType`/`EHitReactionType` enums. Zero instances, zero callers, zero asset references.
+
+**Restoring `UHitReactionData`** (kept deliberately easy): the last commit that contains it is `44abc8eb`.
+
+```bash
+git checkout 44abc8eb --   Source/KatanaCombat/Public/Data/HitReactionData.h   Source/KatanaCombat/Private/Data/HitReactionData.cpp   Source/KatanaCombatEditor/Public/Customizations/HitReactionDataCustomization.h   Source/KatanaCombatEditor/Private/Customizations/HitReactionDataCustomization.cpp
+```
+
+Then re-add the enums, the settings slots and getters, and the editor registration from the same commit's `CombatTypes.h`, `HitReactionSettings.h/.cpp`, `HitReactionComponent.h/.cpp` and `KatanaCombatEditor.cpp`.
+
+**Preferred future design** if per-reaction reuse is ever needed: do not restore the old class as it was. It had drifted from `FHitReactionEntry` (no montage-variant pool, no death `Outcome`). Instead, add a thin data asset that *wraps* an `FHitReactionEntry` (one definition, so the two cannot drift), and let inline entries optionally reference it. Whole reaction sets are already swappable per character via `UHitReactionComponent::HitReactionSettingsOverride` or `CombatSettings->HitReactionSettings`.
+
 ## Research appendix (key citations)
 
 - UPROPERTY specifier/meta reference (tooltips, EditCondition, Units, TitleProperty, DisplayPriority, AdvancedDisplay, Categories, AssetRegistrySearchable): unreal-garden.com/docs/uproperty/ (formerly benui.ca)

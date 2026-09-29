@@ -691,21 +691,6 @@ public:
 
 	void ClearCounterWindowData();
 
-	UFUNCTION(BlueprintCallable, Category = "Combat|Counter")
-	bool TryCounter();
-
-	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	bool CanCounter() const;
-
-	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	AActor* FindCounterableEnemy() const;
-
-	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	FCounterContext GetEnemyCounterContext(AActor* Enemy) const;
-
-	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
-	AActor* FindParryableEnemy() const;
-
 	/** Get active windows at specified montage time */
 	UFUNCTION(BlueprintPure, Category = "Combat|State")
 	TArray<FTimerCheckpoint> GetActiveWindows(float CurrentTime) const;

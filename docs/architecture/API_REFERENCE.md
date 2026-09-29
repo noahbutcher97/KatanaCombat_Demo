@@ -1199,17 +1199,6 @@ bool bCanHold = true;
 ```
 Can hold button at end of attack for directional follow-up?
 
-```cpp
-UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Attack")
-bool bEnforceMaxHoldTime = false;
-```
-Enforce maximum hold time (auto-release if exceeded)?
-
-```cpp
-UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Light Attack")
-float MaxHoldTime = 1.5f;
-```
-Maximum hold time before auto-release.
 
 ### Timing System
 

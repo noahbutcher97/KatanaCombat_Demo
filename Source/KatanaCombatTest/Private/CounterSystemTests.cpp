@@ -1,5 +1,5 @@
 // CounterSystemTests.cpp
-// Tests for Counter System: AC3 Mode and Chain Mode
+// Tests for the Chain counter system (parry -> counter -> finisher)
 // Verifies counter window detection, state transitions, and timeout behavior.
 
 #include "CombatTestHelpers.h"
@@ -196,165 +196,6 @@ bool FCounter_UnblockableTagBypassesNormalBlock::RunTest(const FString& Paramete
 }
 
 // ============================================================================
-// TEST: AC3 counter applies lethal damage
-// ============================================================================
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_AC3LethalDamage,
-	"KatanaCombat.CounterSystem.AC3LethalDamage",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FCounter_AC3LethalDamage::RunTest(const FString& Parameters)
-{
-	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* PlayerCombat = nullptr;
-	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
-
-	if (!PlayerCombat)
-	{
-		AddError(TEXT("Failed to create player combat component"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	// Create enemy
-	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
-	if (!Enemy)
-	{
-		AddError(TEXT("Failed to create enemy"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	UPairedAnimationComponent* PairedComp = Player->PairedAnimationComponent;
-
-	// Build counter context manually
-	FCounterContext Context;
-	Context.Attacker = Enemy;
-	Context.AttackType = EAttackType::Light;
-	Context.SwingDirection = ESwingDirection::Horizontal;
-
-	// Get enemy health before counter
-	float HealthBefore = IDamageableInterface::Execute_GetCurrentHealth(Enemy);
-
-	// Execute AC3 counter
-	bool bSuccess = PairedComp->TryCounter_AC3Mode(Context);
-	TestTrue(TEXT("AC3 counter should succeed with valid context"), bSuccess);
-
-	// Verify enemy took lethal damage
-	float HealthAfter = IDamageableInterface::Execute_GetCurrentHealth(Enemy);
-	TestTrue(TEXT("Enemy health should be reduced after AC3 counter"), HealthAfter < HealthBefore);
-
-	// Finalize death if dying (test fixture pattern)
-	FCombatTestHelpers::FinalizeDeathIfDying(Enemy);
-
-	FCombatTestHelpers::DestroyTestWorld(World);
-	return true;
-}
-
-// ============================================================================
-// TEST: AC3 counter staggers the enemy
-// ============================================================================
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_AC3StaggersEnemy,
-	"KatanaCombat.CounterSystem.AC3StaggersEnemy",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FCounter_AC3StaggersEnemy::RunTest(const FString& Parameters)
-{
-	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* PlayerCombat = nullptr;
-	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
-
-	if (!PlayerCombat)
-	{
-		AddError(TEXT("Failed to create player combat component"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
-	if (!Enemy)
-	{
-		AddError(TEXT("Failed to create enemy"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	UHitReactionComponent* EnemyHitReact = Enemy->FindComponentByClass<UHitReactionComponent>();
-	if (!EnemyHitReact)
-	{
-		AddError(TEXT("Enemy missing HitReactionComponent"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	UPairedAnimationComponent* PairedComp = Player->PairedAnimationComponent;
-
-	// Enemy should not be staggered before counter
-	TestFalse(TEXT("Enemy should not be staggered before counter"), EnemyHitReact->IsStaggered());
-
-	// Execute AC3 counter
-	FCounterContext Context;
-	Context.Attacker = Enemy;
-	Context.AttackType = EAttackType::Light;
-	PairedComp->TryCounter_AC3Mode(Context);
-
-	// Enemy should be staggered after counter
-	TestTrue(TEXT("Enemy should be staggered after AC3 counter"), EnemyHitReact->IsStaggered());
-
-	FCombatTestHelpers::FinalizeDeathIfDying(Enemy);
-	FCombatTestHelpers::DestroyTestWorld(World);
-	return true;
-}
-
-// ============================================================================
-// TEST: AC3 counter sets bWasCounter on hit info
-// ============================================================================
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_AC3HitInfoMarkedAsCounter,
-	"KatanaCombat.CounterSystem.AC3HitInfoMarkedAsCounter",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FCounter_AC3HitInfoMarkedAsCounter::RunTest(const FString& Parameters)
-{
-	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* PlayerCombat = nullptr;
-	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
-
-	if (!PlayerCombat)
-	{
-		AddError(TEXT("Failed to create player combat component"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
-	if (!Enemy)
-	{
-		AddError(TEXT("Failed to create enemy"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	UPairedAnimationComponent* PairedComp = Player->PairedAnimationComponent;
-
-	// The TryCounter_AC3Mode sets bWasCounter = true on the FHitReactionInfo
-	// We verify indirectly by checking the counter succeeded and damage was applied
-	FCounterContext Context;
-	Context.Attacker = Enemy;
-	Context.AttackType = EAttackType::Heavy;
-	Context.SwingDirection = ESwingDirection::Vertical;
-
-	bool bSuccess = PairedComp->TryCounter_AC3Mode(Context);
-	TestTrue(TEXT("AC3 counter should succeed"), bSuccess);
-
-	// If the enemy is dead or has reduced health, the counter-flagged damage was applied
-	float HealthAfter = IDamageableInterface::Execute_GetCurrentHealth(Enemy);
-	TestTrue(TEXT("Enemy health should be <= 0 after lethal counter"), HealthAfter <= 0.0f);
-
-	FCombatTestHelpers::FinalizeDeathIfDying(Enemy);
-	FCombatTestHelpers::DestroyTestWorld(World);
-	return true;
-}
-
-// ============================================================================
 // TEST: Counter context preserves notify-provided specific counter data
 // ============================================================================
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_ContextPreservesSpecificCounterData,
@@ -392,8 +233,9 @@ bool FCounter_ContextPreservesSpecificCounterData::RunTest(const FString& Parame
 		SpecificCounterData,
 		1.25f);
 
-	FCounterContext Context = Player->PairedAnimationComponent->GetEnemyCounterContext(Enemy);
+	const FCounterContext& Context = Enemy->PairedAnimationComponent->GetCounterWindowData();
 
+	TestTrue(TEXT("Counter window should be open"), Enemy->PairedAnimationComponent->IsInCounterWindow());
 	TestTrue(TEXT("Counter context should be valid when enemy paired component owns the window"), Context.IsValid());
 	TestEqual(TEXT("Counter context should preserve attack type"), Context.AttackType, EAttackType::Heavy);
 	TestEqual(TEXT("Counter context should preserve swing direction"), Context.SwingDirection, ESwingDirection::Vertical);
@@ -402,61 +244,6 @@ bool FCounter_ContextPreservesSpecificCounterData::RunTest(const FString& Parame
 	TestEqual(TEXT("Counter context should preserve window duration"), Context.WindowDuration, 1.25f);
 
 	Enemy->PairedAnimationComponent->ClearCounterWindowData();
-	FCombatTestHelpers::DestroyTestWorld(World);
-	return true;
-}
-
-// ============================================================================
-// TEST: AC3 counter falls back cleanly if specific counter data cannot play
-// ============================================================================
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_AC3SpecificCounterDataFallbackDamage,
-	"KatanaCombat.CounterSystem.AC3SpecificCounterDataFallbackDamage",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FCounter_AC3SpecificCounterDataFallbackDamage::RunTest(const FString& Parameters)
-{
-	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* PlayerCombat = nullptr;
-	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
-
-	if (!PlayerCombat)
-	{
-		AddError(TEXT("Failed to create player combat component"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
-	if (!Enemy)
-	{
-		AddError(TEXT("Failed to create enemy"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	UPairedAnimationComponent* PairedComp = Player->PairedAnimationComponent;
-	UPairedAnimationData* SpecificCounterData = NewObject<UPairedAnimationData>();
-	SpecificCounterData->ReactionType = EPairedReactionType::Counter;
-	SpecificCounterData->AnimationName = TEXT("InvalidTestCounterData");
-
-	FCounterContext Context;
-	Context.Attacker = Enemy;
-	Context.AttackType = EAttackType::Heavy;
-	Context.SwingDirection = ESwingDirection::Vertical;
-	Context.SpecificCounterData = SpecificCounterData;
-
-	const float HealthBefore = IDamageableInterface::Execute_GetCurrentHealth(Enemy);
-	const bool bSuccess = PairedComp->TryCounter_AC3Mode(Context);
-	const float HealthAfter = IDamageableInterface::Execute_GetCurrentHealth(Enemy);
-
-	TestTrue(TEXT("AC3 counter should succeed by falling back to direct damage"), bSuccess);
-	TestTrue(TEXT("Fallback direct damage should reduce enemy health"), HealthAfter < HealthBefore);
-	TestFalse(TEXT("Failed specific counter data should not leave paired animation active"),
-		PairedComp->IsPairedAnimationActive());
-	TestFalse(TEXT("Failed specific counter data should not leave combat input blocked"),
-		PairedComp->IsInputBlocked());
-
-	FCombatTestHelpers::FinalizeDeathIfDying(Enemy);
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }
@@ -525,70 +312,3 @@ bool FCounter_CounterAttackRequiresWindow::RunTest(const FString& Parameters)
 	return true;
 }
 
-// ============================================================================
-// TEST: AC3 counter with null attacker returns false
-// ============================================================================
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_AC3NullAttackerFails,
-	"KatanaCombat.CounterSystem.AC3NullAttackerFails",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FCounter_AC3NullAttackerFails::RunTest(const FString& Parameters)
-{
-	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* PlayerCombat = nullptr;
-	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
-
-	if (!PlayerCombat)
-	{
-		AddError(TEXT("Failed to create player combat component"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	UPairedAnimationComponent* PairedComp = Player->PairedAnimationComponent;
-
-	// Counter with null attacker should fail gracefully
-	FCounterContext Context;
-	Context.Attacker = nullptr;
-	bool bResult = PairedComp->TryCounter_AC3Mode(Context);
-	TestFalse(TEXT("AC3 counter should fail with null attacker"), bResult);
-
-	FCombatTestHelpers::DestroyTestWorld(World);
-	return true;
-}
-
-// ============================================================================
-// TEST: Internal Chain parry helper rejects null attacker
-// ============================================================================
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_ChainNullAttackerFails,
-	"KatanaCombat.CounterSystem.Internal.ChainNullAttackerFails",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-
-bool FCounter_ChainNullAttackerFails::RunTest(const FString& Parameters)
-{
-	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	UCombatComponent* PlayerCombat = nullptr;
-	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
-
-	if (!PlayerCombat)
-	{
-		AddError(TEXT("Failed to create player combat component"));
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	UPairedAnimationComponent* PairedComp = Player->PairedAnimationComponent;
-
-	// Counter with null attacker should fail gracefully
-	FCounterContext Context;
-	Context.Attacker = nullptr;
-	bool bResult = PairedComp->TryCounter_ChainMode(Context);
-	TestFalse(TEXT("Chain counter should fail with null attacker"), bResult);
-
-	// State should remain None
-	TestTrue(TEXT("Chain state should remain None after failed counter"),
-		PairedComp->ChainState == EChainCounterState::None);
-
-	FCombatTestHelpers::DestroyTestWorld(World);
-	return true;
-}

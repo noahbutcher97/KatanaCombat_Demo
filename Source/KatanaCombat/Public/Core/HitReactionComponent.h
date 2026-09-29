@@ -12,7 +12,6 @@ class UAnimMontage;
 class ACharacter;
 class UAnimInstance;
 class UHitReactionSettings;
-class UHitReactionData;
 class UCombatComponent;
 
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnPairedVictimStateChanged, bool);
@@ -243,33 +242,6 @@ public:
      */
     bool PlayReactionFromEntry(const FHitReactionEntry& ReactionEntry, EAttackDirection Direction, bool bIsHeavy, EHitIntensity Intensity);
 
-    /**
-     * Play hit reaction from HitReactionData asset (special/paired reactions)
-     * Handles section selection, play rate, and i-frame tracking
-     * @param ReactionData - Reaction data asset to play
-     * @return True if reaction started successfully
-     */
-    UFUNCTION(BlueprintCallable, Category = "Hit Reaction")
-    bool PlayReactionFromData(UHitReactionData* ReactionData);
-
-    /**
-     * Play paired reaction (counter/finisher victim)
-     * Extension point: Called when AttackData has counter/finisher name
-     * @param PairedType - Type of paired reaction
-     * @param ReactionName - Name identifier for lookup
-     * @return True if reaction started
-     */
-    UFUNCTION(BlueprintCallable, Category = "Hit Reaction")
-    bool PlayPairedReaction(EPairedReactionType PairedType, FName ReactionName);
-
-    /**
-     * Play special reaction (guard broken, knockdown, etc.)
-     * @param SpecialType - Type of special reaction
-     * @return True if reaction started
-     */
-    UFUNCTION(BlueprintCallable, Category = "Hit Reaction")
-    bool PlaySpecialReaction(ESpecialReactionType SpecialType);
-
     // ============================================================================
     // STATE QUERIES
     // ============================================================================
@@ -342,7 +314,6 @@ public:
     /**
      * Check if this character is currently staggered.
      * Stagger is a timed vulnerability state triggered by:
-     * - Heavy attacks with high StaggerPower
      * - Counter attacks
      * - Special moves
      * Unlike the old posture system, stagger is event-driven (not a persistent bar).

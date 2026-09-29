@@ -13,7 +13,6 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Data/HitReactionSettings.h"
-#include "Data/HitReactionData.h"
 #include "Data/CombatSettings.h"
 #include "Data/AttackData.h"
 #include "Data/DefenseConfiguration.h"
@@ -891,110 +890,6 @@ bool UHitReactionComponent::PlayReactionFromEntry(const FHitReactionEntry& React
     OnHitReactionStarted.Broadcast(Direction, bIsHeavy);
 
     return true;
-}
-
-bool UHitReactionComponent::PlayReactionFromData(UHitReactionData* ReactionData)
-{
-    if (!ReactionData || !ReactionData->ReactionMontage || !AnimInstance)
-    {
-        return false;
-    }
-
-    // Setup i-frame tracking from data asset
-    CurrentReactionTime = 0.0f;
-    bCurrentReactionHasIFrames = ReactionData->bHasIFrames;
-    CurrentIFrameStart = ReactionData->IFrameStart;
-    CurrentIFrameEnd = ReactionData->IFrameEnd;
-
-    // Enable tick for i-frame tracking if needed
-    if (bCurrentReactionHasIFrames)
-    {
-        SetComponentTickEnabled(true);
-    }
-
-    // Play montage with section selection
-    const float Duration = AnimInstance->Montage_Play(
-        ReactionData->ReactionMontage,
-        ReactionData->PlayRate);
-
-    if (Duration <= 0.0f)
-    {
-        bCurrentReactionHasIFrames = false;
-        return false;
-    }
-
-    // Handle section selection (like AttackData pattern)
-    if (ReactionData->MontageSection != NAME_None)
-    {
-        if (ReactionData->bJumpToSectionStart)
-        {
-            AnimInstance->Montage_JumpToSection(
-                ReactionData->MontageSection,
-                ReactionData->ReactionMontage);
-        }
-
-        if (ReactionData->bUseSectionOnly)
-        {
-            AnimInstance->Montage_SetNextSection(
-                ReactionData->MontageSection,
-                NAME_None,
-                ReactionData->ReactionMontage);
-        }
-    }
-
-    // Broadcast event (Heavy and Special reactions are considered "heavy" for gameplay purposes)
-    const bool bIsHeavy = ReactionData->ReactionType != EHitReactionType::Light;
-    OnHitReactionStarted.Broadcast(ReactionData->Direction, bIsHeavy);
-
-    return true;
-}
-
-bool UHitReactionComponent::PlayPairedReaction(EPairedReactionType PairedType, FName ReactionName)
-{
-    if (ReactionName == NAME_None)
-    {
-        return false;
-    }
-
-    UHitReactionSettings* Settings = GetEffectiveSettings();
-    if (!Settings)
-    {
-        return false;
-    }
-
-    UHitReactionData* ReactionData = Settings->GetPairedReaction(PairedType, ReactionName);
-    if (!ReactionData)
-    {
-        return false;
-    }
-
-    return PlayReactionFromData(ReactionData);
-}
-
-bool UHitReactionComponent::PlaySpecialReaction(ESpecialReactionType SpecialType)
-{
-    UHitReactionSettings* Settings = GetEffectiveSettings();
-    if (!Settings)
-    {
-        // Fallback to legacy for guard broken
-        if (SpecialType == ESpecialReactionType::GuardBroken && GuardBrokenMontage)
-        {
-            if (AnimInstance)
-            {
-                AnimInstance->Montage_Play(GuardBrokenMontage);
-                return true;
-            }
-        }
-        return false;
-    }
-
-    UHitReactionData* ReactionData = Settings->GetSpecialReaction(SpecialType);
-    if (!ReactionData)
-    {
-        return false;
-    }
-
-    return PlayReactionFromData(ReactionData);
 }
 
 // ============================================================================

@@ -2,7 +2,6 @@
 
 #include "CombatTestHelpers.h"
 #include "Utilities/CombatTargetQuery.h"
-#include "Core/PairedAnimationComponent.h"
 #include "Characters/PlayerCharacter.h"
 #include "Characters/EnemyCharacter.h"
 #include "Components/CapsuleComponent.h"
@@ -75,40 +74,6 @@ bool FCombatTargetQueryFiltersTest::RunTest(const FString& Parameters)
 	TArray<AActor*> None;
 	CombatTargetQuery::GatherTargets(Player, Invalid, None);
 	TestEqual(TEXT("Negative radius finds nothing"), None.Num(), 0);
-
-	FCombatTestHelpers::DestroyTestWorld(World);
-	return true;
-}
-
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounterSearchEligibilityTest, "KatanaCombat.CounterSystem.SearchSkipsDeadAndAllies", EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
-
-bool FCounterSearchEligibilityTest::RunTest(const FString& Parameters)
-{
-	UWorld* World = FCombatTestHelpers::CreateTestWorld();
-	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector::ZeroVector);
-	AEnemyCharacter* DeadNearest = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(100, 0, 0));
-	AEnemyCharacter* AllyNext = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(0, 150, 0));
-	AEnemyCharacter* Counterable = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(0, -200, 0));
-	if (!TestNotNull(TEXT("Player"), Player) || !DeadNearest || !AllyNext || !Counterable)
-	{
-		FCombatTestHelpers::DestroyTestWorld(World);
-		return false;
-	}
-
-	AllyNext->TeamId = ETeamId::Ally;
-	CombatTargetQueryTestUtils::Kill(Player, DeadNearest);
-	// Open windows after the kill so the dead enemy is rejected by eligibility, not a cleared window.
-	for (AEnemyCharacter* Enemy : { DeadNearest, AllyNext, Counterable })
-	{
-		Enemy->PairedAnimationComponent->SetCounterWindowData(
-			EAttackType::Light, ESwingDirection::Horizontal, nullptr, 1.0f);
-		TestTrue(TEXT("Fixture: counter window open"), Enemy->PairedAnimationComponent->IsInCounterWindow());
-	}
-
-	// The ally is nearer than the valid target and has an open window: the old team-id
-	// check (Ally != Player) accepted it. The dead enemy's eligibility is proven in Filters.
-	TestTrue(TEXT("The nearest living hostile enemy in a counter window is chosen"),
-		Player->PairedAnimationComponent->FindCounterableEnemy() == Counterable);
 
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;

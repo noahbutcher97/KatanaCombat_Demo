@@ -10,7 +10,6 @@
 
 // Forward declarations
 class UAttackData;
-class UHitReactionData;
 class UAnimMontage;
 class AActor;
 class UCameraShakeBase;
@@ -103,19 +102,6 @@ enum class EInputDirection : uint8
 };
 
 /**
- * Hit reaction type classification
- * Light/Heavy: Directional reactions selected via EHitIntensity × EAttackDirection
- * Special: Non-directional reactions selected via ESpecialReactionType
- */
-UENUM(BlueprintType)
-enum class EHitReactionType : uint8
-{
-    Light           UMETA(DisplayName = "Light"),
-    Heavy           UMETA(DisplayName = "Heavy"),
-    Special         UMETA(DisplayName = "Special")
-};
-
-/**
  * Input type for buffering system
  */
 UENUM(BlueprintType)
@@ -170,20 +156,6 @@ enum class EPairedReactionType : uint8
 
 
 /**
- * Special hit reaction categories (non-directional)
- * Directional reactions use EHitIntensity × EAttackDirection lookup instead
- */
-UENUM(BlueprintType)
-enum class ESpecialReactionType : uint8
-{
-    GuardBroken     UMETA(DisplayName = "Guard Broken (Deprecated)"),
-    Staggered       UMETA(DisplayName = "Staggered"),
-    Knockdown       UMETA(DisplayName = "Knockdown"),
-    Launch          UMETA(DisplayName = "Launch"),
-    Death           UMETA(DisplayName = "Death")
-};
-
-/**
  * Outcome of a hit reaction - what happens after animation completes
  * Separates "what animation plays" from "what state results"
  * Used to determine post-animation behavior (recovery, ragdoll, etc.)
@@ -206,22 +178,8 @@ enum class EReactionOutcome : uint8
 };
 
 /**
- * Counter system mode for AB testing
- * Determines the flow and feel of the counter mechanic
- */
-UENUM(BlueprintType)
-enum class ECounterSystemMode : uint8
-{
-    /** AC3/Arkham style: One-step pose-matched counter-kills */
-    AC3             UMETA(DisplayName = "AC3 (One-Step Counter-Kill)"),
-
-    /** Chain style: Three-step parry → counter → finisher flow */
-    Chain           UMETA(DisplayName = "Chain (Parry → Counter → Finisher)")
-};
-
-/**
- * Chain counter state machine states
- * Only used when ECounterSystemMode::Chain is active
+ * Chain counter state machine states (parry -> counter -> finisher).
+ * Counters enter this chain through the defense resolver on Block input.
  */
 UENUM(BlueprintType)
 enum class EChainCounterState : uint8
