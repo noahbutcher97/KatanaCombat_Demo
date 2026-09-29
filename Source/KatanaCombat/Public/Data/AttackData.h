@@ -137,17 +137,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense")
 	FDefenseAttackProfile DefenseProfile;
 
-    /** DEPRECATED: Posture system removed. Use StaggerPower instead. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deprecated", meta = (DeprecatedProperty, DeprecationMessage = "Use StaggerPower instead"))
+    /** DEPRECATED: Posture system removed. Stagger is contextual and duration-based (ApplyStagger). */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deprecated", meta = (DeprecatedProperty, DeprecationMessage = "Posture system removed; stagger is contextual (ApplyStagger)."))
     float PostureDamage = 10.0f;
-
-    /**
-     * [NOT WIRED] Reserved for contextual-stagger tuning; no runtime system reads this.
-     * Current stagger is duration-based (ApplyStagger) triggered by the parry/counter/finisher flow.
-     * Pending wire-or-delete decision — see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md.
-     */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-    float StaggerPower = 0.0f;
 
     /** [NOT YET IMPLEMENTED] Multiplier applied during counter window */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Future|Damage")
@@ -210,9 +202,9 @@ public:
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float MaxChargeDamageMultiplier = 2.5f;
 
-    /** DEPRECATED: Posture system removed. Heavy attacks use StaggerPower instead. */
+    /** DEPRECATED: Posture system removed. Stagger is contextual and duration-based (ApplyStagger). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deprecated",
-        meta = (DeprecatedProperty, DeprecationMessage = "Posture system removed. Use StaggerPower instead."))
+        meta = (DeprecatedProperty, DeprecationMessage = "Posture system removed; stagger is contextual (ApplyStagger)."))
     float ChargedPostureDamage = 40.0f;
 
     /** Montage section that loops during charge (NAME_None = use default animation) */
@@ -243,16 +235,6 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
         meta = (EditCondition = "AttackType == EAttackType::Light", EditConditionHides))
     bool bCanHold = true;
-
-    /** [NOT WIRED] No hold-cap enforcement exists (Design Rule 4: hold is a button-state check, not duration tracking). Pending wire-or-delete decision. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
-        meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold", EditConditionHides))
-    bool bEnforceMaxHoldTime = false;
-
-    /** [NOT WIRED] No hold-cap enforcement exists. Pending wire-or-delete decision. */
-    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",
-        meta = (EditCondition = "AttackType == EAttackType::Light && bCanHold && bEnforceMaxHoldTime", EditConditionHides))
-    float MaxHoldTime = 1.5f;
 
     /** Duration to ease animation to stop when hold activates (0 = instant stop) */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Light Attack",

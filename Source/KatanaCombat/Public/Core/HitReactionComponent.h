@@ -342,7 +342,6 @@ public:
     /**
      * Check if this character is currently staggered.
      * Stagger is a timed vulnerability state triggered by:
-     * - Heavy attacks with high StaggerPower
      * - Counter attacks
      * - Special moves
      * Unlike the old posture system, stagger is event-driven (not a persistent bar).
