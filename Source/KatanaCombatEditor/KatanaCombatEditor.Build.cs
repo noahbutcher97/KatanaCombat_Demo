@@ -2,6 +2,7 @@
 
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using EpicGames.Core;
 using Microsoft.Extensions.Logging;
 using UnrealBuildTool;
@@ -84,15 +85,17 @@ public class KatanaCombatEditor : ModuleRules
             return; // No pin, so no suite dependency to check.
         }
 
-        string PinnedRevision = ReadRevision(LockPath);
+        string PinnedRevision = ReadPinnedRevision(LockPath);
         if (PinnedRevision == null)
         {
             throw new BuildException("[AnimationAnalysis pin mismatch] " + LockPath
-                + " has no readable \"revision\" field. Restore it from git before building.");
+                + " is not a valid lock: it needs schema_version 1, name \"AnimationAnalysis\" and a full"
+                + " lowercase 40-character commit SHA in \"revision\". setup_dependency.py rejects it too;"
+                + " restore it from git before building.");
         }
 
         string InstalledRevision = ReadRevision(MarkerPath);
-        if (string.Equals(PinnedRevision, InstalledRevision, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(PinnedRevision, InstalledRevision, StringComparison.Ordinal))
         {
             return;
         }
@@ -116,6 +119,25 @@ public class KatanaCombatEditor : ModuleRules
         }
 
         throw new BuildException(Message);
+    }
+
+    /// <summary>
+    /// Returns the pinned revision only when the lock satisfies the installer's contract.
+    /// Note: logic synchronized with read_lock() in Tools/AnimationAnalysis/animation_analysis_dependency.py;
+    /// if modifying, update both locations.
+    /// </summary>
+    private static string ReadPinnedRevision(string LockPath)
+    {
+        if (!JsonObject.TryRead(new FileReference(LockPath), out JsonObject Lock)
+            || !Lock.TryGetIntegerField("schema_version", out int SchemaVersion) || SchemaVersion != 1
+            || !Lock.TryGetStringField("name", out string Name) || Name != "AnimationAnalysis"
+            || !Lock.TryGetStringField("revision", out string Revision)
+            || !Regex.IsMatch(Revision, "^[0-9a-f]{40}$"))
+        {
+            return null;
+        }
+
+        return Revision;
     }
 
     private static string ReadRevision(string JsonPath)
