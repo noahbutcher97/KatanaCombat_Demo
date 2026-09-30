@@ -91,6 +91,34 @@ FAlignmentRequestSpec MakePush(const float Distance, const float Duration, const
 	Spec.Displacement.SpeedProfile = Profile;
 	return Spec;
 }
+
+/** Replace the fixture's large floor with one that ends 20 cm ahead of the character (+X). */
+void ReplaceFloorWithLedge(FDisplacementFixture& F)
+{
+	for (TActorIterator<AActor> It(F.World); It; ++It)
+	{
+		if (It->GetRootComponent() && It->GetRootComponent()->IsA<UBoxComponent>()) { It->Destroy(); }
+	}
+	F.Box(FVector(-1000 + 20, 0, -10), FVector(1000, 1000, 10));
+	F.Settle();
+}
+
+/**
+ * UCharacterMovementComponent::StartFalling keeps MOVE_Walking in editor worlds (GIsEditor) until the
+ * world has begun play and its TimeSeconds reaches 1. This test world has no game mode, so it never
+ * begins play and is never ticked: satisfy that guard while in scope, and undo it before teardown
+ * (CleanupWorld warns about a world still marked as begun play). Declare it after the fixture.
+ */
+struct FEditorFallingGuard
+{
+	UWorld* World;
+	explicit FEditorFallingGuard(UWorld* InWorld) : World(InWorld)
+	{
+		World->SetBegunPlay(true);
+		World->TimeSeconds = 1.0;
+	}
+	~FEditorFallingGuard() { World->SetBegunPlay(false); }
+};
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementFlatLinearTest, "KatanaCombat.Displacement.Executor.FlatLinearReachesAndReleases",
@@ -164,19 +192,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementLedgeTest, "KatanaCombat.Displacem
 bool FDisplacementLedgeTest::RunTest(const FString&)
 {
 	FDisplacementFixture F;
-	// Replace the large floor with one that ends 20 cm ahead of the character.
-	for (TActorIterator<AActor> It(F.World); It; ++It)
-	{
-		if (It->GetRootComponent() && It->GetRootComponent()->IsA<UBoxComponent>()) { It->Destroy(); }
-	}
-	F.Box(FVector(-1000 + 20, 0, -10), FVector(1000, 1000, 10));
-	F.Settle();
+	ReplaceFloorWithLedge(F);
 	const double StartZ = F.Character->GetActorLocation().Z;
-	// UCharacterMovementComponent::StartFalling keeps MOVE_Walking under GIsEditor until the world has
-	// begun play and its time reaches 1 s. This test world has no game mode, so it never begins play
-	// and is never ticked: satisfy that guard for the push, and undo it before teardown.
-	F.World->SetBegunPlay(true);
-	F.World->TimeSeconds = 1.0;
+	const float Radius = F.Character->GetCapsuleComponent()->GetScaledCapsuleRadius();
+	const FEditorFallingGuard Falling(F.World); // StartFalling's editor-world guard; see FEditorFallingGuard
 	F.Targeting()->AcquireAlignmentRequest(MakePush(100.f, 0.25f));
 	bool bFell = false;
 	for (int32 I = 0; I < 60; ++I)
@@ -184,9 +203,47 @@ bool FDisplacementLedgeTest::RunTest(const FString&)
 		F.Step(1.f / 60);
 		bFell |= F.Movement()->MovementMode == MOVE_Falling;
 	}
-	F.World->SetBegunPlay(false);
 	TestTrue(TEXT("Victim entered falling"), bFell);
-	TestTrue(TEXT("Victim dropped instead of hovering at the start height"), F.Character->GetActorLocation().Z < StartZ - 5.0);
+	// Rolling the capsule over the edge lowers it by up to its radius even while it hovers in
+	// Walking mode with no floor; only a real fall takes it further.
+	const double Drop = StartZ - F.Character->GetActorLocation().Z;
+	const double RequiredDrop = 2.0 * Radius;
+	TestTrue(FString::Printf(TEXT("Victim fell well below the edge instead of hovering (dropped %.1f cm, required more than %.1f)"), Drop, RequiredDrop),
+		Drop > RequiredDrop);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementFinishVelocityTest, "KatanaCombat.Displacement.Executor.PushEndingMidFallKeepsFallSpeed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementFinishVelocityTest::RunTest(const FString&)
+{
+	FDisplacementFixture F;
+	ReplaceFloorWithLedge(F);
+	const FEditorFallingGuard Falling(F.World); // StartFalling's editor-world guard; see FEditorFallingGuard
+	// Long enough to leave the floor early and still be pushing well into the fall.
+	FAlignmentRequestSpec Spec = MakePush(150.f, 0.4f);
+	Spec.bReleaseWhenFinished = false;
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+	FAlignmentMotionState State;
+	for (int32 I = 0; I < 60 && F.Targeting()->GetAlignmentMotionState(Handle, State) && State.Outcome == EAlignmentMotionOutcome::Running; ++I)
+	{
+		F.Step(1.f / 60);
+	}
+	F.Targeting()->GetAlignmentMotionState(Handle, State);
+	if (!TestEqual(TEXT("The push reached its end"), State.Outcome, EAlignmentMotionOutcome::Reached)) { return false; }
+	if (!TestEqual(TEXT("The push ended mid-fall"), F.Movement()->MovementMode.GetValue(), MOVE_Falling)) { return false; }
+	const FVector AtEnd = F.Movement()->Velocity;
+	const double OneTickOfGravity = F.Movement()->GetGravityZ() / 60.0;
+	TestTrue(FString::Printf(TEXT("Falling for several ticks when the push ended (Z speed %.1f)"), AtEnd.Z), AtEnd.Z < 3.0 * OneTickOfGravity);
+	TestTrue(FString::Printf(TEXT("Moving horizontally when the push ended (%.1f)"), AtEnd.Size2D()), AtEnd.Size2D() > 100.0);
+
+	// The executor marked the source at the end of that frame; this movement tick removes it and applies the finish velocity.
+	F.Step(1.f / 60);
+	TestFalse(TEXT("Source removed"), F.Movement()->GetRootMotionSource(TEXT("KatanaProceduralDisplacement")).IsValid());
+	const FVector After = F.Movement()->Velocity;
+	TestTrue(FString::Printf(TEXT("Fall speed kept through removal (Z %.1f before, %.1f after)"), AtEnd.Z, After.Z), After.Z <= AtEnd.Z + 1.0);
+	TestTrue(FString::Printf(TEXT("Horizontal speed clamped to zero (%.2f)"), After.Size2D()), After.Size2D() < 1.0);
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
 	return true;
 }
 
