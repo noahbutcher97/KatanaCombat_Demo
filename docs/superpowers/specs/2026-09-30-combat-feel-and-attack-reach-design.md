@@ -2,438 +2,476 @@
 
 ## Status
 
-Approved design sections (2026-09-29/30), pending review of this written spec. It covers
-step 3 of the combat cleanup: Part A (knockback, charge) ships as PR 3a; Part B (attack
-reach) ships as PR 3b after the editor operation workflow in
-[2026-09-30-editor-asset-operation-workflow-design.md](2026-09-30-editor-asset-operation-workflow-design.md)
-lands. This spec does not authorize asset saves; every asset change goes through an
-approved plan.
+Design approved section by section (2026-09-29/30), revised after an independent review and
+engine-source verification. Pending review of this written spec. This spec does not
+authorize asset saves; every asset change goes through an approved plan.
+
+## Delivery Order
+
+Step 3 ships as five PRs, each with a green baseline:
+
+1. **3a-knockback**: the procedural displacement executor and knockback.
+2. **3a-charge**: charge damage, charge-scaled knockback, full-charge feedback.
+3. **C1**: operation contract, registry, unified approval, headless adapters
+   ([editor operation workflow spec](2026-09-30-editor-asset-operation-workflow-design.md)).
+4. **3b**: attack reach bake (headless) and its runtime consumers.
+5. **C2**: editor operation UI, button migrations, validator cleanup; gives the reach bake
+   its details-panel and Content Browser entry points.
+
+Later steps, recorded here so their dependencies are visible:
+
+- **Paired entry migration** (its own step, after step 3): move paired entry from the
+  bounded mover to the procedural displacement executor's movement channel, with full
+  re-qualification. See "Paired Entry Follow-Up".
+- **Step 4, hit reactions and trades**: implement the approved 2026-07-18 micro-specs 05/06
+  (additive flinch vs full-body reaction), refreshed against current code. Its first,
+  explicit decision is the stagger model: contextual stagger (a per-attack
+  `InterruptPower` against per-phase `InterruptResistance` decides flinch vs interrupt;
+  stagger and finisher windows come from gameplay rules) or a stagger gauge (per-attack
+  stagger damage filling a gauge). The CHANGELOG records the project's deliberate pivot
+  from Sekiro-style combat to AC/Arkham free-flow when posture was deprecated; a gauge would
+  partly reverse it. Note: micro-spec 05 planned to reuse `StaggerPower`, which PR #130
+  deleted; the refreshed spec reintroduces the value under the chosen model's name.
 
 ## Problem
 
-Three authored data surfaces do nothing at runtime, so designers tune values that have no
-effect:
+Three authored data surfaces do nothing at runtime:
 
-- **Knockback:** `FHitReactionEntry::KnockbackForce` (200 on all 8 `DA_HitReaction` entries,
-  the untouched default) and `UHitReactionSettings::GlobalKnockbackMultiplier` are never read.
-- **Charge:** `UAttackData::MaxChargeTime`, `ChargeTimeScale` and `MaxChargeDamageMultiplier`
-  are never read. Heavy attacks already loop a charge section while the button is held, but
-  charging has no effect and gives no feedback. `UMontageUtilityLibrary::CalculateChargeLevel`
-  has no callers. `SamuraiAnimInstance::UpdateCharge` hard-codes zero.
+- **Knockback:** `FHitReactionEntry::KnockbackForce` (200 on all 8 `DA_HitReaction`
+  entries, the untouched default) and `UHitReactionSettings::GlobalKnockbackMultiplier` are
+  never read.
+- **Charge:** `UAttackData::MaxChargeTime`, `ChargeTimeScale` and
+  `MaxChargeDamageMultiplier` are never read. Heavies loop a charge section while held, but
+  charging has no effect or feedback. `UMontageUtilityLibrary::CalculateChargeLevel` has no
+  callers; `SamuraiAnimInstance::UpdateCharge` hard-codes zero.
 - **Reach:** `UWeaponData::WeaponReach` (300 on `DA_Weapon_Katana`) is read only by a test.
-  Attack warps drive the attacker toward the target's center, soft-aim uses a fixed 500 cm
-  range, and AI uses a fixed 150 cm attack range, none of which reflect how far an attack's
-  blade actually travels.
+  Attack warps drive toward the target's center, soft-aim uses a fixed 500 cm, and AI uses a
+  fixed 150 cm approach range, none of which reflect how far an attack's blade travels.
 
 ## Goals
 
-- Every field in scope either drives runtime behavior as its name and tooltip say, or is deleted.
-- Knockback creates spacing on landed hits without sliding characters that are not reacting.
-- Charged heavies deal more damage, capped, with an event and an audiovisual cue at full charge.
+- Every field in scope either drives runtime behavior as its name and tooltip say, or is
+  deleted.
+- Knockback creates spacing on interrupting hits, moves correctly over real terrain, and
+  pauses during hitstop.
+- Charged heavies deal more damage (capped), optionally push farther, and give an event plus
+  an audiovisual cue at full charge.
 - Attack reach is a measured fact about each attack's animation; designers author intent as
-  adjustments to that fact, not as free-floating numbers.
-- Every behavior is pinned by automated tests; the combat baseline stays green.
+  adjustments to that fact.
+- Every behavior is pinned by automated tests where the test environment allows, and by
+  capture scenarios or recorded PIE checks where it needs a real world.
 
 ## Non-Goals
 
-- Block/parry pushback (guard slide), ragdoll impulses, launchers.
-- Charge-driven animation changes beyond filling the existing AnimInstance stub.
-- Per-character reach tables (one reference rig is used).
-- Runtime verification that baked reach matches AnimGraph output (IK, procedural blending).
+- Block/parry pushback, ragdoll impulses, launchers.
+- The additive-flinch reaction model and the stagger decision (step 4).
+- Paired entry migration (its own step).
+- Per-character reach tables.
 - Network replication.
 
 ## Design Rules Applied
 
-- **Rule 4 (hold = button state at window start):** whether a heavy charges is still decided
-  only by the button being held when its hold window opens. Charge adds a magnitude read once
-  at release; duration never gates any transition.
+- **Rule 4 (hold = button state at window start):** whether a heavy charges is decided only
+  by the button being held when its hold window opens. Charge adds a magnitude read once at
+  release; duration never gates any transition.
 - **Rule 6 (delegates):** `FOnFullyCharged` is declared in `CombatTypes.h` because UI and
   Blueprints consume it.
-- **Derive facts, author intent:** measurable quantities (how far a blade travels) are
-  derived; feel decisions (how deep the blade should land, aim forgiveness) are authored as
-  adjustments to the derived fact, with an explicit, validated override for exceptions.
+- **Derive facts, author intent:** measurable quantities are derived; feel decisions are
+  authored as adjustments to derived facts, with explicit, validated overrides.
 
-## Part A: Knockback (PR 3a)
+## Part A: Procedural Displacement Executor (PR 3a-knockback)
+
+### Why a new executor
+
+Verified in engine source: while a root-motion animation plays, character movement applies
+only the animation's root motion and returns early
+(`UCharacterMovementComponent::ApplyRootMotionToVelocity`: "Animation root motion ... takes
+precedence"), so root-motion sources are ignored. Every hit reaction plays root-motion
+animations (`UE5M_Root_HitReaction_*`, `bEnableRootMotion = true`). The existing bounded
+mover moves the capsule directly in 3D with no floor handling, so it cannot push across
+slopes or ledges. The new executor lets our code decide the displacement curve and lets the
+engine apply it through whichever channel is live.
+
+### Contract
+
+`EAlignmentExecutor::ProceduralDisplacement` is appended after `BoundedMovement`. A request
+carries an immutable `FProceduralDisplacement`:
+
+| Field | Meaning |
+| --- | --- |
+| `Direction` | Horizontal unit vector (world). |
+| `Distance` | Centimeters. |
+| `Duration` | Seconds on the request's clock. |
+| `SpeedProfile` | `Linear` or `EaseOut`. |
+| `Clock` | `ActorTime` (pauses when the owner is frozen by hitstop) or `WorldTime`. Knockback uses `ActorTime`. |
+| `AnimationBlend` | `AddToAnimation` or `ReplaceAnimation`: how the push combines with a playing root-motion animation. |
+
+Step 3 implements this fixed-curve mode. The goal-seeking mode that paired entry needs is
+added in the paired entry step.
+
+### Pure math
+
+`DisplacementMath` (runtime `Utilities`, pure): normalized progress
+`s(u) = u` for `Linear` and `s(u) = 1 − (1 − u)²` for `EaseOut` (`u = τ / T`), and the
+displacement between two request times. Deltas over any partition of `[0, T]` sum to
+`Distance`.
+
+### Channels
+
+The executor re-evaluates the channel every tick:
+
+1. **Animation channel**, used when the owner is playing a montage whose root motion is
+   extracted. A custom `UKnockbackRootMotionModifier` (subclass of `URootMotionModifier`) is
+   added at runtime through `UMotionWarpingComponent::AddModifier`, spanning the rest of the
+   push in montage time. Its `ProcessRootMotion` converts this frame's curve delta into the
+   plugin's root-motion space (as the built-in warp modifiers do) and adds it to the
+   animation's root motion, or replaces the animation's translation, per `AnimationBlend`.
+   The animation's rotation is kept. Hitstop freezes the montage, so no root motion is
+   extracted and the push pauses without extra code.
+2. **Movement channel**, used when no root-motion animation plays. The curve's current
+   planar velocity is applied as a character-movement override root-motion source with
+   `IgnoreZAccumulate` (gravity still applies) and finish velocity set to zero. Character
+   movement's dilated delta pauses it under hitstop.
+
+If the animation channel ends before the curve completes (the montage stops or is
+replaced), the remainder continues through the movement channel. In both channels character
+movement handles floors, slopes, steps, ledges (the victim falls) and walls (it slides).
+
+### Outcomes and lifecycle
+
+- **Reached** when request time reaches `Duration`.
+- **Blocked** when, for 3 consecutive ticks, actual horizontal movement is below 10% of the
+  commanded delta (a head-on wall).
+- **Invalid** when no channel can be installed (no motion warping component and no
+  character movement, or movement mode `None`).
+- The request carries `bReleaseWhenFinished`: the targeting component releases it on any
+  terminal outcome and removes the active modifier or source. Release, preemption,
+  `ReleaseAllAlignmentRequests` and death remove whichever channel is active.
+- `CaptureAlignmentRotationSettings` is skipped for requests that never rotate, so a pushed
+  player keeps orient-to-movement and controller yaw.
+
+### Arbiter integration
+
+The five places hard-wired to `BoundedMovement` are generalized: tick dispatch, motion-state
+queries, the negative-generation rule, limit immutability, and `HasSmoothAlignmentRequest`
+(which enables the targeting tick). A new priority `HitKnockback` is inserted between
+`ActiveAttackWarp` and `BlockContact` (ordinal comparison, newest acquisition wins ties; no
+asset serializes the enum).
+
+### Tests (executor)
+
+- `DisplacementMath`: both profiles; partitions sum to `Distance`; `EaseOut` covers more
+  than half of `Distance` in the first half of `Duration`.
+- Channel selection as a pure decision function (root-motion montage playing or not).
+- `UKnockbackRootMotionModifier::ProcessRootMotion` on a test character: add vs replace,
+  direction conversion, zero delta at zero `DeltaSeconds`.
+- Arbiter: acquire, priority ordering, suspension, self-release on each terminal outcome,
+  release removes the channel, existing executors unchanged (the `DefenseAlignment` and
+  `BoundedAlignment` suites re-run).
+- Movement over terrain needs a real world: a new capture scenario (see Verification).
+
+## Part A: Knockback (PR 3a-knockback)
 
 ### Model
 
-Knockback is **reaction-coupled**: a push happens only when a directional hit reaction
-actually starts. It inherits every existing eligibility rule for free. Blocked and parried
-hits, super armor, suppressed paired states and lethal hits (the victim is already dying
-before `PlayHitReaction`) never push.
+Knockback is **reaction-coupled** and applies to **interrupting** reactions: a push starts
+only when a directional hit reaction starts. Blocked and parried hits, super armor,
+suppressed paired states and lethal hits never push. On the defense path the victim is
+already dying before the reaction; on the `ApplyDamage` path the reaction runs before health
+changes and death releases the push in the same frame. The legacy `PlayHitReaction` fallback
+path (no settings) never pushes. Until step 4, every reaction is full-body, so every
+reaction pushes; step 4 makes additive flinches not push through the same decision function.
 
 ### Data
 
 | Change | Detail |
 | --- | --- |
-| Add `FKnockbackConfig` (`CombatTypes.h`) | `Distance` (`float`, cm, `ClampMin=0, ClampMax=500`), `Duration` (`float`, seconds, `ClampMin=0.05, ClampMax=1`), `DirectionMode` (`EKnockbackDirection`: `AwayFromAttacker`, `AlongSwing`) and `SpeedProfile` (`EKnockbackSpeedProfile`: `Linear`, `EaseOut`). Each field has its own inline override toggle (`bOverrideDistance`, `bOverrideDuration`, `bOverrideDirectionMode`, `bOverrideSpeedProfile`) used when the struct appears on an attack. |
-| Add `UAttackData::Knockback` | `FKnockbackConfig`. Each field is overridden independently; a field that is not overridden comes from the attacker's combat settings. |
-| Add `UCombatSettings::DefaultKnockback` | `TMap<EAttackType, FKnockbackConfig>`, defaults Light `{25 cm, 0.2 s, AwayFromAttacker, EaseOut}` and Heavy `{60 cm, 0.25 s, AwayFromAttacker, EaseOut}`. A type missing from the map (None, Special) resolves to distance 0 (no push). |
-| Add `UAttackData::MaxChargeKnockbackMultiplier` | `float`, default 1 (charge does not affect knockback), `ClampMin=1`. Heavy category, beside `MaxChargeDamageMultiplier`. |
-| Add `FHitReactionInfo::ChargeLevel` | `float`, 0..1, default 0. Set by the damage sites from the attacker's charge latch; paired damage leaves it 0. |
-| Rename `UHitReactionSettings::GlobalKnockbackMultiplier` → `KnockbackScale` | `float`, default 1, `ClampMin=0, ClampMax=5`. Victim-side scale: 1 normal, 0 immune. Not serialized in any asset, so a plain rename is safe. |
-| Delete `FHitReactionEntry::KnockbackForce` | Its saved values (200 on 8 entries) are ignored on load. |
+| Add `FKnockbackConfig` (`CombatTypes.h`) | `Distance` (cm, `ClampMin=0, ClampMax=500`), `Duration` (s, `ClampMin=0.05, ClampMax=1`), `DirectionMode` (`EKnockbackDirection`: `AwayFromAttacker`, `AlongSwing`), `SpeedProfile` (`Linear`, `EaseOut`). Each field has an inline override toggle used when the struct appears on an attack. |
+| Add `UAttackData::Knockback` | `FKnockbackConfig`; each field overridden independently, else the attacker's combat-settings default. |
+| Add `UCombatSettings::DefaultKnockback` | `TMap<EAttackType, FKnockbackConfig>`: Light `{25 cm, 0.2 s, AwayFromAttacker, EaseOut}`, Heavy `{60 cm, 0.25 s, AwayFromAttacker, EaseOut}`. Missing types resolve to no push. The attacker's combat settings are the character's `ABaseCombatCharacter::CombatSettings`. |
+| Rename `UHitReactionSettings::GlobalKnockbackMultiplier` → `KnockbackScale` | Default 1, `ClampMin=0, ClampMax=5`. Victim-side distance scale: 1 normal, 0 immune. No asset serializes the old name. |
+| Delete `FHitReactionEntry::KnockbackForce` | Saved 200s ignored on load. |
+| Add `UAttackData::MaxChargeKnockbackMultiplier` | Default 1 (off), `ClampMin=1`. Heavy category. |
+| Add `FHitReactionInfo::ChargeLevel` | 0..1, default 0, set by the damage sites. |
 
-`ResolveKnockback(AttackData, AttackerCombatSettings)` returns a resolved
-`{Distance, Duration, DirectionMode, SpeedProfile}`: each field takes the attack's override
-when set, else the attacker's combat-settings default for the attack type. The push distance
-is then:
+`ResolveKnockback(AttackData, AttackerCombatSettings)` is pure and returns the resolved
+config. Then:
 
 ```
 PushDistance = Distance × Lerp(1, MaxChargeKnockbackMultiplier, HitInfo.ChargeLevel)
                         × VictimHitReactionSettings.KnockbackScale
 ```
 
-The authored distance is the uncharged push; charge only adds, mirroring damage. Neither
-charge nor the victim's scale changes duration, which stays the attack's decision. The attacker's combat settings come from
-`FHitReactionInfo::Attacker` when it is an `ABaseCombatCharacter`; otherwise the victim's own
-combat settings are used; if neither exists there is no push. The resolution function is pure
-and unit-tested.
+The authored distance is the uncharged push; charge only adds. Duration is never scaled.
+When the attacker is not an `ABaseCombatCharacter`, the victim's own combat settings are
+used; if neither exists, there is no push.
 
 ### Direction
 
-Chosen by the resolved `DirectionMode`, always horizontal:
-
 - `AwayFromAttacker` (default): `CombatMath::FlatDirection(AttackerLocation, VictimLocation)`.
-  Predictable spacing; the reaction animation conveys the swing.
-- `AlongSwing`: the flattened negation of `FHitReactionInfo::DirectionToAttacker`, which is
-  the blade's velocity at contact, so a sweeping attack shoves along its arc. When the hit
-  had no usable velocity (position-based `DirectionToAttacker`), this equals
-  `AwayFromAttacker`.
+- `AlongSwing`: the flattened negation of `DirectionToAttacker` (the blade's velocity at
+  contact). It falls back to `AwayFromAttacker` when the horizontal part is under half of
+  that vector's length (overhead chops) or when it points toward the attacker (back-swings).
+- Degenerate direction: no push.
 
-A degenerate direction (actors stacked vertically) skips the push.
+### Request
 
-### Movement
-
-Knockback is a bounded alignment request on the victim's `UTargetingComponent`, executed by
-the existing swept bounded-movement executor. Three general capabilities are added to the
-alignment system; all are opt-in per request so existing requests are unaffected:
-
-1. **`bAdvanceOnActorTime`** (`FAlignmentRequestSpec`, immutable after acquire): the
-   executor advances this request on the owner's actor-dilated component delta instead of
-   `AlignmentMotion::SimulationDelta`, and measures its deadline on the same clock. A victim
-   frozen by hitstop (dilation 0.0001) therefore does not move until the freeze ends.
-2. **`bReleaseWhenFinished`** (`FAlignmentRequestSpec`, immutable): when the request's
-   outcome becomes Reached, Blocked, Exhausted or Invalid, the targeting component releases
-   it itself during the same evaluation. This removes the need for owners to poll, stops
-   finished requests from outranking lower-priority ones, and lets the targeting tick
-   switch off.
-
-3. **Speed profile** (`FAlignmentMotionLimits::SpeedProfile`: `Constant` (default, today's
-   behavior) or `EaseOut`): with `EaseOut` the executor tracks elapsed request time `τ` on the
-   request's clock and moves toward the quadratic ease-out position
-   `s(τ) = D × (1 − (1 − τ/T)²)` along the goal direction, still swept and budgeted. The push
-   starts fast and settles, and still covers `D` in `T`.
-
-A new priority **`EDefenseAlignmentPriority::HitKnockback`** is inserted between
-`ActiveAttackWarp` and `BlockContact`. A hit therefore overrides the victim's own attack warp
-(the reaction montage has already interrupted the attack), while block contact, paired and
-parry bridges and terminal requests always win. No asset serializes this enum.
-
-Request parameters for a push of scaled distance `D` over resolved duration `T`:
-
-- Null target; `BoundedGoal` = world transform at `VictimLocation + Direction × D`, yaw equal
-  to the victim's current yaw.
-- `MotionLimits`: `SpeedProfile` from the resolved config (`Linear` maps to `Constant`);
-  `TranslationSpeed = 2D / T` for `EaseOut` (its peak) or `D / T` for `Linear`;
-  `TravelBudget = D + PositionTolerance`, `Duration = T × 1.5`, `TurnRate = 0`,
-  `TurnBudget = 0`, `YawTolerance = 180`, `PositionTolerance = 2`.
-- `bAdvanceOnActorTime = true`, `bReleaseWhenFinished = true`, priority `HitKnockback`,
-  owner id `HitKnockback` with the component's own generation counter.
-
-A blocking sweep ends the push (outcome Blocked) and the request releases. The push is a
-horizontal swept move with no floor handling, so:
-
-- walls, other characters and slopes too steep to sweep along end the push early;
-- a push over a ledge is allowed; character movement detects the missing floor on its next
-  update and the victim falls;
-- the push adds to character movement rather than replacing it; movement input during a hit
-  reaction is governed by the existing hit-stun rules.
+`StartKnockback(const FHitReactionInfo&)` runs in `PlayHitReaction` right after
+`PlayReactionFromEntry` succeeds (not inside it; death reactions share that function). It
+acquires a `ProceduralDisplacement` request: `Clock = ActorTime`, `AnimationBlend` =
+`AddToAnimation` by default (revisited after the reaction root-motion measurement in the
+plan), priority `HitKnockback`, `bReleaseWhenFinished`. A new push releases the previous
+one. `EnterPairedAnimationState` and `EndPlay` release it.
 
 ### Observability
 
-- `Combat.Debug.Knockback` (also enabled by `Combat.Debug.All`): draws start, goal and
-  direction mode, and logs the resolved config, charge level, scale and final outcome.
-- Action-reaction telemetry records `KnockbackStarted` (resolved distance, duration, mode)
-  and `KnockbackFinished` (outcome, distance travelled).
+- `Combat.Debug.Knockback` (and `Combat.Debug.All`): draws start, commanded end and channel;
+  logs the resolved config, charge level, scale and outcome.
+- Action-reaction telemetry records `KnockbackStarted` and `KnockbackFinished` rows within the
+  existing schema (no `schema_version` bump; `analyze_capture.py` accepts only 1 or 2).
 
-### Ownership and lifecycle (UHitReactionComponent)
+### Tests (knockback)
 
-- `StartKnockback(const FHitReactionInfo&)` is called in `PlayHitReaction` immediately after
-  `PlayReactionFromEntry` succeeds. It is not called from `PlayReactionFromEntry` itself,
-  because death reactions also use that function.
-- Holds `KnockbackAlignmentHandle` plus a generation counter. A new push releases the
-  previous one first, so a second hit restarts from the victim's current position.
-- Releases the handle on `EnterPairedAnimationState` and `EndPlay`. Death is covered by the
-  existing `ReleaseAllAlignmentRequests(Death)`.
-- A victim without a targeting component or character movement gets no push (the acquire
-  returns an invalid handle, which is not an error).
+`PlayHitReaction` cannot run in the test world (no AnimInstance before `BeginPlay`):
 
-### Tests (Part A knockback)
+- a pure `ShouldApplyKnockback` decision function covers blocked, parried, super armor,
+  suppressed, dying and legacy-fallback cases;
+- a source-order test asserts `PlayHitReaction` calls `StartKnockback` only after
+  `PlayReactionFromEntry` succeeds (the `DefenseArchitectureSourceTests` pattern);
+- `StartKnockback` is tested directly through a friend declaration: resolution (each field
+  overridden independently, defaults, missing type), the distance formula (charge 0/0.5/1
+  with multiplier 2; scale 0.5 and 0), direction modes and fallbacks, and the acquired
+  request's parameters.
 
-`PlayHitReaction` cannot run in the test world (no AnimInstance before `BeginPlay`), so tests
-call `StartKnockback` through a friend declaration, and drive the targeting component with
-the manual-tick pattern from `BoundedAlignmentTests.cpp`:
-
-- resolution: each field overridden independently, per-type defaults, missing type → no
-  push, attacker vs victim settings fallback;
-- distance formula: charge level 0, 0.5 and 1 with `MaxChargeKnockbackMultiplier` 2; victim
-  scale 0.5 and 0; charge and scale never change duration;
-- direction: `AwayFromAttacker` ignores `DirectionToAttacker`; `AlongSwing` follows it and
-  falls back when it is position-based; degenerate → no push;
-- movement reaches `D` in `T` at normal dilation for both profiles; `EaseOut` covers more
-  than half of `D` in the first half of `T`; at dilation 0.0001 it does not advance;
-- existing requests with the default `Constant` profile behave exactly as before;
-- wall ahead → Blocked and released;
-- `bReleaseWhenFinished` releases on each terminal outcome; requests without it keep today's
-  behavior;
-- a higher-priority request (BlockContact) suspends the push; paired entry releases it;
-- priority ordering: HitKnockback beats ActiveAttackWarp, loses to BlockContact.
-
-## Part A: Charge (PR 3a)
+## Part A: Charge (PR 3a-charge)
 
 ### Data
 
 | Change | Detail |
 | --- | --- |
-| `UAttackData::MaxChargeTime` | Now read. `ClampMin=0`. Validation warns when a heavy with a `ChargeLoopSection` has `MaxChargeTime <= 0` (it charges instantly). |
-| `UAttackData::MaxChargeDamageMultiplier` | Now read. `ClampMin=1`, so charging can never reduce damage. |
-| Add `UAttackData::ChargeEasing` | `EEasingType`, default `Linear`. How charge level builds over `MaxChargeTime`. |
-| Add `UAttackData::ChargeCurve` | Optional `UCurveFloat` (0..1 over normalized time). When set, it replaces `ChargeEasing`. |
-| Delete `UAttackData::ChargeTimeScale` | `HeavyAttack_1`'s saved 0.05 is ignored on load. |
-| Add `UAttackData::FullChargeCue` | `FCombatCueConfig` (new struct in `CombatTypes.h`): `Sound`, `VFX`, `AttachSocket` (`FName`, None = the weapon's trace tip socket), `VolumeMultiplier`, `VFXScale`. Optional per-attack override. |
-| Add `UCombatFXData::FullChargePool` | `FImpactFXPool`. Weapon-level default cue with random selection and pitch variation. Surface alignment fields are ignored for attached cues. |
+| `MaxChargeTime` | Now read. `ClampMin=0`. |
+| `MaxChargeDamageMultiplier` | Now read. `ClampMin=1`. |
+| Add `ChargeEasing` | `EEasingType`, default `Linear`. |
+| Add `ChargeCurve` | Optional `UCurveFloat`; when set it replaces `ChargeEasing`. Output clamped to [0, 1] by our code (`CalculateChargeLevel` does not clamp curve output). |
+| Delete `ChargeTimeScale` | `HeavyAttack_1`'s 0.05 ignored on load. |
+| Add `FullChargeCue` | `FCombatCueConfig` (`CombatTypes.h`): `Sound`, `VFX`, `AttachSocket` (None = weapon trace tip socket), `VolumeMultiplier`, `VFXScale`. |
+| Add `UCombatFXData::FullChargePool` | `FImpactFXPool`; surface-alignment fields ignored for attached cues. |
+| Tooltips | The "[NOT WIRED]" tooltips on the charge fields are replaced. |
+
+**Balance note:** the C++ defaults (`MaxChargeTime` 2.0 s, `MaxChargeDamageMultiplier` 2.5)
+become live on all four heavies, none of which author these fields. This is an intentional
+balance change, recorded in the PR.
 
 ### Measurement
 
-- The charge clock starts in `OnHoldWindowStartWithContext`'s heavy branch once the hold is
-  activated (the loop is playing). It records world time (`UWorld::GetTimeSeconds`) and the
-  hold id.
-- The clock is **world (game) time**: it stops while the game is paused and slows with global
-  time dilation (the finisher slow motion), exactly like the charge loop animation, so the
-  full-charge cue always lines up with what is on screen. Actor-level dilation (hitstop) is
-  not involved: a charging character is not landing hits, and taking a hit interrupts the
-  charge.
-- Charge level = `UMontageUtilityLibrary::CalculateChargeLevel(HeldSeconds, MaxChargeTime,
-  ChargeEasing, ChargeCurve)`, which clamps to [0, 1] and returns 1 when
-  `MaxChargeTime <= 0`. The attack's `ChargeEasing` is always passed explicitly; the
-  function's own default (`EaseInQuad`) is never used.
-- Damage multiplier = `Lerp(1, MaxChargeDamageMultiplier, Level)`. Holding longer than
-  `MaxChargeTime` never increases it.
-- AI cannot hold input, so AI heavies never charge and always deal ×1.
+- The clock starts in `OnHoldWindowStartWithContext`'s heavy branch once the hold activates,
+  recording `UWorld::GetTimeSeconds()` and the hold id.
+- **World time**: pauses with the game and follows global slow motion like the loop
+  animation. A charging character is not hitstopped.
+- Level = `CalculateChargeLevel(Held, MaxChargeTime, ChargeEasing, ChargeCurve)`, clamped to
+  [0, 1]; `MaxChargeTime <= 0` gives 1.
+- AI cannot hold input: AI heavies never charge.
 
-### Latching and application
+### Latching (release)
 
-- In `DeactivateHoldWithInputSerial`'s heavy branch, before `TerminateHoldIfMatches`, the
-  component latches `{AttackGeneration, Level}`.
-- `UCombatComponent::GetChargeDamageMultiplier(int32 AttackGeneration)` returns the latched
-  multiplier only when the generation matches, else 1. Any new attack or combo step changes
-  the generation, so a charge never leaks into the next swing. The latch is also cleared in
-  `ResetTerminalAttackState`.
-- Both damage sites multiply by it: `WeaponComponent.cpp` (primary, using the contact's
-  attack generation) and the legacy `BaseCombatCharacter.cpp` non-character path. The same
-  sites copy the latched level into `FHitReactionInfo::ChargeLevel` for knockback.
-- Releasing before the charge loop starts leaves no latch (×1). Counter and finisher damage
-  paths are unchanged.
+`DeactivateHoldWithInputSerial`'s heavy branch tries, in order: jump to the release
+section, dispatch a directional follow-up, or return to idle. Starting a follow-up calls
+`ClearHoldState` and changes the attack generation. Therefore:
+
+- The level is computed at the **top** of the heavy branch, before any dispatch.
+- After the branch decides, the level is latched for the attack that delivers the strike:
+  the current generation for a release section (a section jump keeps the generation), the
+  new generation for a follow-up (follow-ups inherit the charge). Return-to-idle latches
+  nothing.
+- The latch lives outside `HoldState`, so `ClearHoldState` does not erase it; it is cleared
+  in `ResetTerminalAttackState` and replaced by the next latch.
+- `GetChargeDamageMultiplier(Generation)` returns `Lerp(1, MaxChargeDamageMultiplier,
+  Level)` for a matching generation, else 1. Both damage sites (`WeaponComponent.cpp`
+  primary, `BaseCombatCharacter.cpp` legacy) multiply by it and copy the level into
+  `FHitReactionInfo::ChargeLevel`. Counter and finisher damage are unchanged.
 
 ### Full-charge feedback
 
-- At clock start, one world timer (`FTimerManager`, so it pauses with the game) is set for
-  `MaxChargeTime` seconds, or fires on the next tick when `MaxChargeTime <= 0`. It is bound
-  through a weak object and carries the hold id, and does nothing if the hold is no longer
-  current. This deliberately differs from the project's `FTSTicker` guideline, which is for
-  effects that must hold real time (hitstop); charge is gameplay time.
-- On firing it broadcasts **`OnFullyCharged(AActor* Attacker, UAttackData* AttackData)`**
-  (`FOnFullyCharged` in `CombatTypes.h`, `BlueprintAssignable` member on `UCombatComponent`),
-  logs `[HOLD] Fully charged` under `CombatDebug::IsHoldDebugEnabled()`, and plays the cue.
-- Cue resolution: `AttackData.FullChargeCue` (if it has a sound or VFX) → weapon
-  `UCombatFXData.FullChargePool` → nothing. The cue attaches to the spawned weapon mesh at
-  `AttachSocket` or the weapon's trace tip socket; without a weapon mesh it plays at the
-  owner's location. A new helper
-  `UCinematicEffectsUtilityLibrary::PlayAttachedCombatCue` provides attached playback beside
-  the existing impact helpers.
-- The timer is cleared on release, in `ClearHoldState` (which every interrupt, cancel, stun
-  and death path already calls) and in `EndPlay`.
-- Action-reaction telemetry records `ChargeFull` and `ChargeLatched` (level, multipliers).
+- At clock start a world timer (`FTimerManager`, pauses with the game) is set for
+  `MaxChargeTime` (next tick when `<= 0`), bound through a weak object and the hold id. This
+  deliberately differs from the `FTSTicker` guideline, which is for effects that must hold
+  real time.
+- On firing: broadcast `OnFullyCharged(AActor* Attacker, UAttackData* AttackData)`
+  (`FOnFullyCharged` in `CombatTypes.h`, `BlueprintAssignable` on `UCombatComponent`), log
+  `[HOLD] Fully charged` under `CombatDebug::IsHoldDebugEnabled()`, and play the cue:
+  `AttackData.FullChargeCue` → weapon `UCombatFXData.FullChargePool` → nothing, attached to
+  the weapon mesh at `AttachSocket` or the trace tip socket (owner location without a weapon
+  mesh) via a new `UCinematicEffectsUtilityLibrary::PlayAttachedCombatCue`.
+- The timer is cleared on release, in `ClearHoldState` and in `EndPlay`.
+- Telemetry rows `ChargeFull` and `ChargeLatched` (existing schema).
 
 ### Animation stub
 
-`SamuraiAnimInstance::UpdateCharge` sets `bIsCharging` from
-`ECombatState::ChargingHeavyAttack` and `ChargePercent` from
-`UCombatComponent::GetCurrentChargeLevel()`, computed on read from the charge clock (no
-tick). The AnimInstance caches the combat component in `NativeInitializeAnimation`, like the
-existing hit reaction component cache.
+`SamuraiAnimInstance::UpdateCharge`: `bIsCharging` from `ECombatState::ChargingHeavyAttack`;
+`ChargePercent` from `UCombatComponent::GetCurrentChargeLevel()`, computed on read from the
+clock. The AnimInstance caches the combat component in `NativeInitializeAnimation`.
 
-### Tests (Part A charge)
+### Validation
 
-A heavy's loop cannot start without a montage in the test world, so
-`BeginChargeForTesting(AttackData, AttackGeneration)` starts the clock and timer directly.
+`UAttackData::IsDataValid` warns when a heavy has a `ChargeLoopSection` but
+`MaxChargeTime <= 0`, and when it has a `ChargeLoopSection` but neither a
+`ChargeReleaseSection` nor heavy directional follow-ups (charging leads nowhere).
 
-- level math: 0, partial, clamped at 1 past `MaxChargeTime`, `MaxChargeTime <= 0` → 1;
-  `ChargeEasing` and `ChargeCurve` shape the level; curve beats easing;
-- multiplier: ×1 at level 0, capped at `MaxChargeDamageMultiplier`;
-- latch: matching generation applies; next generation gets ×1; release before the loop → ×1;
-- timer: fires once at `MaxChargeTime` (driven by ticking the test world's timer manager);
-  does not advance while paused; cancelled by release, by `ClearHoldState`, and by owner
-  destruction;
-- `FHitReactionInfo::ChargeLevel` carries the latched level to the victim;
-- cue resolution order and the no-cue case;
-- `IsDataValid` warning for `MaxChargeTime <= 0` on a charging heavy.
+### Tests (charge)
+
+`BeginChargeForTesting(AttackData, Generation)` starts the clock and timer without a
+montage. Time advances with `World->Tick`, which advances world time and timers together.
+
+- level math, easing, curve (clamped), `MaxChargeTime <= 0`;
+- multiplier capped; ×1 at level 0;
+- latch: release-section keeps the generation; follow-up inherits; return-to-idle latches
+  nothing; `ClearHoldState` keeps the latch; next attack gets ×1;
+- timer fires once; cleared by release, `ClearHoldState` and owner destruction;
+- `ChargeLevel` reaches `FHitReactionInfo`; cue resolution order; both validation warnings.
+
+Pausing mid-charge is verified in PIE (the test world's pause behavior is not relied on).
 
 ## Part B: Attack Reach (PR 3b)
 
-Part B depends on the editor operation workflow spec. The bake is that workflow's first new
-client.
+Depends on C1 (headless operation framework). The bake runs headless in 3b; C2 adds its
+details-panel and Content Browser entry points.
 
 ### Reference rig
 
-Reach is a fact about (attack, character, weapon). One reference rig is used for every
-attack. It is **derived** rather than hand-entered:
-
-- `UKatanaReachBakeSettings` (`UDeveloperSettings`, runtime module, `config=Editor`,
-  `defaultconfig`, shown under Project Settings) has two fields: `ReferenceCharacterClass`
-  (`TSoftClassPtr<ABaseCombatCharacter>`) and `ReferenceWeapon` (`TSoftObjectPtr<UWeaponData>`).
-- The bake reads the skeletal mesh, mesh-relative transform and capsule radius from the
-  character class default object, and the weapon mesh, attach socket, attach offset, trace
-  sockets and `TraceRadius` from the weapon data. Nothing about geometry is typed by hand.
+`UKatanaReachBakeSettings` (`UDeveloperSettings`, runtime module, `config=Editor`,
+`defaultconfig`): `ReferenceCharacterClass` (`TSoftClassPtr<ABaseCombatCharacter>`) and
+`ReferenceWeapon` (`TSoftObjectPtr<UWeaponData>`). The bake reads mesh, mesh-relative
+transform and capsule radius from the class default object, and weapon mesh, attach socket
+and offset, trace sockets and `TraceRadius` from the weapon data. `KatanaCombat.Build.cs`
+adds `DeveloperSettings`.
 
 ### Data on UAttackData
 
-`FAttackReachFacts` (baked, cooked, shown read-only under "Reach|Baked"):
+`FAttackReachFacts` (baked, read-only under "Reach|Baked"):
 
 | Field | Meaning |
 | --- | --- |
 | `bBaked` | Facts present. |
-| `ReachFromStart` | Maximum horizontal distance, over the Active phase, from the character's position at section start to the blade tip, plus `TraceRadius`. Root motion is included. The blade tip is the weapon's effective trace end socket (`UWeaponComponent::GetEffectiveEndSocketName` semantics, resolved from the reference weapon data). Measured in any horizontal direction, not only forward, so attacks that strike to the side or behind bake a correct distance. |
-| `ReachFromWarpEnd` | The same, measured from the character's position when the attack's warp window ends. Equals `ReachFromStart` when the section has no warp window. |
-| `StrikeAxisYaw` | Horizontal direction of the `ReachFromStart` maximum, in degrees relative to the character's facing at section start (0 = straight ahead, positive = right). |
-| `bHasWarpWindow` | The section contains an `AnimNotifyState_CombatWarp` window. |
-| `RigIdentity` | Reference character class path and weapon path used. |
-| `Fingerprint` | Semantic fingerprint (see Bake). |
-| `BakeVersion` | Bake algorithm version. |
+| `ReachFromStart` | Maximum horizontal distance, over the strike's Active phase, from the character's position at the start of the strike path to the blade tip (the reference weapon's effective trace end socket), plus `TraceRadius`. Root motion included; measured in any horizontal direction. |
+| `ReachFromWarpEnd` | The same, from the character's position when the warp window ends. Equals `ReachFromStart` without a warp window. |
+| `StrikeAxisYaw` | Direction of the `ReachFromStart` maximum relative to facing at the path start (0 = ahead, positive = right). |
+| `bHasWarpWindow` | The strike path contains an `AnimNotifyState_CombatWarp` window. |
+| `RigIdentity`, `Fingerprint`, `BakeVersion` | Provenance. |
 
-`FAttackReachIntent` (authored, under "Reach"):
+**Strike paths.** A normal attack's path is `MontageSection` through its Active phase. An
+attack with a `ChargeLoopSection` has two paths: uncharged (`MontageSection` Active) and
+charged (`MontageSection` up to the loop, then `ChargeReleaseSection` through its Active
+phase). Both are baked, and each stored fact is the per-field minimum, so a lunge never
+stops out of range for either path.
 
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `ContactInset` | 15 cm | How deep into the target the blade should land when a warp stops. |
-| `AcquisitionBonus` | 0 cm | Extra soft-aim forgiveness. |
-| `bOverrideReach` + `ReachOverride` | off | Replaces both facts with one value when the measured fact is wrong for gameplay. |
+`FAttackReachIntent` (authored, "Reach"): `ContactInset` (15 cm, `ClampMin=0`),
+`AcquisitionBonus` (0 cm, may be negative), and `bOverrideReach` + `ReachOverride`.
 
-`UAttackData::TryGetEffectiveReach(float& OutFromStart, float& OutFromWarpEnd)` returns the
-override when set, else the baked facts when baked, else false. "False" means every consumer
-keeps today's behavior.
+`TryGetEffectiveReach` returns the override when set, else baked facts, else false (every
+consumer keeps today's behavior). An override on an unbaked attack treats the warp term as
+present when `WarpConfig.bEnableWarp` is set.
 
-### Shared formulas
+### Shared formulas (`AttackReachMath`, pure, runtime module)
 
-A pure `AttackReachMath` namespace in the runtime module (used by runtime and editor):
+- `WarpReach = (bEnableWarp && bHasWarpWindow) ? MaxWarpDistance : 0`
+- `StopDistance = max(1, ReachFromWarpEnd + TargetCapsuleRadius − ContactInset)`; applied
+  only when `bUseStopDistance` is set on the warp request (not "0 means off").
+- `AcquisitionRange = clamp(ReachFromStart + WarpReach + TargetRadiusAllowance + AcquisitionBonus, 1, MaxTargetDistance)`,
+  where `TargetRadiusAllowance` is the attacker's own capsule radius, a proxy for a typical
+  target (candidates are not known when the range is chosen, and the reference-rig settings
+  are editor-only config unavailable in cooked builds).
+- `AIAttackRange = max(1, ReachFromStart + min(WarpReach, LungeAllowance) + TargetCapsuleRadius − ContactInset)`
 
-- `WarpReach = (WarpConfig.bEnableWarp && bHasWarpWindow) ? MaxWarpDistance : 0`
-- `StopDistance = max(0, ReachFromWarpEnd + TargetCapsuleRadius − ContactInset)`
-- `AcquisitionRange = min(ReachFromStart + WarpReach + AcquisitionBonus, MaxTargetDistance)`
-- `AIAttackRange = ReachFromStart + WarpReach + TargetCapsuleRadius − ContactInset`
-
-`TargetCapsuleRadius` is the target's capsule radius when it is an `ACharacter`, else 0.
-`bHasWarpWindow` is baked alongside the facts, so runtime needs no montage scan.
+Clamps keep every range above zero, so a negative bonus or large inset can never fall into
+the `MaxRange <= 0 → SoftAimRange` sentinel. Validation warns when clamping changed a value.
 
 ### Consumers
 
-1. **Attack warp stop distance.** `FAlignmentRequestSpec` gains `StopDistance` (cm, 0 = off).
-   The warp goal becomes `TargetLocation − Direction2D × StopDistance`, then the existing
-   `MaximumTranslation` clamp applies. It applies only when the warp translates (distance at
-   least `MinWarpDistance`; below that the warp is already rotation-only). If the attacker is
-   already within `StopDistance`, the request turns without translating (it never steps
-   back). `SetupAttackWarp` sets
-   `StopDistance` only when the attack has effective reach **and** its `TargetRelativeOffset`
-   is zero; an authored offset keeps its explicit placement. The warp goal computation is one
-   function shared with the defense threat prediction (`CombatComponent` threat endpoint),
-   so prediction and execution agree.
-2. **Soft-aim acquisition.** The `CombatComponent` callers of `FindBestTargetForDirection` and
-   `FindNearestTarget` pass `AcquisitionRange` when the attack has effective reach, else `-1`
-   (today's `SoftAimRange`). The existing distance score (`1 − Distance / Range`) is
-   normalized by the same range, so distance preference is relative to each attack's reach.
-3. **AI attack range.** `UEnemyCombatAIComponent::GetEffectiveAttackRange()` returns
-   `AIAttackRange` for the selected attack when it has effective reach, else
-   `ApproachConfig.AttackRange`. `IsInAttackRange` (its empty `SelectedAttack` branch) and the
-   StateTree approach task's acceptance radius both use it.
+1. **Warp stop distance.** `FAlignmentRequestSpec` gains `bUseStopDistance` and
+   `StopDistance`. `ConfigureAlignmentWarpTarget` subtracts it before the `MaximumTranslation`
+   clamp, only when the warp translates (distance at least `MinWarpDistance`). An attacker
+   already inside turns without stepping back. It applies only when the attack has effective
+   reach and a zero `TargetRelativeOffset` (authored placement wins). The defense threat
+   prediction shares only the target aim-point helper; its predicted contact point stays on
+   the defender.
+2. **Soft-aim.** `CombatComponent` passes `AcquisitionRange` to `FindBestTargetForDirection`
+   and `FindNearestTarget` when the attack has effective reach, else `-1`. Distance scoring
+   (`1 − Distance / Range`) uses the same range.
+3. **AI ranges.** `FEnemyAttackConfig::MaxRange` is derived as `AIAttackRange` when the attack
+   has effective reach (`bUseDerivedMaxRange`, default true); `MinRange` stays authored.
+   `FEnemyApproachConfig` gains `LungeAllowance` (default 100 cm). The approach task's
+   acceptance radius uses the largest effective `MaxRange` in the AI's attack pool (×0.8 as
+   today), so no attack needs pre-selecting; `IsInAttackRange` uses the selected attack when
+   one exists, else the pool maximum. With no baked attack in the pool,
+   `ApproachConfig.AttackRange` remains the fallback.
 
 ### Removals
 
-`UWeaponData::WeaponReach`, `UWeaponComponent::GetWeaponReach` and its test are deleted.
-`DA_Weapon_Katana`'s saved 300 is ignored on load. No runtime blade-length value is added;
-blade geometry enters through the bake.
+`UWeaponData::WeaponReach`, `UWeaponComponent::GetWeaponReach` and its test. The katana's
+saved 300 is ignored on load.
 
 ### Bake
 
-Layers follow the editor three-layer rule:
-
-- **Pose sampler (adapter layer, editor module).** A single-character sampler extracted from
-  `UPairedAnimationAnalysisSubsystem::SampleContactPreviewPose`. It places the reference
-  character mesh in a preview scene with the mesh-relative transform, attaches the weapon
-  exactly as runtime does (fail closed if the attach socket is missing), poses the montage at
-  time `t` in single-node mode, and accumulates root motion with
-  `UAnimMontage::ExtractRootMotionFromTrackRange`. The paired contact evaluator is refactored
-  to use the same sampler.
-- **Library (pure).** Given per-sample actor transforms, tip positions, phase times and the
-  warp-window end time, computes `ReachFromStart` and `ReachFromWarpEnd`. Forward distance is
-  measured along the character's facing at the reference time, horizontally.
-- **Service.** For one `UAttackData`: resolves section-scoped phase times
-  (`GetSectionTimeRange` plus the section's Active and Recovery phase-transition notifies),
-  finds the section's `AnimNotifyState_CombatWarp` end if present, samples at 60 Hz from
-  section start to the end of Active, and returns facts plus fingerprint.
-
-Fail closed (no bake, explicit error) when: phase notifies are missing in the section (the
-`ManualTiming` fallback is never used); the section is not found; the weapon attach or trace
-sockets are missing; the reference class or weapon is unset or fails to load; a source
-package is dirty.
-
-**Fingerprint:** SHA-1 of sorted `key=value` lines over semantic inputs: section bounds and
-phase and warp notify times; each source animation's data-model GUID and root-motion flag;
-the reference character class path, skeletal mesh path, mesh-relative transform and capsule
-radius; weapon mesh path, attach socket and offset, trace socket transforms and trace radius;
-and `BakeVersion`. Package bytes are not hashed, so editing an unrelated notify on a shared
-montage does not mark every attack stale. The fingerprint builder lives in the runtime module
-under `WITH_EDITOR` so both the bake and `IsDataValid` use one implementation.
-
-**Entry points** (through the editor operation workflow): an `AttackReachBake` operation
-with Preflight (reports unbaked, stale and failing attacks), Plan (facts to write per
-attack), and Apply. It is available as a details-panel button, a Content Browser action on
-selected `UAttackData`, and headless via `KatanaAssetMigration`. Saving requires an approved
-plan.
+- **Pose sampler** (editor adapter layer): a single-character sampler extracted from
+  `UPairedAnimationAnalysisSubsystem::SampleContactPreviewPose`, shared with the paired
+  contact evaluator. It attaches the weapon as runtime does and fails closed on a missing
+  socket.
+- **Library** (pure): reach facts from per-sample actor transforms, tip positions, phase and
+  warp-window times.
+- **Service**: resolves section-scoped phase times, samples each strike path at 60 Hz and
+  returns facts plus fingerprint.
+- **Fail closed** when: phase notifies are missing in a section (no `ManualTiming`
+  fallback); a section is missing; a weapon socket is missing; the reference class or weapon
+  is unset or fails to load; the montage's skeleton does not match the reference mesh's
+  skeleton; headless, a source package is dirty (the editor binds in-memory state, per C2).
+- **Fingerprint**: SHA-1 of sorted semantic inputs (section bounds and phase and warp notify
+  times for each path, source animation data-model GUIDs and root-motion flags, rig class,
+  mesh, mesh transform and capsule radius, weapon mesh, sockets, attach offset, trace radius,
+  `BakeVersion`). Built by one runtime-module function under `WITH_EDITOR`, shared by the
+  bake and validation.
+- **Operation**: `AttackReachBake` (Preflight lists unbaked, stale and failing attacks; Plan
+  lists facts to write; Apply writes them). Saving requires an approved plan.
 
 ### Validation
 
-`UAttackData::IsDataValid` recomputes the fingerprint and **warns** when it differs from the
-stored one, when the rig identity differs from the current settings, or when an attack with a
-warp window has no effective reach. It lists overrides as informational, and adds an
-informational note when `|StrikeAxisYaw| > 45°`: the warp faces the target, so an off-axis
-strike may need a warp facing offset or an override. The five directional attacks are checked
-against this during PR 3b.
+`IsDataValid` warns when the fingerprint is stale, the rig differs, an attack with a warp
+window has no effective reach, or a clamp changed a range; it notes overrides, and
+`|StrikeAxisYaw| > 45°` (the warp faces the target, so an off-axis strike may need a facing
+offset or override). It computes the fingerprint from already-loaded assets and a
+per-session cached rig description, so saving stays fast. `Combat.Debug.Reach` draws the stop
+point, acquisition ring and AI range.
 
-`Combat.Debug.Reach` (also under `Combat.Debug.All`) draws the stop point, acquisition ring
-and AI range for the current attack. Staleness never
-blocks saving. Runtime cannot recompute fingerprints and uses stored values.
+### Tests (reach)
 
-### Stated limitation
+- `AttackReachMath` formulas and clamps; negative bonus; large inset.
+- Library: synthetic samples with and without warp windows, sideways and backward strikes,
+  two strike paths take the minimum.
+- Fingerprint deterministic and sensitive to each input; unrelated notify edits do not change
+  it.
+- Fail-closed cases, including skeleton mismatch.
+- Warp: stop distance applied only when translating; already-inside turns only; authored
+  offset wins; threat prediction keeps its defender contact point.
+- Soft-aim and AI: derived ranges, pool maximum for approach, fallbacks.
+- End-to-end editor test: bake `LightAttack_1` in memory and assert plausible, stable facts.
 
-The bake measures the authored montage and root motion. It does not model the AnimGraph
-(procedural blending, IK), so it is a fact about the animation, not a per-frame runtime
-guarantee.
+## Paired Entry Follow-Up (own step, after step 3)
 
-### Tests (Part B)
+Recorded so step 3 does not paint it into a corner. The entry mapping found:
 
-- `AttackReachMath`: each formula, clamping, zero radius;
-- library: reach from synthetic samples, with and without a warp window, root motion
-  included; a sideways or backward strike bakes its true distance and `StrikeAxisYaw`;
-- fingerprint: deterministic; changes when each input changes; unchanged by an unrelated
-  notify edit;
-- fail-closed cases (missing phase notify, missing socket, unset rig);
-- warp: stop distance applied, already-inside turns only, authored `TargetRelativeOffset`
-  wins, threat prediction equals executed goal;
-- `WarpReach` is 0 with warp disabled or no warp window;
-- soft-aim and AI: effective reach used when present, unbaked falls back to today's values;
-- end-to-end: bake `LightAttack_1` against the reference rig in an editor test and assert
-  plausible, stable facts (without saving).
+- the entry lease calls `DisableMovement()` (`MOVE_None`), which clears root-motion sources;
+  the mover needs input suppression in Walking instead, while the anchor may stay locked;
+- `MoveToDynamicForce` ignores speed caps, travel budgets and turn limits, so our
+  `AlignmentMotion` step math stays the authority (in a planar variant) and character
+  movement is the actuator (the executor's movement channel in goal-seeking mode, with yaw
+  on the existing zero-translation sweep);
+- readiness becomes planar across preflight, the supervisor, the executor and the capture
+  harness;
+- six of eleven `PairedEntryTests` need a floor, a controller (or
+  `bRunPhysicsWithNoController`) and a character-movement tick;
+- re-qualification reproduces the rendered matrices of `BOUNDED_PAIRED_ENTRY_2026-09-11`,
+  `INITIATOR_FINISHER_APPROACH_2026-09-13` and `PAIRED_ENTRY_TRANSITION_2026-09-13`.
+
+The bounded executor and its tests remain as the kinematic reference until then.
 
 ## Serialized Data Impact
 
@@ -443,27 +481,33 @@ guarantee.
 | `HeavyAttack_1` | `ChargeTimeScale` 0.05 | Ignored on load; removed on next save. |
 | `DA_Weapon_Katana` | `WeaponReach` 300 | Ignored on load; removed on next save. |
 | All `UAttackData` | new fields | Defaults apply until authored or baked. |
-| `DefaultEditor.ini` | `UKatanaReachBakeSettings` | New section with the reference class and weapon (text, reviewable). |
+| `DefaultEditor.ini` | `UKatanaReachBakeSettings` | New section (text, reviewable). |
 
 ## Verification
 
 - Focused suites per commit; full baseline before each PR.
-- PIE checks recorded in the PR: a light and a heavy hit push the enemy visibly (both speed
-  profiles), no push on block or super armor, a push over a ledge falls cleanly, a push into
-  a wall stops, pausing mid-charge pauses the charge, and a charged heavy logs `[HOLD] Fully
-  charged`, plays the cue, hits harder and pushes farther when its multiplier is above 1.
+- **Knockback capture scenario** (new, registered in `Tools/CombatCapture`): a player hits a
+  bystander enemy on flat ground, a slope, into a wall and off a ledge; records the push per
+  channel and profile, and the reaction animations' own root displacement. That measurement
+  sets the default `AnimationBlend` and whether the 25/60 cm defaults need lowering.
+- **Proofs the push can disturb**: `DefenseGateAPIEProofTests` (the parry bridge has a 75 cm
+  per-role budget; its out-of-cone case lands a hit), `DefenseGateBSemanticPIEProofTests`
+  (an unblockable hit on the player followed by a perfect parry without a position reset)
+  and the `CombatCaptureScenarioTests` finisher and hold-release scenarios. They run in PR
+  3a-knockback; a proof that fails only because of position disables knockback transiently
+  in its fixture, and the knockback scenario covers the behavior.
+- PIE checks recorded in the PRs: both profiles, no push on block or super armor, a charged
+  heavy's cue and stronger hit, pausing mid-charge pauses the charge.
 - PR 3b: headless `AttackReachBake` Preflight across all 29 `UAttackData`, reviewed Plan,
-  then an approved apply.
+  approved apply; the five directional attacks' `StrikeAxisYaw` reviewed.
 
 ## Documentation Updates
 
-Each PR updates the documents its changes affect: CLAUDE.md (key default values and system
-status), `docs/guides/ATTACK_CREATION.md` (knockback, charge and reach fields),
-`docs/architecture/API_REFERENCE.md`, and `docs/audits/DATA_ASSET_AUDIT_2026-07-21.md`
-(execution log marking knockback, charge and `WeaponReach` resolved).
+Each PR updates CLAUDE.md (defaults and status), `docs/guides/ATTACK_CREATION.md`,
+`docs/architecture/API_REFERENCE.md`, and the data asset audit's execution log.
 
-## Follow-Ups (out of scope)
+## Follow-Ups
 
-- Block/parry pushback reusing `StartKnockback`'s movement path.
+- Block/parry pushback through the same executor.
 - Capture-based runtime check of baked reach.
 - Per-character reach scaling if characters diverge from the reference rig.
