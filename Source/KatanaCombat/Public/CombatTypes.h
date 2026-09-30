@@ -416,6 +416,41 @@ enum class EAlignmentMotionOutcome : uint8
 	Cancelled
 };
 
+/** How a procedural displacement's speed evolves over its duration. */
+UENUM(BlueprintType)
+enum class EDisplacementSpeedProfile : uint8
+{
+	Linear,
+	/** Quadratic ease-out: starts at twice the average speed and settles to zero. */
+	EaseOut
+};
+
+/** Which clock advances a procedural displacement. */
+UENUM(BlueprintType)
+enum class EDisplacementClock : uint8
+{
+	/** The owner's dilated time: frozen while hitstop freezes the owner. */
+	ActorTime,
+	/** Undilated world simulation time (reserved for the paired entry step). */
+	WorldTime
+};
+
+/** How a displacement combines with a playing root-motion animation. */
+UENUM(BlueprintType)
+enum class EDisplacementAnimationBlend : uint8
+{
+	AddToAnimation,
+	ReplaceAnimation
+};
+
+/** The channel currently applying a displacement (runtime state, not authored). */
+enum class EDisplacementChannel : uint8
+{
+	None,
+	Animation,
+	Movement
+};
+
 /** Limits for swept preparation movement, in world simulation seconds and centimeters. */
 USTRUCT(BlueprintType)
 struct FAlignmentMotionLimits
@@ -2930,6 +2965,40 @@ private:
 	uint64 Value = 0;
 
 	friend class UPairedAnimationComponent;
+};
+
+/** Fixed-curve horizontal displacement applied by EAlignmentExecutor::ProceduralDisplacement. */
+USTRUCT(BlueprintType)
+struct FProceduralDisplacement
+{
+	GENERATED_BODY()
+
+	/** Horizontal unit direction in world space. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FVector Direction = FVector::ZeroVector;
+
+	/** Total distance in centimeters. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float Distance = 0.0f;
+
+	/** Seconds on the request's clock. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float Duration = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EDisplacementSpeedProfile SpeedProfile = EDisplacementSpeedProfile::Linear;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EDisplacementClock Clock = EDisplacementClock::ActorTime;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EDisplacementAnimationBlend AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
+
+	bool operator==(const FProceduralDisplacement& Other) const
+	{
+		return Direction.Equals(Other.Direction, 0.0) && Distance == Other.Distance && Duration == Other.Duration
+			&& SpeedProfile == Other.SpeedProfile && Clock == Other.Clock && AnimationBlend == Other.AnimationBlend;
+	}
 };
 
 USTRUCT(BlueprintType)
