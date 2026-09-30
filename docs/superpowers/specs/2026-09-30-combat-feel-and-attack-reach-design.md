@@ -66,17 +66,20 @@ before `PlayHitReaction`) never push.
 
 | Change | Detail |
 | --- | --- |
-| Add `UAttackData::KnockbackDistance` | `float`, centimeters, `ClampMin=0, ClampMax=500`, with inline override toggle `bOverrideKnockbackDistance`. When not overridden, the distance comes from the attacker's combat settings. |
-| Add `UCombatSettings::DefaultKnockbackDistance` | `TMap<EAttackType, float>`, defaults `{Light: 25, Heavy: 60}`. A type missing from the map (None, Special) resolves to 0. |
-| Add `UCombatSettings::KnockbackDuration` | `float`, seconds, default `0.2`, `ClampMin=0.05, ClampMax=1`. Global. |
+| Add `FKnockbackConfig` (`CombatTypes.h`) | `Distance` (`float`, cm, `ClampMin=0, ClampMax=500`) and `Duration` (`float`, seconds, `ClampMin=0.05, ClampMax=1`), each with its own inline override toggle (`bOverrideDistance`, `bOverrideDuration`) used when the struct appears on an attack. |
+| Add `UAttackData::Knockback` | `FKnockbackConfig`. Each field is overridden independently; a field that is not overridden comes from the attacker's combat settings. |
+| Add `UCombatSettings::DefaultKnockback` | `TMap<EAttackType, FKnockbackConfig>`, defaults `{Light: 25 cm / 0.2 s, Heavy: 60 cm / 0.25 s}`. A type missing from the map (None, Special) resolves to distance 0 (no push). |
 | Rename `UHitReactionSettings::GlobalKnockbackMultiplier` → `KnockbackScale` | `float`, default 1, `ClampMin=0, ClampMax=5`. Victim-side scale: 1 normal, 0 immune. Not serialized in any asset, so a plain rename is safe. |
 | Delete `FHitReactionEntry::KnockbackForce` | Its saved values (200 on 8 entries) are ignored on load. |
 
-Resolved push distance = `ResolveKnockbackDistance(AttackData, AttackerCombatSettings)` ×
-`VictimHitReactionSettings.KnockbackScale`. The attacker's combat settings come from
+`ResolveKnockback(AttackData, AttackerCombatSettings)` returns a resolved
+`{Distance, Duration}`: each field takes the attack's override when set, else the attacker's
+combat-settings default for the attack type. The push distance is then
+`Distance × VictimHitReactionSettings.KnockbackScale`; the victim scales distance only, so
+duration stays the attack's decision. The attacker's combat settings come from
 `FHitReactionInfo::Attacker` when it is an `ABaseCombatCharacter`; otherwise the victim's own
-combat settings are used; if neither exists the distance is 0. The resolution function is
-pure and unit-tested.
+combat settings are used; if neither exists there is no push. The resolution function is pure
+and unit-tested.
 
 ### Direction
 
@@ -105,7 +108,7 @@ A new priority **`EDefenseAlignmentPriority::HitKnockback`** is inserted between
 (the reaction montage has already interrupted the attack), while block contact, paired and
 parry bridges and terminal requests always win. No asset serializes this enum.
 
-Request parameters for a push of distance `D` over duration `T`:
+Request parameters for a push of scaled distance `D` over resolved duration `T`:
 
 - Null target; `BoundedGoal` = world transform at `VictimLocation + Direction × D`, yaw equal
   to the victim's current yaw.
@@ -135,8 +138,9 @@ A blocking sweep ends the push (outcome Blocked) and the request releases.
 call `StartKnockback` through a friend declaration, and drive the targeting component with
 the manual-tick pattern from `BoundedAlignmentTests.cpp`:
 
-- distance resolution: override, per-type default, missing type → 0, attacker vs victim
-  settings fallback, `KnockbackScale` 0 → no request;
+- resolution: distance and duration overridden independently, per-type defaults, missing
+  type → no push, attacker vs victim settings fallback, `KnockbackScale` scales distance but
+  not duration, `KnockbackScale` 0 → no request;
 - direction: away from the attacker regardless of `DirectionToAttacker`; degenerate → no push;
 - movement reaches `D` in `T` at normal dilation; at dilation 0.0001 it does not advance;
 - wall ahead → Blocked and released;
