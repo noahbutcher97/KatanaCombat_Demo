@@ -121,17 +121,25 @@ displacement between two request times. Deltas over any partition of `[0, T]` su
 The executor re-evaluates the channel every tick:
 
 1. **Animation channel**, used when the owner is playing a montage whose root motion is
-   extracted. A custom `UKnockbackRootMotionModifier` (subclass of `URootMotionModifier`) is
-   added at runtime through `UMotionWarpingComponent::AddModifier`, spanning the rest of the
-   push in montage time. Its `ProcessRootMotion` converts this frame's curve delta into the
+   extracted. A custom `URootMotionModifier_ProceduralDisplacement` (subclass of
+   `URootMotionModifier`, named like the engine's `_Warp` and `_Scale` modifiers) is added at
+   runtime through `UMotionWarpingComponent::AddModifier`, spanning the rest of the push in
+   montage time. Its `ProcessRootMotion` converts this frame's curve delta into the
    plugin's root-motion space (as the built-in warp modifiers do) and adds it to the
    animation's root motion, or replaces the animation's translation, per `AnimationBlend`.
-   The animation's rotation is kept. Hitstop freezes the montage, so no root motion is
-   extracted and the push pauses without extra code.
-2. **Movement channel**, used when no root-motion animation plays. The curve's current
-   planar velocity is applied as a character-movement override root-motion source with
-   `IgnoreZAccumulate` (gravity still applies) and finish velocity set to zero. Character
-   movement's dilated delta pauses it under hitstop.
+   The animation's rotation is kept. Its clock advances by the root-motion `DeltaSeconds`,
+   which is dilated, so hitstop pauses the push without extra code. It also reports the
+   kept animation travel along the push direction, so the blocked check does not mistake
+   a reaction that steps sideways for a wall.
+2. **Movement channel**, used when no root-motion animation plays. A character-movement
+   override root-motion source with `IgnoreZAccumulate` (gravity still applies) and no
+   timeout. The executor owns termination, and each tick it sets the force to the curve's
+   exact average velocity for the next step. That velocity lands on the curve's end: a
+   decaying `StrengthOverTime` curve is sampled at the start of each step and would
+   overshoot `EaseOut` by about 6% at 60 fps. On removal the finish velocity clamps
+   horizontal speed to zero (`ClampVelocity` 0), which keeps a fall's downward speed. The
+   source's own time is the record of applied push time. Character movement's dilated
+   delta pauses it under hitstop.
 
 If the animation channel ends before the curve completes (the montage stops or is
 replaced), the remainder continues through the movement channel. In both channels character
@@ -163,7 +171,7 @@ asset serializes the enum).
 - `DisplacementMath`: both profiles; partitions sum to `Distance`; `EaseOut` covers more
   than half of `Distance` in the first half of `Duration`.
 - Channel selection as a pure decision function (root-motion montage playing or not).
-- `UKnockbackRootMotionModifier::ProcessRootMotion` on a test character: add vs replace,
+- `URootMotionModifier_ProceduralDisplacement::ProcessRootMotion` on a test character: add vs replace,
   direction conversion, zero delta at zero `DeltaSeconds`.
 - Arbiter: acquire, priority ordering, suspension, self-release on each terminal outcome,
   release removes the channel, existing executors unchanged (the `DefenseAlignment` and
@@ -227,15 +235,21 @@ one. `EnterPairedAnimationState` and `EndPlay` release it.
 
 - `Combat.Debug.Knockback` (and `Combat.Debug.All`): draws start, commanded end and channel;
   logs the resolved config, charge level, scale and outcome.
-- Action-reaction telemetry records `KnockbackStarted` and `KnockbackFinished` rows within the
-  existing schema (no `schema_version` bump; `analyze_capture.py` accepts only 1 or 2).
+- Action-reaction telemetry records the start and finish as `AlignmentChanged` rows within the
+  existing schema (no new event values, no `schema_version` bump; `analyze_capture.py`
+  accepts only 1 or 2). `StartKnockback` writes `AlignmentOwner = HitKnockback` with
+  disposition `Started` or `Rejected`. For every self-releasing displacement, the executor
+  writes the terminal outcome (`Reached`, `Blocked`, `Invalid`) and the measured travel.
 
 ### Tests (knockback)
 
 `PlayHitReaction` cannot run in the test world (no AnimInstance before `BeginPlay`):
 
 - a pure `ShouldApplyKnockback` decision function covers blocked, parried, super armor,
-  suppressed, dying and legacy-fallback cases;
+  suppressed, dying and legacy-fallback cases. Blocked and parried hits never start a
+  directional reaction, and source-structure tests pin that path: only
+  `ApplyRequestedDamage` reaches the reaction commit, super armor commits without a
+  reaction, and `PlayHitReaction` has one caller, behind the commit's reaction gate;
 - a source-order test asserts `PlayHitReaction` calls `StartKnockback` only after
   `PlayReactionFromEntry` succeeds (the `DefenseArchitectureSourceTests` pattern);
 - `StartKnockback` is tested directly through a friend declaration: resolution (each field
@@ -486,16 +500,20 @@ The bounded executor and its tests remain as the kinematic reference until then.
 ## Verification
 
 - Focused suites per commit; full baseline before each PR.
-- **Knockback capture scenario** (new, registered in `Tools/CombatCapture`): a player hits a
-  bystander enemy on flat ground, a slope, into a wall and off a ledge; records the push per
-  channel and profile, and the reaction animations' own root displacement. That measurement
-  sets the default `AnimationBlend` and whether the 25/60 cm defaults need lowering.
+- **Knockback PIE measurement** (`KatanaCombat.Knockback.PIE.ReactionMeasurement`): a real
+  hit on the ThirdPerson map, measured with knockback disabled (the reaction animation's own
+  root motion) and enabled; writes `Saved/Logs/KnockbackMeasurement.json`. That measurement
+  sets the default `AnimationBlend` and whether the 25/60 cm defaults need lowering. A
+  focused PIE test replaces the planned capture-harness scenario, because the harness is one
+  monolithic latent command. Flat ground, walls, ledges, hitstop and suspension are covered
+  headless by the `KatanaCombat.Displacement.Executor.*` tests. Slopes ride on character
+  movement's floor handling and are checked by hand in PIE.
 - **Proofs the push can disturb**: `DefenseGateAPIEProofTests` (the parry bridge has a 75 cm
   per-role budget; its out-of-cone case lands a hit), `DefenseGateBSemanticPIEProofTests`
   (an unblockable hit on the player followed by a perfect parry without a position reset)
   and the `CombatCaptureScenarioTests` finisher and hold-release scenarios. They run in PR
   3a-knockback; a proof that fails only because of position disables knockback transiently
-  in its fixture, and the knockback scenario covers the behavior.
+  in its fixture, and the knockback measurement and executor tests cover the behavior.
 - PIE checks recorded in the PRs: both profiles, no push on block or super armor, a charged
   heavy's cue and stronger hit, pausing mid-charge pauses the charge.
 - PR 3b: headless `AttackReachBake` Preflight across all 29 `UAttackData`, reviewed Plan,
