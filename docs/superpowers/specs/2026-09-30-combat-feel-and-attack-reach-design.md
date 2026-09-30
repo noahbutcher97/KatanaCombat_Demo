@@ -194,8 +194,8 @@ reaction pushes; step 4 makes additive flinches not push through the same decisi
 
 | Change | Detail |
 | --- | --- |
-| Add `FKnockbackConfig` (`CombatTypes.h`) | Values only: `Distance` (cm, `ClampMin=0, ClampMax=500`), `Duration` (s, `ClampMin=0.05, ClampMax=1`), `DirectionMode` (`EKnockbackDirection`: `AwayFromAttacker`, `AlongSwing`), `SpeedProfile` (`Linear`, `EaseOut`). The resolved result, and the type of the defaults map. |
-| Add `FKnockbackOverride` (`CombatTypes.h`) | The same four fields, each with an inline override toggle. It is a separate type so the defaults map shows plain, editable values rather than fields greyed out behind toggles that do not apply there. |
+| Add `FKnockbackConfig` (`CombatTypes.h`) | Values only: `Distance` (cm, `ClampMin=0, ClampMax=500`), `Duration` (s, `ClampMin=0.05, ClampMax=1`), `DirectionMode` (`EKnockbackDirection`: `AwayFromAttacker`, `AlongSwing`), `SpeedProfile` (`Linear`, `EaseOut`), `AnimationBlend` (`AddToAnimation`, `ReplaceAnimation`; default `AddToAnimation`). The resolved result, and the type of the defaults map. The blend is data, so the per-type decision from the measurement is a data change. |
+| Add `FKnockbackOverride` (`CombatTypes.h`) | The same five fields, each with an inline override toggle. It is a separate type so the defaults map shows plain, editable values rather than fields greyed out behind toggles that do not apply there. |
 | Add `UAttackData::Knockback` | `FKnockbackOverride`; each field overridden independently, else the attacker's combat-settings default. |
 | Add `UCombatSettings::DefaultKnockback` | `TMap<EAttackType, FKnockbackConfig>`: Light `{25 cm, 0.2 s, AwayFromAttacker, EaseOut}`, Heavy `{60 cm, 0.25 s, AwayFromAttacker, EaseOut}`. Missing types resolve to no push. The attacker's combat settings are the character's `ABaseCombatCharacter::CombatSettings`. |
 | Rename `UHitReactionSettings::GlobalKnockbackMultiplier` → `KnockbackScale` | Default 1, `ClampMin=0, ClampMax=5`. Victim-side distance scale: 1 normal, 0 immune. No asset serializes the old name. |
@@ -227,9 +227,9 @@ used; if neither exists, there is no push.
 
 `StartKnockback(const FHitReactionInfo&)` runs in `PlayHitReaction` right after
 `PlayReactionFromEntry` succeeds (not inside it; death reactions share that function). It
-acquires a `ProceduralDisplacement` request: `Clock = ActorTime`, `AnimationBlend` =
-`AddToAnimation` by default (revisited after the reaction root-motion measurement in the
-plan), priority `HitKnockback`, `bReleaseWhenFinished`. A new push releases the previous
+acquires a `ProceduralDisplacement` request: `Clock = ActorTime`, `AnimationBlend` from the
+resolved config (`AddToAnimation` for both types until the reaction measurement says
+otherwise), priority `HitKnockback`, `bReleaseWhenFinished`. A new push releases the previous
 one. `EnterPairedAnimationState` and `EndPlay` release it.
 
 ### Observability
@@ -501,10 +501,15 @@ The bounded executor and its tests remain as the kinematic reference until then.
 ## Verification
 
 - Focused suites per commit; full baseline before each PR.
-- **Knockback PIE measurement** (`KatanaCombat.Knockback.PIE.ReactionMeasurement`): a real
-  hit on the ThirdPerson map, measured with knockback disabled (the reaction animation's own
-  root motion) and enabled; writes `Saved/Logs/KnockbackMeasurement.json`. That measurement
-  sets the default `AnimationBlend` and whether the 25/60 cm defaults need lowering. A
+- **Knockback PIE measurement** (`KatanaCombat.Knockback.PIE.ReactionMeasurement`): real
+  Light and Heavy hits on the ThirdPerson map, each measured with knockback disabled (the
+  reaction animation's own root motion) and enabled; writes
+  `Saved/Logs/KnockbackMeasurement.json`. It also checks that the reactions play root
+  motion. They do in the assets: every `DA_HitReaction` montage uses the pack's `RootMotion`
+  sequences, so the animation channel carries the push. The Heavy reactions are authored
+  knockback animations (`UE5M_Root_knockback_*`), so the 60 cm default lands on travel the
+  animation already has. The measurement sets the default `AnimationBlend` per attack type,
+  and whether the 25/60 cm defaults need lowering, by the user's decision. A
   focused PIE test replaces the planned capture-harness scenario, because the harness is one
   monolithic latent command. Flat ground, walls, ledges, hitstop and suspension are covered
   headless by the `KatanaCombat.Displacement.Executor.*` tests. Slopes ride on character

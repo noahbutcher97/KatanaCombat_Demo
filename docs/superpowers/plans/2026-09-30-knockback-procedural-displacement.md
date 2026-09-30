@@ -41,8 +41,8 @@ The final task runs the full baseline: `powershell -NoProfile -ExecutionPolicy B
 
 ## Review Focus
 
-1. A second hit lands while the first push is still running: the new push must replace the old one from the victim's current position, never stack two requests (Task 5, `ReplacesRunningPush`).
-2. The player is the victim: pushing the player must not change `bOrientRotationToMovement` or `bUseControllerRotationYaw` (Task 4, `PlayerRotationSettingsUntouched`).
+1. A Heavy hit lands on a reaction that is already an authored knockback animation (`UE5M_Root_knockback_*`). The procedural push must not silently double the victim's travel: measure it, and put the default to the user (Task 6).
+2. A second hit lands while the first push is still running: the new push must replace the old one from the victim's current position, never stack two requests (Task 5, `ReplacesRunningPush`). When the player is the victim, pushing must not change `bOrientRotationToMovement` or `bUseControllerRotationYaw` (Task 4, `PlayerRotationSettingsUntouched`).
 3. Hitstop freezes the victim (dilation 0.0001) the instant the push starts: no movement until the freeze ends, then the full push (Task 4, `PausesUnderHitstopDilation`).
 4. The push meets a wall or a ledge: it stops at a wall and releases; over a ledge the victim falls rather than hovering (Task 4, `WallBlocksAndReleases`, `LedgeFallsInsteadOfHovering`).
 5. A higher-priority alignment (block contact, paired or parry bridge) arrives mid-push: the push suspends without moving the victim and resumes afterwards; entering a paired animation or dying releases it (Task 4, `SuspendsUnderHigherPriority`; Task 5, `DeathReleasesPush` and the architecture source test).
@@ -339,7 +339,7 @@ Rollback checkpoint: <previous commit>"
 
 **Files:**
 - Modify: `Source/KatanaCombat/Public/CombatTypes.h` (`FHitReactionInfo` lines 664-755; `FHitReactionEntry` lines 923-930)
-- Modify: `Source/KatanaCombat/Public/Data/AttackData.h` (after `MaxHitCount`, line 113)
+- Modify: `Source/KatanaCombat/Public/Data/AttackData.h` (after `MaxHitCount`, line 114)
 - Modify: `Source/KatanaCombat/Public/Data/CombatSettings.h` (after `DefenseConfiguration`, line 85)
 - Modify: `Source/KatanaCombat/Private/Data/CombatSettings.cpp` (constructor, line 7)
 - Modify: `Source/KatanaCombat/Public/Data/HitReactionSettings.h` (lines 85-88)
@@ -351,8 +351,8 @@ Rollback checkpoint: <previous commit>"
 - Consumes: `EDisplacementSpeedProfile` (Task 1), `CombatMath::FlatDirection`.
 - Produces:
   - `enum class EKnockbackDirection : uint8 { AwayFromAttacker, AlongSwing };`
-  - `struct FKnockbackConfig { float Distance; float Duration; EKnockbackDirection DirectionMode; EDisplacementSpeedProfile SpeedProfile; };` (values: resolved result and defaults)
-  - `struct FKnockbackOverride { bool bOverrideDistance; float Distance; bool bOverrideDuration; float Duration; bool bOverrideDirectionMode; EKnockbackDirection DirectionMode; bool bOverrideSpeedProfile; EDisplacementSpeedProfile SpeedProfile; };` (per-attack toggles)
+  - `struct FKnockbackConfig { float Distance; float Duration; EKnockbackDirection DirectionMode; EDisplacementSpeedProfile SpeedProfile; EDisplacementAnimationBlend AnimationBlend; };` (values: resolved result and defaults)
+  - `struct FKnockbackOverride` with the same five fields, each behind an `bOverride...` inline toggle (per-attack).
   - `UAttackData::Knockback` (`FKnockbackOverride`), `UAttackData::MaxChargeKnockbackMultiplier` (`float`, default 1).
   - `UCombatSettings::DefaultKnockback` (`TMap<EAttackType, FKnockbackConfig>`).
   - `UHitReactionSettings::KnockbackScale` (`float`, default 1).
@@ -381,6 +381,7 @@ bool FKnockbackResolveDefaultsTest::RunTest(const FString&)
 	TestEqual(TEXT("Light default duration"), L.Duration, 0.2f);
 	TestEqual(TEXT("Default direction"), L.DirectionMode, EKnockbackDirection::AwayFromAttacker);
 	TestEqual(TEXT("Default profile"), L.SpeedProfile, EDisplacementSpeedProfile::EaseOut);
+	TestEqual(TEXT("Default blend adds to the reaction's own root motion"), L.AnimationBlend, EDisplacementAnimationBlend::AddToAnimation);
 	const FKnockbackConfig H = KnockbackResolution::Resolve(Heavy, Settings);
 	TestEqual(TEXT("Heavy default distance"), H.Distance, 60.0f);
 	TestEqual(TEXT("Heavy default duration"), H.Duration, 0.25f);
@@ -408,10 +409,13 @@ bool FKnockbackResolveOverridesTest::RunTest(const FString&)
 	Attack->Knockback.DirectionMode = EKnockbackDirection::AlongSwing;
 	Attack->Knockback.bOverrideSpeedProfile = true;
 	Attack->Knockback.SpeedProfile = EDisplacementSpeedProfile::Linear;
+	Attack->Knockback.bOverrideAnimationBlend = true;
+	Attack->Knockback.AnimationBlend = EDisplacementAnimationBlend::ReplaceAnimation;
 	Resolved = KnockbackResolution::Resolve(Attack, Settings);
 	TestEqual(TEXT("Overridden distance"), Resolved.Distance, 90.0f);
 	TestEqual(TEXT("Overridden direction"), Resolved.DirectionMode, EKnockbackDirection::AlongSwing);
 	TestEqual(TEXT("Overridden profile"), Resolved.SpeedProfile, EDisplacementSpeedProfile::Linear);
+	TestEqual(TEXT("Overridden blend"), Resolved.AnimationBlend, EDisplacementAnimationBlend::ReplaceAnimation);
 	TestEqual(TEXT("No combat settings means no push, even with overrides"), KnockbackResolution::Resolve(Attack, nullptr).Distance, 0.0f);
 	return true;
 }
@@ -506,6 +510,10 @@ struct FKnockbackConfig
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
 	EDisplacementSpeedProfile SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+
+	/** How the push combines with the reaction's own root motion (set per type from the Task 6 measurement). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
+	EDisplacementAnimationBlend AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
 };
 
 /**
@@ -542,6 +550,12 @@ struct FKnockbackOverride
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideSpeedProfile"))
 	EDisplacementSpeedProfile SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideAnimationBlend = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideAnimationBlend"))
+	EDisplacementAnimationBlend AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
 };
 ```
 
@@ -557,7 +571,7 @@ and add `, ChargeLevel(0.0f)` after `, HitConfidence(1.0f)` in its constructor.
 
 In `FHitReactionEntry`, delete the `PHYSICS` section (lines 923-930: the comment banner, the `[NOT WIRED]` comment, the `UPROPERTY` and `float KnockbackForce = 200.0f;`).
 
-In `AttackData.h`, after `int32 MaxHitCount = 0;` (line 113), add:
+In `AttackData.h`, after `int32 MaxHitCount = 0;` (line 114), add:
 
 ```cpp
 
@@ -595,6 +609,7 @@ UCombatSettings::UCombatSettings()
 	Light.Duration = 0.2f;
 	Light.DirectionMode = EKnockbackDirection::AwayFromAttacker;
 	Light.SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+	Light.AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
 	DefaultKnockback.Add(EAttackType::Light, Light);
 
 	FKnockbackConfig Heavy = Light;
@@ -683,6 +698,8 @@ FKnockbackConfig Resolve(const UAttackData* AttackData, const UCombatSettings* S
 		: (Default ? Default->DirectionMode : EKnockbackDirection::AwayFromAttacker);
 	Result.SpeedProfile = Authored.bOverrideSpeedProfile ? Authored.SpeedProfile
 		: (Default ? Default->SpeedProfile : EDisplacementSpeedProfile::EaseOut);
+	Result.AnimationBlend = Authored.bOverrideAnimationBlend ? Authored.AnimationBlend
+		: (Default ? Default->AnimationBlend : EDisplacementAnimationBlend::AddToAnimation);
 	return Result;
 }
 
@@ -724,6 +741,8 @@ bool ShouldApply(const FEligibility& Eligibility)
 }
 ```
 
+`AlongSwing` reads the blade velocity as `-DirectionToAttacker`. Both normal hit paths set `DirectionToAttacker` to the negated blade velocity when one was measured (`WeaponComponent.cpp:952`, `BaseCombatCharacter.cpp:1544`), and to the victim-to-attacker position direction otherwise. In the positional case `AlongSwing` resolves to `AwayFromAttacker` on its own.
+
 - [ ] **Step 5: Fix references to the removed and renamed fields**
 
 Run: `cd /d/UnrealProjects/5.6/KatanaCombat && git grep -n "KnockbackForce\|GlobalKnockbackMultiplier" -- Source docs/guides docs/architecture CLAUDE.md`
@@ -739,12 +758,13 @@ Expected: all pass (the Knockback.Resolution group reports 5 passes).
 - [ ] **Step 7: Commit**
 
 ```bash
-git add -A Source/KatanaCombat Source/KatanaCombatTest/Private/KnockbackResolutionTests.cpp docs
+git add Source/KatanaCombat/Public/CombatTypes.h Source/KatanaCombat/Public/Data/AttackData.h Source/KatanaCombat/Public/Data/CombatSettings.h Source/KatanaCombat/Private/Data/CombatSettings.cpp Source/KatanaCombat/Public/Data/HitReactionSettings.h Source/KatanaCombat/Public/Utilities/KnockbackResolution.h Source/KatanaCombat/Private/Utilities/KnockbackResolution.cpp Source/KatanaCombatTest/Private/KnockbackResolutionTests.cpp
+git add <each documentation file changed in Step 5>   # list them with: git status --short docs CLAUDE.md
 git commit -m "Add knockback data and pure resolution rules
 
 - FKnockbackOverride with independent per-field overrides on UAttackData;
   FKnockbackConfig per-type defaults in UCombatSettings (Light 25 cm / 0.2 s, Heavy 60 cm /
-  0.25 s, AwayFromAttacker, EaseOut).
+  0.25 s, AwayFromAttacker, EaseOut, AddToAnimation).
 - UHitReactionSettings::KnockbackScale replaces GlobalKnockbackMultiplier;
   FHitReactionEntry::KnockbackForce removed (saved values ignored).
 - UAttackData::MaxChargeKnockbackMultiplier and FHitReactionInfo::ChargeLevel
@@ -1008,7 +1028,7 @@ Rollback checkpoint: <previous commit>"
 
 - [ ] **Step 1: Prove the movement-channel premise**
 
-The test world never calls `BeginPlay`, and no existing test ticks character movement. Before building on it, prove a root-motion source moves a character here. Create `Source/KatanaCombatTest/Private/ProceduralDisplacementExecutorTests.cpp` with the fixture and the premise test:
+No existing test ticks character movement in the automation test world, where component `BeginPlay` may not run. Before building on it, prove that a root-motion source moves a character there. Create `Source/KatanaCombatTest/Private/ProceduralDisplacementExecutorTests.cpp` with the fixture and the premise test:
 
 ```cpp
 #include "CombatTestHelpers.h"
@@ -1268,7 +1288,7 @@ bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Re
 		if (Instance && Instance->Montage)
 		{
 			auto* Modifier = NewObject<URootMotionModifier_ProceduralDisplacement>(MotionWarpingComponent);
-			Modifier->Animation = Instance->Montage;
+			Modifier->Animation = Instance->Montage.Get();
 			Modifier->StartTime = Instance->GetPosition();
 			const float Rate = FMath::Max(0.01f, FMath::Abs(Instance->Montage->RateScale * Instance->GetPlayRate()));
 			// Backstop only: completion is tracked by the modifier's own clock.
@@ -1353,9 +1373,9 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	}
 	const FAlignmentRequestHandle Handle = ActiveAlignmentRequest;
 	FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle);
-	if (!Record)
+	if (!Record || Record->MotionState.Outcome != EAlignmentMotionOutcome::Running)
 	{
-		return;
+		return; // a finished owner-released request waits for its owner; it never reports or moves again
 	}
 	LastAlignmentExecutionFrame = GFrameCounter;
 	LastAlignmentExecutor = EAlignmentExecutor::ProceduralDisplacement;
@@ -1452,6 +1472,10 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 		{
 			ReleaseAlignmentRequest(Handle);
 		}
+		else
+		{
+			SetComponentTickEnabled(HasSmoothAlignmentRequest());
+		}
 	}
 }
 ```
@@ -1490,7 +1514,7 @@ In `TargetingComponent.cpp`, add `#include "Utilities/DisplacementMath.h"`. Then
     RemoveDisplacementChannel(*Record);
 ```
 
-5. `ReleaseAllAlignmentRequests`: before `RemoveRegisteredAlignmentModifiersForHandle` loop, add:
+5. `ReleaseAllAlignmentRequests`: after the reason guard and before `TArray<FAlignmentRequestHandle> Handles;`, add:
 
 ```cpp
     for (TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
@@ -1508,10 +1532,10 @@ In `TargetingComponent.cpp`, add `#include "Utilities/DisplacementMath.h"`. Then
     }
 ```
 
-7. `HasSmoothAlignmentRequest`: add `|| Pair.Value.Spec.Executor == EAlignmentExecutor::ProceduralDisplacement` to the condition.
+7. `HasSmoothAlignmentRequest`: add `|| (Pair.Value.Spec.Executor == EAlignmentExecutor::ProceduralDisplacement && Pair.Value.MotionState.Outcome == EAlignmentMotionOutcome::Running)` to the condition, so a finished request that waits for its owner does not keep the tick alive.
 
 8. `ReevaluateAlignmentRequests`:
-   - In the invalid-handle loop, before `RemoveRegisteredAlignmentModifiersForHandle(Handle);`, call `RemoveDisplacementChannel(*AlignmentRequests.Find(Handle));`. Change that loop's `const FAlignmentRequestRecord* Record` to non-const.
+   - In the invalid-handle loop, make `Record` non-const (`if (FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle))`) and call `RemoveDisplacementChannel(*Record);` before `RemoveRegisteredAlignmentModifiersForHandle(Handle);`. This is defensive: displacement requests carry no `Target`, so they are never stale today.
    - After `ActiveAlignmentRequest = ChooseActiveAlignmentRequest();`, suspend displacement requests that are no longer active:
 
 ```cpp
@@ -1751,6 +1775,27 @@ bool FDisplacementReleaseTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementOwnerReleaseTest, "KatanaCombat.Displacement.Executor.OwnerReleasedRequestHoldsOutcome",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementOwnerReleaseTest::RunTest(const FString&)
+{
+	FDisplacementFixture F;
+	FAlignmentRequestSpec Spec = MakePush(30.f, 0.2f);
+	Spec.bReleaseWhenFinished = false;
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+	for (int32 I = 0; I < 20; ++I) { F.Step(1.f / 60); }
+	FAlignmentMotionState State;
+	TestTrue(TEXT("An owner-released request remains after finishing"), F.Targeting()->GetAlignmentMotionState(Handle, State));
+	TestEqual(TEXT("Its outcome holds at Reached"), State.Outcome, EAlignmentMotionOutcome::Reached);
+	TestFalse(TEXT("The tick stops while only a finished request remains"), F.Targeting()->IsComponentTickEnabled());
+	const FVector Held = F.Character->GetActorLocation();
+	for (int32 I = 0; I < 10; ++I) { F.Step(1.f / 60); } // forced ticks: the finished request must stay inert
+	TestTrue(TEXT("A finished request never moves the owner again"), FVector::Dist2D(F.Character->GetActorLocation(), Held) < 0.5);
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
+	TestEqual(TEXT("The owner's release removes it"), F.Targeting()->GetAlignmentRequestCountForTesting(), 0);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementPriorityOrderTest, "KatanaCombat.Displacement.Executor.PriorityOrdering",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FDisplacementPriorityOrderTest::RunTest(const FString&)
@@ -1772,7 +1817,7 @@ Expected: all pass. If a movement test fails, inspect before adjusting tolerance
 - [ ] **Step 9: Commit**
 
 ```bash
-git add -A Source/KatanaCombat Source/KatanaCombatTest/Private/ProceduralDisplacementExecutorTests.cpp
+git add Source/KatanaCombat/Public/CombatTypes.h Source/KatanaCombat/Public/Core/TargetingComponent.h Source/KatanaCombat/Private/Core/TargetingComponent.cpp Source/KatanaCombat/Private/Core/TargetingComponent_BoundedAlignment.cpp Source/KatanaCombat/Private/Core/TargetingComponent_ProceduralDisplacement.cpp Source/KatanaCombat/Public/Debug/DebugConfig.h Source/KatanaCombat/Private/Debug/DebugConfig.cpp Source/KatanaCombatTest/Private/ProceduralDisplacementExecutorTests.cpp
 git commit -m "Add the ProceduralDisplacement alignment executor
 
 - New executor applies a fixed displacement curve through a runtime
@@ -1855,6 +1900,7 @@ bool FKnockbackStartRequestTest::RunTest(const FString&)
 	TestEqual(TEXT("Light default duration"), Spec.Displacement.Duration, 0.2f);
 	TestEqual(TEXT("Default profile"), Spec.Displacement.SpeedProfile, EDisplacementSpeedProfile::EaseOut);
 	TestEqual(TEXT("Actor clock"), Spec.Displacement.Clock, EDisplacementClock::ActorTime);
+	TestEqual(TEXT("Resolved blend"), Spec.Displacement.AnimationBlend, EDisplacementAnimationBlend::AddToAnimation);
 	TestTrue(TEXT("Pushed away from the attacker"), Spec.Displacement.Direction.Equals(FVector(1, 0, 0), 1e-4));
 	return true;
 }
@@ -2148,7 +2194,7 @@ bool UHitReactionComponent::StartKnockback(const FHitReactionInfo& HitInfo)
 	Spec.Displacement.Duration = Config.Duration;
 	Spec.Displacement.SpeedProfile = Config.SpeedProfile;
 	Spec.Displacement.Clock = EDisplacementClock::ActorTime;
-	Spec.Displacement.AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
+	Spec.Displacement.AnimationBlend = Config.AnimationBlend;
 	KnockbackAlignmentHandle = Targeting->AcquireAlignmentRequest(Spec);
 
 	const bool bStarted = KnockbackAlignmentHandle.IsValid();
@@ -2185,7 +2231,7 @@ Expected: all pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add -A Source/KatanaCombat Source/KatanaCombatTest/Private/KnockbackStartTests.cpp Source/KatanaCombatTest/Private/DefenseArchitectureSourceTests.cpp
+git add Source/KatanaCombat/Public/Core/HitReactionComponent.h Source/KatanaCombat/Private/Core/HitReactionComponent.cpp Source/KatanaCombatTest/Private/KnockbackStartTests.cpp Source/KatanaCombatTest/Private/DefenseArchitectureSourceTests.cpp
 git commit -m "Push the victim when a directional hit reaction starts
 
 - StartKnockback resolves the attack's knockback, charge and victim scale
@@ -2200,17 +2246,23 @@ Rollback checkpoint: <previous commit>"
 
 ---
 
-### Task 6: PIE measurement of the real reaction
+### Task 6: PIE measurement of the real reactions
 
 **Files:**
 - Create: `Source/KatanaCombatTest/Private/KnockbackPIETests.cpp`
 - Modify: `Source/KatanaCombat/Public/Core/HitReactionComponent.h` (automation-test helper block at line 173)
 
 **Interfaces:**
-- Consumes: Tasks 1-5; `AutomationCommon::GetAnyGameWorld()`, `FEditorLoadMap`, `FStartPIECommand`, `FEndPlayMapCommand` (pattern from `DefenseGateBThreatPIEProofTests.cpp`).
+- Consumes: Tasks 1-5; `AutomationCommon::GetAnyGameWorld()`, `FEditorLoadMap`, `FStartPIECommand`, `FEndPlayMapCommand`; the Gate A fixture pattern in `DefenseGateAPIEProofTests.cpp` (`DisableControllerLogic`, `PrepareControlledPair`).
 - Produces: test `KatanaCombat.Knockback.PIE.ReactionMeasurement` and `Saved/Logs/KnockbackMeasurement.json`.
 
 The spec's Verification section names this test. It replaced a capture-harness scenario because the harness is one ~900-line latent command.
+
+Facts this task is built on (checked in the assets while planning):
+- `DA_HitReaction` references the eight `AM_HitReactions_{Light,Heavy}_{F,B,L,R}` montages. Their sequences come from the pack's `RootMotion` folder and set `bEnableRootMotion`, so in play the animation channel carries the push. The pack also ships a `NoRootMotion` variant, which is not used.
+- The Heavy montages are built from `UE5M_Root_knockback_*` sequences, which are **authored knockback animations**. A 60 cm procedural push lands on top of their own travel. That is why this task measures Heavy as well as Light.
+- `Lvl_ThirdPerson1` holds at least four enemies running StateTree AI (Gate A waits for them). Their logic is frozen with Gate A's pattern, and the unused ones are moved away, so nothing but the test hit moves the measured enemy.
+- `UHitReactionComponent::SelectMontageWithVariety` deliberately avoids recently played variants and picks at random among the rest. Each run therefore starts from empty history and the same random seed, and the test asserts that each control/push pair played the same montage.
 
 - [ ] **Step 1: Write the PIE test**
 
@@ -2227,135 +2279,258 @@ Create `Source/KatanaCombatTest/Private/KnockbackPIETests.cpp`:
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "EngineUtils.h"
+#include "AI/EnemyCombatAIComponent.h"
+#include "GameFramework/Controller.h"
 #include "Characters/PlayerCharacter.h"
 #include "Characters/EnemyCharacter.h"
 #include "Core/HitReactionComponent.h"
 #include "Data/AttackData.h"
 #include "Data/HitReactionSettings.h"
 #include "Interfaces/DamageableInterface.h"
-#include "GameFramework/CharacterMovementComponent.h"
-#include "AIController.h"
+#include "Animation/AnimInstance.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/FileHelper.h"
-#include "Animation/AnimInstance.h"
-#include "Components/SkeletalMeshComponent.h"
+#include "UObject/StrongObjectPtr.h"
 
 namespace
 {
 const TCHAR* KnockbackMap = TEXT("/Game/ProjectFiles/Levels/Lvl_ThirdPerson1");
 const TCHAR* LightAttackPath = TEXT("/Game/ProjectFiles/Data/PDA/Attack/AttackData/Light/New/LightAttack_1.LightAttack_1");
+const TCHAR* HeavyAttackPath = TEXT("/Game/ProjectFiles/Data/PDA/Attack/AttackData/Heavy/New/HeavyAttack_1.HeavyAttack_1");
+
+struct FMeasuredRun
+{
+	FString Type;
+	const TCHAR* AttackPath = nullptr;
+	/** Resolved default push for the attack's type (UCombatSettings::DefaultKnockback). */
+	float ExpectedPush = 0.0f;
+	bool bPush = false;
+	double Displacement = 0.0;
+	FString Montage;
+	bool bRootMotionAtHit = false;
+};
 
 class FKnockbackMeasurementCommand final : public IAutomationLatentCommand
 {
 public:
-	explicit FKnockbackMeasurementCommand(FAutomationTestBase* InTest) : Test(InTest), Start(FPlatformTime::Seconds()) {}
+	explicit FKnockbackMeasurementCommand(FAutomationTestBase* InTest)
+		: Test(InTest), CommandStart(FPlatformTime::Seconds())
+	{
+		// Control then push for each type: the difference is the push, the control is the reaction's own travel.
+		Runs.Add({TEXT("light"), LightAttackPath, 25.0f, false});
+		Runs.Add({TEXT("light"), LightAttackPath, 25.0f, true});
+		Runs.Add({TEXT("heavy"), HeavyAttackPath, 60.0f, false});
+		Runs.Add({TEXT("heavy"), HeavyAttackPath, 60.0f, true});
+	}
 
 	virtual bool Update() override
 	{
 		UWorld* World = AutomationCommon::GetAnyGameWorld();
-		if (!World)
+		if (!bReady)
 		{
-			if (FPlatformTime::Seconds() - Start > 20.0) { Test->AddError(TEXT("PIE did not start")); return true; }
+			if (World && FindFixture(World))
+			{
+				bReady = true;
+			}
+			else if (bFailed || FPlatformTime::Seconds() - CommandStart > 20.0)
+			{
+				if (!bFailed)
+				{
+					Test->AddError(TEXT("PIE did not provide a player and an enemy within 20 seconds"));
+				}
+				return true;
+			}
 			return false;
 		}
-		if (!Player.IsValid() && !Setup(World)) { return true; }
+		if (!World || !Player.IsValid() || !Enemy.IsValid())
+		{
+			Test->AddError(TEXT("Fixture actors were destroyed during the measurement"));
+			return true;
+		}
+		if (RunIndex >= Runs.Num())
+		{
+			Report();
+			return true;
+		}
 
+		// Each run: place the enemy and let it settle, hit it, then measure once the reaction is over.
 		const double Now = World->GetTimeSeconds();
-		if (Phase == 0) { BeginRun(false, Now); return false; }                   // control: no push
-		if (Phase == 1 && Now - RunStart >= 1.5) { EndRun(false); BeginRun(true, Now); return false; }
-		if (Phase == 2 && Now - RunStart >= 1.5) { EndRun(true); Report(); return true; }
+		FMeasuredRun& Run = Runs[RunIndex];
+		if (Stage == 0)
+		{
+			Place(Run);
+			StageStart = Now;
+			Stage = 1;
+		}
+		else if (Stage == 1 && Now - StageStart >= 0.5)
+		{
+			Hit(Run);
+			StageStart = Now;
+			Stage = 2;
+		}
+		else if (Stage == 2 && Now - StageStart >= 1.5)
+		{
+			Run.Displacement = FVector::DotProduct(Enemy->GetActorLocation() - RunOrigin, Forward);
+			Stage = 0;
+			++RunIndex;
+		}
 		return false;
 	}
 
 private:
-	bool Setup(UWorld* World)
+	bool FindFixture(UWorld* World)
 	{
-		for (TActorIterator<APlayerCharacter> It(World); It; ++It) { Player = *It; break; }
-		for (TActorIterator<AEnemyCharacter> It(World); It; ++It) { Enemy = *It; break; }
-		Attack = LoadObject<UAttackData>(nullptr, LightAttackPath);
-		if (!Player.IsValid() || !Enemy.IsValid() || !Attack)
+		TArray<AEnemyCharacter*> Enemies;
+		for (TActorIterator<APlayerCharacter> It(World); It; ++It)
 		{
-			Test->AddError(TEXT("Fixture needs a player, an enemy and LightAttack_1")); return false;
+			if (IsValid(*It))
+			{
+				Player = *It;
+				break;
+			}
 		}
-		if (AController* Controller = Enemy->GetController()) { Controller->UnPossess(); }
-		Enemy->GetCharacterMovement()->bRunPhysicsWithNoController = true;
-		// Transient settings copy so the saved DA_HitReaction is never modified in PIE.
+		for (TActorIterator<AEnemyCharacter> It(World); It; ++It)
+		{
+			if (IsValid(*It))
+			{
+				Enemies.Add(*It);
+			}
+		}
+		if (!Player.IsValid() || Enemies.IsEmpty())
+		{
+			return false;
+		}
+		Enemies.Sort([](const AEnemyCharacter& Left, const AEnemyCharacter& Right) { return Left.GetName() < Right.GetName(); });
+		Enemy = Enemies[0];
+		PlayerStart = Player->GetActorLocation();
+		Forward = Player->GetActorForwardVector().GetSafeNormal2D();
+		for (int32 Index = 0; Index < Enemies.Num(); ++Index)
+		{
+			FreezeAI(Enemies[Index]);
+			if (Enemies[Index] != Enemy.Get())
+			{
+				Enemies[Index]->SetActorLocation(PlayerStart + FVector(1800.0 + Index * 150.0, 1000.0, 0.0));
+			}
+		}
+
+		// Transient settings copies, so the saved DA_HitReaction is never modified in PIE.
 		UHitReactionSettings* Base = Enemy->HitReactionComponent->GetEffectiveSettings();
-		PushSettings = Base ? DuplicateObject<UHitReactionSettings>(Base, GetTransientPackage()) : nullptr;
-		ControlSettings = Base ? DuplicateObject<UHitReactionSettings>(Base, GetTransientPackage()) : nullptr;
-		if (!PushSettings || !ControlSettings) { Test->AddError(TEXT("Enemy has no hit reaction settings")); return false; }
+		if (!Base)
+		{
+			Test->AddError(TEXT("The enemy has no hit reaction settings"));
+			bFailed = true;
+			return false;
+		}
+		PushSettings.Reset(DuplicateObject<UHitReactionSettings>(Base, GetTransientPackage()));
+		ControlSettings.Reset(DuplicateObject<UHitReactionSettings>(Base, GetTransientPackage()));
 		PushSettings->KnockbackScale = 1.0f;
 		ControlSettings->KnockbackScale = 0.0f;
-		PlayerStart = Player->GetActorLocation();
 		return true;
 	}
 
-	void BeginRun(const bool bPush, const double Now)
+	/** Gate A's pattern: keep the controller possessing (movement keeps running) but stop its logic. */
+	static void FreezeAI(AEnemyCharacter* Target)
 	{
-		const FVector Forward = Player->GetActorForwardVector().GetSafeNormal2D();
-		Enemy->SetActorLocation(PlayerStart + Forward * 150.0 + FVector(0, 0, 5));
-		Enemy->SetActorRotation((-Forward).Rotation());
-		Enemy->HitReactionComponent->HitReactionSettingsOverride = bPush ? PushSettings : ControlSettings;
-		Direction = Forward;
-		RunOrigin = Enemy->GetActorLocation();
-		FHitReactionInfo Hit;
-		Hit.Attacker = Player.Get();
-		Hit.AttackData = Attack;
-		Hit.Damage = 1.0f;
-		Hit.DirectionToAttacker = -Forward;
-		// Variety selection avoids repeating recent variants, so both runs start from empty history
-		// and the same random seed to play the same reaction.
-		Enemy->HitReactionComponent->ResetReactionHistoryForTesting();
-		FMath::RandInit(0x4B42);
-		IDamageableInterface::Execute_ApplyDamage(Enemy.Get(), Hit);
-		const UAnimInstance* Anim = Enemy->GetMesh() ? Enemy->GetMesh()->GetAnimInstance() : nullptr;
-		(bPush ? PushMontage : ControlMontage) = GetNameSafe(Anim ? Anim->GetCurrentActiveMontage() : nullptr);
-		RunStart = Now;
-		++Phase;
+		if (UEnemyCombatAIComponent* AI = Target->CombatAIComponent.Get())
+		{
+			AI->CancelQueuedAttackRequest();
+			AI->SetCombatTarget(nullptr);
+		}
+		if (AController* Controller = Target->GetController())
+		{
+			Controller->SetActorTickEnabled(false);
+			TArray<UActorComponent*> Components;
+			Controller->GetComponents(Components);
+			for (UActorComponent* Component : Components)
+			{
+				if (Component)
+				{
+					Component->SetComponentTickEnabled(false);
+				}
+			}
+		}
 	}
 
-	void EndRun(const bool bPush)
+	void Place(const FMeasuredRun& Run)
 	{
-		const double Along = FVector::DotProduct(Enemy->GetActorLocation() - RunOrigin, Direction);
-		(bPush ? PushDisplacement : ControlDisplacement) = Along;
+		Enemy->SetActorLocationAndRotation(PlayerStart + Forward * 150.0, (-Forward).Rotation(),
+			false, nullptr, ETeleportType::TeleportPhysics);
+		Enemy->HitReactionComponent->HitReactionSettingsOverride = Run.bPush ? PushSettings.Get() : ControlSettings.Get();
+		Enemy->SetHealth(Enemy->MaxHealth);
+	}
+
+	void Hit(FMeasuredRun& Run)
+	{
+		UAttackData* Attack = LoadObject<UAttackData>(nullptr, Run.AttackPath);
+		if (!Attack)
+		{
+			Test->AddError(FString::Printf(TEXT("Missing attack data %s"), Run.AttackPath));
+			return;
+		}
+		RunOrigin = Enemy->GetActorLocation();
+		FHitReactionInfo Info;
+		Info.Attacker = Player.Get();
+		Info.AttackData = Attack;
+		Info.Damage = 1.0f;
+		Info.DirectionToAttacker = -Forward;
+		Enemy->HitReactionComponent->ResetReactionHistoryForTesting();
+		FMath::RandInit(0x4B42);
+		IDamageableInterface::Execute_ApplyDamage(Enemy.Get(), Info); // synchronous: ApplyDamage -> PlayHitReaction
+		const UAnimInstance* Anim = Enemy->GetMesh() ? Enemy->GetMesh()->GetAnimInstance() : nullptr;
+		Run.Montage = GetNameSafe(Anim ? Anim->GetCurrentActiveMontage() : nullptr);
+		Run.bRootMotionAtHit = Enemy->IsPlayingRootMotion();
 	}
 
 	void Report()
 	{
-		const double Added = PushDisplacement - ControlDisplacement;
-		Test->AddInfo(FString::Printf(TEXT("Reaction root motion alone: %.1f cm; with knockback: %.1f cm; added: %.1f cm"),
-			ControlDisplacement, PushDisplacement, Added));
-		Test->TestEqual(TEXT("Both runs played the same reaction"), PushMontage, ControlMontage);
-		Test->TestNotEqual(TEXT("A reaction montage played"), ControlMontage, FString(TEXT("None")));
-		Test->TestTrue(TEXT("Knockback adds roughly the resolved light push (25 cm)"), FMath::IsNearlyEqual(Added, 25.0, 8.0));
 		TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
-		Json->SetNumberField(TEXT("reaction_root_motion_cm"), ControlDisplacement);
-		Json->SetNumberField(TEXT("with_knockback_cm"), PushDisplacement);
-		Json->SetNumberField(TEXT("added_cm"), Added);
-		Json->SetStringField(TEXT("reaction_montage"), ControlMontage);
+		for (int32 Pair = 0; Pair + 1 < Runs.Num(); Pair += 2)
+		{
+			const FMeasuredRun& Control = Runs[Pair];
+			const FMeasuredRun& Push = Runs[Pair + 1];
+			const double Added = Push.Displacement - Control.Displacement;
+			Test->AddInfo(FString::Printf(TEXT("%s: reaction alone %.1f cm (%s), with knockback %.1f cm, added %.1f cm (resolved %.0f cm)"),
+				*Control.Type, Control.Displacement, *Control.Montage, Push.Displacement, Added, Push.ExpectedPush));
+			Test->TestNotEqual(*FString::Printf(TEXT("%s: a reaction montage played"), *Control.Type), Control.Montage, FString(TEXT("None")));
+			Test->TestEqual(*FString::Printf(TEXT("%s: both runs played the same reaction"), *Control.Type), Push.Montage, Control.Montage);
+			Test->TestTrue(*FString::Printf(TEXT("%s: the reaction plays root motion, so the animation channel carries the push"), *Control.Type),
+				Control.bRootMotionAtHit && Push.bRootMotionAtHit);
+			Test->TestTrue(*FString::Printf(TEXT("%s: knockback adds the resolved push"), *Control.Type),
+				FMath::IsNearlyEqual(Added, static_cast<double>(Push.ExpectedPush), FMath::Max(8.0, 0.25 * Push.ExpectedPush)));
+
+			TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("reaction_montage"), Control.Montage);
+			Entry->SetBoolField(TEXT("root_motion_at_hit"), Control.bRootMotionAtHit);
+			Entry->SetNumberField(TEXT("reaction_root_motion_cm"), Control.Displacement);
+			Entry->SetNumberField(TEXT("with_knockback_cm"), Push.Displacement);
+			Entry->SetNumberField(TEXT("added_cm"), Added);
+			Entry->SetNumberField(TEXT("resolved_push_cm"), Push.ExpectedPush);
+			Json->SetObjectField(Control.Type, Entry);
+		}
 		FString Out;
 		FJsonSerializer::Serialize(Json, TJsonWriterFactory<>::Create(&Out));
 		FFileHelper::SaveStringToFile(Out, *(FPaths::ProjectSavedDir() / TEXT("Logs/KnockbackMeasurement.json")));
 	}
 
 	FAutomationTestBase* Test;
-	double Start;
+	double CommandStart;
+	bool bReady = false;
+	bool bFailed = false;
+	TArray<FMeasuredRun> Runs;
+	int32 RunIndex = 0;
+	int32 Stage = 0;
+	double StageStart = 0.0;
 	TWeakObjectPtr<APlayerCharacter> Player;
 	TWeakObjectPtr<AEnemyCharacter> Enemy;
-	UAttackData* Attack = nullptr;
-	UHitReactionSettings* PushSettings = nullptr;
-	UHitReactionSettings* ControlSettings = nullptr;
+	// Strong references: only one copy is assigned to the enemy at a time, and PIE garbage collection must not take the other.
+	TStrongObjectPtr<UHitReactionSettings> PushSettings;
+	TStrongObjectPtr<UHitReactionSettings> ControlSettings;
 	FVector PlayerStart = FVector::ZeroVector;
+	FVector Forward = FVector::ForwardVector;
 	FVector RunOrigin = FVector::ZeroVector;
-	FVector Direction = FVector::ForwardVector;
-	double RunStart = 0.0;
-	int32 Phase = 0;
-	double ControlDisplacement = 0.0;
-	double PushDisplacement = 0.0;
-	FString ControlMontage;
-	FString PushMontage;
 };
 }
 
@@ -2373,29 +2548,32 @@ bool FKnockbackPIEMeasurementTest::RunTest(const FString&)
 }
 ```
 
-`UHitReactionComponent::GetEffectiveSettings` must be callable here. It is public (`HitReactionComponent.h:72`).
+`GetEffectiveSettings()` is public (`HitReactionComponent.h:71`). `CancelQueuedAttackRequest` and `SetCombatTarget` are public on `UEnemyCombatAIComponent`. The Gate A proof calls them the same way.
 
 - [ ] **Step 2: Build and run tests `KatanaCombat.Knockback.PIE`**
 
-Expected: pass, with an info line reporting the reaction's own root motion and the added push, and `Saved/Logs/KnockbackMeasurement.json` written.
+Expected: pass, with one info line per type reporting the reaction's own travel, the added push and the montage, and `Saved/Logs/KnockbackMeasurement.json` written with `light` and `heavy` entries.
+
+If the root-motion assertion fails, the reactions are not playing root motion in play. In that case the animation channel never runs, and the design premise is wrong. Stop and report to the user before continuing.
 
 - [ ] **Step 3: Decide defaults from the measurement (checkpoint with the user)**
 
-Read `Saved/Logs/KnockbackMeasurement.json` and report both numbers to the user. The spec decisions this step informs:
+Read `Saved/Logs/KnockbackMeasurement.json` and report both entries to the user. Apply this per attack type:
 
-- If the reaction's own step-back along the push is under 15 cm, keep `AddToAnimation` and the 25/60 cm defaults.
-- At 15 cm or more, ask the user before continuing: keep `AddToAnimation`, switch the knockback default to `ReplaceAnimation`, or lower the defaults. Record the decision in the PR description.
+- If the reaction's own travel along the push (`reaction_root_motion_cm`) is under 15 cm, keep `AddToAnimation` and that type's default distance.
+- At 15 cm or more, ask the user before continuing. The choices are: keep `AddToAnimation`, switch that type's knockback to `ReplaceAnimation`, or lower its default distance. Expect Heavy to land here, because its reactions are authored knockback animations. Record the decision in the PR description.
 
-Do not change defaults without that answer.
+Do not change defaults without that answer. Each choice is a data change, with no code. Edit the type's entry in the `UCombatSettings` constructor (`AnimationBlend` or `Distance`). Then check whether any saved combat settings asset serializes `DefaultKnockback`: a saved map overrides constructor defaults, so update that asset too (`grep -rla DefaultKnockback Content`). Re-run this test and report the new numbers.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add Source/KatanaCombatTest/Private/KnockbackPIETests.cpp Source/KatanaCombat/Public/Core/HitReactionComponent.h
-git commit -m "Measure knockback against a real root-motion hit reaction in PIE
+git commit -m "Measure knockback against the real Light and Heavy reactions in PIE
 
-Lands a hit on the ThirdPerson map with knockback disabled and enabled,
-reports the reaction's own root motion and the added push, and writes
+Lands Light and Heavy hits on the ThirdPerson map with knockback disabled
+and enabled, reports each reaction's own root motion and the added push,
+checks the reactions play root motion, and writes
 Saved/Logs/KnockbackMeasurement.json.
 
 Rollback checkpoint: <previous commit>"
@@ -2415,7 +2593,7 @@ Run tests `KatanaCombat.Defense.GateA+KatanaCombat.Defense.GateB+KatanaCombat.Ca
 Expected: all pass. If one fails:
 
 1. Read the failure. Confirm it is caused by a victim position change after a landed hit, for example the Gate A parry bridge's 75 cm per-role budget, or the Gate B semantic proof's unblockable hit on the player.
-2. Only then disable knockback transiently in that proof's fixture. Before the scenario runs, assign the affected character's `HitReactionComponent->HitReactionSettingsOverride` a `DuplicateObject` of its effective settings with `KnockbackScale = 0` (the pattern from Task 6's `Setup`). Never edit saved assets.
+2. Only then disable knockback transiently in that proof's fixture. Before the scenario runs, assign the affected character's `HitReactionComponent->HitReactionSettingsOverride` a `DuplicateObject` of its effective settings with `KnockbackScale = 0` (the pattern from Task 6's `FindFixture`, holding the copy with `TStrongObjectPtr` if the fixture stores it). Never edit saved assets.
 3. Re-run and confirm the proof passes. Note the change and its reason in the PR description.
 
 If a failure is not position-related, stop and investigate it as a bug.
@@ -2430,7 +2608,7 @@ If a failure is not position-related, stop and investigate it as a bug.
 - [ ] **Step 3: Run the full baseline**
 
 Run `powershell -NoProfile -ExecutionPolicy Bypass -File "Tools\Codex\run-agent-baseline.ps1"`.
-Expected: `BASELINE GREEN`. The completed count equals the previous 814 plus the new tests. Record the exact count.
+Expected: `BASELINE GREEN`. The completed count equals the count on `main` before this branch (run the baseline there, or take it from the last merged PR) plus the 32 tests this plan adds: 5 + 5 + 3 + 12 + 6 + 1 across Tasks 1-6. Record the exact count.
 
 - [ ] **Step 4: Commit the docs**
 
