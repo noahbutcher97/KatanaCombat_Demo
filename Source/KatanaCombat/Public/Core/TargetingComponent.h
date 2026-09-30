@@ -577,6 +577,7 @@ private:
     bool ValidateAlignmentSpec(const FAlignmentRequestSpec& Spec) const;
     void AdvanceBoundedAlignment(float DeltaTime);
     void AdvanceProceduralDisplacement(float DeltaTime);
+    bool CanDeliverDisplacement() const;
     bool InstallDisplacementChannel(FAlignmentRequestRecord& Record, float StepEstimate);
     void SteerDisplacementMovement(FAlignmentRequestRecord& Record, float StepEstimate);
     void SyncDisplacementElapsed(FAlignmentRequestRecord& Record);

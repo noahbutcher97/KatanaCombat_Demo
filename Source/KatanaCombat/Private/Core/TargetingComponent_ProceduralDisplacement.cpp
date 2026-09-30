@@ -75,13 +75,22 @@ void UTargetingComponent::SteerDisplacementMovement(FAlignmentRequestRecord& Rec
 		Displacement.SpeedProfile, Displacement.Distance, Displacement.Duration, Record.DisplacementElapsed, StepEstimate);
 }
 
+bool UTargetingComponent::CanDeliverDisplacement() const
+{
+	// Both channels advance only inside character movement's own update, which does not run
+	// (or drops its root motion) while movement is disabled or the capsule simulates physics.
+	const UCharacterMovementComponent* Movement = OwnerCharacter ? OwnerCharacter->GetCharacterMovement() : nullptr;
+	return Movement && Movement->MovementMode != MOVE_None
+		&& Movement->UpdatedComponent && !Movement->UpdatedComponent->IsSimulatingPhysics();
+}
+
 bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Record, const float StepEstimate)
 {
-	UCharacterMovementComponent* Movement = OwnerCharacter ? OwnerCharacter->GetCharacterMovement() : nullptr;
-	if (!Movement || Movement->MovementMode == MOVE_None)
+	if (!CanDeliverDisplacement())
 	{
 		return false;
 	}
+	UCharacterMovementComponent* Movement = OwnerCharacter->GetCharacterMovement();
 	const FProceduralDisplacement& Displacement = Record.Spec.Displacement;
 	const double Remaining = Displacement.Duration - Record.DisplacementElapsed;
 	if (Remaining <= 0.0)
@@ -219,6 +228,12 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	const EDisplacementChannel LiveChannel = DisplacementMath::SelectChannel(
 		OwnerCharacter->IsPlayingRootMotion(), MotionWarpingComponent != nullptr);
 	if (Record->DisplacementChannel != EDisplacementChannel::None && Record->DisplacementChannel != LiveChannel)
+	{
+		RemoveDisplacementChannel(*Record);
+	}
+	// A channel installed before the owner stopped being movable would freeze mid-push (its clock
+	// stops with character movement); drop it so the install below reports Invalid.
+	if (Record->DisplacementChannel != EDisplacementChannel::None && !CanDeliverDisplacement())
 	{
 		RemoveDisplacementChannel(*Record);
 	}

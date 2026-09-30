@@ -180,10 +180,20 @@ bool FDisplacementWallTest::RunTest(const FString&)
 	FDisplacementFixture F;
 	const float Radius = F.Character->GetCapsuleComponent()->GetScaledCapsuleRadius();
 	F.Box(FVector(F.Character->GetActorLocation().X + Radius + 15.f, 0, 100), FVector(5, 500, 200));
-	F.Targeting()->AcquireAlignmentRequest(MakePush(80.f, 0.3f));
-	for (int32 I = 0; I < 40; ++I) { F.Step(1.f / 60); }
-	TestEqual(TEXT("Blocked push released itself"), F.Targeting()->GetAlignmentRequestCountForTesting(), 0);
+	FAlignmentRequestSpec Spec = MakePush(80.f, 0.3f);
+	Spec.bReleaseWhenFinished = false; // hold the outcome: a push that ran out its duration would also end
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+	FAlignmentMotionState State;
+	for (int32 I = 0; I < 40 && F.Targeting()->GetAlignmentMotionState(Handle, State) && State.Outcome == EAlignmentMotionOutcome::Running; ++I)
+	{
+		F.Step(1.f / 60);
+	}
+	F.Targeting()->GetAlignmentMotionState(Handle, State);
+	TestEqual(TEXT("The wall blocks the push"), State.Outcome, EAlignmentMotionOutcome::Blocked);
+	TestTrue(FString::Printf(TEXT("Blocked before the push's end (%.3f of %.3f s)"), State.Elapsed, Spec.Displacement.Duration),
+		State.Elapsed < Spec.Displacement.Duration);
 	TestTrue(TEXT("Stopped at the wall"), F.Character->GetActorLocation().X < 20.0);
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
 	return true;
 }
 
@@ -300,6 +310,52 @@ bool FDisplacementInvalidTest::RunTest(const FString&)
 	TestEqual(TEXT("Invalid push released itself"), F.Targeting()->GetAlignmentRequestCountForTesting(), 0);
 	TestFalse(TEXT("Tick disabled after release"), F.Targeting()->IsComponentTickEnabled());
 	TestTrue(TEXT("Nothing moved"), FVector::Dist(F.Character->GetActorLocation(), Start) < 0.5);
+	return true;
+}
+
+namespace
+{
+/** Push through the movement channel for a few frames, make the owner unable to deliver, step once: the push must end Invalid. */
+void CheckUndeliverableMidPushEndsInvalid(FAutomationTestBase& Test, const TFunctionRef<void(FDisplacementFixture&)> MakeUndeliverable)
+{
+	FDisplacementFixture F;
+	FAlignmentRequestSpec Spec = MakePush(60.f, 0.5f);
+	Spec.bReleaseWhenFinished = false;
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+	for (int32 I = 0; I < 5; ++I) { F.Step(1.f / 60); }
+	FAlignmentMotionState State;
+	F.Targeting()->GetAlignmentMotionState(Handle, State);
+	if (!Test.TestEqual(TEXT("Pushing before the owner stops moving"), State.Outcome, EAlignmentMotionOutcome::Running)) { return; }
+	MakeUndeliverable(F);
+	F.Step(1.f / 60);
+	Test.TestTrue(TEXT("The owner still holds the request"), F.Targeting()->GetAlignmentMotionState(Handle, State));
+	Test.TestEqual(TEXT("An undeliverable push ends Invalid"), State.Outcome, EAlignmentMotionOutcome::Invalid);
+	Test.TestFalse(TEXT("The tick stops once the push has ended"), F.Targeting()->IsComponentTickEnabled());
+	// Removal only marks a source; a movement component that is not updating keeps it until it runs again.
+	const TSharedPtr<FRootMotionSource> Source = F.Movement()->GetRootMotionSource(TEXT("KatanaProceduralDisplacement"));
+	Test.TestTrue(TEXT("No live root-motion source is left behind"),
+		!Source.IsValid() || Source->Status.HasFlag(ERootMotionSourceStatusFlags::MarkedForRemoval));
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementDisabledMidPushTest, "KatanaCombat.Displacement.Executor.DisabledMidPushEndsInvalid",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementDisabledMidPushTest::RunTest(const FString&)
+{
+	CheckUndeliverableMidPushEndsInvalid(*this, [](FDisplacementFixture& F) { F.Movement()->DisableMovement(); });
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementPhysicsMidPushTest, "KatanaCombat.Displacement.Executor.PhysicsSimulatedMidPushEndsInvalid",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementPhysicsMidPushTest::RunTest(const FString&)
+{
+	CheckUndeliverableMidPushEndsInvalid(*this, [this](FDisplacementFixture& F)
+	{
+		F.Character->GetCapsuleComponent()->SetSimulatePhysics(true); // e.g. a ragdoll: character movement stops ticking
+		TestTrue(TEXT("The capsule simulates physics"), F.Movement()->UpdatedComponent->IsSimulatingPhysics());
+	});
 	return true;
 }
 
