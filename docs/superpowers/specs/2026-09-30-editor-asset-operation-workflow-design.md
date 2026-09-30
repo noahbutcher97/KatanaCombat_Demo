@@ -69,13 +69,15 @@ another copy of targets, validation, transactions, approval and reporting.
 struct FKatanaAssetOperationDescriptor
 {
     FName Name;                          // "AttackDataNotifyMigration"
+    int32 Version = 1;                   // bumped when behavior changes; part of every fingerprint
     FText DisplayName;                   // "Generate Phase Notifies"
     FText Description;
     EKatanaAssetOperationTargetKind TargetKind;   // SelectedObjects, TargetList, FixedRecipe, Manifest
     TSubclassOf<UObject> TargetClass;    // for SelectedObjects/TargetList; enables Content Browser entry
     bool bSupportsGlobalScan = false;
     bool bMutatesAssets = true;          // false = read-only (audit/report operations)
-    bool bExposeInContentBrowser = false;
+    bool bCreatesAssetsOrEditsMaps = false; // Undo cannot remove created packages or all map edits
+    EKatanaAssetOperationEntryPoints EntryPoints; // flags: Headless, DetailsButton, ContentBrowser
     TArray<FKatanaAssetOperationParameter> Parameters;  // named, typed, with defaults (e.g. Strategy, Regenerate)
 };
 
@@ -146,8 +148,16 @@ Both contexts run the same operation code; only the surroundings differ.
 
 **Editor:**
 
+- Mutating operations are unavailable during Play In Editor; Preflight reports why.
 - Apply runs inside **one `FScopedTransaction`** for the whole batch, so a batch is one undo
   step. Packages are left dirty; nothing is saved. The user saves normally.
+- Operations with `bCreatesAssetsOrEditsMaps` are allowed in the editor, but their preview
+  shows a prominent warning that Undo does not remove created assets or revert all map edits,
+  and lists the packages that will be created or touched.
+- Targets may have unsaved edits: in the editor, the fingerprint binds the in-memory approval
+  contract (the operation's canonical inputs) instead of on-disk package bytes, so an
+  operation can run on an asset being edited. Headless keeps the stricter on-disk hash and
+  dirty-package rejection.
 - Approval is interactive: a click runs Plan and opens a **change preview** dialog (targets,
   per-row changes, package ledger, warnings). Confirming keeps the plan and its fingerprint
   in memory; Apply recomputes it, and on drift re-opens the preview instead of applying.
@@ -155,7 +165,9 @@ Both contexts run the same operation code; only the surroundings differ.
   per target; cancel stops before the next target. Because the transaction wraps the batch,
   a cancelled batch is rolled back.
 - Results go to a toast notification with a "Show details" link to a `KatanaAssetOperations`
-  Message Log page containing the same rows as the headless report.
+  Message Log page containing the same rows as the headless report. Every editor run also
+  writes the same JSON report to `Saved/Logs/AssetOperations/<operation>-<timestamp>.json`,
+  so editor changes leave the same record as headless ones.
 
 ### Report model
 
@@ -170,7 +182,7 @@ its existing fields for compatibility. New operations add typed detail through t
   enabled-state from Preflight (with the first diagnostic as tooltip), the Plan preview,
   confirmation, transaction, progress and reporting. Customizations add a button by name and
   write no operation logic.
-- **Content Browser actions:** descriptors with `bExposeInContentBrowser` and a
+- **Content Browser actions:** descriptors whose `EntryPoints` include `ContentBrowser` and that have a
   `TargetClass` register a context-menu entry for that asset class through `UToolMenus`. It
   runs the operation on the whole selection with one preview and one transaction. This
   replaces `BatchGenerateNotifies`. `ToolMenus` is added to the editor module's
@@ -233,8 +245,11 @@ the adapters so the existing tests keep compiling and passing.
   rejected for every mutating operation, including the three that previously allowed it.
 - Editor context (non-UI layer): one transaction per batch; undo restores every target; a
   cancelled batch rolls back; nothing is saved.
-- Parity: the same operation and targets produce identical plan rows and fingerprints
-  headless and through the editor context.
+- Parity: for saved (clean) packages, the same operation and targets produce identical plan
+  rows headless and through the editor context; the editor fingerprint for a dirty target
+  binds its in-memory state.
+- Editor gating: mutating operations are unavailable during PIE; asset-creating operations
+  show the undo warning; `Version` changes invalidate prior approvals.
 - Buttons: the notify button no longer dirties an unchanged montage; invalid timing is
   reported, not rewritten.
 - Existing suites (`KatanaAssetMigrationTests`, `AttackDataEditorToolsTests`) pass unchanged
@@ -256,3 +271,5 @@ the adapters so the existing tests keep compiling and passing.
   unreachable undo and redo, silent `hand_r` weapon fallback).
 - Replace the fat `FKatanaAssetMigrationRow` with a base row plus typed payloads once no test
   depends on the flat fields.
+- Scripting access (a Blueprint/Python-callable entry point for Editor Utility widgets and
+  editor Python) over the same registry.
