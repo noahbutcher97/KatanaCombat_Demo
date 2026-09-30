@@ -60,6 +60,9 @@ namespace CombatDebug
     /** Hold state visualization (hold active indicator, direction capture) */
     extern TAutoConsoleVariable<int32> CVarDebugHold;
 
+    /** Knockback visualization (push direction, displacement channel, outcome) */
+    extern TAutoConsoleVariable<int32> CVarDebugKnockback;
+
     /** Debug draw duration in seconds (0 = single frame) */
     extern TAutoConsoleVariable<float> CVarDebugDrawDuration;
 
@@ -134,6 +137,12 @@ namespace CombatDebug
     FORCEINLINE bool IsCombatStateDebugEnabled()
     {
         return IsPhaseDebugEnabled() || IsQueueDebugEnabled() || IsHoldDebugEnabled();
+    }
+
+    /** Check if knockback debug is enabled (standalone or via master toggle) */
+    FORCEINLINE bool IsKnockbackDebugEnabled()
+    {
+        return IsDebugEnabled() || CVarDebugKnockback.GetValueOnGameThread() != 0;
     }
 
     /** Check if verbose logging is enabled */

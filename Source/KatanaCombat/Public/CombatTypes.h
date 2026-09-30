@@ -391,6 +391,8 @@ enum class EDefenseAlignmentPriority : uint8
 {
 	GuardFacing,
 	ActiveAttackWarp,
+	/** Hit knockback: overrides the victim's own attack warp, yields to defense and paired moves. */
+	HitKnockback,
 	BlockContact,
 	PairedOrParryBridge,
 	Terminal
@@ -402,7 +404,9 @@ enum class EAlignmentExecutor : uint8
 	None,
 	CharacterMovement,
 	MotionWarping,
-	BoundedMovement
+	BoundedMovement,
+	/** Fixed-curve displacement applied through a root-motion modifier or a character-movement root-motion source. */
+	ProceduralDisplacement
 };
 
 UENUM(BlueprintType)
@@ -3132,6 +3136,14 @@ struct FAlignmentRequestSpec
 	FTransform BoundedGoal = FTransform::Identity;
 	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
 	FAlignmentMotionLimits MotionLimits;
+
+	/** ProceduralDisplacement only. Immutable after acquisition. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FProceduralDisplacement Displacement;
+
+	/** When set, the arbiter releases this request itself on any terminal outcome. Immutable. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	bool bReleaseWhenFinished = false;
 };
 
 USTRUCT(BlueprintType)

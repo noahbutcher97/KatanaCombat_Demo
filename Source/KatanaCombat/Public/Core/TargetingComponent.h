@@ -14,6 +14,7 @@ class AActor;
 class UMotionWarpingComponent;
 class URootMotionModifier;
 class URootMotionModifier_Warp;
+class URootMotionModifier_ProceduralDisplacement;
 class UCombatSettings;
 class UTargetingSettings;
 
@@ -393,6 +394,16 @@ private:
         FAlignmentRequestSpec Spec;
         FAlignmentMotionState MotionState;
         uint64 AcquisitionOrder = 0;
+
+        // ProceduralDisplacement runtime state
+        double DisplacementElapsed = 0.0;
+        double DisplacementChannelStartElapsed = 0.0;
+        EDisplacementChannel DisplacementChannel = EDisplacementChannel::None;
+        TWeakObjectPtr<URootMotionModifier_ProceduralDisplacement> DisplacementModifier;
+        uint16 DisplacementSourceId = 0;
+        int32 DisplacementBlockedTicks = 0;
+        FVector DisplacementLastLocation = FVector::ZeroVector;
+        bool bDisplacementHasLastLocation = false;
     };
 
     struct FCapturedRotationSettings
@@ -565,6 +576,14 @@ private:
     bool EnsureAlignmentDependencies();
     bool ValidateAlignmentSpec(const FAlignmentRequestSpec& Spec) const;
     void AdvanceBoundedAlignment(float DeltaTime);
+    void AdvanceProceduralDisplacement(float DeltaTime);
+    bool InstallDisplacementChannel(FAlignmentRequestRecord& Record, float StepEstimate);
+    void SteerDisplacementMovement(FAlignmentRequestRecord& Record, float StepEstimate);
+    void SyncDisplacementElapsed(FAlignmentRequestRecord& Record);
+    void ReportDisplacementOutcome(const FAlignmentRequestRecord& Record, EAlignmentMotionOutcome Outcome) const;
+    void RemoveDisplacementChannel(FAlignmentRequestRecord& Record);
+    static bool RequestCanRotate(const FAlignmentRequestSpec& Spec);
+    bool HasRotatingAlignmentRequest() const;
     bool CaptureAlignmentRotationSettings();
     void RestoreAlignmentRotationSettings();
     FAlignmentRequestHandle ChooseActiveAlignmentRequest() const;

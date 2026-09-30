@@ -2,6 +2,7 @@
 
 #include "Core/TargetingComponent.h"
 #include "Utilities/AlignmentMotionLibrary.h"
+#include "Utilities/DisplacementMath.h"
 #include "Debug/DebugConfig.h"
 #include "Debug/DebugUtils.h"
 #include "GameFramework/Character.h"
@@ -146,6 +147,11 @@ void UTargetingComponent::TickComponent(
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
     FAlignmentRequestRecord* ActiveRecord = AlignmentRequests.Find(ActiveAlignmentRequest);
+    if (ActiveRecord && ActiveRecord->Spec.Executor == EAlignmentExecutor::ProceduralDisplacement)
+    {
+        AdvanceProceduralDisplacement(DeltaTime);
+        return;
+    }
     if (ActiveRecord && ActiveRecord->Spec.Executor == EAlignmentExecutor::BoundedMovement)
     {
         AdvanceBoundedAlignment(DeltaTime);
@@ -805,7 +811,7 @@ FAlignmentRequestHandle UTargetingComponent::AcquireAlignmentRequest(const FAlig
         }
     }
 
-    if (AlignmentRequests.IsEmpty() && !CaptureAlignmentRotationSettings())
+    if (RequestCanRotate(Spec) && !CaptureAlignmentRotationSettings())
     {
         return {};
     }
@@ -869,7 +875,9 @@ bool UTargetingComponent::UpdateAlignmentRequest(
         || Spec.OwnerGeneration != Record->Spec.OwnerGeneration
         || Spec.Priority != Record->Spec.Priority
         || Spec.Executor != Record->Spec.Executor
-        || Spec.WarpTargetName != Record->Spec.WarpTargetName)
+        || Spec.WarpTargetName != Record->Spec.WarpTargetName
+        || (Spec.Executor == EAlignmentExecutor::ProceduralDisplacement && !(Spec.Displacement == Record->Spec.Displacement))
+        || Spec.bReleaseWhenFinished != Record->Spec.bReleaseWhenFinished)
     {
         UE_LOG(LogTargeting, Warning,
             TEXT("Alignment request update rejected: owner identity, priority, executor, and target name are immutable"));
@@ -887,11 +895,12 @@ bool UTargetingComponent::UpdateAlignmentRequest(
 
 void UTargetingComponent::ReleaseAlignmentRequest(FAlignmentRequestHandle Handle)
 {
-    const FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle);
+    FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle);
     if (!Record)
     {
         return;
     }
+    RemoveDisplacementChannel(*Record);
 
     const FAlignmentRequestRecord ReleasedRecord = *Record;
     RemoveRegisteredAlignmentModifiersForHandle(Handle);
@@ -916,6 +925,10 @@ void UTargetingComponent::ReleaseAllAlignmentRequests(EAlignmentReleaseReason Re
         return;
     }
 
+    for (TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+    {
+        RemoveDisplacementChannel(Pair.Value);
+    }
     TArray<FAlignmentRequestHandle> Handles;
     AlignmentRequests.GetKeys(Handles);
     for (const FAlignmentRequestHandle Handle : Handles)
@@ -1074,6 +1087,11 @@ bool UTargetingComponent::ValidateAlignmentSpec(const FAlignmentRequestSpec& Spe
         return AlignmentMotion::IsValid(Spec.MotionLimits) && AlignmentMotion::IsValidGoal(Spec.BoundedGoal);
     }
 
+    if (Spec.Executor == EAlignmentExecutor::ProceduralDisplacement)
+    {
+        return DisplacementMath::IsValid(Spec.Displacement);
+    }
+
     if (Spec.Executor == EAlignmentExecutor::CharacterMovement)
     {
         return Spec.MaximumTurnRate > 0.0f;
@@ -1154,7 +1172,8 @@ bool UTargetingComponent::HasSmoothAlignmentRequest() const
     for (const TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
     {
         if (Pair.Value.Spec.Executor == EAlignmentExecutor::CharacterMovement
-            || Pair.Value.Spec.Executor == EAlignmentExecutor::BoundedMovement)
+            || Pair.Value.Spec.Executor == EAlignmentExecutor::BoundedMovement
+            || (Pair.Value.Spec.Executor == EAlignmentExecutor::ProceduralDisplacement && Pair.Value.MotionState.Outcome == EAlignmentMotionOutcome::Running))
         {
             return true;
         }
@@ -1174,8 +1193,9 @@ void UTargetingComponent::ReevaluateAlignmentRequests()
     }
     for (const FAlignmentRequestHandle Handle : InvalidHandles)
     {
-        if (const FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle))
+        if (FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle))
         {
+            RemoveDisplacementChannel(*Record);
             RemoveRegisteredAlignmentModifiersForHandle(Handle);
             RemoveAlignmentWarpTarget(*Record);
         }
@@ -1193,6 +1213,15 @@ void UTargetingComponent::ReevaluateAlignmentRequests()
     }
 
     ActiveAlignmentRequest = ChooseActiveAlignmentRequest();
+    for (TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+    {
+        if (Pair.Key != ActiveAlignmentRequest
+            && Pair.Value.Spec.Executor == EAlignmentExecutor::ProceduralDisplacement
+            && Pair.Value.DisplacementChannel != EDisplacementChannel::None)
+        {
+            RemoveDisplacementChannel(Pair.Value); // resumes from DisplacementElapsed when active again
+        }
+    }
     if (const FAlignmentRequestRecord* ActiveRecord = AlignmentRequests.Find(ActiveAlignmentRequest))
     {
         if (ActiveRecord->Spec.Executor == EAlignmentExecutor::MotionWarping)
@@ -1205,7 +1234,7 @@ void UTargetingComponent::ReevaluateAlignmentRequests()
 
     SynchronizeAlignmentModifiers();
     SetComponentTickEnabled(HasSmoothAlignmentRequest());
-    if (AlignmentRequests.IsEmpty())
+    if (!HasRotatingAlignmentRequest())
     {
         RestoreAlignmentRotationSettings();
     }

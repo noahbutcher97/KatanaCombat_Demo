@@ -75,6 +75,16 @@ namespace CombatDebug
         TEXT("  1: Enabled"),
         ECVF_Default);
 
+    TAutoConsoleVariable<int32> CVarDebugKnockback(
+        TEXT("Combat.Debug.Knockback"),
+        0,
+        TEXT("Enable knockback debug visualization\n")
+        TEXT("Shows: push direction and distance, resolved config, charge and scale,\n")
+        TEXT("       the live displacement channel (cyan animation, orange movement) and the outcome\n")
+        TEXT("  0: Disabled (default)\n")
+        TEXT("  1: Enabled"),
+        ECVF_Default);
+
     TAutoConsoleVariable<float> CVarDebugDrawDuration(
         TEXT("Combat.Debug.DrawDuration"),
         0.0f,
