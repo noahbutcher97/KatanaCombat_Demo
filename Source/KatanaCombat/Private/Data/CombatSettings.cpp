@@ -6,7 +6,18 @@
 
 UCombatSettings::UCombatSettings()
 {
-	// Default values are set in header file
+	FKnockbackConfig Light;
+	Light.Distance = 25.0f;
+	Light.Duration = 0.2f;
+	Light.DirectionMode = EKnockbackDirection::AwayFromAttacker;
+	Light.SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+	Light.AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
+	DefaultKnockback.Add(EAttackType::Light, Light);
+
+	FKnockbackConfig Heavy = Light;
+	Heavy.Distance = 60.0f;
+	Heavy.Duration = 0.25f;
+	DefaultKnockback.Add(EAttackType::Heavy, Heavy);
 }
 
 UAttackConfiguration* UCombatSettings::GetAttackConfiguration() const

@@ -451,6 +451,83 @@ enum class EDisplacementChannel : uint8
 	Movement
 };
 
+/** Direction policy for a knockback push. */
+UENUM(BlueprintType)
+enum class EKnockbackDirection : uint8
+{
+	/** Straight away from the attacker (horizontal). */
+	AwayFromAttacker,
+	/** Along the blade's horizontal velocity at contact; falls back to AwayFromAttacker when that is mostly vertical or points toward the attacker. */
+	AlongSwing
+};
+
+/** Knockback values: the resolved result, and the per-attack-type defaults in UCombatSettings::DefaultKnockback. */
+USTRUCT(BlueprintType)
+struct FKnockbackConfig
+{
+	GENERATED_BODY()
+
+	/** Uncharged push distance in centimeters. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (ClampMin = "0.0", ClampMax = "500.0"))
+	float Distance = 0.0f;
+
+	/** Seconds over which the push happens (on the victim's own time). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float Duration = 0.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
+	EKnockbackDirection DirectionMode = EKnockbackDirection::AwayFromAttacker;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
+	EDisplacementSpeedProfile SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+
+	/** How the push combines with the reaction's own root motion (set per type from the Task 6 measurement). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
+	EDisplacementAnimationBlend AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
+};
+
+/**
+ * Knockback on an attack: each ticked field overrides the attacker's combat-settings default
+ * for the attack's type independently. A separate type so the defaults map shows plain values.
+ */
+USTRUCT(BlueprintType)
+struct FKnockbackOverride
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideDistance = false;
+
+	/** Uncharged push distance in centimeters. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideDistance", ClampMin = "0.0", ClampMax = "500.0"))
+	float Distance = 0.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideDuration = false;
+
+	/** Seconds over which the push happens (on the victim's own time). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideDuration", ClampMin = "0.05", ClampMax = "1.0"))
+	float Duration = 0.2f;
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideDirectionMode = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideDirectionMode"))
+	EKnockbackDirection DirectionMode = EKnockbackDirection::AwayFromAttacker;
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideSpeedProfile = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideSpeedProfile"))
+	EDisplacementSpeedProfile SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideAnimationBlend = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideAnimationBlend"))
+	EDisplacementAnimationBlend AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
+};
+
 /** Limits for swept preparation movement, in world simulation seconds and centimeters. */
 USTRUCT(BlueprintType)
 struct FAlignmentMotionLimits
@@ -769,6 +846,10 @@ struct FHitReactionInfo
     UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
     float HitConfidence = 1.0f;
 
+    /** Attacker's latched charge level (0..1) for this hit; scales knockback. Set by the damage sites. */
+    UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
+    float ChargeLevel = 0.0f;
+
     FHitReactionInfo()
         : Attacker(nullptr)
         , DirectionToAttacker(FVector::ForwardVector)
@@ -785,6 +866,7 @@ struct FHitReactionInfo
         , DistanceToTarget(0.0f)
         , SurfaceType(ECombatSurfaceType::Default)
         , HitConfidence(1.0f)
+        , ChargeLevel(0.0f)
     {
     }
 };
@@ -954,15 +1036,6 @@ struct FHitReactionEntry
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing",
         meta = (EditCondition = "bHasIFrames", ClampMin = "0.0"))
     float IFrameEnd = 0.5f;
-
-    // ========================================================================
-    // PHYSICS
-    // ========================================================================
-
-    /** [NOT WIRED] No knockback physics is currently applied; this value is never consumed (pending wire-or-delete, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics",
-        meta = (ClampMin = "0.0"))
-    float KnockbackForce = 200.0f;
 
     // ========================================================================
     // OUTCOME (what happens after animation completes)

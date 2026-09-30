@@ -113,6 +113,10 @@ public:
         meta = (ClampMin = "0", ClampMax = "10"))
     int32 MaxHitCount = 0;
 
+    /** Knockback for this attack; fields not overridden come from the attacker's CombatSettings default for this attack type. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|Knockback")
+    FKnockbackOverride Knockback;
+
     // ============================================================================
     // HITSTOP (Per-Attack Impact Freeze)
     // ============================================================================
@@ -201,6 +205,11 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float MaxChargeDamageMultiplier = 2.5f;
+
+    /** Knockback multiplier at full charge (1 = charge does not affect knockback). */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides, ClampMin = "1.0"))
+    float MaxChargeKnockbackMultiplier = 1.0f;
 
     /** DEPRECATED: Posture system removed. Stagger is contextual and duration-based (ApplyStagger). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deprecated",
