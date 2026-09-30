@@ -194,8 +194,9 @@ reaction pushes; step 4 makes additive flinches not push through the same decisi
 
 | Change | Detail |
 | --- | --- |
-| Add `FKnockbackConfig` (`CombatTypes.h`) | `Distance` (cm, `ClampMin=0, ClampMax=500`), `Duration` (s, `ClampMin=0.05, ClampMax=1`), `DirectionMode` (`EKnockbackDirection`: `AwayFromAttacker`, `AlongSwing`), `SpeedProfile` (`Linear`, `EaseOut`). Each field has an inline override toggle used when the struct appears on an attack. |
-| Add `UAttackData::Knockback` | `FKnockbackConfig`; each field overridden independently, else the attacker's combat-settings default. |
+| Add `FKnockbackConfig` (`CombatTypes.h`) | Values only: `Distance` (cm, `ClampMin=0, ClampMax=500`), `Duration` (s, `ClampMin=0.05, ClampMax=1`), `DirectionMode` (`EKnockbackDirection`: `AwayFromAttacker`, `AlongSwing`), `SpeedProfile` (`Linear`, `EaseOut`). The resolved result, and the type of the defaults map. |
+| Add `FKnockbackOverride` (`CombatTypes.h`) | The same four fields, each with an inline override toggle. It is a separate type so the defaults map shows plain, editable values rather than fields greyed out behind toggles that do not apply there. |
+| Add `UAttackData::Knockback` | `FKnockbackOverride`; each field overridden independently, else the attacker's combat-settings default. |
 | Add `UCombatSettings::DefaultKnockback` | `TMap<EAttackType, FKnockbackConfig>`: Light `{25 cm, 0.2 s, AwayFromAttacker, EaseOut}`, Heavy `{60 cm, 0.25 s, AwayFromAttacker, EaseOut}`. Missing types resolve to no push. The attacker's combat settings are the character's `ABaseCombatCharacter::CombatSettings`. |
 | Rename `UHitReactionSettings::GlobalKnockbackMultiplier` → `KnockbackScale` | Default 1, `ClampMin=0, ClampMax=5`. Victim-side distance scale: 1 normal, 0 immune. No asset serializes the old name. |
 | Delete `FHitReactionEntry::KnockbackForce` | Saved 200s ignored on load. |

@@ -45,7 +45,7 @@ The final task runs the full baseline: `powershell -NoProfile -ExecutionPolicy B
 2. The player is the victim: pushing the player must not change `bOrientRotationToMovement` or `bUseControllerRotationYaw` (Task 4, `PlayerRotationSettingsUntouched`).
 3. Hitstop freezes the victim (dilation 0.0001) the instant the push starts: no movement until the freeze ends, then the full push (Task 4, `PausesUnderHitstopDilation`).
 4. The push meets a wall or a ledge: it stops at a wall and releases; over a ledge the victim falls rather than hovering (Task 4, `WallBlocksAndReleases`, `LedgeFallsInsteadOfHovering`).
-5. A higher-priority alignment (block contact, paired or parry bridge) arrives mid-push: the push suspends without moving the victim and resumes afterwards; entering a paired animation releases it (Task 4, `SuspendsUnderHigherPriority`; Task 5 source test).
+5. A higher-priority alignment (block contact, paired or parry bridge) arrives mid-push: the push suspends without moving the victim and resumes afterwards; entering a paired animation or dying releases it (Task 4, `SuspendsUnderHigherPriority`; Task 5, `DeathReleasesPush` and the architecture source test).
 
 ---
 
@@ -64,7 +64,7 @@ The final task runs the full baseline: `powershell -NoProfile -ExecutionPolicy B
   - `enum class EDisplacementAnimationBlend : uint8 { AddToAnimation, ReplaceAnimation };`
   - `enum class EDisplacementChannel : uint8 { None, Animation, Movement };`
   - `struct FProceduralDisplacement { FVector Direction; float Distance; float Duration; EDisplacementSpeedProfile SpeedProfile; EDisplacementClock Clock; EDisplacementAnimationBlend AnimationBlend; bool operator==(...) const; };`
-  - `namespace DisplacementMath { double Progress(EDisplacementSpeedProfile, double U); double DistanceBetween(EDisplacementSpeedProfile, double Distance, double Duration, double T0, double T1); EDisplacementChannel SelectChannel(bool bPlayingRootMotion, bool bHasMotionWarping); bool IsValid(const FProceduralDisplacement&); }`
+  - `namespace DisplacementMath { double Progress(EDisplacementSpeedProfile, double U); double DistanceBetween(EDisplacementSpeedProfile, double Distance, double Duration, double T0, double T1); double StepSpeed(EDisplacementSpeedProfile, double Distance, double Duration, double T, double Step); EDisplacementChannel SelectChannel(bool bPlayingRootMotion, bool bHasMotionWarping); bool IsValid(const FProceduralDisplacement&); }`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -104,6 +104,22 @@ bool FDisplacementMathPartitionTest::RunTest(const FString&)
 		DisplacementMath::DistanceBetween(EDisplacementSpeedProfile::EaseOut, 60.0, 0.25, 0.0, 0.125) > 30.0);
 	TestEqual(TEXT("Zero duration is a jump at the start"),
 		DisplacementMath::DistanceBetween(EDisplacementSpeedProfile::Linear, 10.0, 0.0, 0.0, 0.1), 10.0, 1e-9);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementMathStepSpeedTest, "KatanaCombat.Displacement.Math.StepSpeed",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementMathStepSpeedTest::RunTest(const FString&)
+{
+	TestEqual(TEXT("Linear speed is constant"), DisplacementMath::StepSpeed(EDisplacementSpeedProfile::Linear, 50.0, 0.25, 0.1, 1.0 / 60), 200.0, 1e-6);
+	// Stepping at StepSpeed for each step lands exactly on the curve, including a final step that crosses the end.
+	double Covered = 0.0;
+	for (double T = 0.0; T < 0.25; T += 1.0 / 60)
+	{
+		Covered += DisplacementMath::StepSpeed(EDisplacementSpeedProfile::EaseOut, 60.0, 0.25, T, 1.0 / 60) / 60;
+	}
+	TestEqual(TEXT("EaseOut steps sum to the distance"), Covered, 60.0, 1e-6);
+	TestTrue(TEXT("A zero step is finite"), FMath::IsFinite(DisplacementMath::StepSpeed(EDisplacementSpeedProfile::EaseOut, 60.0, 0.25, 0.1, 0.0)));
 	return true;
 }
 
@@ -240,6 +256,9 @@ KATANACOMBAT_API double Progress(EDisplacementSpeedProfile Profile, double U);
 /** Distance covered between request times T0 and T1 (clamped to [0, Duration]). Duration <= 0 jumps at T0 == 0. */
 KATANACOMBAT_API double DistanceBetween(EDisplacementSpeedProfile Profile, double Distance, double Duration, double T0, double T1);
 
+/** Average speed (cm/s) over [T, T + Step]: the constant force that lands exactly on the curve over one step. */
+KATANACOMBAT_API double StepSpeed(EDisplacementSpeedProfile Profile, double Distance, double Duration, double T, double Step);
+
 /** Animation channel only when a root-motion montage plays and motion warping can modify it. */
 KATANACOMBAT_API EDisplacementChannel SelectChannel(bool bPlayingRootMotion, bool bHasMotionWarping);
 
@@ -273,6 +292,12 @@ double DistanceBetween(const EDisplacementSpeedProfile Profile, const double Dis
 	return Distance * (Progress(Profile, T1 / Duration) - Progress(Profile, T0 / Duration));
 }
 
+double StepSpeed(const EDisplacementSpeedProfile Profile, const double Distance, const double Duration, const double T, const double Step)
+{
+	const double SafeStep = FMath::Max(Step, UE_KINDA_SMALL_NUMBER);
+	return DistanceBetween(Profile, Distance, Duration, T, T + SafeStep) / SafeStep;
+}
+
 EDisplacementChannel SelectChannel(const bool bPlayingRootMotion, const bool bHasMotionWarping)
 {
 	return bPlayingRootMotion && bHasMotionWarping ? EDisplacementChannel::Animation : EDisplacementChannel::Movement;
@@ -292,7 +317,7 @@ bool IsValid(const FProceduralDisplacement& Displacement)
 
 - [ ] **Step 5: Build and run tests `KatanaCombat.Displacement.Math`**
 
-Expected: `passed=4 failed=0`.
+Expected: `passed=5 failed=0`.
 
 - [ ] **Step 6: Commit**
 
@@ -302,8 +327,8 @@ git commit -m "Add procedural displacement types and pure math
 
 - Speed profile, clock, animation blend and channel enums.
 - FProceduralDisplacement fixed-curve description.
-- DisplacementMath: progress, distance between times, channel selection
-  and validity (ActorTime only until the paired entry step).
+- DisplacementMath: progress, distance between times, step speed,
+  channel selection and validity (ActorTime only until the paired entry step).
 
 Rollback checkpoint: <previous commit>"
 ```
@@ -326,8 +351,9 @@ Rollback checkpoint: <previous commit>"
 - Consumes: `EDisplacementSpeedProfile` (Task 1), `CombatMath::FlatDirection`.
 - Produces:
   - `enum class EKnockbackDirection : uint8 { AwayFromAttacker, AlongSwing };`
-  - `struct FKnockbackConfig { bool bOverrideDistance; float Distance; bool bOverrideDuration; float Duration; bool bOverrideDirectionMode; EKnockbackDirection DirectionMode; bool bOverrideSpeedProfile; EDisplacementSpeedProfile SpeedProfile; };`
-  - `UAttackData::Knockback` (`FKnockbackConfig`), `UAttackData::MaxChargeKnockbackMultiplier` (`float`, default 1).
+  - `struct FKnockbackConfig { float Distance; float Duration; EKnockbackDirection DirectionMode; EDisplacementSpeedProfile SpeedProfile; };` (values: resolved result and defaults)
+  - `struct FKnockbackOverride { bool bOverrideDistance; float Distance; bool bOverrideDuration; float Duration; bool bOverrideDirectionMode; EKnockbackDirection DirectionMode; bool bOverrideSpeedProfile; EDisplacementSpeedProfile SpeedProfile; };` (per-attack toggles)
+  - `UAttackData::Knockback` (`FKnockbackOverride`), `UAttackData::MaxChargeKnockbackMultiplier` (`float`, default 1).
   - `UCombatSettings::DefaultKnockback` (`TMap<EAttackType, FKnockbackConfig>`).
   - `UHitReactionSettings::KnockbackScale` (`float`, default 1).
   - `FHitReactionInfo::ChargeLevel` (`float`, default 0).
@@ -461,12 +487,33 @@ enum class EKnockbackDirection : uint8
 	AlongSwing
 };
 
-/**
- * Knockback authored on an attack (fields overridden independently) or as a per-attack-type
- * default in UCombatSettings::DefaultKnockback (where the override toggles are ignored).
- */
+/** Knockback values: the resolved result, and the per-attack-type defaults in UCombatSettings::DefaultKnockback. */
 USTRUCT(BlueprintType)
 struct FKnockbackConfig
+{
+	GENERATED_BODY()
+
+	/** Uncharged push distance in centimeters. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (ClampMin = "0.0", ClampMax = "500.0"))
+	float Distance = 0.0f;
+
+	/** Seconds over which the push happens (on the victim's own time). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float Duration = 0.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
+	EKnockbackDirection DirectionMode = EKnockbackDirection::AwayFromAttacker;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
+	EDisplacementSpeedProfile SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+};
+
+/**
+ * Knockback on an attack: each ticked field overrides the attacker's combat-settings default
+ * for the attack's type independently. A separate type so the defaults map shows plain values.
+ */
+USTRUCT(BlueprintType)
+struct FKnockbackOverride
 {
 	GENERATED_BODY()
 
@@ -516,7 +563,7 @@ In `AttackData.h`, after `int32 MaxHitCount = 0;` (line 113), add:
 
     /** Knockback for this attack; fields not overridden come from the attacker's CombatSettings default for this attack type. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|Knockback")
-    FKnockbackConfig Knockback;
+    FKnockbackOverride Knockback;
 ```
 
 In `AttackData.h`, after `float MaxChargeDamageMultiplier = 2.5f;` (line 203), add:
@@ -629,7 +676,7 @@ FKnockbackConfig Resolve(const UAttackData* AttackData, const UCombatSettings* S
 	}
 
 	const FKnockbackConfig* Default = Settings->DefaultKnockback.Find(AttackData->AttackType);
-	const FKnockbackConfig& Authored = AttackData->Knockback;
+	const FKnockbackOverride& Authored = AttackData->Knockback;
 	Result.Distance = Authored.bOverrideDistance ? Authored.Distance : (Default ? Default->Distance : 0.0f);
 	Result.Duration = Authored.bOverrideDuration ? Authored.Duration : (Default ? Default->Duration : 0.2f);
 	Result.DirectionMode = Authored.bOverrideDirectionMode ? Authored.DirectionMode
@@ -682,6 +729,9 @@ bool ShouldApply(const FEligibility& Eligibility)
 Run: `cd /d/UnrealProjects/5.6/KatanaCombat && git grep -n "KnockbackForce\|GlobalKnockbackMultiplier" -- Source docs/guides docs/architecture CLAUDE.md`
 Expected remaining hits: only documentation. Update each documentation mention to describe `UAttackData::Knockback`, `UCombatSettings::DefaultKnockback` and `UHitReactionSettings::KnockbackScale`. Any C++ hit is a compile error to fix by removing the stale read.
 
+Blueprints and data assets are binary, so also run: `grep -rlaE "KnockbackForce|GlobalKnockbackMultiplier" Content`
+Expected (checked while planning): only `Content/ProjectFiles/Data/PDA/HitReaction/HitReactionSettings/DA_HitReaction.uasset`, which holds serialized `KnockbackForce` entry values. Those are skipped on load once the property is gone, as the spec intends. No asset holds `GlobalKnockbackMultiplier`. Any other hit, especially a Blueprint, must be inspected (the uemcp `find_blueprint_nodes` tool can show the graph) and fixed before continuing.
+
 - [ ] **Step 6: Build and run tests `KatanaCombat.Knockback.Resolution+KatanaCombat.HitReaction+KatanaCombat.Displacement`**
 
 Expected: all pass (the Knockback.Resolution group reports 5 passes).
@@ -692,8 +742,8 @@ Expected: all pass (the Knockback.Resolution group reports 5 passes).
 git add -A Source/KatanaCombat Source/KatanaCombatTest/Private/KnockbackResolutionTests.cpp docs
 git commit -m "Add knockback data and pure resolution rules
 
-- FKnockbackConfig with independent per-field overrides on UAttackData;
-  per-type defaults in UCombatSettings (Light 25 cm / 0.2 s, Heavy 60 cm /
+- FKnockbackOverride with independent per-field overrides on UAttackData;
+  FKnockbackConfig per-type defaults in UCombatSettings (Light 25 cm / 0.2 s, Heavy 60 cm /
   0.25 s, AwayFromAttacker, EaseOut).
 - UHitReactionSettings::KnockbackScale replaces GlobalKnockbackMultiplier;
   FHitReactionEntry::KnockbackForce removed (saved values ignored).
@@ -1015,20 +1065,6 @@ struct FDisplacementFixture
 	}
 	void Settle() { for (int32 I = 0; I < 30; ++I) { Movement()->TickComponent(1.f / 60, LEVELTICK_All, nullptr); } }
 
-	FAlignmentRequestSpec Push(const float Distance, const float Duration, const EDisplacementSpeedProfile Profile = EDisplacementSpeedProfile::Linear) const
-	{
-		FAlignmentRequestSpec Spec;
-		Spec.OwnerId = TEXT("DisplacementTest");
-		Spec.OwnerGeneration = 1;
-		Spec.Priority = EDefenseAlignmentPriority::HitKnockback;
-		Spec.Executor = EAlignmentExecutor::ProceduralDisplacement;
-		Spec.bReleaseWhenFinished = true;
-		Spec.Displacement.Direction = FVector(1, 0, 0);
-		Spec.Displacement.Distance = Distance;
-		Spec.Displacement.Duration = Duration;
-		Spec.Displacement.SpeedProfile = Profile;
-		return Spec;
-	}
 };
 }
 
@@ -1206,10 +1242,8 @@ void UTargetingComponent::SteerDisplacementMovement(FAlignmentRequestRecord& Rec
 	// Average velocity over the next step, assuming it lasts as long as this one: exact for both
 	// profiles at a steady frame rate, and it lands on the curve's end instead of overshooting.
 	const FProceduralDisplacement& Displacement = Record.Spec.Displacement;
-	const double Step = FMath::Max(static_cast<double>(StepEstimate), UE_KINDA_SMALL_NUMBER);
-	const double NextDistance = DisplacementMath::DistanceBetween(Displacement.SpeedProfile, Displacement.Distance,
-		Displacement.Duration, Record.DisplacementElapsed, Record.DisplacementElapsed + Step);
-	StaticCastSharedPtr<FRootMotionSource_ConstantForce>(Source)->Force = Displacement.Direction * (NextDistance / Step);
+	StaticCastSharedPtr<FRootMotionSource_ConstantForce>(Source)->Force = Displacement.Direction * DisplacementMath::StepSpeed(
+		Displacement.SpeedProfile, Displacement.Distance, Displacement.Duration, Record.DisplacementElapsed, StepEstimate);
 }
 
 bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Record, const float StepEstimate)
@@ -1256,6 +1290,8 @@ bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Re
 	// On removal: horizontal speed to zero, a fall keeps its downward speed.
 	Source->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::ClampVelocity;
 	Source->FinishVelocityParams.ClampVelocity = 0.0f;
+	Source->Force = Displacement.Direction * DisplacementMath::StepSpeed(
+		Displacement.SpeedProfile, Displacement.Distance, Displacement.Duration, Record.DisplacementElapsed, StepEstimate);
 	Record.DisplacementSourceId = Movement->ApplyRootMotionSource(Source);
 	if (Record.DisplacementSourceId == static_cast<uint16>(ERootMotionSourceID::Invalid))
 	{
@@ -1263,7 +1299,6 @@ bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Re
 	}
 	Record.DisplacementChannelStartElapsed = Record.DisplacementElapsed;
 	Record.DisplacementChannel = EDisplacementChannel::Movement;
-	SteerDisplacementMovement(Record, StepEstimate);
 	return true;
 }
 
@@ -1435,7 +1470,7 @@ In `TargetingComponent.cpp`, add `#include "Utilities/DisplacementMath.h"`. Then
     }
 ```
 
-2. `AcquireAlignmentRequest` (line 808): replace `if (AlignmentRequests.IsEmpty() && !CaptureAlignmentRotationSettings())` with `if (RequestCanRotate(Spec) && !CaptureAlignmentRotationSettings())`. `CaptureAlignmentRotationSettings` is already idempotent.
+2. `AcquireAlignmentRequest` (line 808): replace `if (AlignmentRequests.IsEmpty() && !CaptureAlignmentRotationSettings())` with `if (RequestCanRotate(Spec) && !CaptureAlignmentRotationSettings())`. This is safe with other rotating requests already active: `CaptureAlignmentRotationSettings` returns early once `CapturedRotationSettings.bCaptured` is set, and `RestoreAlignmentRotationSettings` returns early when nothing was captured (both verified in source).
 
 3. `UpdateAlignmentRequest` (lines 867-872): extend the immutability condition with:
 
@@ -1533,13 +1568,32 @@ Expected: all pass. This proves the existing executors are unaffected before new
 Append to `ProceduralDisplacementExecutorTests.cpp`:
 
 ```cpp
+namespace
+{
+/** Types from Step 2 exist now, so the request builder lives here rather than in the Step 1 fixture. */
+FAlignmentRequestSpec MakePush(const float Distance, const float Duration, const EDisplacementSpeedProfile Profile = EDisplacementSpeedProfile::Linear)
+{
+	FAlignmentRequestSpec Spec;
+	Spec.OwnerId = TEXT("DisplacementTest");
+	Spec.OwnerGeneration = 1;
+	Spec.Priority = EDefenseAlignmentPriority::HitKnockback;
+	Spec.Executor = EAlignmentExecutor::ProceduralDisplacement;
+	Spec.bReleaseWhenFinished = true;
+	Spec.Displacement.Direction = FVector(1, 0, 0);
+	Spec.Displacement.Distance = Distance;
+	Spec.Displacement.Duration = Duration;
+	Spec.Displacement.SpeedProfile = Profile;
+	return Spec;
+}
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementFlatLinearTest, "KatanaCombat.Displacement.Executor.FlatLinearReachesAndReleases",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FDisplacementFlatLinearTest::RunTest(const FString&)
 {
 	FDisplacementFixture F;
 	const FVector Start = F.Character->GetActorLocation();
-	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(F.Push(50.f, 0.25f));
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(MakePush(50.f, 0.25f));
 	if (!TestTrue(TEXT("Displacement request acquired"), Handle.IsValid())) { return false; }
 	TestTrue(TEXT("Targeting tick enabled while pushing"), F.Targeting()->IsComponentTickEnabled());
 	for (int32 I = 0; I < 30; ++I) { F.Step(1.f / 60); }
@@ -1558,7 +1612,7 @@ bool FDisplacementEaseOutTest::RunTest(const FString&)
 {
 	FDisplacementFixture F;
 	const FVector Start = F.Character->GetActorLocation();
-	F.Targeting()->AcquireAlignmentRequest(F.Push(60.f, 0.24f, EDisplacementSpeedProfile::EaseOut));
+	F.Targeting()->AcquireAlignmentRequest(MakePush(60.f, 0.24f, EDisplacementSpeedProfile::EaseOut));
 	for (int32 I = 0; I < 8; ++I) { F.Step(1.f / 60); } // ~half the duration
 	const double Half = F.Character->GetActorLocation().X - Start.X;
 	TestTrue(FString::Printf(TEXT("More than half the distance in the first half (%.2f)"), Half), Half > 32.0);
@@ -1573,7 +1627,7 @@ bool FDisplacementHitstopTest::RunTest(const FString&)
 {
 	FDisplacementFixture F;
 	const FVector Start = F.Character->GetActorLocation();
-	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(F.Push(40.f, 0.2f));
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(MakePush(40.f, 0.2f));
 	// Component deltas are already scaled by actor dilation; hitstop freezes at 0.0001.
 	for (int32 I = 0; I < 30; ++I) { F.Step(1.f / 60 * 0.0001f); }
 	TestTrue(TEXT("Frozen victim does not move"), FVector::Dist2D(F.Character->GetActorLocation(), Start) < 0.5);
@@ -1592,7 +1646,7 @@ bool FDisplacementWallTest::RunTest(const FString&)
 	FDisplacementFixture F;
 	const float Radius = F.Character->GetCapsuleComponent()->GetScaledCapsuleRadius();
 	F.Box(FVector(F.Character->GetActorLocation().X + Radius + 15.f, 0, 100), FVector(5, 500, 200));
-	F.Targeting()->AcquireAlignmentRequest(F.Push(80.f, 0.3f));
+	F.Targeting()->AcquireAlignmentRequest(MakePush(80.f, 0.3f));
 	for (int32 I = 0; I < 40; ++I) { F.Step(1.f / 60); }
 	TestEqual(TEXT("Blocked push released itself"), F.Targeting()->GetAlignmentRequestCountForTesting(), 0);
 	TestTrue(TEXT("Stopped at the wall"), F.Character->GetActorLocation().X < 20.0);
@@ -1612,7 +1666,7 @@ bool FDisplacementLedgeTest::RunTest(const FString&)
 	F.Box(FVector(-1000 + 20, 0, -10), FVector(1000, 1000, 10));
 	F.Settle();
 	const double StartZ = F.Character->GetActorLocation().Z;
-	F.Targeting()->AcquireAlignmentRequest(F.Push(100.f, 0.25f));
+	F.Targeting()->AcquireAlignmentRequest(MakePush(100.f, 0.25f));
 	bool bFell = false;
 	for (int32 I = 0; I < 60; ++I)
 	{
@@ -1631,7 +1685,7 @@ bool FDisplacementRotationSettingsTest::RunTest(const FString&)
 	FDisplacementFixture F;
 	F.Movement()->bOrientRotationToMovement = true;
 	F.Character->bUseControllerRotationYaw = true;
-	F.Targeting()->AcquireAlignmentRequest(F.Push(30.f, 0.2f));
+	F.Targeting()->AcquireAlignmentRequest(MakePush(30.f, 0.2f));
 	TestTrue(TEXT("Orient-to-movement untouched during a push"), F.Movement()->bOrientRotationToMovement);
 	TestTrue(TEXT("Controller yaw untouched during a push"), F.Character->bUseControllerRotationYaw);
 	for (int32 I = 0; I < 20; ++I) { F.Step(1.f / 60); }
@@ -1645,7 +1699,7 @@ bool FDisplacementPriorityTest::RunTest(const FString&)
 {
 	FDisplacementFixture F;
 	const FVector Start = F.Character->GetActorLocation();
-	F.Targeting()->AcquireAlignmentRequest(F.Push(40.f, 0.2f));
+	F.Targeting()->AcquireAlignmentRequest(MakePush(40.f, 0.2f));
 	F.Step(1.f / 60);
 	FAlignmentRequestSpec Block;
 	Block.OwnerId = TEXT("BlockTest"); Block.OwnerGeneration = 1;
@@ -1671,7 +1725,7 @@ bool FDisplacementInvalidTest::RunTest(const FString&)
 {
 	FDisplacementFixture F;
 	const FVector Start = F.Character->GetActorLocation();
-	F.Targeting()->AcquireAlignmentRequest(F.Push(40.f, 0.2f));
+	F.Targeting()->AcquireAlignmentRequest(MakePush(40.f, 0.2f));
 	F.Movement()->DisableMovement(); // MOVE_None: no channel can deliver the push
 	F.Step(1.f / 60);
 	TestEqual(TEXT("Invalid push released itself"), F.Targeting()->GetAlignmentRequestCountForTesting(), 0);
@@ -1685,7 +1739,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementReleaseTest, "KatanaCombat.Displac
 bool FDisplacementReleaseTest::RunTest(const FString&)
 {
 	FDisplacementFixture F;
-	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(F.Push(60.f, 0.5f));
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(MakePush(60.f, 0.5f));
 	for (int32 I = 0; I < 5; ++I) { F.Step(1.f / 60); }
 	TestTrue(TEXT("Push is running through the movement channel"), F.Movement()->GetRootMotionSource(TEXT("KatanaProceduralDisplacement")).IsValid());
 	F.Targeting()->ReleaseAlignmentRequest(Handle);
@@ -1838,6 +1892,21 @@ bool FKnockbackReplaceTest::RunTest(const FString&)
 	TestEqual(TEXT("ReleaseKnockback clears it"), F.VictimTargeting()->GetAlignmentRequestCountForTesting(), 0);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackDeathTest, "KatanaCombat.Knockback.Start.DeathReleasesPush",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FKnockbackDeathTest::RunTest(const FString&)
+{
+	FKnockbackFixture F;
+	if (!TestTrue(TEXT("Push started"), F.Victim->HitReactionComponent->StartKnockback(F.Hit()))) { return false; }
+	// Death releases every alignment request (ABaseCombatCharacter and UCombatComponent death paths),
+	// and releasing removes the push channel (KatanaCombat.Displacement.Executor.ReleaseRemovesChannel).
+	FCombatTestHelpers::DealLethalDamage(F.Victim, F.Attacker);
+	FCombatTestHelpers::FinalizeDeathIfDying(F.Victim);
+	TestTrue(TEXT("Victim died"), FCombatTestHelpers::IsCharacterDead(F.Victim));
+	TestEqual(TEXT("Death released the push"), F.VictimTargeting()->GetAlignmentRequestCountForTesting(), 0);
+	return true;
+}
 ```
 
 Append to `Source/KatanaCombatTest/Private/DefenseArchitectureSourceTests.cpp` after its last test. Its anonymous namespace already provides `StripCppComments`, `ExtractFunctionBody` (bounds every check to one function body) and `LoadProjectSource`:
@@ -1969,6 +2038,7 @@ In `HitReactionComponent.h`, add to the friend list (line 48):
 	friend class FKnockbackStartRequestTest;
 	friend class FKnockbackStartChargeTest;
 	friend class FKnockbackReplaceTest;
+	friend class FKnockbackDeathTest;
 ```
 
 In its public section add:
@@ -2134,6 +2204,7 @@ Rollback checkpoint: <previous commit>"
 
 **Files:**
 - Create: `Source/KatanaCombatTest/Private/KnockbackPIETests.cpp`
+- Modify: `Source/KatanaCombat/Public/Core/HitReactionComponent.h` (automation-test helper block at line 173)
 
 **Interfaces:**
 - Consumes: Tasks 1-5; `AutomationCommon::GetAnyGameWorld()`, `FEditorLoadMap`, `FStartPIECommand`, `FEndPlayMapCommand` (pattern from `DefenseGateBThreatPIEProofTests.cpp`).
@@ -2142,6 +2213,12 @@ Rollback checkpoint: <previous commit>"
 The spec's Verification section names this test. It replaced a capture-harness scenario because the harness is one ~900-line latent command.
 
 - [ ] **Step 1: Write the PIE test**
+
+In `HitReactionComponent.h`, inside the existing public `#if WITH_AUTOMATION_TESTS` block (line 173), add:
+
+```cpp
+	void ResetReactionHistoryForTesting() { ReactionHistoryMap.Reset(); }
+```
 
 Create `Source/KatanaCombatTest/Private/KnockbackPIETests.cpp`:
 
@@ -2162,6 +2239,8 @@ Create `Source/KatanaCombatTest/Private/KnockbackPIETests.cpp`:
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonSerializer.h"
 #include "Misc/FileHelper.h"
+#include "Animation/AnimInstance.h"
+#include "Components/SkeletalMeshComponent.h"
 
 namespace
 {
@@ -2226,7 +2305,13 @@ private:
 		Hit.AttackData = Attack;
 		Hit.Damage = 1.0f;
 		Hit.DirectionToAttacker = -Forward;
+		// Variety selection avoids repeating recent variants, so both runs start from empty history
+		// and the same random seed to play the same reaction.
+		Enemy->HitReactionComponent->ResetReactionHistoryForTesting();
+		FMath::RandInit(0x4B42);
 		IDamageableInterface::Execute_ApplyDamage(Enemy.Get(), Hit);
+		const UAnimInstance* Anim = Enemy->GetMesh() ? Enemy->GetMesh()->GetAnimInstance() : nullptr;
+		(bPush ? PushMontage : ControlMontage) = GetNameSafe(Anim ? Anim->GetCurrentActiveMontage() : nullptr);
 		RunStart = Now;
 		++Phase;
 	}
@@ -2242,11 +2327,14 @@ private:
 		const double Added = PushDisplacement - ControlDisplacement;
 		Test->AddInfo(FString::Printf(TEXT("Reaction root motion alone: %.1f cm; with knockback: %.1f cm; added: %.1f cm"),
 			ControlDisplacement, PushDisplacement, Added));
+		Test->TestEqual(TEXT("Both runs played the same reaction"), PushMontage, ControlMontage);
+		Test->TestNotEqual(TEXT("A reaction montage played"), ControlMontage, FString(TEXT("None")));
 		Test->TestTrue(TEXT("Knockback adds roughly the resolved light push (25 cm)"), FMath::IsNearlyEqual(Added, 25.0, 8.0));
 		TSharedRef<FJsonObject> Json = MakeShared<FJsonObject>();
 		Json->SetNumberField(TEXT("reaction_root_motion_cm"), ControlDisplacement);
 		Json->SetNumberField(TEXT("with_knockback_cm"), PushDisplacement);
 		Json->SetNumberField(TEXT("added_cm"), Added);
+		Json->SetStringField(TEXT("reaction_montage"), ControlMontage);
 		FString Out;
 		FJsonSerializer::Serialize(Json, TJsonWriterFactory<>::Create(&Out));
 		FFileHelper::SaveStringToFile(Out, *(FPaths::ProjectSavedDir() / TEXT("Logs/KnockbackMeasurement.json")));
@@ -2266,6 +2354,8 @@ private:
 	int32 Phase = 0;
 	double ControlDisplacement = 0.0;
 	double PushDisplacement = 0.0;
+	FString ControlMontage;
+	FString PushMontage;
 };
 }
 
@@ -2301,7 +2391,7 @@ Do not change defaults without that answer.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add Source/KatanaCombatTest/Private/KnockbackPIETests.cpp
+git add Source/KatanaCombatTest/Private/KnockbackPIETests.cpp Source/KatanaCombat/Public/Core/HitReactionComponent.h
 git commit -m "Measure knockback against a real root-motion hit reaction in PIE
 
 Lands a hit on the ThirdPerson map with knockback disabled and enabled,
