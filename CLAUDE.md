@@ -53,6 +53,7 @@ Combat.Debug.Phase 1            // Attack phase indicators
 Combat.Debug.Environment 1      // Terrain/slope visualization
 Combat.Debug.Queue 1            // Action queue state
 Combat.Debug.Hold 1             // Hold state visualization
+Combat.Debug.Knockback 1         // Knockback push direction, displacement channel, outcome
 Combat.Debug.DrawDuration 2.0   // Debug shape persistence (seconds)
 
 // Bounded runtime telemetry (dump before stopping PIE)
@@ -142,6 +143,8 @@ Source/KatanaCombat/Public/
 | LightBaseDamage | 25.0f | |
 | HeavyBaseDamage | 50.0f | |
 | CounterDamageMultiplier | 1.5x | |
+| Knockback (Light) | 25 cm / 0.2 s | `UCombatSettings::DefaultKnockback`, EaseOut, AwayFromAttacker, AddToAnimation |
+| Knockback (Heavy) | 60 cm / 0.25 s | `UCombatSettings::DefaultKnockback` default; per-attack overrides in `UAttackData::Knockback`. Per-type defaults are pending a decision from the PIE measurement (`KatanaCombat.Knockback.PIE.ReactionMeasurement`, `Saved/Logs/KnockbackMeasurement.json`): the Light reaction's own travel peaks at 18.5 cm; the Heavy reaction (an authored knockback animation) travels 89 cm on its own. |
 
 ## Documentation
 

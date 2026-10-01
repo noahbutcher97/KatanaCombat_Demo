@@ -338,6 +338,8 @@ Then re-add the enums, the settings slots and getters, and the editor registrati
 
 **Preferred future design** if per-reaction reuse is ever needed: do not restore the old class as it was. It had drifted from `FHitReactionEntry` (no montage-variant pool, no death `Outcome`). Instead, add a thin data asset that *wraps* an `FHitReactionEntry` (one definition, so the two cannot drift), and let inline entries optionally reference it. Whole reaction sets are already swappable per character via `UHitReactionComponent::HitReactionSettingsOverride` or `CombatSettings->HitReactionSettings`.
 
+**2026-09-30**: knockback wired (FKnockbackConfig/FKnockbackOverride, KnockbackScale); FHitReactionEntry::KnockbackForce removed.
+
 ## Research appendix (key citations)
 
 - UPROPERTY specifier/meta reference (tooltips, EditCondition, Units, TitleProperty, DisplayPriority, AdvancedDisplay, Categories, AssetRegistrySearchable): unreal-garden.com/docs/uproperty/ (formerly benui.ca)

@@ -2261,6 +2261,40 @@ Get the active targeting settings based on configuration hierarchy.
 
 ---
 
+## Procedural Displacement and Knockback (Added 2026-09)
+
+### EAlignmentExecutor::ProceduralDisplacement
+Fourth alignment executor (after `CharacterMovement`, `MotionWarping`, `BoundedMovement`). Applies a fixed-curve horizontal displacement over time through a root-motion modifier while a root-motion montage plays, or through a character-movement root-motion source otherwise. Takes its values from `FAlignmentRequestSpec::Displacement`; the existing executors are unchanged.
+
+### FProceduralDisplacement
+Immutable after acquisition. Read-only in Blueprint.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `Direction` | FVector | Zero | Horizontal unit direction in world space |
+| `Distance` | float | 0 | Total distance in centimeters |
+| `Duration` | float | 0 | Seconds on the request's clock |
+| `SpeedProfile` | EDisplacementSpeedProfile | Linear | `Linear` or `EaseOut` (quadratic ease-out, starts at twice the average speed and settles to zero) |
+| `Clock` | EDisplacementClock | ActorTime | `ActorTime` (owner's dilated time, frozen by hitstop). `WorldTime` is reserved for the paired entry step and rejected by validation until then |
+| `AnimationBlend` | EDisplacementAnimationBlend | AddToAnimation | `AddToAnimation` or `ReplaceAnimation` relative to a playing root-motion animation |
+
+### FAlignmentRequestSpec::Displacement and bReleaseWhenFinished
+`FAlignmentRequestSpec::Displacement` carries the `FProceduralDisplacement` for a `ProceduralDisplacement` request and is ignored by other executors. `bReleaseWhenFinished` (default false, immutable) makes the arbiter release the request itself on any terminal outcome. It is currently honoured only by the ProceduralDisplacement executor.
+
+### EDefenseAlignmentPriority::HitKnockback
+Arbiter priority used by hit knockback. Order: `GuardFacing`, `ActiveAttackWarp`, `HitKnockback`, `BlockContact`, `PairedOrParryBridge`, `Terminal`. Knockback overrides the victim's own attack warp and yields to block contact, paired moves and terminal requests.
+
+### UHitReactionComponent::ReleaseKnockback
+```cpp
+void ReleaseKnockback();
+```
+Releases the running knockback alignment request, if any, and clears the stored handle. Not Blueprint-exposed. Called when a new knockback replaces the old one, when the owner enters a paired animation state and on component EndPlay.
+
+### Related data
+`FKnockbackConfig` (`Distance`, `Duration`, `DirectionMode`, `SpeedProfile`, `AnimationBlend`), `FKnockbackOverride` (the same five fields with inline override toggles, `UAttackData::Knockback`), `UCombatSettings::DefaultKnockback`, `UAttackData::MaxChargeKnockbackMultiplier` and `UHitReactionSettings::KnockbackScale`. See `ATTACK_CREATION.md` (Knockback).
+
+---
+
 ## CinematicEffectsUtilityLibrary (Added in v3.5.0)
 
 Static utility library for cinematic combat effects. Separated from PairedAnimationUtilityLibrary to allow reuse across all combat scenarios (not just paired animations).

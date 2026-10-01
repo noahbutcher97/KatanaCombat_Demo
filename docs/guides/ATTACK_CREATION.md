@@ -288,6 +288,17 @@ MotionWarpingConfig:
 - AOE attacks
 - Finishers (camera control instead)
 
+### Knockback
+
+A landed hit that starts an interrupting directional hit reaction also pushes the victim with a short procedural displacement. Values resolve field by field:
+
+1. `UAttackData::Knockback` (an `FKnockbackOverride`) holds `Distance` (cm), `Duration` (s), `DirectionMode` (`AwayFromAttacker` or `AlongSwing`), `SpeedProfile` (`Linear` or `EaseOut`) and `AnimationBlend` (`AddToAnimation` or `ReplaceAnimation`). Each field has its own inline override toggle (`bOverrideDistance`, `bOverrideDuration`, `bOverrideDirectionMode`, `bOverrideSpeedProfile`, `bOverrideAnimationBlend`); an untoggled field uses the default below.
+2. `UCombatSettings::DefaultKnockback` (a `TMap<EAttackType, FKnockbackConfig>`) supplies the per-type defaults, read from the attacker's combat settings: Light 25 cm / 0.2 s, Heavy 60 cm / 0.25 s, both EaseOut, AwayFromAttacker, AddToAnimation. An attack type missing from the map does not push unless the attack overrides `Distance`. The per-type defaults are pending a decision from the PIE measurement (`KatanaCombat.Knockback.PIE.ReactionMeasurement`, `Saved/Logs/KnockbackMeasurement.json`): the Light reaction's own travel peaks at 18.5 cm, and the Heavy reaction (an authored knockback animation) travels 89 cm on its own.
+3. `UAttackData::MaxChargeKnockbackMultiplier` (Heavy attacks, default 1.0) scales distance up to that multiple at full charge. It has no effect until the charge PR passes a charge level into hits.
+4. `UHitReactionSettings::KnockbackScale` on the victim scales distance (1 = normal, 0 = immune). Duration is never scaled.
+
+Only interrupting directional reactions push. Blocked hits, parried hits, super-armor victims, victims with reactions suppressed (including paired-animation suppression) and dead victims never push. Debug with `Combat.Debug.Knockback 1`.
+
 ### Combo Blending (Added 2025-11-11)
 
 ```
