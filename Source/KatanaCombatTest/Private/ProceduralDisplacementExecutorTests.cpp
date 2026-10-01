@@ -279,7 +279,10 @@ bool FDisplacementPriorityTest::RunTest(const FString&)
 	FDisplacementFixture F;
 	const FVector Start = F.Character->GetActorLocation();
 	F.Targeting()->AcquireAlignmentRequest(MakePush(40.f, 0.2f));
-	F.Step(1.f / 60);
+	// Run mid-push first so a suspension that reset the push clock would be caught on resume.
+	for (int32 I = 0; I < 6; ++I) { F.Step(1.f / 60); }
+	const double TravelBeforeSuspend = F.Character->GetActorLocation().X - Start.X;
+	TestTrue(TEXT("Mid-push before the suspension"), TravelBeforeSuspend > 2.0 && TravelBeforeSuspend < 38.0);
 	FAlignmentRequestSpec Block;
 	Block.OwnerId = TEXT("BlockTest"); Block.OwnerGeneration = 1;
 	Block.Priority = EDefenseAlignmentPriority::BlockContact;

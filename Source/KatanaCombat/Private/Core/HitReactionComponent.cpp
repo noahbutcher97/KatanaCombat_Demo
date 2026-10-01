@@ -1690,40 +1690,48 @@ bool UHitReactionComponent::StartKnockback(const FHitReactionInfo& HitInfo)
 		HitInfo.ChargeLevel,
 		HitInfo.AttackData ? HitInfo.AttackData->MaxChargeKnockbackMultiplier : 1.0f,
 		Settings ? Settings->KnockbackScale : 1.0f);
-	if (Distance <= KINDA_SMALL_NUMBER)
-	{
-		return false;
-	}
 
+	// Every outcome below reaches the single exit, which writes the telemetry row and the debug log;
+	// the push itself is only acquired when both the distance and the direction are usable.
 	const FVector VictimLocation = Victim->GetActorLocation();
-	const FVector AttackerLocation = HitInfo.Attacker
-		? HitInfo.Attacker->GetActorLocation()
-		: VictimLocation + HitInfo.DirectionToAttacker * 100.0;
-	const FVector Direction = KnockbackResolution::ResolveDirection(
-		Config.DirectionMode, AttackerLocation, VictimLocation, HitInfo.DirectionToAttacker);
-	if (Direction.IsZero())
+	FVector Direction = FVector::ZeroVector;
+	bool bStarted = false;
+	const TCHAR* Outcome = TEXT("no push distance");
+	if (Distance > KINDA_SMALL_NUMBER)
 	{
-		return false;
+		const FVector AttackerLocation = HitInfo.Attacker
+			? HitInfo.Attacker->GetActorLocation()
+			: VictimLocation + HitInfo.DirectionToAttacker * 100.0;
+		Direction = KnockbackResolution::ResolveDirection(
+			Config.DirectionMode, AttackerLocation, VictimLocation, HitInfo.DirectionToAttacker);
+		if (Direction.IsZero())
+		{
+			Outcome = TEXT("degenerate direction");
+		}
+		else
+		{
+			const int32 Generation = FMath::Max(1, NextKnockbackAlignmentGeneration);
+			NextKnockbackAlignmentGeneration = NextKnockbackAlignmentGeneration == MAX_int32 ? 1 : NextKnockbackAlignmentGeneration + 1;
+
+			FAlignmentRequestSpec Spec;
+			Spec.OwnerId = TEXT("HitKnockback");
+			Spec.OwnerGeneration = Generation;
+			Spec.Priority = EDefenseAlignmentPriority::HitKnockback;
+			Spec.Executor = EAlignmentExecutor::ProceduralDisplacement;
+			Spec.bReleaseWhenFinished = true;
+			Spec.Displacement.Direction = Direction;
+			Spec.Displacement.Distance = Distance;
+			Spec.Displacement.Duration = Config.Duration;
+			Spec.Displacement.SpeedProfile = Config.SpeedProfile;
+			Spec.Displacement.Clock = EDisplacementClock::ActorTime;
+			Spec.Displacement.AnimationBlend = Config.AnimationBlend;
+			KnockbackAlignmentHandle = Targeting->AcquireAlignmentRequest(Spec);
+
+			bStarted = KnockbackAlignmentHandle.IsValid();
+			Outcome = bStarted ? TEXT("started") : TEXT("acquire rejected");
+		}
 	}
 
-	const int32 Generation = FMath::Max(1, NextKnockbackAlignmentGeneration);
-	NextKnockbackAlignmentGeneration = NextKnockbackAlignmentGeneration == MAX_int32 ? 1 : NextKnockbackAlignmentGeneration + 1;
-
-	FAlignmentRequestSpec Spec;
-	Spec.OwnerId = TEXT("HitKnockback");
-	Spec.OwnerGeneration = Generation;
-	Spec.Priority = EDefenseAlignmentPriority::HitKnockback;
-	Spec.Executor = EAlignmentExecutor::ProceduralDisplacement;
-	Spec.bReleaseWhenFinished = true;
-	Spec.Displacement.Direction = Direction;
-	Spec.Displacement.Distance = Distance;
-	Spec.Displacement.Duration = Config.Duration;
-	Spec.Displacement.SpeedProfile = Config.SpeedProfile;
-	Spec.Displacement.Clock = EDisplacementClock::ActorTime;
-	Spec.Displacement.AnimationBlend = Config.AnimationBlend;
-	KnockbackAlignmentHandle = Targeting->AcquireAlignmentRequest(Spec);
-
-	const bool bStarted = KnockbackAlignmentHandle.IsValid();
 	if (UCombatComponent* Combat = Victim->GetCombatComponent())
 	{
 		FActionReactionTelemetryRecord Record;
@@ -1740,9 +1748,12 @@ bool UHitReactionComponent::StartKnockback(const FHitReactionInfo& HitInfo)
 	{
 		UE_LOG(LogTemp, Log, TEXT("[KNOCKBACK] %s pushed %.1f cm over %.2f s (mode %s, charge %.2f, scale %.2f) -> %s"),
 			*Victim->GetName(), Distance, Config.Duration, *UEnum::GetValueAsString(Config.DirectionMode),
-			HitInfo.ChargeLevel, Settings ? Settings->KnockbackScale : 1.0f, bStarted ? TEXT("started") : TEXT("rejected"));
-		DrawDebugDirectionalArrow(GetWorld(), VictimLocation, VictimLocation + Direction * Distance, 20.f,
-			FColor::Orange, false, CombatDebug::GetDebugDrawDuration(), 0, 2.f);
+			HitInfo.ChargeLevel, Settings ? Settings->KnockbackScale : 1.0f, Outcome);
+		if (bStarted)
+		{
+			DrawDebugDirectionalArrow(GetWorld(), VictimLocation, VictimLocation + Direction * Distance, 20.f,
+				FColor::Orange, false, CombatDebug::GetDebugDrawDuration(), 0, 2.f);
+		}
 	}
 	return bStarted;
 }

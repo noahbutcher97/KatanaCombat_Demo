@@ -3141,7 +3141,7 @@ struct FAlignmentRequestSpec
 	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
 	FProceduralDisplacement Displacement;
 
-	/** When set, the arbiter releases this request itself on any terminal outcome. Immutable. */
+	/** When set, the ProceduralDisplacement executor releases this request itself on any terminal outcome (the other executors ignore it). Immutable. */
 	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
 	bool bReleaseWhenFinished = false;
 };

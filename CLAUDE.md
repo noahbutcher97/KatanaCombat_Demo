@@ -114,6 +114,7 @@ Source/KatanaCombat/Public/
 │   ├── AnimNotifyState_HoldWindow.h           ← Legacy; do not seed by default
 │   ├── AnimNotifyState_ComboWindow.h          ← Legacy/manual override; do not seed by default
 │   ├── AnimNotifyState_PairedAnimationSync.h  ← Sync point effects trigger
+│   ├── RootMotionModifier_ProceduralDisplacement.h ← Motion Warping channel for the displacement executor
 │   └── AnimNotifyState_PairedAnimationCollision.h ← Partner collision management
 ├── Characters/
 │   ├── BaseCombatCharacter.h  ← Base class with 5 combat components
@@ -127,6 +128,8 @@ Source/KatanaCombat/Public/
     ├── CombatMath.h                      ← Authoritative direction math (angles, cones, classification, DirectionToAttacker)
     ├── CombatTargetQuery.h               ← Shared target gathering (dedup, alive/hostile filters)
     ├── AlignmentMotionLibrary.h          ← Bounded turn/translation stepping
+    ├── DisplacementMath.h                ← Fixed-curve displacement profiles (travel at a given clock time)
+    ├── KnockbackResolution.h             ← Knockback config resolution, push distance, push direction
     ├── MontageUtilityLibrary.h           ← 27 montage utility functions
     ├── PairedAnimationUtilityLibrary.h   ← 15 functions (validation, contact points)
     └── CinematicEffectsUtilityLibrary.h  ← Time dilation, hitstop, camera shake

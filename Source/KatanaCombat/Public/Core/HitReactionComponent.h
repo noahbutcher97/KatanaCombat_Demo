@@ -50,6 +50,7 @@ class KATANACOMBAT_API UHitReactionComponent : public UActorComponent
 	friend class FKnockbackStartChargeTest;
 	friend class FKnockbackReplaceTest;
 	friend class FKnockbackDeathTest;
+	friend class FKnockbackTelemetryTest;
 
 public:
     UHitReactionComponent();

@@ -2,7 +2,10 @@
 #include "Core/HitReactionComponent.h"
 #include "Core/TargetingComponent.h"
 #include "Data/AttackData.h"
+#include "Core/CombatComponent.h"
 #include "Data/HitReactionSettings.h"
+#include "Debug/ActionReactionTelemetry.h"
+#include "HAL/IConsoleManager.h"
 
 namespace
 {
@@ -94,5 +97,50 @@ bool FKnockbackDeathTest::RunTest(const FString&)
 	FCombatTestHelpers::FinalizeDeathIfDying(F.Victim);
 	TestTrue(TEXT("Victim died"), FCombatTestHelpers::IsCharacterDead(F.Victim));
 	TestEqual(TEXT("Death released the push"), F.VictimTargeting()->GetAlignmentRequestCountForTesting(), 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackTelemetryTest, "KatanaCombat.Knockback.Start.WritesStartedAndRejectedRows",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FKnockbackTelemetryTest::RunTest(const FString&)
+{
+	IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(TEXT("Combat.ActionReaction.Debug"));
+	if (!TestNotNull(TEXT("Telemetry CVar exists"), Variable)) { return false; }
+	const int32 Previous = Variable->GetInt();
+	Variable->Set(1, ECVF_SetByCode);
+
+	{
+		FKnockbackFixture F;
+		UCombatComponent* Combat = F.Victim->GetCombatComponent();
+		if (TestNotNull(TEXT("Victim combat component"), Combat))
+		{
+			Combat->ClearActionReactionTelemetry();
+			F.Victim->HitReactionComponent->StartKnockback(F.Hit());
+			const TArray<FActionReactionTelemetryRecord>& Started = Combat->GetActionReactionTelemetry();
+			if (TestEqual(TEXT("A started push writes one row"), Started.Num(), 1))
+			{
+				TestEqual(TEXT("Event"), Started[0].Event, EActionReactionTelemetryEvent::AlignmentChanged);
+				TestEqual(TEXT("Owner"), Started[0].AlignmentOwner, FName(TEXT("HitKnockback")));
+				TestEqual(TEXT("Disposition"), Started[0].AlignmentDisposition, FName(TEXT("Started")));
+				TestEqual(TEXT("Resolved distance"), Started[0].MovementMagnitude, 25.0f);
+			}
+
+			// An immune victim resolves a zero distance: the push is never acquired but the attempt is still recorded.
+			UHitReactionSettings* Immune = NewObject<UHitReactionSettings>();
+			Immune->KnockbackScale = 0.0f;
+			F.Victim->HitReactionComponent->HitReactionSettingsOverride = Immune;
+			Combat->ClearActionReactionTelemetry();
+			TestFalse(TEXT("Immune victim gets no push"), F.Victim->HitReactionComponent->StartKnockback(F.Hit()));
+			const TArray<FActionReactionTelemetryRecord>& Rejected = Combat->GetActionReactionTelemetry();
+			if (TestEqual(TEXT("A rejected push writes one row"), Rejected.Num(), 1))
+			{
+				TestEqual(TEXT("Owner"), Rejected[0].AlignmentOwner, FName(TEXT("HitKnockback")));
+				TestEqual(TEXT("Disposition"), Rejected[0].AlignmentDisposition, FName(TEXT("Rejected")));
+				TestEqual(TEXT("Zero resolved distance"), Rejected[0].MovementMagnitude, 0.0f);
+			}
+		}
+	}
+
+	Variable->Set(Previous, ECVF_SetByCode);
 	return true;
 }

@@ -168,6 +168,8 @@ void UTargetingComponent::RemoveDisplacementChannel(FAlignmentRequestRecord& Rec
 	SyncDisplacementElapsed(Record); // a suspension between movement and this tick keeps the applied step
 	if (URootMotionModifier_ProceduralDisplacement* Modifier = Record.DisplacementModifier.Get())
 	{
+		// MarkedForRemoval lets UMotionWarpingComponent purge the modifier on its next root-motion update
+		// (UpdateWithContext), so one removed while no root motion plays stays inert in its list until then.
 		Modifier->SetState(ERootMotionModifierState::MarkedForRemoval);
 	}
 	if (Record.DisplacementSourceId != 0 && OwnerCharacter)
@@ -181,6 +183,7 @@ void UTargetingComponent::RemoveDisplacementChannel(FAlignmentRequestRecord& Rec
 	Record.DisplacementSourceId = 0;
 	Record.DisplacementChannel = EDisplacementChannel::None;
 	Record.bDisplacementHasLastLocation = false;
+	Record.DisplacementBlockedTicks = 0;
 }
 
 void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
