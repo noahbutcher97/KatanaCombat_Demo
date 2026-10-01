@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "Misc/AutomationTest.h"
+#include "HAL/FileManager.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 
@@ -642,5 +643,116 @@ bool FDefenseAuthoringDirtyPackageRefusalOrderSourceTest::RunTest(const FString&
 		DirtyRefusalIndex != INDEX_NONE
 		&& MissingReturnIndex != INDEX_NONE
 		&& DirtyRefusalIndex < MissingReturnIndex);
+	return true;
+}
+
+namespace
+{
+int32 CountOccurrences(const FString& Text, const TCHAR* Needle)
+{
+	int32 Count = 0;
+	for (int32 From = Text.Find(Needle, ESearchCase::CaseSensitive); From != INDEX_NONE;
+		From = Text.Find(Needle, ESearchCase::CaseSensitive, ESearchDir::FromStart, From + 1))
+	{
+		++Count;
+	}
+	return Count;
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FKnockbackReactionOrderSourceTest,
+	"KatanaCombat.Knockback.Architecture.StartsAfterDirectionalReaction",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FKnockbackReactionOrderSourceTest::RunTest(const FString& Parameters)
+{
+	FString Source;
+	if (!TestTrue(TEXT("HitReactionComponent source loads"), LoadProjectSource(
+		TEXT("Source/KatanaCombat/Private/Core/HitReactionComponent.cpp"), Source)))
+	{
+		return false;
+	}
+	Source = StripCppComments(Source);
+
+	FString Body;
+	if (!TestTrue(TEXT("PlayHitReaction has an extractable body"), ExtractFunctionBody(
+		Source, TEXT("UHitReactionComponent::PlayHitReaction"), Body)))
+	{
+		return false;
+	}
+	const int32 EntryCall = Body.Find(TEXT("PlayReactionFromEntry(*ReactionEntry"));
+	const int32 StartCall = Body.Find(TEXT("StartKnockback(HitInfo)"));
+	const int32 LegacyFallback = Body.Find(TEXT("SelectHitReactionMontage(HitInfo)"));
+	TestTrue(TEXT("The push starts after the directional reaction starts"), EntryCall != INDEX_NONE && StartCall > EntryCall);
+	TestTrue(TEXT("The legacy fallback path never pushes"), LegacyFallback != INDEX_NONE && StartCall < LegacyFallback);
+	TestEqual(TEXT("PlayHitReaction has one push site"), CountOccurrences(Body, TEXT("StartKnockback(")), 1);
+	TestTrue(TEXT("Super armor feeds the eligibility decision"), Body.Contains(TEXT("bSuperArmor = bHasSuperArmor")));
+
+	for (const TCHAR* Releaser : { TEXT("UHitReactionComponent::EnterPairedAnimationState"), TEXT("UHitReactionComponent::EndPlay") })
+	{
+		FString ReleaserBody;
+		TestTrue(FString::Printf(TEXT("%s releases the push"), Releaser),
+			ExtractFunctionBody(Source, Releaser, ReleaserBody) && ReleaserBody.Contains(TEXT("ReleaseKnockback()")));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FKnockbackDefenseOutcomeSourceTest,
+	"KatanaCombat.Knockback.Architecture.BlockParryAndSuperArmorStartNoReaction",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FKnockbackDefenseOutcomeSourceTest::RunTest(const FString& Parameters)
+{
+	FString HitReaction;
+	FString Character;
+	if (!TestTrue(TEXT("Sources load"),
+		LoadProjectSource(TEXT("Source/KatanaCombat/Private/Core/HitReactionComponent.cpp"), HitReaction)
+		&& LoadProjectSource(TEXT("Source/KatanaCombat/Private/Characters/BaseCombatCharacter.cpp"), Character)))
+	{
+		return false;
+	}
+	HitReaction = StripCppComments(HitReaction);
+	Character = StripCppComments(Character);
+
+	// Blocked and parried hits resolve to a non-applying damage disposition and never build a reaction commit.
+	FString DefenseCommit;
+	if (TestTrue(TEXT("CommitResolvedDefenseDamage has an extractable body"), ExtractFunctionBody(
+		Character, TEXT("ABaseCombatCharacter::CommitResolvedDefenseDamage"), DefenseCommit)))
+	{
+		const int32 Gate = DefenseCommit.Find(TEXT("!= EDefenseDamageDisposition::ApplyRequestedDamage"));
+		const int32 Commit = DefenseCommit.Find(TEXT("CommitResolvedDamage("));
+		TestTrue(TEXT("Only applied damage reaches the reaction commit"), Gate != INDEX_NONE && Commit > Gate);
+	}
+
+	FString DamageCommit;
+	TestTrue(TEXT("Super armor commits damage without a reaction"),
+		ExtractFunctionBody(HitReaction, TEXT("UHitReactionComponent::CommitResolvedDamage"), DamageCommit)
+		&& DamageCommit.Contains(TEXT("bShouldPlayReaction = !bHasSuperArmor")));
+
+	FString ReactionGate;
+	if (TestTrue(TEXT("PlayCommittedDamageReaction has an extractable body"), ExtractFunctionBody(
+		HitReaction, TEXT("UHitReactionComponent::PlayCommittedDamageReaction"), ReactionGate)))
+	{
+		const int32 Gate = ReactionGate.Find(TEXT("if (Commit.bShouldPlayReaction)"));
+		const int32 Play = ReactionGate.Find(TEXT("PlayHitReaction(Commit.HitInfo)"));
+		TestTrue(TEXT("The reaction plays only behind the commit's reaction gate"), Gate != INDEX_NONE && Play > Gate);
+	}
+
+	// The gate above is the only way into PlayHitReaction in the runtime module.
+	TArray<FString> Files;
+	IFileManager::Get().FindFilesRecursive(Files, *(FPaths::ProjectDir() / TEXT("Source/KatanaCombat")), TEXT("*.cpp"), true, false);
+	int32 Calls = 0;
+	for (const FString& File : Files)
+	{
+		FString Text;
+		if (FFileHelper::LoadFileToString(Text, *File))
+		{
+			Text = StripCppComments(Text);
+			Calls += CountOccurrences(Text, TEXT("PlayHitReaction(")) - CountOccurrences(Text, TEXT("::PlayHitReaction("));
+		}
+	}
+	TestEqual(TEXT("PlayHitReaction has exactly one caller"), Calls, 1);
 	return true;
 }

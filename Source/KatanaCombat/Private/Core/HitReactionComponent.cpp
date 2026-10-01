@@ -26,6 +26,10 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Utilities/CombatMath.h"
+#include "Utilities/KnockbackResolution.h"
+#include "Debug/DebugConfig.h"
+#include "Debug/ActionReactionTelemetry.h"
+#include "DrawDebugHelpers.h"
 
 // Static snapshot name for death pose - use in AnimBP with "Pose Snapshot" node
 const FName UHitReactionComponent::DeathPoseSnapshotName = FName(TEXT("DeathPose"));
@@ -65,6 +69,7 @@ void UHitReactionComponent::BeginPlay()
 
 void UHitReactionComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	ReleaseKnockback();
 	ReleasePresentationAlignment(false);
 	ReleasePresentationAlignment(true);
 	if (AnimInstance)
@@ -483,6 +488,17 @@ void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
         {
             if (PlayReactionFromEntry(*ReactionEntry, RelativeDir, bIsHeavy, Intensity))
             {
+                KnockbackResolution::FEligibility Eligibility;
+                Eligibility.bReactionStarted = true;
+                Eligibility.bSuperArmor = bHasSuperArmor; // already gated upstream; kept so the decision owns the rule
+                Eligibility.bReactionsSuppressed = bReactionsSuppressed;
+                Eligibility.bAlive = true; // the alive check above already returned for dead owners
+                Eligibility.bSettingsPath = true;
+                if (KnockbackResolution::ShouldApply(Eligibility))
+                {
+                    StartKnockback(HitInfo);
+                }
+
                 // Apply stun from reaction entry
                 if (ReactionEntry->StunDuration > 0.0f)
                 {
@@ -1459,6 +1475,7 @@ void UHitReactionComponent::EndStagger()
 
 void UHitReactionComponent::EnterPairedAnimationState(UAnimMontage* VictimMontage, EReactionOutcome DeathOutcome, float RagdollBlendTime, bool bIsLethal, AActor* Partner)
 {
+    ReleaseKnockback();
     const FString OwnerName = OwnerCharacter ? OwnerCharacter->GetName() : TEXT("Unknown");
     const bool bWasInPairedAnimationState = IsInPairedAnimationState();
 
@@ -1633,4 +1650,99 @@ bool UHitReactionComponent::ApplyPendingDeathOutcome()
 	}
 
 	return true;
+}
+
+void UHitReactionComponent::ReleaseKnockback()
+{
+	if (!KnockbackAlignmentHandle.IsValid())
+	{
+		return;
+	}
+	if (const ABaseCombatCharacter* Character = Cast<ABaseCombatCharacter>(GetOwnerCharacterCached()))
+	{
+		if (UTargetingComponent* Targeting = Character->GetTargetingComponent())
+		{
+			Targeting->ReleaseAlignmentRequest(KnockbackAlignmentHandle);
+		}
+	}
+	KnockbackAlignmentHandle = {};
+}
+
+bool UHitReactionComponent::StartKnockback(const FHitReactionInfo& HitInfo)
+{
+	ReleaseKnockback();
+
+	ABaseCombatCharacter* Victim = Cast<ABaseCombatCharacter>(GetOwnerCharacterCached());
+	UTargetingComponent* Targeting = Victim ? Victim->GetTargetingComponent() : nullptr;
+	if (!Targeting)
+	{
+		return false;
+	}
+
+	const ABaseCombatCharacter* AttackerCharacter = Cast<ABaseCombatCharacter>(HitInfo.Attacker);
+	const UCombatSettings* AttackerSettings = AttackerCharacter && AttackerCharacter->CombatSettings
+		? AttackerCharacter->CombatSettings.Get()
+		: Victim->CombatSettings.Get();
+	const FKnockbackConfig Config = KnockbackResolution::Resolve(HitInfo.AttackData, AttackerSettings);
+	const UHitReactionSettings* Settings = GetEffectiveSettings();
+	const float Distance = KnockbackResolution::PushDistance(
+		Config.Distance,
+		HitInfo.ChargeLevel,
+		HitInfo.AttackData ? HitInfo.AttackData->MaxChargeKnockbackMultiplier : 1.0f,
+		Settings ? Settings->KnockbackScale : 1.0f);
+	if (Distance <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	const FVector VictimLocation = Victim->GetActorLocation();
+	const FVector AttackerLocation = HitInfo.Attacker
+		? HitInfo.Attacker->GetActorLocation()
+		: VictimLocation + HitInfo.DirectionToAttacker * 100.0;
+	const FVector Direction = KnockbackResolution::ResolveDirection(
+		Config.DirectionMode, AttackerLocation, VictimLocation, HitInfo.DirectionToAttacker);
+	if (Direction.IsZero())
+	{
+		return false;
+	}
+
+	const int32 Generation = FMath::Max(1, NextKnockbackAlignmentGeneration);
+	NextKnockbackAlignmentGeneration = NextKnockbackAlignmentGeneration == MAX_int32 ? 1 : NextKnockbackAlignmentGeneration + 1;
+
+	FAlignmentRequestSpec Spec;
+	Spec.OwnerId = TEXT("HitKnockback");
+	Spec.OwnerGeneration = Generation;
+	Spec.Priority = EDefenseAlignmentPriority::HitKnockback;
+	Spec.Executor = EAlignmentExecutor::ProceduralDisplacement;
+	Spec.bReleaseWhenFinished = true;
+	Spec.Displacement.Direction = Direction;
+	Spec.Displacement.Distance = Distance;
+	Spec.Displacement.Duration = Config.Duration;
+	Spec.Displacement.SpeedProfile = Config.SpeedProfile;
+	Spec.Displacement.Clock = EDisplacementClock::ActorTime;
+	Spec.Displacement.AnimationBlend = Config.AnimationBlend;
+	KnockbackAlignmentHandle = Targeting->AcquireAlignmentRequest(Spec);
+
+	const bool bStarted = KnockbackAlignmentHandle.IsValid();
+	if (UCombatComponent* Combat = Victim->GetCombatComponent())
+	{
+		FActionReactionTelemetryRecord Record;
+		Record.Event = EActionReactionTelemetryEvent::AlignmentChanged;
+		Record.Actor = Victim;
+		Record.Counterpart = HitInfo.Attacker.Get();
+		Record.AlignmentOwner = TEXT("HitKnockback");
+		Record.AlignmentDisposition = bStarted ? FName(TEXT("Started")) : FName(TEXT("Rejected"));
+		Record.MovementMagnitude = Distance;
+		Record.AttackDataPath = FSoftObjectPath(HitInfo.AttackData.Get());
+		Combat->AppendActionReactionTelemetry(MoveTemp(Record));
+	}
+	if (CombatDebug::IsKnockbackDebugEnabled())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[KNOCKBACK] %s pushed %.1f cm over %.2f s (mode %s, charge %.2f, scale %.2f) -> %s"),
+			*Victim->GetName(), Distance, Config.Duration, *UEnum::GetValueAsString(Config.DirectionMode),
+			HitInfo.ChargeLevel, Settings ? Settings->KnockbackScale : 1.0f, bStarted ? TEXT("started") : TEXT("rejected"));
+		DrawDebugDirectionalArrow(GetWorld(), VictimLocation, VictimLocation + Direction * Distance, 20.f,
+			FColor::Orange, false, CombatDebug::GetDebugDrawDuration(), 0, 2.f);
+	}
+	return bStarted;
 }

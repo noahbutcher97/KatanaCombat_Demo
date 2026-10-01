@@ -46,6 +46,10 @@ class KATANACOMBAT_API UHitReactionComponent : public UActorComponent
     GENERATED_BODY()
 
 	friend class FPairedVictimOutcomeRequiresCommittedDeathTest;
+	friend class FKnockbackStartRequestTest;
+	friend class FKnockbackStartChargeTest;
+	friend class FKnockbackReplaceTest;
+	friend class FKnockbackDeathTest;
 
 public:
     UHitReactionComponent();
@@ -69,6 +73,9 @@ public:
      */
     UFUNCTION(BlueprintPure, Category = "Settings")
     UHitReactionSettings* GetEffectiveSettings() const;
+
+    /** Release the running knockback push, if any. */
+    void ReleaseKnockback();
 
     // ============================================================================
     // ACTIVE REACTION STATE (for i-frame tracking)
@@ -539,6 +546,12 @@ private:
     /** Owner's anim instance (for playing reactions) */
     UPROPERTY()
     TObjectPtr<UAnimInstance> AnimInstance;
+
+	/** Push the victim for a started directional reaction. Returns true when a push was acquired. */
+	bool StartKnockback(const FHitReactionInfo& HitInfo);
+
+	FAlignmentRequestHandle KnockbackAlignmentHandle;
+	int32 NextKnockbackAlignmentGeneration = 1;
 
 	FAlignmentRequestHandle DefensePresentationAlignmentHandle;
 	FAlignmentRequestHandle AttackerResponseAlignmentHandle;
