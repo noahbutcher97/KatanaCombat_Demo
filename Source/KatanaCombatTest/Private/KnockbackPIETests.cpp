@@ -9,9 +9,12 @@
 #include "Characters/EnemyCharacter.h"
 #include "Core/HitReactionComponent.h"
 #include "Data/AttackData.h"
+#include "Data/CombatSettings.h"
 #include "Data/HitReactionSettings.h"
 #include "Interfaces/DamageableInterface.h"
+#include "Utilities/KnockbackResolution.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Dom/JsonObject.h"
 #include "Serialization/JsonWriter.h"
@@ -29,11 +32,17 @@ struct FMeasuredRun
 {
 	FString Type;
 	const TCHAR* AttackPath = nullptr;
-	/** Resolved default push for the attack's type (UCombatSettings::DefaultKnockback). */
-	float ExpectedPush = 0.0f;
 	bool bPush = false;
-	double Displacement = 0.0;
+	/** The push the game's own knockback rules resolve for this attack at the hit. */
+	float ResolvedPush = 0.0f;
+	EDisplacementAnimationBlend ResolvedBlend = EDisplacementAnimationBlend::AddToAnimation;
+	/** Travel along the push direction from the hit location: the largest sample, and the value once the reaction has ended. */
+	double PeakTravel = 0.0;
+	double NetTravel = 0.0;
+	/** Seconds from the hit until the reaction's root motion ended. */
+	double RootMotionDuration = 0.0;
 	FString Montage;
+	FString Section;
 	bool bRootMotionAtHit = false;
 };
 
@@ -44,10 +53,10 @@ public:
 		: Test(InTest), CommandStart(FPlatformTime::Seconds())
 	{
 		// Control then push for each type: the difference is the push, the control is the reaction's own travel.
-		Runs.Add({TEXT("light"), LightAttackPath, 25.0f, false});
-		Runs.Add({TEXT("light"), LightAttackPath, 25.0f, true});
-		Runs.Add({TEXT("heavy"), HeavyAttackPath, 60.0f, false});
-		Runs.Add({TEXT("heavy"), HeavyAttackPath, 60.0f, true});
+		Runs.Add({TEXT("light"), LightAttackPath, false});
+		Runs.Add({TEXT("light"), LightAttackPath, true});
+		Runs.Add({TEXT("heavy"), HeavyAttackPath, false});
+		Runs.Add({TEXT("heavy"), HeavyAttackPath, true});
 	}
 
 	virtual bool Update() override
@@ -80,7 +89,8 @@ public:
 			return true;
 		}
 
-		// Each run: place the enemy and let it settle, hit it, then measure once the reaction is over.
+		// Each run: place the enemy and let it settle, hit it, then sample its travel every update until the
+		// reaction's root motion has ended, plus a short margin for the last movement to land.
 		const double Now = World->GetTimeSeconds();
 		FMeasuredRun& Run = Runs[RunIndex];
 		if (Stage == 0)
@@ -95,11 +105,30 @@ public:
 			StageStart = Now;
 			Stage = 2;
 		}
-		else if (Stage == 2 && Now - StageStart >= 1.5)
+		else if (Stage == 2)
 		{
-			Run.Displacement = FVector::DotProduct(Enemy->GetActorLocation() - RunOrigin, Forward);
-			Stage = 0;
-			++RunIndex;
+			const double Elapsed = Now - StageStart;
+			const double Travel = FVector::DotProduct(Enemy->GetActorLocation() - RunOrigin, Forward);
+			Run.PeakTravel = FMath::Max(Run.PeakTravel, Travel);
+			if (RootMotionEnd < 0.0 && !IsReactionRootMotionActive())
+			{
+				RootMotionEnd = Elapsed;
+				Run.RootMotionDuration = Elapsed;
+			}
+			const bool bSettled = RootMotionEnd >= 0.0 && Elapsed >= RootMotionEnd + RunMargin;
+			const bool bCapped = !bSettled && Elapsed >= RunCap;
+			if (bSettled || bCapped)
+			{
+				if (bCapped)
+				{
+					Test->AddError(FString::Printf(TEXT("%s %s run: the reaction's root motion had not ended after %.2f s"),
+						*Run.Type, Run.bPush ? TEXT("push") : TEXT("control"), Elapsed));
+					Run.RootMotionDuration = Elapsed;
+				}
+				Run.NetTravel = Travel;
+				Stage = 0;
+				++RunIndex;
+			}
 		}
 		return false;
 	}
@@ -203,12 +232,19 @@ private:
 
 	void Hit(FMeasuredRun& Run)
 	{
+		RootMotionEnd = -1.0;
+		HitMontage.Reset();
 		UAttackData* Attack = LoadObject<UAttackData>(nullptr, Run.AttackPath);
 		if (!Attack)
 		{
 			Test->AddError(FString::Printf(TEXT("Missing attack data %s"), Run.AttackPath));
 			return;
 		}
+		// The game's own rules (UHitReactionComponent::StartKnockback) at charge 0 with the push run's victim scale.
+		const FKnockbackConfig Config = KnockbackResolution::Resolve(Attack, Player->CombatSettings.Get());
+		Run.ResolvedPush = KnockbackResolution::PushDistance(
+			Config.Distance, 0.0f, Attack->MaxChargeKnockbackMultiplier, PushSettings->KnockbackScale);
+		Run.ResolvedBlend = Config.AnimationBlend;
 		RunOrigin = Enemy->GetActorLocation();
 		FHitReactionInfo Info;
 		Info.Attacker = Player.Get();
@@ -219,8 +255,24 @@ private:
 		FMath::RandInit(0x4B42);
 		IDamageableInterface::Execute_ApplyDamage(Enemy.Get(), Info); // synchronous: ApplyDamage -> PlayHitReaction
 		const UAnimInstance* Anim = Enemy->GetMesh() ? Enemy->GetMesh()->GetAnimInstance() : nullptr;
-		Run.Montage = GetNameSafe(Anim ? Anim->GetCurrentActiveMontage() : nullptr);
+		const UAnimMontage* Montage = Anim ? Anim->GetCurrentActiveMontage() : nullptr;
+		HitMontage = Montage;
+		Run.Montage = GetNameSafe(Montage);
+		Run.Section = Montage ? Anim->Montage_GetCurrentSection(Montage).ToString() : FString(TEXT("None"));
 		Run.bRootMotionAtHit = Enemy->IsPlayingRootMotion();
+	}
+
+	/** True while the enemy plays root motion from the montage that started at the hit. */
+	bool IsReactionRootMotionActive() const
+	{
+		const UAnimInstance* Anim = Enemy->GetMesh() ? Enemy->GetMesh()->GetAnimInstance() : nullptr;
+		// Montage_IsActive(nullptr) means "any montage", so a missing hit montage counts as ended.
+		return Anim && HitMontage.IsValid() && Enemy->IsPlayingRootMotion() && Anim->Montage_IsActive(HitMontage.Get());
+	}
+
+	static FString BlendName(const EDisplacementAnimationBlend Blend)
+	{
+		return StaticEnum<EDisplacementAnimationBlend>()->GetNameStringByValue(static_cast<int64>(Blend));
 	}
 
 	void Report()
@@ -230,23 +282,38 @@ private:
 		{
 			const FMeasuredRun& Control = Runs[Pair];
 			const FMeasuredRun& Push = Runs[Pair + 1];
-			const double Added = Push.Displacement - Control.Displacement;
-			Test->AddInfo(FString::Printf(TEXT("%s: reaction alone %.1f cm (%s), with knockback %.1f cm, added %.1f cm (resolved %.0f cm)"),
-				*Control.Type, Control.Displacement, *Control.Montage, Push.Displacement, Added, Push.ExpectedPush));
+			const double Added = Push.NetTravel - Control.NetTravel;
+			const FString Blend = BlendName(Push.ResolvedBlend);
+			Test->AddInfo(FString::Printf(
+				TEXT("%s: reaction alone peak %.1f cm, net %.1f cm over %.2f s (%s, section %s); with knockback net %.1f cm; added %.1f cm (resolved %.1f cm, %s)"),
+				*Control.Type, Control.PeakTravel, Control.NetTravel, Control.RootMotionDuration, *Control.Montage, *Control.Section,
+				Push.NetTravel, Added, Push.ResolvedPush, *Blend));
 			Test->TestNotEqual(*FString::Printf(TEXT("%s: a reaction montage played"), *Control.Type), Control.Montage, FString(TEXT("None")));
 			Test->TestEqual(*FString::Printf(TEXT("%s: both runs played the same reaction"), *Control.Type), Push.Montage, Control.Montage);
+			Test->TestEqual(*FString::Printf(TEXT("%s: both runs played the same reaction section"), *Control.Type), Push.Section, Control.Section);
 			Test->TestTrue(*FString::Printf(TEXT("%s: the reaction plays root motion, so the animation channel carries the push"), *Control.Type),
 				Control.bRootMotionAtHit && Push.bRootMotionAtHit);
-			Test->TestTrue(*FString::Printf(TEXT("%s: knockback adds the resolved push"), *Control.Type),
-				FMath::IsNearlyEqual(Added, static_cast<double>(Push.ExpectedPush), FMath::Max(8.0, 0.25 * Push.ExpectedPush)));
+			if (Push.ResolvedBlend == EDisplacementAnimationBlend::AddToAnimation)
+			{
+				Test->TestTrue(*FString::Printf(TEXT("%s: knockback adds the resolved push"), *Control.Type),
+					FMath::IsNearlyEqual(Added, static_cast<double>(Push.ResolvedPush), FMath::Max(8.0, 0.25 * Push.ResolvedPush)));
+			}
+			else
+			{
+				Test->AddInfo(FString::Printf(TEXT("%s: the added-push relation is not asserted for the %s blend"), *Control.Type, *Blend));
+			}
 
 			TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
 			Entry->SetStringField(TEXT("reaction_montage"), Control.Montage);
+			Entry->SetStringField(TEXT("reaction_section"), Control.Section);
 			Entry->SetBoolField(TEXT("root_motion_at_hit"), Control.bRootMotionAtHit);
-			Entry->SetNumberField(TEXT("reaction_root_motion_cm"), Control.Displacement);
-			Entry->SetNumberField(TEXT("with_knockback_cm"), Push.Displacement);
+			Entry->SetNumberField(TEXT("reaction_peak_cm"), Control.PeakTravel);
+			Entry->SetNumberField(TEXT("reaction_net_cm"), Control.NetTravel);
+			Entry->SetNumberField(TEXT("reaction_duration_s"), Control.RootMotionDuration);
+			Entry->SetNumberField(TEXT("with_knockback_cm"), Push.NetTravel);
 			Entry->SetNumberField(TEXT("added_cm"), Added);
-			Entry->SetNumberField(TEXT("resolved_push_cm"), Push.ExpectedPush);
+			Entry->SetNumberField(TEXT("resolved_push_cm"), Push.ResolvedPush);
+			Entry->SetStringField(TEXT("resolved_blend"), Blend);
 			Json->SetObjectField(Control.Type, Entry);
 		}
 		FString Out;
@@ -262,6 +329,11 @@ private:
 	int32 RunIndex = 0;
 	int32 Stage = 0;
 	double StageStart = 0.0;
+	/** Seconds after the hit at which the reaction's root motion ended; negative until it has. */
+	double RootMotionEnd = -1.0;
+	static constexpr double RunMargin = 0.25;
+	static constexpr double RunCap = 6.0;
+	TWeakObjectPtr<const UAnimMontage> HitMontage;
 	TWeakObjectPtr<APlayerCharacter> Player;
 	TWeakObjectPtr<AEnemyCharacter> Enemy;
 	// Strong references: only one copy is assigned to the enemy at a time, and PIE garbage collection must not take the other.
