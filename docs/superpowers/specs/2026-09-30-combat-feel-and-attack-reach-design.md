@@ -131,12 +131,12 @@ The executor re-evaluates the channel every tick:
    which is dilated, so hitstop pauses the push without extra code. It also reports the
    kept animation travel along the push direction, so the blocked check does not mistake
    a reaction that steps sideways for a wall.
-2. **Movement channel**, used when no root-motion animation plays. A character-movement
-   override root-motion source with `IgnoreZAccumulate` (gravity still applies) and no
-   timeout. The executor owns termination, and each tick it sets the force to the curve's
-   exact average velocity for the next step. That velocity lands on the curve's end: a
-   decaying `StrengthOverTime` curve is sampled at the start of each step and would
-   overshoot `EaseOut` by about 6% at 60 fps. On removal the finish velocity clamps
+2. **Movement channel**, used when no root-motion animation plays. The project's
+   `FRootMotionSource_ProceduralDisplacement`, a character-movement root-motion source in
+   override mode with `IgnoreZAccumulate` (gravity still applies) and no timeout. It
+   evaluates the curve in `PrepareRootMotion` from each movement step's actual simulation
+   time, so it lands on the curve at any frame rate and contributes nothing past the
+   curve's end. The executor owns termination. On removal the finish velocity clamps
    horizontal speed to zero (`ClampVelocity` 0), which keeps a fall's downward speed. The
    source's own time is the record of applied push time. Character movement's dilated
    delta pauses it under hitstop.

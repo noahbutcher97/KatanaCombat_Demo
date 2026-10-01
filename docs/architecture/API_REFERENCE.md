@@ -2264,7 +2264,7 @@ Get the active targeting settings based on configuration hierarchy.
 ## Procedural Displacement and Knockback (Added 2026-09)
 
 ### EAlignmentExecutor::ProceduralDisplacement
-Fourth alignment executor (after `CharacterMovement`, `MotionWarping`, `BoundedMovement`). Applies a fixed-curve horizontal displacement over time through a root-motion modifier while a root-motion montage plays, or through a character-movement root-motion source otherwise. Takes its values from `FAlignmentRequestSpec::Displacement`; the existing executors are unchanged.
+Fourth alignment executor (after `CharacterMovement`, `MotionWarping`, `BoundedMovement`). Applies a fixed-curve horizontal displacement over time through a root-motion modifier while a root-motion montage plays, or through a character-movement root-motion source otherwise (`FRootMotionSource_ProceduralDisplacement`, which evaluates the curve from each movement step's actual simulation time). Takes its values from `FAlignmentRequestSpec::Displacement`; the existing executors are unchanged.
 
 ### FProceduralDisplacement
 Immutable after acquisition. Read-only in Blueprint.

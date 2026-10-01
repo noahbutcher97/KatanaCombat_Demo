@@ -1,0 +1,71 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "GameFramework/RootMotionSource.h"
+#include "CombatTypes.h"
+#include "RootMotionSource_ProceduralDisplacement.generated.h"
+
+/**
+ * Character-movement root-motion source used by UTargetingComponent's ProceduralDisplacement
+ * executor when no root-motion animation plays. PrepareRootMotion evaluates the displacement
+ * curve over each movement step's own simulation time, so the push lands on the curve at any
+ * frame rate and contributes nothing past the curve's end. The executor owns termination, so
+ * the base Duration stays negative (no timeout) and the curve's length is CurveDuration.
+ */
+USTRUCT()
+struct KATANACOMBAT_API FRootMotionSource_ProceduralDisplacement : public FRootMotionSource
+{
+	GENERATED_BODY()
+
+	virtual ~FRootMotionSource_ProceduralDisplacement() override {}
+
+	/** Horizontal unit direction in world space. */
+	UPROPERTY()
+	FVector Direction = FVector::ZeroVector;
+
+	/** Total curve distance in centimeters. */
+	UPROPERTY()
+	float Distance = 0.0f;
+
+	/** Curve duration in seconds; distinct from the base Duration, which is the source's timeout. */
+	UPROPERTY()
+	float CurveDuration = 0.0f;
+
+	UPROPERTY()
+	EDisplacementSpeedProfile SpeedProfile = EDisplacementSpeedProfile::Linear;
+
+	/** Curve time at which this source starts, so a resumed push continues the curve. */
+	UPROPERTY()
+	float StartElapsed = 0.0f;
+
+	virtual FRootMotionSource* Clone() const override;
+
+	virtual bool Matches(const FRootMotionSource* Other) const override;
+
+	virtual bool MatchesAndHasSameState(const FRootMotionSource* Other) const override;
+
+	virtual bool UpdateStateFrom(const FRootMotionSource* SourceToTakeStateFrom, bool bMarkForSimulatedCatchup = false) override;
+
+	virtual void PrepareRootMotion(
+		float SimulationTime,
+		float MovementTickTime,
+		const ACharacter& Character,
+		const UCharacterMovementComponent& MoveComponent
+		) override;
+
+	virtual bool NetSerialize(FArchive& Ar, UPackageMap* Map, bool& bOutSuccess) override;
+
+	virtual UScriptStruct* GetScriptStruct() const override;
+
+	virtual FString ToSimpleString() const override;
+};
+
+template<>
+struct TStructOpsTypeTraits<FRootMotionSource_ProceduralDisplacement> : public TStructOpsTypeTraitsBase2<FRootMotionSource_ProceduralDisplacement>
+{
+	enum
+	{
+		WithNetSerializer = true,
+		WithCopy = true
+	};
+};

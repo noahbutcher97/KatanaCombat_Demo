@@ -1,5 +1,6 @@
 #include "Core/TargetingComponent.h"
 #include "Animation/RootMotionModifier_ProceduralDisplacement.h"
+#include "Animation/RootMotionSource_ProceduralDisplacement.h"
 #include "Utilities/DisplacementMath.h"
 #include "MotionWarpingComponent.h"
 #include "Animation/AnimMontage.h"
@@ -60,21 +61,6 @@ bool UTargetingComponent::HasRotatingAlignmentRequest() const
 	return false;
 }
 
-void UTargetingComponent::SteerDisplacementMovement(FAlignmentRequestRecord& Record, const float StepEstimate)
-{
-	UCharacterMovementComponent* Movement = OwnerCharacter ? OwnerCharacter->GetCharacterMovement() : nullptr;
-	const TSharedPtr<FRootMotionSource> Source = Movement ? Movement->GetRootMotionSourceByID(Record.DisplacementSourceId) : nullptr;
-	if (!Source.IsValid())
-	{
-		return;
-	}
-	// Average velocity over the next step, assuming it lasts as long as this one: exact for both
-	// profiles at a steady frame rate, and it lands on the curve's end instead of overshooting.
-	const FProceduralDisplacement& Displacement = Record.Spec.Displacement;
-	StaticCastSharedPtr<FRootMotionSource_ConstantForce>(Source)->Force = Displacement.Direction * DisplacementMath::StepSpeed(
-		Displacement.SpeedProfile, Displacement.Distance, Displacement.Duration, Record.DisplacementElapsed, StepEstimate);
-}
-
 bool UTargetingComponent::CanDeliverDisplacement() const
 {
 	// Both channels advance only inside character movement's own update, which does not run
@@ -84,7 +70,7 @@ bool UTargetingComponent::CanDeliverDisplacement() const
 		&& Movement->UpdatedComponent && !Movement->UpdatedComponent->IsSimulatingPhysics();
 }
 
-bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Record, const float StepEstimate)
+bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Record)
 {
 	if (!CanDeliverDisplacement())
 	{
@@ -119,7 +105,7 @@ bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Re
 		}
 	}
 
-	auto Source = MakeShared<FRootMotionSource_ConstantForce>();
+	auto Source = MakeShared<FRootMotionSource_ProceduralDisplacement>();
 	Source->InstanceName = DisplacementSourceName;
 	Source->AccumulateMode = ERootMotionAccumulateMode::Override;
 	Source->Priority = 500;
@@ -128,8 +114,12 @@ bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Re
 	// On removal: horizontal speed to zero, a fall keeps its downward speed.
 	Source->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::ClampVelocity;
 	Source->FinishVelocityParams.ClampVelocity = 0.0f;
-	Source->Force = Displacement.Direction * DisplacementMath::StepSpeed(
-		Displacement.SpeedProfile, Displacement.Distance, Displacement.Duration, Record.DisplacementElapsed, StepEstimate);
+	// The source evaluates the curve itself from each movement step's simulation time.
+	Source->Direction = Displacement.Direction;
+	Source->Distance = Displacement.Distance;
+	Source->CurveDuration = Displacement.Duration;
+	Source->SpeedProfile = Displacement.SpeedProfile;
+	Source->StartElapsed = static_cast<float>(Record.DisplacementElapsed);
 	Record.DisplacementSourceId = Movement->ApplyRootMotionSource(Source);
 	if (Record.DisplacementSourceId == static_cast<uint16>(ERootMotionSourceID::Invalid))
 	{
@@ -277,14 +267,9 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	{
 		Outcome = EAlignmentMotionOutcome::Blocked;
 	}
-	else if (Record->DisplacementChannel == EDisplacementChannel::None && !InstallDisplacementChannel(*Record, DeltaTime))
+	else if (Record->DisplacementChannel == EDisplacementChannel::None && !InstallDisplacementChannel(*Record))
 	{
 		Outcome = EAlignmentMotionOutcome::Invalid;
-	}
-	else if (Record->DisplacementChannel == EDisplacementChannel::Movement)
-	{
-		// ActorTime: the component delta is already scaled by the owner's time dilation.
-		SteerDisplacementMovement(*Record, DeltaTime);
 	}
 
 	Record->MotionState.Outcome = Outcome;

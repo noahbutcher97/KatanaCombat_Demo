@@ -578,8 +578,7 @@ private:
     void AdvanceBoundedAlignment(float DeltaTime);
     void AdvanceProceduralDisplacement(float DeltaTime);
     bool CanDeliverDisplacement() const;
-    bool InstallDisplacementChannel(FAlignmentRequestRecord& Record, float StepEstimate);
-    void SteerDisplacementMovement(FAlignmentRequestRecord& Record, float StepEstimate);
+    bool InstallDisplacementChannel(FAlignmentRequestRecord& Record);
     void SyncDisplacementElapsed(FAlignmentRequestRecord& Record);
     void ReportDisplacementOutcome(const FAlignmentRequestRecord& Record, EAlignmentMotionOutcome Outcome) const;
     void RemoveDisplacementChannel(FAlignmentRequestRecord& Record);

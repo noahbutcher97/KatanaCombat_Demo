@@ -115,6 +115,7 @@ Source/KatanaCombat/Public/
 │   ├── AnimNotifyState_ComboWindow.h          ← Legacy/manual override; do not seed by default
 │   ├── AnimNotifyState_PairedAnimationSync.h  ← Sync point effects trigger
 │   ├── RootMotionModifier_ProceduralDisplacement.h ← Motion Warping channel for the displacement executor
+│   ├── RootMotionSource_ProceduralDisplacement.h ← Character-movement channel for the displacement executor
 │   └── AnimNotifyState_PairedAnimationCollision.h ← Partner collision management
 ├── Characters/
 │   ├── BaseCombatCharacter.h  ← Base class with 5 combat components

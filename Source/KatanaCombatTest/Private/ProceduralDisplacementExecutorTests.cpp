@@ -155,6 +155,55 @@ bool FDisplacementEaseOutTest::RunTest(const FString&)
 	return true;
 }
 
+namespace
+{
+/** Push 60 cm over 0.25 s through the movement channel, one Step per FrameDelta(Index), until the request releases itself. */
+FVector PushWithFrameTimes(FAutomationTestBase& Test, const TCHAR* Name, const EDisplacementSpeedProfile Profile,
+	const TFunctionRef<float(int32)> FrameDelta)
+{
+	FDisplacementFixture F;
+	const FVector Start = F.Character->GetActorLocation();
+	F.Targeting()->AcquireAlignmentRequest(MakePush(60.f, 0.25f, Profile));
+	int32 Frames = 0;
+	for (; Frames < 200 && F.Targeting()->GetAlignmentRequestCountForTesting() > 0; ++Frames)
+	{
+		F.Step(FrameDelta(Frames));
+	}
+	Test.TestEqual(FString::Printf(TEXT("%s: the push released itself"), Name), F.Targeting()->GetAlignmentRequestCountForTesting(), 0);
+	const FVector Moved = F.Character->GetActorLocation() - Start;
+	Test.AddInfo(FString::Printf(TEXT("%s: travel X %.3f cm, Y %.3f cm over %d frames"), Name, Moved.X, Moved.Y, Frames));
+	return Moved;
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementVariableFrameTimesTest, "KatanaCombat.Displacement.Executor.VariableFrameTimesLandOnDistance",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementVariableFrameTimesTest::RunTest(const FString&)
+{
+	// Each movement step must cover the curve over its own delta, whatever the previous frame's delta was.
+	const auto Alternating = [](const int32 Frame) { return Frame % 2 == 0 ? 1.f / 120 : 1.f / 20; };
+	// The channel installs in the first frame's targeting tick, so frame 2 is the push's second movement step.
+	const auto Hitch = [](const int32 Frame) { return Frame == 2 ? 0.1f : 1.f / 60; };
+	struct FCase
+	{
+		const TCHAR* Name;
+		EDisplacementSpeedProfile Profile;
+		TFunctionRef<float(int32)> FrameDelta;
+	};
+	const FCase Cases[] = {
+		{TEXT("EaseOut, alternating 1/120 and 1/20 s"), EDisplacementSpeedProfile::EaseOut, Alternating},
+		{TEXT("EaseOut, 1/60 s with one 0.1 s hitch"), EDisplacementSpeedProfile::EaseOut, Hitch},
+		{TEXT("Linear, alternating 1/120 and 1/20 s"), EDisplacementSpeedProfile::Linear, Alternating},
+	};
+	for (const FCase& Case : Cases)
+	{
+		const FVector Moved = PushWithFrameTimes(*this, Case.Name, Case.Profile, Case.FrameDelta);
+		TestTrue(FString::Printf(TEXT("%s: lands on 60 cm (moved %.2f)"), Case.Name, Moved.X), FMath::IsNearlyEqual(Moved.X, 60.0, 1.0));
+		TestTrue(FString::Printf(TEXT("%s: no lateral drift (%.2f)"), Case.Name, Moved.Y), FMath::Abs(Moved.Y) < 1.0);
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementHitstopTest, "KatanaCombat.Displacement.Executor.PausesUnderHitstopDilation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FDisplacementHitstopTest::RunTest(const FString&)

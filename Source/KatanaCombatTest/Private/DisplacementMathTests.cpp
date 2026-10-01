@@ -35,22 +35,6 @@ bool FDisplacementMathPartitionTest::RunTest(const FString&)
 	return true;
 }
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementMathStepSpeedTest, "KatanaCombat.Displacement.Math.StepSpeed",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FDisplacementMathStepSpeedTest::RunTest(const FString&)
-{
-	TestEqual(TEXT("Linear speed is constant"), DisplacementMath::StepSpeed(EDisplacementSpeedProfile::Linear, 50.0, 0.25, 0.1, 1.0 / 60), 200.0, 1e-6);
-	// Stepping at StepSpeed for each step lands exactly on the curve, including a final step that crosses the end.
-	double Covered = 0.0;
-	for (double T = 0.0; T < 0.25; T += 1.0 / 60)
-	{
-		Covered += DisplacementMath::StepSpeed(EDisplacementSpeedProfile::EaseOut, 60.0, 0.25, T, 1.0 / 60) / 60;
-	}
-	TestEqual(TEXT("EaseOut steps sum to the distance"), Covered, 60.0, 1e-6);
-	TestTrue(TEXT("A zero step is finite"), FMath::IsFinite(DisplacementMath::StepSpeed(EDisplacementSpeedProfile::EaseOut, 60.0, 0.25, 0.1, 0.0)));
-	return true;
-}
-
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementMathChannelTest, "KatanaCombat.Displacement.Math.ChannelSelection",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FDisplacementMathChannelTest::RunTest(const FString&)

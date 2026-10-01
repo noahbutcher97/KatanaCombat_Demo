@@ -20,12 +20,6 @@ double DistanceBetween(const EDisplacementSpeedProfile Profile, const double Dis
 	return Distance * (Progress(Profile, T1 / Duration) - Progress(Profile, T0 / Duration));
 }
 
-double StepSpeed(const EDisplacementSpeedProfile Profile, const double Distance, const double Duration, const double T, const double Step)
-{
-	const double SafeStep = FMath::Max(Step, UE_KINDA_SMALL_NUMBER);
-	return DistanceBetween(Profile, Distance, Duration, T, T + SafeStep) / SafeStep;
-}
-
 EDisplacementChannel SelectChannel(const bool bPlayingRootMotion, const bool bHasMotionWarping)
 {
 	return bPlayingRootMotion && bHasMotionWarping ? EDisplacementChannel::Animation : EDisplacementChannel::Movement;
