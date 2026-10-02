@@ -706,6 +706,9 @@ bool FKnockbackReactionOrderSourceTest::RunTest(const FString& Parameters)
 			TEXT("UCombatComponent::PrepareForPairedTakeover"), TEXT("ReleaseKnockback(TEXT(\"PairedTakeover\"))")},
 		{TEXT("Source/KatanaCombat/Private/Core/PairedAnimationComponent.cpp"),
 			TEXT("UPairedAnimationComponent::TryStartDefenseChainStage"), TEXT("ReleaseKnockback(TEXT(\"ChainStart\"))")},
+		// The no-montage parry bridge starts no stage, so the sequence start releases the defender's push too.
+		{TEXT("Source/KatanaCombat/Private/Core/PairedAnimationComponent.cpp"),
+			TEXT("UPairedAnimationComponent::BeginDefenseSequence"), TEXT("ReleaseKnockback(TEXT(\"ChainStart\"))")},
 	};
 	for (const FReleaser& Releaser : Releasers)
 	{

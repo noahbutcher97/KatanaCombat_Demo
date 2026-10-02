@@ -1221,6 +1221,77 @@ bool FDefenseChainStageStartReleasesDefenderPushTest::RunTest(const FString& Par
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseChainSequenceBeginReleasesDefenderPushTest,
+	"KatanaCombat.Defense.Chain.SequenceBeginReleasesDefenderPush",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseChainSequenceBeginReleasesDefenderPushTest::RunTest(const FString& Parameters)
+{
+	FScopedActionReactionTelemetry TelemetryEnabled(1);
+	FDefenseChainFixture Fixture;
+	if (!Fixture.Initialize())
+	{
+		AddError(TEXT("Failed to create the defender-push fixture"));
+		Fixture.Destroy();
+		return false;
+	}
+	UHitReactionComponent* DefenderReaction = Fixture.Defender->HitReactionComponent;
+	UTargetingComponent* DefenderTargeting = Fixture.Defender->TargetingComponent;
+	if (!TestNotNull(TEXT("Defender hit reaction"), DefenderReaction)
+		|| !TestNotNull(TEXT("Defender targeting"), DefenderTargeting))
+	{
+		Fixture.Destroy();
+		return false;
+	}
+
+	// A hit from the source attacker pushes the defender, who then perfect-parries while the push still runs.
+	const FHitReactionInfo Hit = FCombatTestHelpers::CreateTestHitInfo(
+		Fixture.SourceAttacker,
+		10.0f,
+		FVector(1.0f, 0.0f, 0.0f),
+		FCombatTestHelpers::CreateTestAttack(EAttackType::Light));
+	if (!TestTrue(TEXT("The defender is pushed"), DefenderReaction->StartKnockback(Hit)))
+	{
+		Fixture.Destroy();
+		return false;
+	}
+	const FAlignmentRequestHandle Push = DefenderReaction->KnockbackAlignmentHandle;
+	FAlignmentRequestSpec PushSpec;
+	TestTrue(TEXT("The defender's targeting holds the push"),
+		DefenderTargeting->GetAlignmentRequestSpec(Push, PushSpec)
+		&& PushSpec.Executor == EAlignmentExecutor::ProceduralDisplacement);
+
+	Fixture.DefenderCombat->ClearActionReactionTelemetry();
+	if (!TestTrue(TEXT("Public Block input commits the retained sequence"), Fixture.StartCommittedParry()))
+	{
+		Fixture.Destroy();
+		return false;
+	}
+	// The fixture authors no paired bridge, so the sequence takes the no-montage parry bridge: no stage starts.
+	TestFalse(TEXT("No paired stage started (no-montage parry bridge)"),
+		Fixture.Paired->IsPairedAnimationActive());
+	FAlignmentRequestSpec Remaining;
+	TestFalse(TEXT("The sequence start released the defender's push"),
+		DefenderTargeting->GetAlignmentRequestSpec(Push, Remaining));
+	// Released by the sequence start itself, with the chain's reason.
+	const TArray<FActionReactionTelemetryRecord> Cancelled =
+		Fixture.DefenderCombat->GetActionReactionTelemetry().FilterByPredicate(
+			[](const FActionReactionTelemetryRecord& Row)
+			{
+				return Row.AlignmentOwner == FName(TEXT("HitKnockback"))
+					&& Row.AlignmentDisposition == FName(TEXT("Cancelled"));
+			});
+	if (TestEqual(TEXT("The released push writes one Cancelled row"), Cancelled.Num(), 1))
+	{
+		TestEqual(TEXT("Released by the parry sequence start"),
+			Cancelled[0].Detail, FString(TEXT("ChainStart")));
+	}
+
+	Fixture.Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FDefenseChainRetainedStageLifecycleTest,
 	"KatanaCombat.Defense.Chain.RetainedStageLifecycle",
 	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)

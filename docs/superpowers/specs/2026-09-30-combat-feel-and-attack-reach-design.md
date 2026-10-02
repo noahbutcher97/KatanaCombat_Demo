@@ -253,8 +253,9 @@ resolved config (`AddToAnimation` for both types until the reaction measurement 
 otherwise), priority `HitKnockback`, `bReleaseWhenFinished`. A new push releases the previous
 one (`Replaced`). These also release it, each naming itself in the `Cancelled` row:
 `EnterPairedAnimationState` (`PairedEntry`), `UCombatComponent::PrepareForPairedTakeover`
-(`PairedTakeover`, so the character who starts a paired animation drops its own push too), a
-defense-chain stage start for the defender (`ChainStart`), and `EndPlay` (`EndPlay`).
+(`PairedTakeover`, so the character who starts a paired animation drops its own push too), the
+defense chain taking over the defender (`ChainStart`: when the parry sequence begins, which covers
+the no-montage parry bridge, and at each stage start), and `EndPlay` (`EndPlay`).
 
 ### Observability
 

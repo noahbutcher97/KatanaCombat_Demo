@@ -1817,6 +1817,13 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 	ActiveChainTarget = SourceAttacker;
 	ActiveChainAttackData = nullptr;
 	ChainState = EChainCounterState::ParryActive;
+	// The chain now owns the defender's body. The no-montage parry bridge starts no stage and holds no bridge
+	// request, so release the defender's own knockback push here; a paired-bridge parry's stage start releases
+	// it again, which is a harmless miss.
+	if (UHitReactionComponent* DefenderHitReaction = Defender->HitReactionComponent.Get())
+	{
+		DefenderHitReaction->ReleaseKnockback(TEXT("ChainStart"));
+	}
 	OnDefenseSequenceParticipationChanged.Broadcast(true);
 	if (SourcePaired)
 	{
