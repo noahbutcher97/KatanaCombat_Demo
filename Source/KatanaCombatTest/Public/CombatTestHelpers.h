@@ -101,9 +101,13 @@ public:
     {
         if (World)
         {
-            // Stop this world's sounds before it goes. Flush waits on an audio-thread fence, so no active sound
-            // still holds an object outered to the world (and through it the world) when DestroyWorld returns;
-            // a leaked world would fail the next map load's world-leak check and end the whole run.
+            // Stop this world's sounds before it goes, so none keeps an object outered to it (and through it the
+            // world) alive: a leaked world fails the next map load's world-leak check and ends the whole run.
+            // FAudioDevice::Flush(World) waits on an audio-thread fence. It stops this world's sounds and sounds with
+            // no world (except any marked to ignore flushing), but on the device the editor shares it also stops every
+            // virtual loop of any world, resets the listeners and clears the activated reverb. The world is not yet
+            // tearing down, so a sound still stopping can be deferred to PendingSoundsToDelete, which the device
+            // still reports to GC; KatanaCombat.Knockback.PIE's leak preflight names any world that survives.
             if (FAudioDevice* AudioDevice = World->GetAudioDeviceRaw())
             {
                 AudioDevice->Flush(World);

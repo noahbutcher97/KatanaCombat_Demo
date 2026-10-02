@@ -12,13 +12,49 @@
 
 namespace
 {
+/** The Light type default the fixture's characters carry: set by the tests, so no expectation rests on shipped tuning. */
+FKnockbackConfig StartTestLightDefault()
+{
+	FKnockbackConfig Config;
+	Config.Distance = 30.0f;
+	Config.Duration = 0.3f;
+	Config.DirectionMode = EKnockbackDirection::AwayFromAttacker;
+	Config.SpeedProfile = EDisplacementSpeedProfile::Linear;
+	Config.AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
+	return Config;
+}
+
 struct FKnockbackFixture
 {
 	UWorld* World = FCombatTestHelpers::CreateTestWorld();
 	APlayerCharacter* Attacker = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector(0, 0, 100));
 	AEnemyCharacter* Victim = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(100, 0, 100));
 	UAttackData* Light = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
+	const FKnockbackConfig LightDefault = StartTestLightDefault();
+	/** The victim's push scale once ScaleVictim() has set it. */
+	static constexpr float VictimScale = 0.5f;
+
+	FKnockbackFixture()
+	{
+		// Both characters' settings, since either can be the attacker: Light pushes with LightDefault, Special has no
+		// default.
+		for (ABaseCombatCharacter* Character : {static_cast<ABaseCombatCharacter*>(Attacker), static_cast<ABaseCombatCharacter*>(Victim)})
+		{
+			Character->CombatSettings->DefaultKnockback.Add(EAttackType::Light, LightDefault);
+			Character->CombatSettings->DefaultKnockback.Remove(EAttackType::Special);
+		}
+	}
 	~FKnockbackFixture() { FCombatTestHelpers::DestroyTestWorld(World); }
+
+	/** Give the victim hit reaction settings with VictimScale, for tests that assert a pushed distance. */
+	void ScaleVictim() const
+	{
+		UHitReactionSettings* Settings = NewObject<UHitReactionSettings>();
+		Settings->KnockbackScale = VictimScale;
+		Victim->HitReactionComponent->HitReactionSettingsOverride = Settings;
+	}
+	/** The push LightDefault resolves to on the scaled victim, uncharged. */
+	float ScaledLightPush() const { return LightDefault.Distance * VictimScale; }
 
 	FHitReactionInfo Hit() const
 	{
@@ -66,16 +102,17 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackStartRequestTest, "KatanaCombat.Knock
 bool FKnockbackStartRequestTest::RunTest(const FString&)
 {
 	FKnockbackFixture F;
+	F.ScaleVictim();
 	TestTrue(TEXT("Push started"), F.Victim->HitReactionComponent->StartKnockback(F.Hit()));
 	const FAlignmentRequestSpec Spec = F.ActiveSpec();
 	TestEqual(TEXT("Executor"), Spec.Executor, EAlignmentExecutor::ProceduralDisplacement);
 	TestEqual(TEXT("Priority"), Spec.Priority, EDefenseAlignmentPriority::HitKnockback);
 	TestTrue(TEXT("Self-releasing"), Spec.bReleaseWhenFinished);
-	TestEqual(TEXT("Light default distance"), Spec.Displacement.Distance, 25.0f);
-	TestEqual(TEXT("Light default duration"), Spec.Displacement.Duration, 0.2f);
-	TestEqual(TEXT("Default profile"), Spec.Displacement.SpeedProfile, EDisplacementSpeedProfile::EaseOut);
+	TestEqual(TEXT("Type default distance, scaled by the victim"), Spec.Displacement.Distance, F.ScaledLightPush());
+	TestEqual(TEXT("Type default duration"), Spec.Displacement.Duration, F.LightDefault.Duration);
+	TestEqual(TEXT("Type default profile"), Spec.Displacement.SpeedProfile, F.LightDefault.SpeedProfile);
 	TestEqual(TEXT("Actor clock"), Spec.Displacement.Clock, EDisplacementClock::ActorTime);
-	TestEqual(TEXT("Resolved blend"), Spec.Displacement.AnimationBlend, EDisplacementAnimationBlend::AddToAnimation);
+	TestEqual(TEXT("Resolved blend"), Spec.Displacement.AnimationBlend, F.LightDefault.AnimationBlend);
 	TestTrue(TEXT("Pushed away from the attacker"), Spec.Displacement.Direction.Equals(FVector(1, 0, 0), 1e-4));
 
 	// The direction comes from the actors' positions, not from the hit's direction field.
@@ -86,11 +123,11 @@ bool FKnockbackStartRequestTest::RunTest(const FString&)
 		F.ActiveSpec().Displacement.Direction.Equals(FVector(1, 0, 0), 1e-4));
 
 	// The attacker's combat settings own the push: the victim's own defaults never change it.
-	F.Victim->CombatSettings->DefaultKnockback.FindChecked(EAttackType::Light).Distance = 40.0f;
+	F.Victim->CombatSettings->DefaultKnockback.FindChecked(EAttackType::Light).Distance = F.LightDefault.Distance + 10.0f;
 	TestTrue(TEXT("Different victim defaults: push started"), F.Victim->HitReactionComponent->StartKnockback(F.Hit()));
-	TestEqual(TEXT("The attacker's settings win over the victim's"), F.ActiveSpec().Displacement.Distance, 25.0f);
+	TestEqual(TEXT("The attacker's settings win over the victim's"), F.ActiveSpec().Displacement.Distance, F.ScaledLightPush());
 
-	// A per-attack blend override reaches the request.
+	// A per-attack blend override reaches the request (the type default is AddToAnimation).
 	F.Light->Knockback.bOverrideAnimationBlend = true;
 	F.Light->Knockback.AnimationBlend = EDisplacementAnimationBlend::ReplaceAnimation;
 	TestTrue(TEXT("Blend override: push started"), F.Victim->HitReactionComponent->StartKnockback(F.Hit()));
@@ -104,11 +141,12 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackStartChargeTest, "KatanaCombat.Knockb
 bool FKnockbackStartChargeTest::RunTest(const FString&)
 {
 	FKnockbackFixture F;
+	F.ScaleVictim();
 	F.Light->MaxChargeKnockbackMultiplier = 2.0f;
 	FHitReactionInfo Charged = F.Hit();
 	Charged.ChargeLevel = 1.0f;
 	F.Victim->HitReactionComponent->StartKnockback(Charged);
-	TestEqual(TEXT("Fully charged doubles the push"), F.ActiveSpec().Displacement.Distance, 50.0f);
+	TestEqual(TEXT("Fully charged doubles the push"), F.ActiveSpec().Displacement.Distance, 2.0f * F.ScaledLightPush());
 
 	UHitReactionSettings* Immune = NewObject<UHitReactionSettings>();
 	Immune->KnockbackScale = 0.0f;
@@ -155,6 +193,7 @@ bool FKnockbackTelemetryTest::RunTest(const FString&)
 	const FKnockbackTelemetryOn Telemetry;
 	if (!TestNotNull(TEXT("Telemetry CVar exists"), Telemetry.Variable)) { return false; }
 	FKnockbackFixture F;
+	F.ScaleVictim();
 	UCombatComponent* Combat = F.Victim->GetCombatComponent();
 	if (!TestNotNull(TEXT("Victim combat component"), Combat)) { return false; }
 
@@ -166,7 +205,7 @@ bool FKnockbackTelemetryTest::RunTest(const FString&)
 		TestEqual(TEXT("Event"), Started[0].Event, EActionReactionTelemetryEvent::AlignmentChanged);
 		TestEqual(TEXT("Owner"), Started[0].AlignmentOwner, FName(TEXT("HitKnockback")));
 		TestEqual(TEXT("Disposition"), Started[0].AlignmentDisposition, FName(TEXT("Started")));
-		TestEqual(TEXT("Resolved distance"), Started[0].MovementMagnitude, 25.0f);
+		TestEqual(TEXT("Resolved distance"), Started[0].MovementMagnitude, F.ScaledLightPush());
 	}
 
 	// An immune victim resolves a zero distance: the push is never acquired but the attempt is still recorded.
@@ -197,6 +236,7 @@ bool FKnockbackRejectionCauseTest::RunTest(const FString&)
 	const FKnockbackTelemetryOn Telemetry;
 	if (!TestNotNull(TEXT("Telemetry CVar exists"), Telemetry.Variable)) { return false; }
 	FKnockbackFixture F;
+	F.ScaleVictim();
 	UCombatComponent* Combat = F.Victim->GetCombatComponent();
 	if (!TestNotNull(TEXT("Victim combat component"), Combat)) { return false; }
 
@@ -207,7 +247,7 @@ bool FKnockbackRejectionCauseTest::RunTest(const FString&)
 		const TCHAR* Detail;
 		float Magnitude;
 	};
-	// An attack type with no default and no distance override resolves no push distance.
+	// An attack type with no default (the fixture removes Special's) and no distance override resolves no push distance.
 	UAttackData* Special = FCombatTestHelpers::CreateTestAttack(EAttackType::Special);
 	// A zero duration is below the editor clamp, so only code can author it; the arbiter refuses the request.
 	UAttackData* ZeroDuration = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
@@ -217,7 +257,7 @@ bool FKnockbackRejectionCauseTest::RunTest(const FString&)
 		{TEXT("Missing type default"), FCombatTestHelpers::CreateTestHitInfo(F.Attacker, 10.f, FVector(-1, 0, 0), Special),
 			TEXT("no push distance: missing type default (Special)"), 0.0f},
 		{TEXT("Acquire rejected"), FCombatTestHelpers::CreateTestHitInfo(F.Attacker, 10.f, FVector(-1, 0, 0), ZeroDuration),
-			TEXT("acquire rejected"), 25.0f},
+			TEXT("acquire rejected"), F.ScaledLightPush()},
 	};
 	for (const FCase& Case : Cases)
 	{
@@ -239,7 +279,7 @@ bool FKnockbackRejectionCauseTest::RunTest(const FString&)
 	if (TestEqual(TEXT("Stacked attacker: one Rejected row"), Rejected.Num(), 1))
 	{
 		TestEqual(TEXT("Stacked attacker: the row names its cause"), Rejected[0].Detail, FString(TEXT("degenerate direction")));
-		TestEqual(TEXT("Stacked attacker: the resolved distance is still recorded"), Rejected[0].MovementMagnitude, 25.0f);
+		TestEqual(TEXT("Stacked attacker: the resolved distance is still recorded"), Rejected[0].MovementMagnitude, F.ScaledLightPush());
 	}
 	TestEqual(TEXT("No request remains"), F.VictimTargeting()->GetAlignmentRequestCountForTesting(), 0);
 	return true;
@@ -310,5 +350,36 @@ bool FKnockbackPairedEntryReleaseTest::RunTest(const FString&)
 		TestEqual(TEXT("Released by paired entry"), Cancelled[0].Detail, FString(TEXT("PairedEntry")));
 	}
 	Reaction->ExitPairedAnimationState();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackEndPlayReleaseTest, "KatanaCombat.Knockback.Start.EndPlayReleasesPush",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FKnockbackEndPlayReleaseTest::RunTest(const FString&)
+{
+	const FKnockbackTelemetryOn Telemetry;
+	if (!TestNotNull(TEXT("Telemetry CVar exists"), Telemetry.Variable)) { return false; }
+	FKnockbackFixture F;
+	UHitReactionComponent* Reaction = F.Victim->HitReactionComponent;
+	// Test worlds never begin play, and UActorComponent::EndPlay checks that the component has. Run the component's
+	// own lifecycle in play order, directly as the tests tick components: BeginPlay, the push, then EndPlay. The world
+	// stays up.
+	Reaction->BeginPlay();
+	if (!TestTrue(TEXT("The hit reaction component has begun play"), Reaction->HasBegunPlay())) { return false; }
+	F.Victim->GetCombatComponent()->ClearActionReactionTelemetry();
+	if (!TestTrue(TEXT("Push started"), Reaction->StartKnockback(F.Hit()))) { return false; }
+	const FAlignmentRequestHandle Push = Reaction->KnockbackAlignmentHandle;
+	TestTrue(TEXT("The victim's targeting holds the push"), HoldsRequest(F.VictimTargeting(), Push));
+
+	Reaction->EndPlay(EEndPlayReason::RemovedFromWorld);
+	TestFalse(TEXT("The hit reaction component has ended play"), Reaction->HasBegunPlay());
+	TestFalse(TEXT("EndPlay releases the push"), HoldsRequest(F.VictimTargeting(), Push));
+	TestEqual(TEXT("No alignment request remains"), F.VictimTargeting()->GetAlignmentRequestCountForTesting(), 0);
+	TestFalse(TEXT("The component no longer holds a push handle"), Reaction->KnockbackAlignmentHandle.IsValid());
+	const TArray<FActionReactionTelemetryRecord> Cancelled = KnockbackRows(F.Victim, TEXT("Cancelled"));
+	if (TestEqual(TEXT("The released push writes one Cancelled row"), Cancelled.Num(), 1))
+	{
+		TestEqual(TEXT("Released by EndPlay"), Cancelled[0].Detail, FString(TEXT("EndPlay")));
+	}
 	return true;
 }

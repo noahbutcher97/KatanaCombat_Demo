@@ -4,6 +4,7 @@
 #include "Utilities/DisplacementMath.h"
 #include "MotionWarpingComponent.h"
 #include "Animation/AnimMontage.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/RootMotionSource.h"
@@ -22,7 +23,19 @@ constexpr double DisplacementBlockedSecondsLimit = 0.05;
 constexpr double DisplacementBlockedSecondsTolerance = 1e-6;
 constexpr double DisplacementBlockedProgressFraction = 0.1;
 constexpr double DisplacementMinimumExpectedStep = 0.1;
+// An override exactly as long as the push it has left is not longer than it, but float sums of frame times land a
+// hair either side: at 60 Hz one overridden step is 0.0166666675 s against 0.0166666657 s left on the last step.
+constexpr double DisplacementOverrideSecondsTolerance = 1e-6;
 const FName DisplacementSourceName(TEXT("KatanaProceduralDisplacement"));
+// The executor cancels a push for two causes of its own, so each terminal row names its cause.
+const TCHAR* const StaleSuspensionReason = TEXT("StaleSuspension");
+const TCHAR* const AnimationOverrideReason = TEXT("AnimationOverride");
+
+/** Movement along the push direction from one location to another. */
+double ProgressAlong(const FVector& From, const FVector& To, const FVector& Direction)
+{
+	return FVector::DotProduct(To - From, Direction);
+}
 
 /** The channel that can carry the push this frame: animation only while the root-motion montage advances. */
 EDisplacementChannel SelectLiveDisplacementChannel(const ACharacter& Character, const bool bHasMotionWarping)
@@ -38,8 +51,7 @@ const TCHAR* DisplacementOutcomeReason(const EAlignmentMotionOutcome Outcome)
 	case EAlignmentMotionOutcome::Reached: return TEXT("DurationReached");
 	case EAlignmentMotionOutcome::Blocked: return TEXT("ProgressStalled");
 	case EAlignmentMotionOutcome::Invalid: return TEXT("NoDeliverableChannel");
-	// The executor itself cancels only a stale suspension; the arbiter's cancellations carry their own reasons.
-	case EAlignmentMotionOutcome::Cancelled: return TEXT("StaleSuspension");
+	// Cancelled has several causes (StaleSuspension, AnimationOverride, a release's reason); its callers name it.
 	default: return TEXT("");
 	}
 }
@@ -62,9 +74,10 @@ void UTargetingComponent::AppendDisplacementTelemetry(const FAlignmentRequestRec
 	}
 	if (CombatDebug::IsKnockbackDebugEnabled())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[DISPLACEMENT] %s %s: %s after %.3f s, %.1f of %.1f cm (%s)"),
-			*GetNameSafe(GetOwner()), *Record.Spec.OwnerId.ToString(), *Disposition.ToString(),
-			Record.DisplacementElapsed, Record.MotionState.Travel, Record.Spec.Displacement.Distance, *Detail);
+		// The push's own travel, and all movement along the push (which includes the reaction's kept root motion).
+		UE_LOG(LogTemp, Log, TEXT("[DISPLACEMENT] %s %s: %s after %.3f s, push %.1f of %.1f cm (total along push %.1f cm) (%s)"),
+			*GetNameSafe(GetOwner()), *Record.Spec.OwnerId.ToString(), *Disposition.ToString(), Record.DisplacementElapsed,
+			Record.MotionState.PushTravel, Record.Spec.Displacement.Distance, Record.MotionState.Travel, *Detail);
 	}
 }
 
@@ -72,6 +85,24 @@ void UTargetingComponent::ReportDisplacementOutcome(const FAlignmentRequestRecor
 {
 	const FName OutcomeName(*StaticEnum<EAlignmentMotionOutcome>()->GetNameStringByValue(static_cast<int64>(Outcome)));
 	AppendDisplacementTelemetry(Record, OutcomeName, FString(Reason));
+	const UWorld* World = GetWorld();
+	if (CombatDebug::IsKnockbackDebugEnabled() && OwnerCharacter && World)
+	{
+		// Where the push ended: its outcome and its own travel against the requested distance, at the feet, on top.
+		const FColor Color = Outcome == EAlignmentMotionOutcome::Reached ? FColor::Green
+			: Outcome == EAlignmentMotionOutcome::Blocked ? FColor::Red
+			: Outcome == EAlignmentMotionOutcome::Cancelled ? FColor::Yellow
+			: FColor::Magenta;
+		const UCapsuleComponent* Capsule = OwnerCharacter->GetCapsuleComponent();
+		const FVector Foot = CombatDebug::GetKnockbackDebugFootLocation(
+			OwnerCharacter->GetActorLocation(), Capsule ? Capsule->GetScaledCapsuleHalfHeight() : 0.0f);
+		const float Duration = CombatDebug::GetKnockbackDebugDrawDuration();
+		DrawDebugPoint(World, Foot, 14.0f, Color, false, Duration, SDPG_Foreground);
+		DrawDebugString(World, Foot + FVector(0.0, 0.0, 15.0),
+			FString::Printf(TEXT("%s (%s): push %.1f of %.1f cm"), *OutcomeName.ToString(), Reason ? Reason : TEXT(""),
+				Record.MotionState.PushTravel, Record.Spec.Displacement.Distance),
+			nullptr, Color, Duration, true);
+	}
 }
 
 void UTargetingComponent::CancelRunningDisplacement(FAlignmentRequestRecord& Record, const TCHAR* Reason)
@@ -82,10 +113,45 @@ void UTargetingComponent::CancelRunningDisplacement(FAlignmentRequestRecord& Rec
 	{
 		return;
 	}
-	RemoveDisplacementChannel(Record); // syncs the elapsed time the channel applied before it goes
-	Record.MotionState.Outcome = EAlignmentMotionOutcome::Cancelled;
+	// The channel may have applied a step since the last advance (character movement ticked, this component has not):
+	// take that step's clock and travel, as the advance would have, before the channel goes.
+	SyncDisplacementElapsed(Record);
+	double KeptAnimationTravel = 0.0;
+	if (Record.DisplacementChannel == EDisplacementChannel::Animation)
+	{
+		if (URootMotionModifier_ProceduralDisplacement* Modifier = Record.DisplacementModifier.Get())
+		{
+			KeptAnimationTravel = Modifier->ConsumeAnimationTravel();
+		}
+	}
+	if (OwnerCharacter)
+	{
+		AccrueDisplacementTravel(Record, OwnerCharacter->GetActorLocation(), KeptAnimationTravel);
+	}
+	RemoveDisplacementChannel(Record);
+	// A release that lands after the push's last step reports the push it delivered, not a cancellation.
+	const EAlignmentMotionOutcome Outcome = Record.DisplacementElapsed >= Record.Spec.Displacement.Duration
+		? EAlignmentMotionOutcome::Reached
+		: EAlignmentMotionOutcome::Cancelled;
+	Record.MotionState.Outcome = Outcome;
 	Record.MotionState.Elapsed = Record.DisplacementElapsed;
-	ReportDisplacementOutcome(Record, EAlignmentMotionOutcome::Cancelled, Reason);
+	ReportDisplacementOutcome(Record, Outcome,
+		Outcome == EAlignmentMotionOutcome::Reached ? DisplacementOutcomeReason(Outcome) : Reason);
+}
+
+double UTargetingComponent::AccrueDisplacementTravel(FAlignmentRequestRecord& Record, const FVector& Location,
+	const double KeptAnimationTravel)
+{
+	double Progress = 0.0;
+	if (Record.bDisplacementHasLastLocation)
+	{
+		Progress = ProgressAlong(Record.DisplacementLastLocation, Location, Record.Spec.Displacement.Direction);
+		Record.MotionState.Travel += FMath::Max(0.0, Progress);
+		Record.MotionState.PushTravel += DisplacementMath::PushStep(Progress, KeptAnimationTravel);
+	}
+	Record.DisplacementLastLocation = Location;
+	Record.bDisplacementHasLastLocation = true;
+	return Progress;
 }
 
 void UTargetingComponent::AccumulateDisplacementSuspension(const float DeltaTime)
@@ -207,6 +273,12 @@ void UTargetingComponent::SyncDisplacementElapsed(FAlignmentRequestRecord& Recor
 			// The source's time advances by the dilated simulation time it was applied for.
 			Record.DisplacementElapsed = FMath::Min(static_cast<double>(Record.Spec.Displacement.Duration),
 				Record.DisplacementChannelStartElapsed + Source->GetTime());
+			// Its overridden time is the dilated time of the steps animation root motion overrode since then.
+			if (Source->GetScriptStruct() == FRootMotionSource_ProceduralDisplacement::StaticStruct())
+			{
+				Record.DisplacementOverriddenSeconds =
+					static_cast<const FRootMotionSource_ProceduralDisplacement&>(*Source).OverriddenTime;
+			}
 		}
 	}
 }
@@ -232,6 +304,7 @@ void UTargetingComponent::RemoveDisplacementChannel(FAlignmentRequestRecord& Rec
 	Record.DisplacementChannel = EDisplacementChannel::None;
 	Record.bDisplacementHasLastLocation = false;
 	Record.DisplacementBlockedSeconds = 0.0;
+	Record.DisplacementOverriddenSeconds = 0.0;
 }
 
 void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
@@ -289,15 +362,25 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	{
 		Record->DisplacementSourceId = 0;
 		Record->DisplacementChannel = EDisplacementChannel::None;
+		Record->DisplacementOverriddenSeconds = 0.0;
 	}
 
 	// Re-select the channel every tick: animation root motion overrides root-motion sources, so a
 	// root-motion montage that starts mid-push must take the push over.
-	// A montage blending out (or paused) stops extracting root motion, so the push moves to the movement
-	// channel rather than freezing with the montage.
+	// A montage holding its last pose (auto blend-out disabled) or paused extracts no root motion, so the push
+	// moves to the movement channel rather than freezing with the montage.
 	const EDisplacementChannel LiveChannel = SelectLiveDisplacementChannel(*OwnerCharacter, MotionWarpingComponent != nullptr);
 	if (Record->DisplacementChannel != EDisplacementChannel::None && Record->DisplacementChannel != LiveChannel)
 	{
+		// The removal clears the measured location, so the travel measurement below skips this frame (Travel keeps
+		// that gap). The step the outgoing channel delivered is still the push's own, so count it toward PushTravel:
+		// the animation channel's step less the animation it kept, or the movement source's step unless animation
+		// root motion overrode it (then the step was the animation's).
+		if (Record->bDisplacementHasLastLocation && Record->DisplacementOverriddenSeconds <= 0.0)
+		{
+			Record->MotionState.PushTravel += DisplacementMath::PushStep(ProgressAlong(
+				Record->DisplacementLastLocation, OwnerCharacter->GetActorLocation(), Displacement.Direction), AnimationTravel);
+		}
 		RemoveDisplacementChannel(*Record);
 	}
 	// A channel installed before the owner stopped being movable would freeze mid-push (its clock
@@ -310,10 +393,10 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	// Progress along the push direction, measured from actual movement against the expected
 	// push plus any animation root motion that was kept.
 	const FVector Location = OwnerCharacter->GetActorLocation();
-	double Actual = 0.0;
-	if (Record->bDisplacementHasLastLocation)
+	const bool bMeasured = Record->bDisplacementHasLastLocation;
+	const double Actual = AccrueDisplacementTravel(*Record, Location, AnimationTravel);
+	if (bMeasured)
 	{
-		Actual = FVector::DotProduct(Location - Record->DisplacementLastLocation, Displacement.Direction);
 		const double Expected = AnimationTravel + DisplacementMath::DistanceBetween(
 			Displacement.SpeedProfile, Displacement.Distance, Displacement.Duration, PreviousElapsed, Record->DisplacementElapsed);
 		// Blocked time is request time, so the rule ends a push after the same contact at any frame rate.
@@ -326,13 +409,13 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 			Record->DisplacementBlockedSeconds = 0.0;
 		}
 	}
-	Record->DisplacementLastLocation = Location;
-	Record->bDisplacementHasLastLocation = true;
 
 	EAlignmentMotionOutcome Outcome = EAlignmentMotionOutcome::Running;
+	const TCHAR* CancelReason = nullptr;
 	if (bStaleSuspension)
 	{
 		Outcome = EAlignmentMotionOutcome::Cancelled;
+		CancelReason = StaleSuspensionReason;
 	}
 	else if (Record->DisplacementElapsed >= Displacement.Duration)
 	{
@@ -342,27 +425,38 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	{
 		Outcome = EAlignmentMotionOutcome::Blocked;
 	}
+	else if (Record->DisplacementOverriddenSeconds
+		> Displacement.Duration - Record->DisplacementElapsed + DisplacementOverrideSecondsTolerance)
+	{
+		// Animation root motion has held the movement channel longer than the push it had left (the suspension
+		// rule): the rest would arrive after the push should have ended. With no motion warping component, or in
+		// RootMotionFromEverything, it would otherwise hold the push for the whole animation.
+		Outcome = EAlignmentMotionOutcome::Cancelled;
+		CancelReason = AnimationOverrideReason;
+	}
 	else if (Record->DisplacementChannel == EDisplacementChannel::None && !InstallDisplacementChannel(*Record))
 	{
 		Outcome = EAlignmentMotionOutcome::Invalid;
 	}
 
-	// Drawn after the install, so the first point of a push shows the channel it actually took.
+	// Drawn after the install, so the first point of a push shows the channel it actually took. A trail at the feet,
+	// on top of the mesh, that outlives the push.
 	if (CombatDebug::IsKnockbackDebugEnabled())
 	{
-		DrawDebugPoint(GetWorld(), Location, 8.0f,
+		const UCapsuleComponent* Capsule = OwnerCharacter->GetCapsuleComponent();
+		DrawDebugPoint(GetWorld(),
+			CombatDebug::GetKnockbackDebugFootLocation(Location, Capsule ? Capsule->GetScaledCapsuleHalfHeight() : 0.0f), 8.0f,
 			Record->DisplacementChannel == EDisplacementChannel::Animation ? FColor::Cyan : FColor::Orange,
-			false, CombatDebug::GetDebugDrawDuration());
+			false, CombatDebug::GetKnockbackDebugDrawDuration(), SDPG_Foreground);
 	}
 
 	Record->MotionState.Outcome = Outcome;
 	Record->MotionState.Elapsed = Record->DisplacementElapsed;
-	Record->MotionState.Travel += FMath::Max(0.0, Actual);
 
 	if (Outcome != EAlignmentMotionOutcome::Running)
 	{
 		RemoveDisplacementChannel(*Record);
-		ReportDisplacementOutcome(*Record, Outcome, DisplacementOutcomeReason(Outcome));
+		ReportDisplacementOutcome(*Record, Outcome, CancelReason ? CancelReason : DisplacementOutcomeReason(Outcome));
 		if (Record->Spec.bReleaseWhenFinished)
 		{
 			ReleaseAlignmentRequest(Handle);

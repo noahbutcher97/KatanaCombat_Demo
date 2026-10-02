@@ -5,31 +5,67 @@
 
 #include <limits>
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackResolveDefaultsTest, "KatanaCombat.Knockback.Resolution.Defaults",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackResolveDefaultsTest, "KatanaCombat.Knockback.Resolution.TypeDefaultsAreUsable",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FKnockbackResolveDefaultsTest::RunTest(const FString&)
 {
+	// The shipped type defaults are tuning. Assert only what any tuning must keep, never the numbers themselves.
 	UCombatSettings* Settings = NewObject<UCombatSettings>();
-	UAttackData* Light = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
-	UAttackData* Heavy = FCombatTestHelpers::CreateTestAttack(EAttackType::Heavy);
-	const FKnockbackConfig L = KnockbackResolution::Resolve(Light, Settings);
-	TestEqual(TEXT("Light default distance"), L.Distance, 25.0f);
-	TestEqual(TEXT("Light default duration"), L.Duration, 0.2f);
-	TestEqual(TEXT("Default direction"), L.DirectionMode, EKnockbackDirection::AwayFromAttacker);
-	TestEqual(TEXT("Default profile"), L.SpeedProfile, EDisplacementSpeedProfile::EaseOut);
-	TestEqual(TEXT("Default blend adds to the reaction's own root motion"), L.AnimationBlend, EDisplacementAnimationBlend::AddToAnimation);
-	const FKnockbackConfig H = KnockbackResolution::Resolve(Heavy, Settings);
-	// The Heavy reactions are authored knockback animations that travel about 89 cm on their own, so the push adds 20.
-	TestEqual(TEXT("Heavy default distance"), H.Distance, 20.0f);
-	TestEqual(TEXT("Heavy default duration"), H.Duration, 0.25f);
-	TestEqual(TEXT("Heavy default direction"), H.DirectionMode, EKnockbackDirection::AwayFromAttacker);
-	TestEqual(TEXT("Heavy default profile"), H.SpeedProfile, EDisplacementSpeedProfile::EaseOut);
-	TestEqual(TEXT("Heavy default blend"), H.AnimationBlend, EDisplacementAnimationBlend::AddToAnimation);
+	for (const EAttackType Type : {EAttackType::Light, EAttackType::Heavy})
+	{
+		const FString Name = StaticEnum<EAttackType>()->GetNameStringByValue(static_cast<int64>(Type));
+		const FKnockbackConfig* Default = Settings->DefaultKnockback.Find(Type);
+		if (!TestNotNull(*FString::Printf(TEXT("%s has a type default"), *Name), Default))
+		{
+			continue;
+		}
+		// Finite first: this build compares NaN as equal to anything.
+		TestTrue(FString::Printf(TEXT("%s default distance is finite and not negative (%f)"), *Name, Default->Distance),
+			FMath::IsFinite(Default->Distance) && Default->Distance >= 0.0f);
+		TestTrue(FString::Printf(TEXT("%s default duration is finite and positive (%f)"), *Name, Default->Duration),
+			FMath::IsFinite(Default->Duration) && Default->Duration > 0.0f);
+		TestTrue(FString::Printf(TEXT("%s default direction mode is a valid value"), *Name),
+			StaticEnum<EKnockbackDirection>()->IsValidEnumValue(static_cast<int64>(Default->DirectionMode)));
+		TestTrue(FString::Printf(TEXT("%s default speed profile is a valid value"), *Name),
+			StaticEnum<EDisplacementSpeedProfile>()->IsValidEnumValue(static_cast<int64>(Default->SpeedProfile)));
+		TestTrue(FString::Printf(TEXT("%s default animation blend is a valid value"), *Name),
+			StaticEnum<EDisplacementAnimationBlend>()->IsValidEnumValue(static_cast<int64>(Default->AnimationBlend)));
+
+		// With no override, an attack of the type resolves to its type default, field by field.
+		const FKnockbackConfig Resolved = KnockbackResolution::Resolve(FCombatTestHelpers::CreateTestAttack(Type), Settings);
+		TestTrue(FString::Printf(TEXT("%s resolves its default distance (%f)"), *Name, Resolved.Distance),
+			FMath::IsFinite(Resolved.Distance) && Resolved.Distance == Default->Distance);
+		TestTrue(FString::Printf(TEXT("%s resolves its default duration (%f)"), *Name, Resolved.Duration),
+			FMath::IsFinite(Resolved.Duration) && Resolved.Duration == Default->Duration);
+		TestEqual(FString::Printf(TEXT("%s resolves its default direction mode"), *Name), Resolved.DirectionMode, Default->DirectionMode);
+		TestEqual(FString::Printf(TEXT("%s resolves its default speed profile"), *Name), Resolved.SpeedProfile, Default->SpeedProfile);
+		TestEqual(FString::Printf(TEXT("%s resolves its default animation blend"), *Name), Resolved.AnimationBlend, Default->AnimationBlend);
+	}
+
+	// A type with no default and no distance override does not push. The fixture removes the type's default itself,
+	// so this does not rest on which types the shipped defaults cover.
+	Settings->DefaultKnockback.Remove(EAttackType::Special);
 	UAttackData* Special = FCombatTestHelpers::CreateTestAttack(EAttackType::Special);
 	TestEqual(TEXT("Missing type resolves to no push"), KnockbackResolution::Resolve(Special, Settings).Distance, 0.0f);
 	TestEqual(TEXT("Null attack resolves to no push"), KnockbackResolution::Resolve(nullptr, Settings).Distance, 0.0f);
-	TestEqual(TEXT("Null settings without overrides resolve to no push"), KnockbackResolution::Resolve(Light, nullptr).Distance, 0.0f);
+	TestEqual(TEXT("Null settings without overrides resolve to no push"),
+		KnockbackResolution::Resolve(FCombatTestHelpers::CreateTestAttack(EAttackType::Light), nullptr).Distance, 0.0f);
 	return true;
+}
+
+namespace
+{
+/** A Light type default set by the tests themselves, so no expectation rests on UCombatSettings' shipped tuning. */
+FKnockbackConfig ResolutionTestLightDefault()
+{
+	FKnockbackConfig Config;
+	Config.Distance = 33.0f;
+	Config.Duration = 0.15f;
+	Config.DirectionMode = EKnockbackDirection::AwayFromAttacker;
+	Config.SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+	Config.AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
+	return Config;
+}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackResolveOverridesTest, "KatanaCombat.Knockback.Resolution.IndependentOverrides",
@@ -37,12 +73,14 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackResolveOverridesTest, "KatanaCombat.K
 bool FKnockbackResolveOverridesTest::RunTest(const FString&)
 {
 	UCombatSettings* Settings = NewObject<UCombatSettings>();
+	const FKnockbackConfig TypeDefault = ResolutionTestLightDefault();
+	Settings->DefaultKnockback.Add(EAttackType::Light, TypeDefault);
 	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
 	Attack->Knockback.bOverrideDuration = true;
 	Attack->Knockback.Duration = 0.5f;
 	FKnockbackConfig Resolved = KnockbackResolution::Resolve(Attack, Settings);
 	TestEqual(TEXT("Overridden duration"), Resolved.Duration, 0.5f);
-	TestEqual(TEXT("Inherited distance"), Resolved.Distance, 25.0f);
+	TestEqual(TEXT("Inherited distance"), Resolved.Distance, TypeDefault.Distance);
 	Attack->Knockback.bOverrideDistance = true;
 	Attack->Knockback.Distance = 90.0f;
 	Attack->Knockback.bOverrideDirectionMode = true;
@@ -94,13 +132,44 @@ bool FKnockbackNonFiniteChargeTest::RunTest(const FString&)
 	Pushes(TEXT("NaN multiplier counts as 1 at full charge"), KnockbackResolution::PushDistance(60.f, 1.f, NaN, 1.f), 60.0f);
 	Pushes(TEXT("+Inf multiplier counts as 1 when uncharged"), KnockbackResolution::PushDistance(60.f, 0.f, Inf, 1.f), 60.0f);
 	Pushes(TEXT("+Inf multiplier counts as 1 at full charge"), KnockbackResolution::PushDistance(60.f, 1.f, Inf, 1.f), 60.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackChargeMultiplierCapTest, "KatanaCombat.Knockback.Resolution.ChargeMultiplierCappedAtRuntime",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FKnockbackChargeMultiplierCapTest::RunTest(const FString&)
+{
+	// Relative to the cap, whatever it is set to: twice the cap (10 against today's 5) pushes as far as the cap.
+	const float Cap = KnockbackResolution::MaxChargeKnockbackMultiplierCap;
+	if (!TestTrue(FString::Printf(TEXT("The cap is finite and above 1 (%f)"), Cap), FMath::IsFinite(Cap) && Cap > 1.0f))
+	{
+		return false;
+	}
+	// Finite first: a NaN can slip through a plain float comparison under fast floating point.
+	const auto Same = [this](const TCHAR* What, const float Actual, const float Expected)
+	{
+		TestTrue(FString::Printf(TEXT("%s (%f, expected %f)"), What, Actual, Expected),
+			FMath::IsFinite(Actual) && FMath::IsFinite(Expected) && FMath::Abs(Actual - Expected) <= 1e-3f);
+	};
+	// A value saved above the editor cap, or set from code, pushes no further than the cap.
+	const float AtCap = KnockbackResolution::PushDistance(60.f, 1.f, Cap, 1.f);
+	Same(TEXT("Full charge at the cap scales the push by the cap"), AtCap, 60.0f * Cap);
+	Same(TEXT("Full charge with twice the cap pushes as far as the cap"), KnockbackResolution::PushDistance(60.f, 1.f, 2.0f * Cap, 1.f), AtCap);
+	Same(TEXT("Half charge with twice the cap pushes as far as with the cap"), KnockbackResolution::PushDistance(60.f, 0.5f, 2.0f * Cap, 1.f),
+		KnockbackResolution::PushDistance(60.f, 0.5f, Cap, 1.f));
+	const float UnderCap = 0.5f * (1.0f + Cap);
+	Same(TEXT("A multiplier under the cap is kept"), KnockbackResolution::PushDistance(60.f, 1.f, UnderCap, 1.f), 60.0f * UnderCap);
 #if WITH_METADATA
-	// The editor caps the multiplier, as it caps the distance (500) and the victim scale (5).
+	// The editor caps the multiplier too, as it caps the distance (500) and the victim scale (5). UHT metadata cannot
+	// name the runtime constant, so the two must be the same number.
 	const FProperty* Multiplier = UAttackData::StaticClass()->FindPropertyByName(
 		GET_MEMBER_NAME_CHECKED(UAttackData, MaxChargeKnockbackMultiplier));
 	if (TestNotNull(TEXT("Multiplier property"), Multiplier))
 	{
-		TestEqual(TEXT("The multiplier has a finite editor cap"), Multiplier->GetMetaData(TEXT("ClampMax")), FString(TEXT("5.0")));
+		const FString ClampMax = Multiplier->GetMetaData(TEXT("ClampMax"));
+		const float EditorCap = FCString::Atof(*ClampMax);
+		TestTrue(FString::Printf(TEXT("The editor's ClampMax (%s) is the runtime cap (%f)"), *ClampMax, Cap),
+			!ClampMax.IsEmpty() && FMath::IsFinite(EditorCap) && EditorCap == Cap);
 	}
 #endif
 	return true;
@@ -146,8 +215,10 @@ bool FKnockbackAlongSwingContinuityTest::RunTest(const FString&)
 	const FVector JustAway = Along(89.0);
 	const FVector JustToward = Along(91.0);
 	const double Gap = AngleBetween(JustAway, JustToward);
+	// Finite first: the tangent is where a division by the clipped length would produce a NaN, and a NaN gap would
+	// slip through the comparison.
 	TestTrue(FString::Printf(TEXT("Swings 1 degree either side of tangential push within 5 degrees of each other (%.2f: %s vs %s)"),
-		Gap, *JustAway.ToString(), *JustToward.ToString()), Gap < 5.0);
+		Gap, *JustAway.ToString(), *JustToward.ToString()), !JustAway.ContainsNaN() && !JustToward.ContainsNaN() && Gap < 5.0);
 	// Only the toward-attacker part is replaced, by the same length of away: 135 degrees keeps its sideways part.
 	const double Heading135 = FMath::RadiansToDegrees(FMath::Atan2(Along(135.0).Y, Along(135.0).X));
 	TestTrue(FString::Printf(TEXT("A partly backward swing pushes between away and sideways (%.2f degrees)"), Heading135),
@@ -180,6 +251,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackNoPushCauseTest, "KatanaCombat.Knockb
 bool FKnockbackNoPushCauseTest::RunTest(const FString&)
 {
 	UCombatSettings* Settings = NewObject<UCombatSettings>();
+	// The type defaults this test is about, set here rather than taken from the shipped tuning: Light has a usable
+	// push, Special has no default.
+	Settings->DefaultKnockback.Add(EAttackType::Light, ResolutionTestLightDefault());
+	Settings->DefaultKnockback.Remove(EAttackType::Special);
 	UAttackData* Light = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
 	UAttackData* Special = FCombatTestHelpers::CreateTestAttack(EAttackType::Special);
 	UAttackData* ZeroDistance = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);

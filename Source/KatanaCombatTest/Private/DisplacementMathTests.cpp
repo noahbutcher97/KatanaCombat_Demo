@@ -42,8 +42,27 @@ bool FDisplacementMathChannelTest::RunTest(const FString&)
 	TestEqual(TEXT("Advancing root-motion montage with warping uses the animation channel"), DisplacementMath::SelectChannel(true, true, true), EDisplacementChannel::Animation);
 	TestEqual(TEXT("No root motion uses movement"), DisplacementMath::SelectChannel(false, true, false), EDisplacementChannel::Movement);
 	TestEqual(TEXT("Root motion without warping cannot modify the animation"), DisplacementMath::SelectChannel(true, false, true), EDisplacementChannel::Movement);
-	TestEqual(TEXT("A montage that is not advancing (blending out or paused) extracts no root motion, so movement carries the push"),
+	TestEqual(TEXT("A montage that is not advancing (holding its last pose with auto blend-out disabled, or paused) extracts no root motion, so movement carries the push"),
 		DisplacementMath::SelectChannel(true, true, false), EDisplacementChannel::Movement);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementMathPushStepTest, "KatanaCombat.Displacement.Math.PushStepExcludesKeptAnimation",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementMathPushStepTest::RunTest(const FString&)
+{
+	// Finite first: this build compares NaN as equal to anything.
+	const auto Is = [this](const TCHAR* What, const double Actual, const double Expected)
+	{
+		TestTrue(FString::Printf(TEXT("%s (%f, expected %f)"), What, Actual, Expected),
+			FMath::IsFinite(Actual) && FMath::Abs(Actual - Expected) <= 1e-9);
+	};
+	Is(TEXT("Movement channel: the step is the push"), DisplacementMath::PushStep(4.0, 0.0), 4.0);
+	Is(TEXT("Animation channel: the kept animation travel is not push"), DisplacementMath::PushStep(10.0, 6.0), 4.0);
+	Is(TEXT("A reaction stepping back against the push still leaves the push"), DisplacementMath::PushStep(-2.0, -6.0), 4.0);
+	Is(TEXT("A wall the kept animation pressed into: no push"), DisplacementMath::PushStep(0.0, 3.0), 0.0);
+	Is(TEXT("A wall the kept animation stepped away from: no push"), DisplacementMath::PushStep(-3.0, -3.0), 0.0);
+	Is(TEXT("Backward movement is not push travel"), DisplacementMath::PushStep(-1.0, 0.0), 0.0);
 	return true;
 }
 

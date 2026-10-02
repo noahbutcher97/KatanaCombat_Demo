@@ -13,8 +13,15 @@ namespace KnockbackResolution
 KATANACOMBAT_API FKnockbackConfig Resolve(const UAttackData* AttackData, const UCombatSettings* Settings);
 
 /**
- * Distance x Lerp(1, max(1, MaxChargeKnockbackMultiplier), clamp(ChargeLevel, 0, 1)) x max(0, VictimScale).
- * A non-finite charge level counts as uncharged (0) and a non-finite multiplier as 1.
+ * The largest charge knockback multiplier, at runtime as in the editor. UHT metadata cannot name a constant, so
+ * UAttackData::MaxChargeKnockbackMultiplier's ClampMax repeats it, and
+ * KatanaCombat.Knockback.Resolution.ChargeMultiplierCappedAtRuntime fails if the two differ.
+ */
+inline constexpr float MaxChargeKnockbackMultiplierCap = 5.0f;
+
+/**
+ * Distance x Lerp(1, clamp(MaxChargeKnockbackMultiplier, 1, MaxChargeKnockbackMultiplierCap), clamp(ChargeLevel, 0, 1))
+ * x max(0, VictimScale). A non-finite charge level counts as uncharged (0) and a non-finite multiplier as 1.
  */
 KATANACOMBAT_API float PushDistance(float Distance, float ChargeLevel, float MaxChargeKnockbackMultiplier, float VictimScale);
 

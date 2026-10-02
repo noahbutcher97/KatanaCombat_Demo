@@ -122,9 +122,13 @@ The executor re-evaluates the channel every tick:
 
 1. **Animation channel**, used when the owner is playing a montage whose root motion is
    extracted and whose instance is advancing (`FAnimMontageInstance::IsPlaying`). A montage
-   blending out after its last section, or paused, still counts as playing root motion but
-   extracts none, so the push takes the movement channel instead of freezing with it; only
-   hitstop pauses a push. A custom `URootMotionModifier_ProceduralDisplacement` (subclass of
+   holding its last pose (auto blend-out disabled) or paused still counts as playing root
+   motion but extracts none, so the push takes the movement channel instead of freezing with
+   it. (A stock auto blend-out calls `Stop()`, which clears the root-motion montage, so the
+   push is already on the movement channel when the blend-out starts.) Hitstop pauses a push;
+   animation root motion that overrides the movement channel holds it only for as long as the
+   push had left (`AnimationOverride`, below). A custom
+   `URootMotionModifier_ProceduralDisplacement` (subclass of
    `URootMotionModifier`, named like the engine's `_Warp` and `_Scale` modifiers) is added at
    runtime through `UMotionWarpingComponent::AddModifier`, spanning the rest of the push in
    montage time. Its `ProcessRootMotion` converts this frame's curve delta into the
@@ -146,11 +150,27 @@ The executor re-evaluates the channel every tick:
    applies only the animation and ignores every source, so the source leaves its clock
    alone on that step (`HasAnimRootMotion()` in `PrepareRootMotion`). A root-motion montage
    that starts mid-push therefore takes over the curve where the movement channel left it.
+   The source adds up the simulation time of the steps it skips and zeroes it whenever its
+   clock advances. When that time exceeds the push's remaining time (`Duration` minus
+   elapsed), the push ends `Cancelled` (`AnimationOverride`) and releases itself if it
+   carries `bReleaseWhenFinished`: the suspension rule, applied to an override. It happens
+   when animation root motion keeps overriding the movement channel, as for a root-motion
+   animation on a character with no motion warping component or an AnimBP in
+   `RootMotionFromEverything`. Only skipped steps count: not a handoff frame (the channel
+   switch removes the source), a frame with no channel installed, or hitstop (the step's
+   simulation time is dilated). An override exactly as long as the time left is not longer
+   than it, so a 1e-6 s tolerance absorbs float sums of frame times; a longer override in the
+   push's last frame cancels its last step.
 
 If the animation channel ends before the curve completes (the montage stops advancing,
-stops, or is replaced), the remainder continues through the movement channel. In both
-channels character movement handles floors, slopes, steps, ledges (the victim falls) and
-walls (it slides).
+stops, or is replaced), the remainder continues through the movement channel from the
+request clock. One handoff carries a little extra: a zero-blend `StopAllMontages` that lands
+before character movement's tick leaves that tick to move the character on the montage's
+leftover root-motion velocity, push included, before the targeting tick installs the
+source. That delivers up to one frame of extra push, bounded by the velocity along the push
+times the frame time (measured in PIE: +1.71 cm on a 25 cm Light push). In both channels
+character movement handles floors, slopes, steps, ledges (the victim falls) and walls (it
+slides).
 
 ### Outcomes and lifecycle
 
@@ -162,7 +182,11 @@ walls (it slides).
 - **Invalid** when no channel can be installed (no motion warping component and no
   character movement, or movement mode `None`).
 - **Cancelled** when the request is removed while still running (release,
-  `ReleaseAllAlignmentRequests`, a lost target), or when a suspension outlasts the push.
+  `ReleaseAllAlignmentRequests`, a lost target), when a suspension outlasts the push, or when
+  animation root motion overrides the movement channel for longer than the push had left
+  (`AnimationOverride`, above). A removal can land after character movement has applied the
+  push's last step but before the targeting tick reports it (another actor's tick runs
+  between them): it reports `Reached` (`DurationReached`) instead, with that step's travel.
 - **Suspension.** A higher-priority request suspends a running push: its channel is removed
   and its clock stops. When it is active again it resumes from its clock only if the
   suspension, measured on the owner's dilated time (hitstop does not count), was shorter
@@ -229,7 +253,10 @@ PushDistance = Distance × Lerp(1, MaxChargeKnockbackMultiplier, HitInfo.ChargeL
 ```
 
 The authored distance is the uncharged push; charge only adds. Duration is never scaled.
-A non-finite charge level counts as 0 (uncharged) and a non-finite multiplier as 1.
+A non-finite charge level counts as 0 (uncharged) and a non-finite multiplier as 1. The
+multiplier is clamped to [1, 5] at runtime as well as in the editor
+(`KnockbackResolution::MaxChargeKnockbackMultiplierCap`), so a value saved above 5 or set
+from code cannot exceed it.
 When the attacker is not an `ABaseCombatCharacter`, the victim's own combat settings are
 used; if neither exists, there is no push.
 
@@ -259,8 +286,16 @@ the no-montage parry bridge, and at each stage start), and `EndPlay` (`EndPlay`)
 
 ### Observability
 
-- `Combat.Debug.Knockback` (and `Combat.Debug.All`): draws start, commanded end and channel;
-  logs the resolved config, charge level, scale and outcome.
+- `Combat.Debug.Knockback` (and `Combat.Debug.All`): draws the commanded push (an arrow from
+  start to commanded end), the push's trail coloured by channel (cyan animation, orange
+  movement) and an end marker with the outcome and the push's own travel against the
+  requested distance (green `Reached`, red `Blocked`, yellow `Cancelled`, magenta `Invalid`).
+  The draws sit at the feet (capsule bottom plus 5 cm), on top of the mesh
+  (`SDPG_Foreground`), and last at least 2 s (`CombatDebug::KnockbackDebugMinDrawDuration`;
+  a longer `Combat.Debug.DrawDuration` wins), since a push lasts a fraction of a second and
+  the default draw lasts one frame. It logs the resolved config, charge level, scale and
+  outcome, and each row's push travel next to the total travel along the push, which also
+  counts the reaction's own kept root motion (`push 25.0 of 25.0 cm (total along push 50.8 cm)`).
 - Action-reaction telemetry records the start and finish as `AlignmentChanged` rows within the
   existing schema (no new event values, no `schema_version` bump; `analyze_capture.py`
   accepts only 1 or 2). `StartKnockback` writes `AlignmentOwner = HitKnockback` with
@@ -271,12 +306,16 @@ the no-montage parry bridge, and at each stage start), and `EndPlay` (`EndPlay`)
   displacement's later rows with `AlignmentOwner` = the request's owner, the measured travel,
   and the reason in `Detail`:
   - the terminal outcome: `Reached` (`DurationReached`), `Blocked` (`ProgressStalled`),
-    `Invalid` (`NoDeliverableChannel`) or `Cancelled` (`StaleSuspension`);
+    `Invalid` (`NoDeliverableChannel`) or `Cancelled` (`StaleSuspension` or
+    `AnimationOverride`);
   - `Cancelled` when a still-running push is removed by anything else: `Released` or the
     releasing caller's reason (such as `Replaced`), the `EAlignmentReleaseReason` name (such
-    as `Death` or `ComponentTeardown`), or `TargetLost`;
+    as `Death` or `ComponentTeardown`), or `TargetLost`. A removal that lands after the
+    push's last step was applied writes `Reached` (`DurationReached`) instead;
   - `Suspended` when a higher-priority request takes over (`Detail`: its owner), and
-    `Resumed` when the push continues afterwards.
+    `Resumed` when the push continues afterwards. A push acquired while a higher-priority
+    request is already active writes neither: it never had a channel to suspend. It is still
+    aged while it waits, and ends `Cancelled` (`StaleSuspension`) if the wait outlasts it.
 
   The `Combat.Debug.Knockback` log line for each row ends with the same reason.
 
@@ -540,17 +579,41 @@ The bounded executor and its tests remain as the kinematic reference until then.
 
 - Focused suites per commit; full baseline before each PR.
 - **Knockback PIE measurement** (`KatanaCombat.Knockback.PIE.ReactionMeasurement`): real
-  Light and Heavy hits on the ThirdPerson map, each measured with knockback disabled (the
-  reaction animation's own root motion) and enabled; writes
-  `Saved/Logs/KnockbackMeasurement.json`. It also checks that the reactions play root
+  Light and Heavy hits on the ThirdPerson map, each run as a pair measured with knockback
+  disabled (the reaction animation's own root motion) and enabled, so the difference is the
+  push; writes `Saved/Logs/KnockbackMeasurement.json`. The pairs:
+  - plain Light and plain Heavy hits;
+  - hitstop: `ApplyHitstop` right after the damage, as every hit in play does, so the push
+    starts frozen;
+  - montage replaced: another root-motion reaction mid-push (animation channel to animation
+    channel);
+  - montages stopped: `StopAllMontages(0)` mid-push (animation channel to movement channel);
+  - held pose: a Heavy reaction whose section ends mid-push with auto blend-out disabled, so
+    it holds its last pose (the state the advancing-montage gate exists for); the push clock
+    must advance on every update.
+
+  Each push must add the resolved push within max(1.5 cm, 4%), with one `Started` row and one
+  terminal `Reached` row that arrives within its duration plus any hitstop plus 0.1 s. The
+  two handoff runs (montages stopped, held pose) are measured by delivered push instead of
+  the end-of-run difference: push minus control travel when the reaction's root motion ends,
+  plus the push run's own travel from then to its terminal row. After the handoff the
+  movement channel discards the velocity the reaction leaves behind while the control keeps
+  sliding on it, so the end-of-run difference is not the push. The montages-stopped run may
+  deliver up to one frame of carry more (velocity along the push times the frame time; see
+  Channels), measured at +1.71 cm. A leak preflight runs before the map load: after a
+  garbage collection it names, as a failure, any world that survives without a world
+  context (apart from the persistent, owned-sublevel and duplicate worlds the engine also
+  spares) and skips the load, which would otherwise end the whole run on the editor's
+  world-leak check. The measurement also checks that the reactions play root
   motion. They do in the assets: every `DA_HitReaction` montage uses the pack's `RootMotion`
   sequences, so the animation channel carries the push. The Heavy reactions are authored
   knockback animations (`UE5M_Root_knockback_*`) that travel about 89 cm on their own, so the
   push lands on travel the animation already has. The measurement sets the default
   `AnimationBlend` per attack type; the distances are decided: Light 25 cm, Heavy 20 cm. A
   focused PIE test replaces the planned capture-harness scenario, because the harness is one
-  monolithic latent command. Flat ground, walls, ledges, hitstop and suspension are covered
-  headless by the `KatanaCombat.Displacement.Executor.*` tests. Slopes ride on character
+  monolithic latent command. Flat ground, walls, ledges, hitstop, suspension, an animation
+  override and a release racing the last step are covered headless by the
+  `KatanaCombat.Displacement.Executor.*` tests. Slopes ride on character
   movement's floor handling and are checked by hand in PIE.
 - **Proofs the push can disturb**: `DefenseGateAPIEProofTests` (the parry bridge has a 75 cm
   per-role budget; its out-of-cone case lands a hit), `DefenseGateBSemanticPIEProofTests`

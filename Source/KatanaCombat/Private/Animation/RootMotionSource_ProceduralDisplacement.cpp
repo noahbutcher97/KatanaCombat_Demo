@@ -26,13 +26,14 @@ bool FRootMotionSource_ProceduralDisplacement::Matches(const FRootMotionSource* 
 
 bool FRootMotionSource_ProceduralDisplacement::MatchesAndHasSameState(const FRootMotionSource* Other) const
 {
-	// The curve fields are configuration, compared by Matches(); the only state is the base time.
+	// The curve fields are configuration, compared by Matches(); the only replicated state is the base time.
+	// OverriddenTime is the executor's local bookkeeping, so it is not compared.
 	return FRootMotionSource::MatchesAndHasSameState(Other);
 }
 
 bool FRootMotionSource_ProceduralDisplacement::UpdateStateFrom(const FRootMotionSource* SourceToTakeStateFrom, const bool bMarkForSimulatedCatchup)
 {
-	// No state beyond the base time, which FRootMotionSource takes over.
+	// No replicated state beyond the base time, which FRootMotionSource takes over; OverriddenTime stays local.
 	return FRootMotionSource::UpdateStateFrom(SourceToTakeStateFrom, bMarkForSimulatedCatchup);
 }
 
@@ -47,9 +48,11 @@ void FRootMotionSource_ProceduralDisplacement::PrepareRootMotion(
 	// Animation root motion overrides every root-motion source on this step (ApplyRootMotionToVelocity),
 	// so none of the curve would be applied. PrepareRootMotion runs after TickCharacterPose has gathered
 	// the step's animation root motion, so this is exactly that case: leave the clock alone, because the
-	// source's time is the record of push time actually applied.
+	// source's time is the record of push time actually applied. Count the step's (dilated) simulation time instead,
+	// so the executor can bound how long the override holds the push.
 	if (MoveComponent.HasAnimRootMotion())
 	{
+		OverriddenTime += SimulationTime;
 		return;
 	}
 
@@ -64,6 +67,7 @@ void FRootMotionSource_ProceduralDisplacement::PrepareRootMotion(
 	RootMotionParams.Set(FTransform(Velocity));
 
 	SetTime(GetTime() + SimulationTime);
+	OverriddenTime = 0.0f; // the push clock advanced
 }
 
 bool FRootMotionSource_ProceduralDisplacement::NetSerialize(FArchive& Ar, UPackageMap* Map, bool& bOutSuccess)

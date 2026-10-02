@@ -54,6 +54,7 @@ class KATANACOMBAT_API UHitReactionComponent : public UActorComponent
 	friend class FKnockbackRejectionCauseTest;
 	friend class FKnockbackInitiatorPairedReleaseTest;
 	friend class FKnockbackPairedEntryReleaseTest;
+	friend class FKnockbackEndPlayReleaseTest;
 	friend class FDefenseChainStageStartReleasesDefenderPushTest;
 	friend class FDefenseChainSequenceBeginReleasesDefenderPushTest;
 

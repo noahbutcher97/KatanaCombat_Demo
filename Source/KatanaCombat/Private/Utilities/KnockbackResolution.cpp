@@ -31,7 +31,9 @@ float PushDistance(const float Distance, const float ChargeLevel, const float Ma
 {
 	// FMath::Clamp(NaN, 0, 1) is 1, so an unguarded non-finite charge would read as full charge.
 	const float Charge = FMath::IsFinite(ChargeLevel) ? FMath::Clamp(ChargeLevel, 0.0f, 1.0f) : 0.0f;
-	const float Multiplier = FMath::IsFinite(MaxChargeKnockbackMultiplier) ? FMath::Max(1.0f, MaxChargeKnockbackMultiplier) : 1.0f;
+	// Finite first, then the cap: a non-finite multiplier counts as 1, never as the cap.
+	const float Multiplier = FMath::IsFinite(MaxChargeKnockbackMultiplier)
+		? FMath::Clamp(MaxChargeKnockbackMultiplier, 1.0f, MaxChargeKnockbackMultiplierCap) : 1.0f;
 	const float ChargeMultiplier = FMath::Lerp(1.0f, Multiplier, Charge);
 	return FMath::Max(0.0f, Distance) * ChargeMultiplier * FMath::Max(0.0f, VictimScale);
 }

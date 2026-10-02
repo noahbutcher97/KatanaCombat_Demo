@@ -20,6 +20,11 @@ double DistanceBetween(const EDisplacementSpeedProfile Profile, const double Dis
 	return Distance * (Progress(Profile, T1 / Duration) - Progress(Profile, T0 / Duration));
 }
 
+double PushStep(const double Progress, const double KeptAnimationTravel)
+{
+	return FMath::Max(0.0, Progress - KeptAnimationTravel);
+}
+
 EDisplacementChannel SelectChannel(const bool bPlayingRootMotion, const bool bHasMotionWarping, const bool bRootMotionMontageAdvancing)
 {
 	return bPlayingRootMotion && bHasMotionWarping && bRootMotionMontageAdvancing

@@ -410,6 +410,11 @@ private:
         double DisplacementSuspendedSeconds = 0.0;
         /** Set when a reevaluation dropped its channel (a Suspended row); a resume then writes a Resumed row. */
         bool bDisplacementSuspended = false;
+        /**
+         * The installed movement source's OverriddenTime: dilated time animation root motion has overridden the
+         * push since its clock last advanced. Zero with no movement channel, so handoffs and suspensions never count.
+         */
+        double DisplacementOverriddenSeconds = 0.0;
     };
 
     struct FCapturedRotationSettings
@@ -586,9 +591,18 @@ private:
     bool CanDeliverDisplacement() const;
     bool InstallDisplacementChannel(FAlignmentRequestRecord& Record);
     void SyncDisplacementElapsed(FAlignmentRequestRecord& Record);
+    /**
+     * Movement along the push since the last measured location (zero when there is none), recording Location as the
+     * next one. Its forward part is added to Travel, and the push's own share (less the KeptAnimationTravel the
+     * animation channel kept over the same step) to PushTravel.
+     */
+    double AccrueDisplacementTravel(FAlignmentRequestRecord& Record, const FVector& Location, double KeptAnimationTravel);
     void AppendDisplacementTelemetry(const FAlignmentRequestRecord& Record, FName Disposition, const FString& Detail) const;
     void ReportDisplacementOutcome(const FAlignmentRequestRecord& Record, EAlignmentMotionOutcome Outcome, const TCHAR* Reason) const;
-    /** A still-running displacement removed by anything but its own outcome ends Cancelled with Reason. */
+    /**
+     * A still-running displacement removed by anything but its own outcome ends Cancelled with Reason, or Reached if
+     * its channel had already applied the push's last step.
+     */
     void CancelRunningDisplacement(FAlignmentRequestRecord& Record, const TCHAR* Reason);
     void AccumulateDisplacementSuspension(float DeltaTime);
     void RemoveDisplacementChannel(FAlignmentRequestRecord& Record);

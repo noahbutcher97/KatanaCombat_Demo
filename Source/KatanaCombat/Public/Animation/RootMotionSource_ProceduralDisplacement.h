@@ -38,6 +38,14 @@ struct KATANACOMBAT_API FRootMotionSource_ProceduralDisplacement : public FRootM
 	UPROPERTY()
 	float StartElapsed = 0.0f;
 
+	/**
+	 * Simulation time of the steps animation root motion overrode since this source's clock last advanced; a step
+	 * that applies the curve zeroes it. Character movement applies only the animation on such a step, so the curve
+	 * does not advance, and the executor ends a push whose override outlasts the push it has left. The executor's
+	 * local bookkeeping, not replicated state: NetSerialize, MatchesAndHasSameState and UpdateStateFrom leave it out.
+	 */
+	float OverriddenTime = 0.0f;
+
 	virtual FRootMotionSource* Clone() const override;
 
 	virtual bool Matches(const FRootMotionSource* Other) const override;

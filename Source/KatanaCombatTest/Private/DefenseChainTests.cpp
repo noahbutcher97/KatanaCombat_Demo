@@ -1140,6 +1140,20 @@ bool FDefenseChainPartialStartRollbackTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+namespace
+{
+/** A Light attack that sets its own push, so the chain-release tests do not rest on the shipped Light default. */
+UAttackData* CreateChainReleasePushingAttack()
+{
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
+	Attack->Knockback.bOverrideDistance = true;
+	Attack->Knockback.Distance = 30.0f;
+	Attack->Knockback.bOverrideDuration = true;
+	Attack->Knockback.Duration = 0.3f;
+	return Attack;
+}
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FDefenseChainStageStartReleasesDefenderPushTest,
 	"KatanaCombat.Defense.Chain.StageStartReleasesDefenderPush",
@@ -1169,7 +1183,7 @@ bool FDefenseChainStageStartReleasesDefenderPushTest::RunTest(const FString& Par
 		Fixture.SourceAttacker,
 		10.0f,
 		FVector(1.0f, 0.0f, 0.0f),
-		FCombatTestHelpers::CreateTestAttack(EAttackType::Light));
+		CreateChainReleasePushingAttack());
 	if (!TestTrue(TEXT("The defender is pushed"), DefenderReaction->StartKnockback(Hit)))
 	{
 		Fixture.Destroy();
@@ -1249,7 +1263,7 @@ bool FDefenseChainSequenceBeginReleasesDefenderPushTest::RunTest(const FString& 
 		Fixture.SourceAttacker,
 		10.0f,
 		FVector(1.0f, 0.0f, 0.0f),
-		FCombatTestHelpers::CreateTestAttack(EAttackType::Light));
+		CreateChainReleasePushingAttack());
 	if (!TestTrue(TEXT("The defender is pushed"), DefenderReaction->StartKnockback(Hit)))
 	{
 		Fixture.Destroy();

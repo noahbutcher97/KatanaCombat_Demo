@@ -1771,8 +1771,12 @@ bool UHitReactionComponent::StartKnockback(const FHitReactionInfo& HitInfo)
 			HitInfo.ChargeLevel, VictimScale, *Outcome);
 		if (bStarted)
 		{
-			DrawDebugDirectionalArrow(GetWorld(), VictimLocation, VictimLocation + Direction * Distance, 20.f,
-				FColor::Orange, false, CombatDebug::GetDebugDrawDuration(), 0, 2.f);
+			// The commanded push, at the feet and on top of the mesh, long enough to compare with where it ended.
+			const UCapsuleComponent* Capsule = Victim->GetCapsuleComponent();
+			const FVector Foot = CombatDebug::GetKnockbackDebugFootLocation(
+				VictimLocation, Capsule ? Capsule->GetScaledCapsuleHalfHeight() : 0.0f);
+			DrawDebugDirectionalArrow(GetWorld(), Foot, Foot + Direction * Distance, 20.f,
+				FColor::Orange, false, CombatDebug::GetKnockbackDebugDrawDuration(), SDPG_Foreground, 2.f);
 		}
 	}
 	return bStarted;

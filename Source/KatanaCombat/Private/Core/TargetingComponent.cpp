@@ -903,8 +903,9 @@ void UTargetingComponent::ReleaseAlignmentRequest(FAlignmentRequestHandle Handle
     {
         return;
     }
-    RemoveDisplacementChannel(*Record);
+    // Cancel before the channel goes: it reads the step the channel applied since the last advance.
     CancelRunningDisplacement(*Record, CancelReason);
+    RemoveDisplacementChannel(*Record);
 
     const FAlignmentRequestRecord ReleasedRecord = *Record;
     RemoveRegisteredAlignmentModifiersForHandle(Handle);
@@ -932,8 +933,8 @@ void UTargetingComponent::ReleaseAllAlignmentRequests(EAlignmentReleaseReason Re
     const FString CancelReason = StaticEnum<EAlignmentReleaseReason>()->GetNameStringByValue(static_cast<int64>(Reason));
     for (TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
     {
-        RemoveDisplacementChannel(Pair.Value);
         CancelRunningDisplacement(Pair.Value, *CancelReason);
+        RemoveDisplacementChannel(Pair.Value);
     }
     TArray<FAlignmentRequestHandle> Handles;
     AlignmentRequests.GetKeys(Handles);
@@ -1201,8 +1202,8 @@ void UTargetingComponent::ReevaluateAlignmentRequests()
     {
         if (FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle))
         {
-            RemoveDisplacementChannel(*Record);
             CancelRunningDisplacement(*Record, TEXT("TargetLost"));
+            RemoveDisplacementChannel(*Record);
             RemoveRegisteredAlignmentModifiersForHandle(Handle);
             RemoveAlignmentWarpTarget(*Record);
         }

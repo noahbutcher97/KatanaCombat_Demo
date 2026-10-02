@@ -567,6 +567,11 @@ struct FAlignmentMotionState
 	double Elapsed = 0.0;
 	double Travel = 0.0;
 	double Turn = 0.0;
+	/**
+	 * ProceduralDisplacement only: the push's own share of Travel. Travel counts all forward movement along the push,
+	 * including the animation root motion the animation channel keeps (AddToAnimation); this leaves that out.
+	 */
+	double PushTravel = 0.0;
 };
 
 UENUM(BlueprintType)

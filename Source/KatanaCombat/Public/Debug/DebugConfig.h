@@ -157,6 +157,27 @@ namespace CombatDebug
         return CVarDebugDrawDuration.GetValueOnGameThread();
     }
 
+    /**
+     * Knockback draws last at least this long. A push lasts a fraction of a second, so the default single frame
+     * shows next to nothing; this keeps its whole trail on screen when it ends. A longer DrawDuration still wins.
+     */
+    constexpr float KnockbackDebugMinDrawDuration = 2.0f;
+
+    /** Knockback draws sit this far above the capsule's bottom, so they read as ground travel, clear of the mesh. */
+    constexpr float KnockbackDebugFootLift = 5.0f;
+
+    /** Lifetime of knockback debug draws: Combat.Debug.DrawDuration, but at least KnockbackDebugMinDrawDuration. */
+    FORCEINLINE float GetKnockbackDebugDrawDuration()
+    {
+        return FMath::Max(GetDebugDrawDuration(), KnockbackDebugMinDrawDuration);
+    }
+
+    /** Where knockback debug draws go for a capsule centred at CapsuleCenter: its bottom plus KnockbackDebugFootLift. */
+    FORCEINLINE FVector GetKnockbackDebugFootLocation(const FVector& CapsuleCenter, const float CapsuleHalfHeight)
+    {
+        return CapsuleCenter - FVector(0.0, 0.0, CapsuleHalfHeight - KnockbackDebugFootLift);
+    }
+
     /** Check if environment/terrain debug is enabled (standalone or via master toggle) */
     FORCEINLINE bool IsEnvironmentDebugEnabled()
     {

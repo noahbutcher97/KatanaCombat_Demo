@@ -206,7 +206,11 @@ public:
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float MaxChargeDamageMultiplier = 2.5f;
 
-    /** Knockback multiplier at full charge (1 = charge does not affect knockback). Capped at 5; a non-finite value counts as 1. */
+    /**
+     * Knockback multiplier at full charge (1 = charge does not affect knockback). Clamped to [1, 5] in the editor and
+     * at runtime; a non-finite value counts as 1. ClampMax must equal KnockbackResolution::MaxChargeKnockbackMultiplierCap
+     * (UHT metadata cannot name it; a resolution test fails if they differ).
+     */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides, ClampMin = "1.0", ClampMax = "5.0"))
     float MaxChargeKnockbackMultiplier = 1.0f;

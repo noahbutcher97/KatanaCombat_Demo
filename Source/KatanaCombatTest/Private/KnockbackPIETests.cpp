@@ -39,10 +39,13 @@ const TCHAR* LightAttackPath = TEXT("/Game/ProjectFiles/Data/PDA/Attack/AttackDa
 const TCHAR* HeavyAttackPath = TEXT("/Game/ProjectFiles/Data/PDA/Attack/AttackData/Heavy/New/HeavyAttack_1.HeavyAttack_1");
 const FName KnockbackOwner(TEXT("HitKnockback"));
 
-/** The transition runs act this long after the hit: inside both the Light (0.2 s) and the Heavy (0.25 s) push. */
-constexpr double ManipulationDelay = 0.08;
-/** The section-end run raises the reaction's play rate so its section ends about this long after the hit. */
-constexpr double SectionEndTarget = 0.1;
+/**
+ * The transition runs act this fraction of the run's resolved push duration after the hit, so they land mid-push
+ * however the durations are tuned.
+ */
+constexpr double ManipulationFraction = 0.4;
+/** The section-end run raises the reaction's play rate so its section ends about this fraction of the push after the hit. */
+constexpr double SectionEndFraction = 0.4;
 /** A push's terminal row arrives within its duration (plus any hitstop that froze it) and this margin of the hit. */
 constexpr double TerminalRowMargin = 0.1;
 
@@ -485,11 +488,12 @@ private:
 	}
 
 	/**
-	 * Section-hold runs: make the reaction's section end SectionEndTarget after the hit, while the push still runs,
-	 * and keep the instance as the root-motion montage once it stops playing.
+	 * Section-hold runs: make the reaction's section end SectionEndFraction of the push after the hit, while the push
+	 * still runs, and keep the instance as the root-motion montage once it stops playing.
 	 */
 	void RaisePlayRate(FMeasuredRun& Run)
 	{
+		const double SectionEndTarget = SectionEndFraction * Run.ResolvedDuration;
 		UAnimInstance* Anim = EnemyAnim();
 		const UAnimMontage* Montage = HitMontage.Get();
 		Run.ManipulationTime = 0.0;
@@ -537,11 +541,11 @@ private:
 		return FVector::Dist2D(Enemy->GetActorLocation(), Player->GetActorLocation()) - Radii;
 	}
 
-	/** The montage-replaced and montage-stopped runs act ManipulationDelay after the hit. */
+	/** The montage-replaced and montage-stopped runs act ManipulationFraction of the push after the hit. */
 	void ApplyTimedManipulation(FMeasuredRun& Run, const double Elapsed)
 	{
 		if ((Run.Manipulation != ERunManipulation::ReplaceMontage && Run.Manipulation != ERunManipulation::StopMontages)
-			|| Run.ManipulationTime >= 0.0 || Elapsed < ManipulationDelay)
+			|| Run.ManipulationTime >= 0.0 || Elapsed < ManipulationFraction * Run.ResolvedDuration)
 		{
 			return;
 		}
@@ -1061,6 +1065,32 @@ void EnqueueMeasurement(FAutomationTestBase* Test)
 }
 
 /**
+ * UEngine::IsWorldDuplicate, which is protected, restated: World is the outer of a level in a live context world's
+ * DynamicDuplicatedLevels collection.
+ */
+bool IsDuplicateOfLiveWorld(const UWorld* World)
+{
+	for (const FWorldContext& Context : GEngine->GetWorldContexts())
+	{
+		const UWorld* ContextWorld = Context.World();
+		const FLevelCollection* Collection = ContextWorld
+			? ContextWorld->FindCollectionByType(ELevelCollectionType::DynamicDuplicatedLevels)
+			: nullptr;
+		if (Collection)
+		{
+			for (const ULevel* Level : Collection->GetLevels())
+			{
+				if (Level && Level->GetOuter() == World)
+				{
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
+/**
  * Runs before the map load. FEditorLoadMap ends in UEditorEngine::CheckForWorldGCLeaks, which raises a Fatal for any
  * world that survives garbage collection without a world context. A world leaked by any earlier test would then end
  * the whole run at this test. This names the leak as a failure here and skips the map load and the measurement.
@@ -1083,7 +1113,15 @@ public:
 			const bool bPersistentType = World->WorldType == EWorldType::Inactive
 				|| World->WorldType == EWorldType::EditorPreview
 				|| World->WorldType == EWorldType::GamePreview;
-			if (!bPersistentType && !GEngine->GetWorldContextFromWorld(World))
+			// The engine's own stale-world check (UEngine::CheckAndHandleStaleWorldObjectReferences) also spares a
+			// world whose persistent level a live context's world owns, and one whose levels a live context's world
+			// holds as duplicates. Unlike the map load's check, this runs while the current editor map is still
+			// loaded, so its streaming sublevel worlds (Editor type, no context of their own) are still alive here.
+			// A null owner is not owned: WorldHasValidContext(nullptr) would match any context without a world.
+			const UWorld* OwningWorld = World->PersistentLevel ? World->PersistentLevel->OwningWorld.Get() : nullptr;
+			const bool bOwnedByLiveWorld = (OwningWorld && GEngine->GetWorldContextFromWorld(OwningWorld))
+				|| IsDuplicateOfLiveWorld(World);
+			if (!bPersistentType && !GEngine->GetWorldContextFromWorld(World) && !bOwnedByLiveWorld)
 			{
 				Leaked.Add(World);
 			}
