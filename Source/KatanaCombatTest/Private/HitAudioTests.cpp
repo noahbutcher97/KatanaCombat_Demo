@@ -3,7 +3,6 @@
 #include "CombatTestHelpers.h"
 #include "Core/CombatComponent.h"
 #include "Data/AttackData.h"
-#include "AudioDevice.h"
 #include "Sound/SoundWave.h"
 #include "Utilities/CinematicEffectsUtilityLibrary.h"
 
@@ -162,12 +161,9 @@ bool FHitAudioPlaybackInvocationTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("A concrete impact sound should reach the engine playback call"), bPlayed);
 	TestTrue(TEXT("The playback-site observer should receive the resolved sound"), bInvoked);
-	// The played sound is an active sound on the audio device that references the transient world. Stop it
-	// so the next test that loads a map does not trip the old-world GC leak check.
-	if (FAudioDevice* AudioDevice = World->GetAudioDeviceRaw())
-	{
-		AudioDevice->StopAllSounds(true);
-	}
+	// The played sound stays active on the audio device and holds the wave, whose outer is the transient world.
+	// DestroyTestWorld flushes the world's audio synchronously before it destroys the world, so the next test
+	// that loads a map does not trip the old-world GC leak check.
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

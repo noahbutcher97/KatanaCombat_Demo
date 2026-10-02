@@ -203,6 +203,11 @@ public:
 	{
 		return AttackerResponseAttemptCountForTesting;
 	}
+	/** The current push's alignment request on the owner's targeting component; invalid when no push was acquired. */
+	FAlignmentRequestHandle GetKnockbackAlignmentHandleForTesting() const
+	{
+		return KnockbackAlignmentHandle;
+	}
 #endif
 
     /**

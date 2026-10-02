@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Misc/AutomationTest.h"
+#include "AudioDevice.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshSocket.h"
 #include "Engine/World.h"
@@ -100,6 +101,13 @@ public:
     {
         if (World)
         {
+            // Stop this world's sounds before it goes. Flush waits on an audio-thread fence, so no active sound
+            // still holds an object outered to the world (and through it the world) when DestroyWorld returns;
+            // a leaked world would fail the next map load's world-leak check and end the whole run.
+            if (FAudioDevice* AudioDevice = World->GetAudioDeviceRaw())
+            {
+                AudioDevice->Flush(World);
+            }
             GEngine->DestroyWorldContext(World);
             World->DestroyWorld(false);
         }
