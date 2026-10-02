@@ -56,14 +56,25 @@ enum class ERunManipulation : uint8
 	ReplaceMontage,
 	/** StopAllMontages(0) mid-push: animation channel to movement channel. */
 	StopMontages,
-	/** Raise the reaction's play rate so its section ends mid-push: animation channel to movement channel. */
-	SectionEnds
+	/**
+	 * Raise the reaction's play rate, with the instance's auto blend-out off, so its section ends mid-push and it
+	 * holds its last pose: still the root-motion montage, no longer playing. That is the state the executor's
+	 * advancing-montage gate exists for. The stock auto blend-out never reaches it: it calls Stop(), which clears
+	 * the root-motion montage when the blend-out starts, so the push already moves to the movement channel then.
+	 */
+	SectionHolds
 };
 
 bool IsTransition(const ERunManipulation Manipulation)
 {
 	return Manipulation == ERunManipulation::ReplaceMontage || Manipulation == ERunManipulation::StopMontages
-		|| Manipulation == ERunManipulation::SectionEnds;
+		|| Manipulation == ERunManipulation::SectionHolds;
+}
+
+/** Runs whose push moves from the animation channel to the movement channel while it runs. */
+bool HandsOffToMovement(const ERunManipulation Manipulation)
+{
+	return Manipulation == ERunManipulation::StopMontages || Manipulation == ERunManipulation::SectionHolds;
 }
 
 /** Transition runs trace every update up to this long after the hit. */
@@ -76,7 +87,7 @@ FString ManipulationName(const ERunManipulation Manipulation)
 	case ERunManipulation::Hitstop: return TEXT("hitstop");
 	case ERunManipulation::ReplaceMontage: return TEXT("montage_replaced");
 	case ERunManipulation::StopMontages: return TEXT("montage_stopped");
-	case ERunManipulation::SectionEnds: return TEXT("section_ends");
+	case ERunManipulation::SectionHolds: return TEXT("section_holds");
 	default: return TEXT("none");
 	}
 }
@@ -141,6 +152,9 @@ struct FMeasuredRun
 	/** Velocity along the push direction and travel when that root motion ended, so a residual slide is visible. */
 	double VelocityAtRootMotionEnd = 0.0;
 	double TravelAtRootMotionEnd = 0.0;
+	/** Seconds from the hit until the push stopped running (its terminal row), and the travel then. */
+	double PushEndTime = -1.0;
+	double TravelAtPushEnd = 0.0;
 	/** The smallest horizontal gap between the enemy's and the player's capsules. */
 	double MinClearance = TNumericLimits<double>::Max();
 	FString Montage;
@@ -152,6 +166,8 @@ struct FMeasuredRun
 	double ManipulationTime = -1.0;
 	bool bManipulationPremise = false;
 	double VelocityAtManipulation = 0.0;
+	/** Montage-stopped runs: world time between the stop and the next update, the frame that moves on leftover velocity. */
+	double CarryFrameDelta = 0.0;
 	bool bPushRunningAtManipulation = false;
 	double HitstopDuration = 0.0;
 	float PlayRate = 1.0f;
@@ -209,8 +225,8 @@ public:
 
 		AddPair(TEXT("light_montage_replaced"), TEXT("light"), LightAttackPath, ERunManipulation::ReplaceMontage);
 		AddPair(TEXT("light_montage_stopped"), TEXT("light"), LightAttackPath, ERunManipulation::StopMontages);
-		// The longest push, so the most of it runs after the section has ended.
-		AddPair(TEXT("heavy_section_ends"), TEXT("heavy"), HeavyAttackPath, ERunManipulation::SectionEnds);
+		// The longest push, so the most of it runs after the section has ended and the reaction holds its pose.
+		AddPair(TEXT("heavy_section_holds"), TEXT("heavy"), HeavyAttackPath, ERunManipulation::SectionHolds);
 	}
 
 	virtual bool Update() override
@@ -462,13 +478,16 @@ private:
 		Run.Montage = GetNameSafe(Montage);
 		Run.Section = Montage ? Anim->Montage_GetCurrentSection(Montage).ToString() : FString(TEXT("None"));
 		Run.bRootMotionAtHit = Enemy->IsPlayingRootMotion();
-		if (Run.Manipulation == ERunManipulation::SectionEnds)
+		if (Run.Manipulation == ERunManipulation::SectionHolds)
 		{
 			RaisePlayRate(Run);
 		}
 	}
 
-	/** Section-end runs: make the reaction's section end SectionEndTarget after the hit, while the push still runs. */
+	/**
+	 * Section-hold runs: make the reaction's section end SectionEndTarget after the hit, while the push still runs,
+	 * and keep the instance as the root-motion montage once it stops playing.
+	 */
 	void RaisePlayRate(FMeasuredRun& Run)
 	{
 		UAnimInstance* Anim = EnemyAnim();
@@ -487,8 +506,15 @@ private:
 		const float RateScale = FMath::Max(KINDA_SMALL_NUMBER, Montage->RateScale);
 		Run.PlayRate = FMath::Clamp(static_cast<float>((SectionEnd - Position) / (SectionEndTarget * RateScale)), 1.0f, 200.0f);
 		Anim->Montage_SetPlayRate(Montage, Run.PlayRate);
-		Run.ManipulationNote = FString::Printf(TEXT("%s section %s [%.3f, %.3f] s from %.3f s at play rate %.1f, aiming to end %.2f s after the hit"),
-			*Run.Montage, *Run.Section, SectionStart, SectionEnd, Position, Run.PlayRate, SectionEndTarget);
+		// Instance-level only, as a montage authored without auto blend-out (or Sequencer's) plays: at the section's
+		// end it stops playing but holds its last pose, without Stop(), so it stays the root-motion montage.
+		FAnimMontageInstance* Instance = Anim->GetActiveInstanceForMontage(Montage);
+		if (Instance)
+		{
+			Instance->bEnableAutoBlendOut = false;
+		}
+		Run.ManipulationNote = FString::Printf(TEXT("%s section %s [%.3f, %.3f] s from %.3f s at play rate %.1f, auto blend-out %s, aiming to end %.2f s after the hit"),
+			*Run.Montage, *Run.Section, SectionStart, SectionEnd, Position, Run.PlayRate, Instance ? TEXT("off") : TEXT("not found"), SectionEndTarget);
 	}
 
 	/** True while the push request exists and is running; OutState holds its motion state when it exists. */
@@ -554,7 +580,7 @@ private:
 		}
 	}
 
-	/** Section-end runs: when the reaction stops playing, and the push clock on every update while the push runs. */
+	/** Section-hold runs: when the reaction stops playing, and the push clock on every update while the push runs. */
 	void TrackSectionEnd(FMeasuredRun& Run, const double Elapsed, const double Now, const bool bPushRunning, const FAlignmentMotionState& State)
 	{
 		const UAnimInstance* Anim = EnemyAnim();
@@ -565,7 +591,8 @@ private:
 			Run.SectionEndTime = Elapsed;
 			Run.bPushRunningAtSectionEnd = bPushRunning;
 			Run.bRootMotionFlagAtSectionEnd = Enemy->IsPlayingRootMotion();
-			Run.bManipulationPremise = true;
+			// The held reaction is still the root-motion montage although it no longer plays.
+			Run.bManipulationPremise = Run.bRootMotionFlagAtSectionEnd;
 		}
 		else if (Run.SectionEndTime >= 0.0 && bPushRunning)
 		{
@@ -573,7 +600,8 @@ private:
 		}
 
 		// While the push runs, its request clock advances on every update in which the victim's time advanced:
-		// a montage blending out must hand the push on, not freeze it.
+		// a root-motion montage that has stopped advancing (here, holding its last pose) must hand the push on,
+		// not freeze it.
 		if (!Run.bPush)
 		{
 			return;
@@ -633,6 +661,7 @@ private:
 		{
 			// The update after the stop: the montage has terminated, so no root motion remains to carry the push.
 			Run.bManipulationPremise = !Enemy->IsPlayingRootMotion();
+			Run.CarryFrameDelta = Elapsed - Run.ManipulationTime;
 			bAwaitingStopCheck = false;
 		}
 		ApplyTimedManipulation(Run, Elapsed);
@@ -643,7 +672,7 @@ private:
 
 		FAlignmentMotionState State;
 		const bool bPushRunning = ReadPushState(State);
-		if (Run.Manipulation == ERunManipulation::SectionEnds)
+		if (Run.Manipulation == ERunManipulation::SectionHolds)
 		{
 			TrackSectionEnd(Run, Elapsed, Now, bPushRunning, State);
 		}
@@ -665,7 +694,10 @@ private:
 		}
 		if (PushEnd < 0.0 && !bPushRunning)
 		{
+			// The first update after the frame that wrote the terminal row: the push's last step has landed.
 			PushEnd = Elapsed;
+			Run.PushEndTime = Elapsed;
+			Run.TravelAtPushEnd = Travel;
 		}
 
 		const bool bSettled = RootMotionEnd >= 0.0 && PushEnd >= 0.0 && Elapsed >= FMath::Max(RootMotionEnd, PushEnd) + RunMargin;
@@ -779,7 +811,9 @@ private:
 			Test->TestTrue(*FString::Printf(TEXT("%s: the push was running when the montages stopped"), Label),
 				Push.bPushRunningAtManipulation);
 			break;
-		case ERunManipulation::SectionEnds:
+		case ERunManipulation::SectionHolds:
+			Test->TestTrue(*FString::Printf(TEXT("%s: the held reaction stayed the root-motion montage after its section ended, in both runs"), Label),
+				Control.bManipulationPremise && Push.bManipulationPremise);
 			Test->TestTrue(*FString::Printf(TEXT("%s: the reaction section ended during both runs (%.3f s, %.3f s)"),
 				Label, Control.SectionEndTime, Push.SectionEndTime),
 				IsFiniteWithin(Control.SectionEndTime, 0.0, RunCap) && IsFiniteWithin(Push.SectionEndTime, 0.0, RunCap));
@@ -824,14 +858,49 @@ private:
 				Label, Control.MinClearance, Push.MinClearance), IsFiniteAbove(Control.MinClearance, 0.0) && IsFiniteAbove(Push.MinClearance, 0.0));
 			AssertManipulation(Control, Push, Label);
 
-			if (Push.ResolvedBlend == EDisplacementAnimationBlend::AddToAnimation)
+			// Handoff runs: the push's own delivered distance. Until the reaction's root motion ends both runs move
+			// alike but for the push; after it, the push run's movement-channel source overrides (then zeroes) the
+			// velocity the reaction left behind, while the control keeps sliding on it, so the end-of-run difference
+			// is not the push. Delivered = (push - control) at root-motion end + push run from then to its terminal row.
+			const double DeliveredBeforeHandoff = Push.TravelAtRootMotionEnd - Control.TravelAtRootMotionEnd;
+			const double DeliveredAfterHandoff = Push.TravelAtPushEnd - Push.TravelAtRootMotionEnd;
+			const double Delivered = DeliveredBeforeHandoff + DeliveredAfterHandoff;
+			const double CarryBound = FMath::Max(0.0, Push.VelocityAtManipulation) * Push.CarryFrameDelta;
+			if (Push.ResolvedBlend != EDisplacementAnimationBlend::AddToAnimation)
 			{
-				Test->TestTrue(*FString::Printf(TEXT("%s: knockback adds the resolved push (added %.3f cm, resolved %.1f cm, tolerance %.2f cm)"),
-					Label, Added, Push.ResolvedPush, Tolerance), IsFiniteAndNear(Added, Push.ResolvedPush, Tolerance));
+				Test->AddInfo(FString::Printf(TEXT("%s: the added-push relation is not asserted for the %s blend"), Label, *Blend));
+			}
+			else if (HandsOffToMovement(Push.Manipulation))
+			{
+				Test->TestTrue(*FString::Printf(TEXT("%s: both runs' root motion ended on the same update (%.3f s, %.3f s)"),
+					Label, Control.RootMotionDuration, Push.RootMotionDuration),
+					IsFiniteAndNear(Control.RootMotionDuration, Push.RootMotionDuration, 0.01));
+				Test->TestTrue(*FString::Printf(TEXT("%s: the root motion ended before the push did (%.3f s, push %.3f s)"),
+					Label, Push.RootMotionDuration, Push.PushEndTime),
+					IsFiniteWithin(Push.RootMotionDuration, 0.0, Push.PushEndTime));
+				if (Push.Manipulation == ERunManipulation::StopMontages)
+				{
+					// Zero-blend stop: character movement integrates one frame on the leftover root-motion velocity (push
+					// included) before the executor installs the movement source, so up to that velocity times one frame more.
+					Test->TestTrue(*FString::Printf(
+						TEXT("%s: the push delivers the resolved push plus at most one frame of carry (delivered %.3f = %.3f + %.3f cm, resolved %.1f cm, carry bound %.3f cm = %.1f cm/s x %.4f s, tolerance %.2f cm)"),
+						Label, Delivered, DeliveredBeforeHandoff, DeliveredAfterHandoff, Push.ResolvedPush, CarryBound,
+						Push.VelocityAtManipulation, Push.CarryFrameDelta, Tolerance),
+						IsFiniteAbove(CarryBound, 0.0) && IsFiniteWithin(Delivered,
+							Push.ResolvedPush - Tolerance, Push.ResolvedPush + CarryBound + Tolerance));
+				}
+				else
+				{
+					Test->TestTrue(*FString::Printf(
+						TEXT("%s: the push delivers the resolved push (delivered %.3f = %.3f + %.3f cm, resolved %.1f cm, tolerance %.2f cm)"),
+						Label, Delivered, DeliveredBeforeHandoff, DeliveredAfterHandoff, Push.ResolvedPush, Tolerance),
+						IsFiniteAndNear(Delivered, Push.ResolvedPush, Tolerance));
+				}
 			}
 			else
 			{
-				Test->AddInfo(FString::Printf(TEXT("%s: the added-push relation is not asserted for the %s blend"), Label, *Blend));
+				Test->TestTrue(*FString::Printf(TEXT("%s: knockback adds the resolved push (added %.3f cm, resolved %.1f cm, tolerance %.2f cm)"),
+					Label, Added, Push.ResolvedPush, Tolerance), IsFiniteAndNear(Added, Push.ResolvedPush, Tolerance));
 			}
 
 			// The push's own outcome rows: one Started, then one terminal Reached that arrives promptly.
@@ -877,9 +946,19 @@ private:
 			Entry->SetNumberField(TEXT("with_knockback_root_motion_end_s"), Push.RootMotionDuration);
 			Entry->SetNumberField(TEXT("with_knockback_velocity_at_root_motion_end_cms"), Push.VelocityAtRootMotionEnd);
 			Entry->SetNumberField(TEXT("with_knockback_slide_after_root_motion_cm"), Push.NetTravel - Push.TravelAtRootMotionEnd);
-			// Not asserted: the push run's travel against the control's at its root-motion end, which leaves out the
-			// control's own slide after that point (a movement-channel push overrides and then zeroes that velocity).
-			Entry->SetNumberField(TEXT("added_vs_control_at_root_motion_end_cm"), Push.NetTravel - Control.TravelAtRootMotionEnd);
+			Entry->SetNumberField(TEXT("with_knockback_push_end_s"), Push.PushEndTime);
+			if (HandsOffToMovement(Push.Manipulation))
+			{
+				// The asserted measure for handoff runs; added_cm above stays as the end-of-run record.
+				Entry->SetNumberField(TEXT("delivered_push_cm"), Delivered);
+				Entry->SetNumberField(TEXT("delivered_before_handoff_cm"), DeliveredBeforeHandoff);
+				Entry->SetNumberField(TEXT("delivered_after_handoff_cm"), DeliveredAfterHandoff);
+			}
+			if (Push.Manipulation == ERunManipulation::StopMontages)
+			{
+				Entry->SetNumberField(TEXT("carry_frame_delta_s"), Push.CarryFrameDelta);
+				Entry->SetNumberField(TEXT("carry_bound_cm"), CarryBound);
+			}
 			Entry->SetNumberField(TEXT("min_clearance_cm"), FMath::Min(Control.MinClearance, Push.MinClearance));
 			Entry->SetStringField(TEXT("manipulation"), ManipulationName(Push.Manipulation));
 			if (Push.Manipulation != ERunManipulation::None)
@@ -898,7 +977,7 @@ private:
 				Entry->SetNumberField(TEXT("with_knockback_velocity_at_manipulation_cms"), Push.VelocityAtManipulation);
 				Entry->SetBoolField(TEXT("push_running_at_manipulation"), Push.bPushRunningAtManipulation);
 			}
-			if (Push.Manipulation == ERunManipulation::SectionEnds)
+			if (Push.Manipulation == ERunManipulation::SectionHolds)
 			{
 				Entry->SetNumberField(TEXT("play_rate"), Push.PlayRate);
 				Entry->SetNumberField(TEXT("section_end_s"), Push.SectionEndTime);
