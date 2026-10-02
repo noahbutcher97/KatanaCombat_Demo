@@ -15,32 +15,91 @@
 
 namespace
 {
-constexpr int32 DisplacementBlockedTickLimit = 3;
+// Blocked: this much consecutive request time under the progress fraction. Time, not ticks, so a graze
+// ends a push the same way at any frame rate; 0.05 s is the three 60 Hz ticks the rule was tuned with.
+constexpr double DisplacementBlockedSecondsLimit = 0.05;
+// Float sums of frame times can land a hair under the limit (three 1/60 s steps); do not let that add a tick.
+constexpr double DisplacementBlockedSecondsTolerance = 1e-6;
 constexpr double DisplacementBlockedProgressFraction = 0.1;
 constexpr double DisplacementMinimumExpectedStep = 0.1;
 const FName DisplacementSourceName(TEXT("KatanaProceduralDisplacement"));
+
+/** The channel that can carry the push this frame: animation only while the root-motion montage advances. */
+EDisplacementChannel SelectLiveDisplacementChannel(const ACharacter& Character, const bool bHasMotionWarping)
+{
+	const FAnimMontageInstance* Instance = Character.GetRootMotionAnimMontageInstance();
+	return DisplacementMath::SelectChannel(Character.IsPlayingRootMotion(), bHasMotionWarping, Instance && Instance->IsPlaying());
 }
 
-void UTargetingComponent::ReportDisplacementOutcome(const FAlignmentRequestRecord& Record, const EAlignmentMotionOutcome Outcome) const
+const TCHAR* DisplacementOutcomeReason(const EAlignmentMotionOutcome Outcome)
 {
-	const FName OutcomeName(*StaticEnum<EAlignmentMotionOutcome>()->GetNameStringByValue(static_cast<int64>(Outcome)));
+	switch (Outcome)
+	{
+	case EAlignmentMotionOutcome::Reached: return TEXT("DurationReached");
+	case EAlignmentMotionOutcome::Blocked: return TEXT("ProgressStalled");
+	case EAlignmentMotionOutcome::Invalid: return TEXT("NoDeliverableChannel");
+	// The executor itself cancels only a stale suspension; the arbiter's cancellations carry their own reasons.
+	case EAlignmentMotionOutcome::Cancelled: return TEXT("StaleSuspension");
+	default: return TEXT("");
+	}
+}
+}
+
+void UTargetingComponent::AppendDisplacementTelemetry(const FAlignmentRequestRecord& Record, const FName Disposition, const FString& Detail) const
+{
 	const ABaseCombatCharacter* Character = Cast<ABaseCombatCharacter>(OwnerCharacter);
 	if (UCombatComponent* Combat = Character ? Character->GetCombatComponent() : nullptr)
 	{
-		// Within the existing schema: the owner's started row plus this terminal row.
+		// Within the existing schema: the owner's started row plus suspension, resume and terminal rows.
 		FActionReactionTelemetryRecord Row;
 		Row.Event = EActionReactionTelemetryEvent::AlignmentChanged;
 		Row.Actor = OwnerCharacter.Get();
 		Row.AlignmentOwner = Record.Spec.OwnerId;
-		Row.AlignmentDisposition = OutcomeName;
+		Row.AlignmentDisposition = Disposition;
 		Row.MovementMagnitude = static_cast<float>(Record.MotionState.Travel);
+		Row.Detail = Detail;
 		Combat->AppendActionReactionTelemetry(MoveTemp(Row));
 	}
 	if (CombatDebug::IsKnockbackDebugEnabled())
 	{
-		UE_LOG(LogTemp, Log, TEXT("[DISPLACEMENT] %s %s: %s after %.3f s, %.1f of %.1f cm"),
-			*GetNameSafe(GetOwner()), *Record.Spec.OwnerId.ToString(), *OutcomeName.ToString(),
-			Record.DisplacementElapsed, Record.MotionState.Travel, Record.Spec.Displacement.Distance);
+		UE_LOG(LogTemp, Log, TEXT("[DISPLACEMENT] %s %s: %s after %.3f s, %.1f of %.1f cm (%s)"),
+			*GetNameSafe(GetOwner()), *Record.Spec.OwnerId.ToString(), *Disposition.ToString(),
+			Record.DisplacementElapsed, Record.MotionState.Travel, Record.Spec.Displacement.Distance, *Detail);
+	}
+}
+
+void UTargetingComponent::ReportDisplacementOutcome(const FAlignmentRequestRecord& Record, const EAlignmentMotionOutcome Outcome, const TCHAR* Reason) const
+{
+	const FName OutcomeName(*StaticEnum<EAlignmentMotionOutcome>()->GetNameStringByValue(static_cast<int64>(Outcome)));
+	AppendDisplacementTelemetry(Record, OutcomeName, FString(Reason));
+}
+
+void UTargetingComponent::CancelRunningDisplacement(FAlignmentRequestRecord& Record, const TCHAR* Reason)
+{
+	// Every record's outcome defaults to Running, so only a displacement that has not ended reports here.
+	if (Record.Spec.Executor != EAlignmentExecutor::ProceduralDisplacement
+		|| Record.MotionState.Outcome != EAlignmentMotionOutcome::Running)
+	{
+		return;
+	}
+	RemoveDisplacementChannel(Record); // syncs the elapsed time the channel applied before it goes
+	Record.MotionState.Outcome = EAlignmentMotionOutcome::Cancelled;
+	Record.MotionState.Elapsed = Record.DisplacementElapsed;
+	ReportDisplacementOutcome(Record, EAlignmentMotionOutcome::Cancelled, Reason);
+}
+
+void UTargetingComponent::AccumulateDisplacementSuspension(const float DeltaTime)
+{
+	// A running displacement that is not the active request is suspended. Measure it on the owner's dilated
+	// time (component ticks are scaled by CustomTimeDilation), so hitstop does not count toward staleness.
+	for (TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
+	{
+		if (Pair.Key != ActiveAlignmentRequest
+			&& Pair.Value.Spec.Executor == EAlignmentExecutor::ProceduralDisplacement
+			&& Pair.Value.MotionState.Outcome == EAlignmentMotionOutcome::Running)
+		{
+			Pair.Value.DisplacementSuspendedSeconds += DeltaTime;
+		}
 	}
 }
 
@@ -84,8 +143,7 @@ bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Re
 		return false;
 	}
 
-	const EDisplacementChannel Channel = DisplacementMath::SelectChannel(
-		OwnerCharacter->IsPlayingRootMotion(), MotionWarpingComponent != nullptr);
+	const EDisplacementChannel Channel = SelectLiveDisplacementChannel(*OwnerCharacter, MotionWarpingComponent != nullptr);
 	if (Channel == EDisplacementChannel::Animation)
 	{
 		const FAnimMontageInstance* Instance = OwnerCharacter->GetRootMotionAnimMontageInstance();
@@ -173,7 +231,7 @@ void UTargetingComponent::RemoveDisplacementChannel(FAlignmentRequestRecord& Rec
 	Record.DisplacementSourceId = 0;
 	Record.DisplacementChannel = EDisplacementChannel::None;
 	Record.bDisplacementHasLastLocation = false;
-	Record.DisplacementBlockedTicks = 0;
+	Record.DisplacementBlockedSeconds = 0.0;
 }
 
 void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
@@ -192,6 +250,23 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	LastAlignmentExecutor = EAlignmentExecutor::ProceduralDisplacement;
 
 	const FProceduralDisplacement& Displacement = Record->Spec.Displacement;
+
+	// Active again after a suspension: resume from the request clock only if the suspension was shorter
+	// than the push it had left. A longer one would deliver the rest long after the hit that caused it.
+	bool bStaleSuspension = false;
+	if (Record->bDisplacementSuspended || Record->DisplacementSuspendedSeconds > 0.0)
+	{
+		const double Remaining = Displacement.Duration - Record->DisplacementElapsed;
+		bStaleSuspension = Remaining > 0.0 && Record->DisplacementSuspendedSeconds > Remaining;
+		if (!bStaleSuspension && Record->bDisplacementSuspended)
+		{
+			AppendDisplacementTelemetry(*Record, TEXT("Resumed"),
+				FString::Printf(TEXT("%.3f s suspended"), Record->DisplacementSuspendedSeconds));
+		}
+		Record->DisplacementSuspendedSeconds = 0.0;
+		Record->bDisplacementSuspended = false;
+	}
+
 	const double PreviousElapsed = Record->DisplacementElapsed;
 	UCharacterMovementComponent* Movement = OwnerCharacter->GetCharacterMovement();
 
@@ -218,8 +293,9 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 
 	// Re-select the channel every tick: animation root motion overrides root-motion sources, so a
 	// root-motion montage that starts mid-push must take the push over.
-	const EDisplacementChannel LiveChannel = DisplacementMath::SelectChannel(
-		OwnerCharacter->IsPlayingRootMotion(), MotionWarpingComponent != nullptr);
+	// A montage blending out (or paused) stops extracting root motion, so the push moves to the movement
+	// channel rather than freezing with the montage.
+	const EDisplacementChannel LiveChannel = SelectLiveDisplacementChannel(*OwnerCharacter, MotionWarpingComponent != nullptr);
 	if (Record->DisplacementChannel != EDisplacementChannel::None && Record->DisplacementChannel != LiveChannel)
 	{
 		RemoveDisplacementChannel(*Record);
@@ -240,36 +316,43 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 		Actual = FVector::DotProduct(Location - Record->DisplacementLastLocation, Displacement.Direction);
 		const double Expected = AnimationTravel + DisplacementMath::DistanceBetween(
 			Displacement.SpeedProfile, Displacement.Distance, Displacement.Duration, PreviousElapsed, Record->DisplacementElapsed);
+		// Blocked time is request time, so the rule ends a push after the same contact at any frame rate.
 		if (Expected > DisplacementMinimumExpectedStep && Actual < DisplacementBlockedProgressFraction * Expected)
 		{
-			++Record->DisplacementBlockedTicks;
+			Record->DisplacementBlockedSeconds += Record->DisplacementElapsed - PreviousElapsed;
 		}
 		else if (Expected > DisplacementMinimumExpectedStep)
 		{
-			Record->DisplacementBlockedTicks = 0;
+			Record->DisplacementBlockedSeconds = 0.0;
 		}
 	}
 	Record->DisplacementLastLocation = Location;
 	Record->bDisplacementHasLastLocation = true;
-	if (CombatDebug::IsKnockbackDebugEnabled())
-	{
-		DrawDebugPoint(GetWorld(), Location, 8.0f,
-			Record->DisplacementChannel == EDisplacementChannel::Animation ? FColor::Cyan : FColor::Orange,
-			false, CombatDebug::GetDebugDrawDuration());
-	}
 
 	EAlignmentMotionOutcome Outcome = EAlignmentMotionOutcome::Running;
-	if (Record->DisplacementElapsed >= Displacement.Duration)
+	if (bStaleSuspension)
+	{
+		Outcome = EAlignmentMotionOutcome::Cancelled;
+	}
+	else if (Record->DisplacementElapsed >= Displacement.Duration)
 	{
 		Outcome = EAlignmentMotionOutcome::Reached;
 	}
-	else if (Record->DisplacementBlockedTicks >= DisplacementBlockedTickLimit)
+	else if (Record->DisplacementBlockedSeconds >= DisplacementBlockedSecondsLimit - DisplacementBlockedSecondsTolerance)
 	{
 		Outcome = EAlignmentMotionOutcome::Blocked;
 	}
 	else if (Record->DisplacementChannel == EDisplacementChannel::None && !InstallDisplacementChannel(*Record))
 	{
 		Outcome = EAlignmentMotionOutcome::Invalid;
+	}
+
+	// Drawn after the install, so the first point of a push shows the channel it actually took.
+	if (CombatDebug::IsKnockbackDebugEnabled())
+	{
+		DrawDebugPoint(GetWorld(), Location, 8.0f,
+			Record->DisplacementChannel == EDisplacementChannel::Animation ? FColor::Cyan : FColor::Orange,
+			false, CombatDebug::GetDebugDrawDuration());
 	}
 
 	Record->MotionState.Outcome = Outcome;
@@ -279,7 +362,7 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	if (Outcome != EAlignmentMotionOutcome::Running)
 	{
 		RemoveDisplacementChannel(*Record);
-		ReportDisplacementOutcome(*Record, Outcome);
+		ReportDisplacementOutcome(*Record, Outcome, DisplacementOutcomeReason(Outcome));
 		if (Record->Spec.bReleaseWhenFinished)
 		{
 			ReleaseAlignmentRequest(Handle);

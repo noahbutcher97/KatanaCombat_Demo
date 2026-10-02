@@ -294,7 +294,8 @@ public:
 
     FAlignmentRequestHandle AcquireAlignmentRequest(const FAlignmentRequestSpec& Spec);
     bool UpdateAlignmentRequest(FAlignmentRequestHandle Handle, const FAlignmentRequestSpec& Spec);
-    void ReleaseAlignmentRequest(FAlignmentRequestHandle Handle);
+    /** A displacement still running when released reports Cancelled, with CancelReason as its telemetry Detail. */
+    void ReleaseAlignmentRequest(FAlignmentRequestHandle Handle, const TCHAR* CancelReason = TEXT("Released"));
     void ReleaseAllAlignmentRequests(EAlignmentReleaseReason Reason);
     bool GetAlignmentRequestSpec(FAlignmentRequestHandle Handle, FAlignmentRequestSpec& OutSpec) const;
     bool GetAlignmentMotionState(FAlignmentRequestHandle Handle, FAlignmentMotionState& OutState) const;
@@ -401,9 +402,14 @@ private:
         EDisplacementChannel DisplacementChannel = EDisplacementChannel::None;
         TWeakObjectPtr<URootMotionModifier_ProceduralDisplacement> DisplacementModifier;
         uint16 DisplacementSourceId = 0;
-        int32 DisplacementBlockedTicks = 0;
+        /** Consecutive request time spent under the blocked-progress threshold. */
+        double DisplacementBlockedSeconds = 0.0;
         FVector DisplacementLastLocation = FVector::ZeroVector;
         bool bDisplacementHasLastLocation = false;
+        /** Owner-dilated time this running displacement has spent as a non-active request. */
+        double DisplacementSuspendedSeconds = 0.0;
+        /** Set when a reevaluation dropped its channel (a Suspended row); a resume then writes a Resumed row. */
+        bool bDisplacementSuspended = false;
     };
 
     struct FCapturedRotationSettings
@@ -580,7 +586,11 @@ private:
     bool CanDeliverDisplacement() const;
     bool InstallDisplacementChannel(FAlignmentRequestRecord& Record);
     void SyncDisplacementElapsed(FAlignmentRequestRecord& Record);
-    void ReportDisplacementOutcome(const FAlignmentRequestRecord& Record, EAlignmentMotionOutcome Outcome) const;
+    void AppendDisplacementTelemetry(const FAlignmentRequestRecord& Record, FName Disposition, const FString& Detail) const;
+    void ReportDisplacementOutcome(const FAlignmentRequestRecord& Record, EAlignmentMotionOutcome Outcome, const TCHAR* Reason) const;
+    /** A still-running displacement removed by anything but its own outcome ends Cancelled with Reason. */
+    void CancelRunningDisplacement(FAlignmentRequestRecord& Record, const TCHAR* Reason);
+    void AccumulateDisplacementSuspension(float DeltaTime);
     void RemoveDisplacementChannel(FAlignmentRequestRecord& Record);
     static bool RequestCanRotate(const FAlignmentRequestSpec& Spec);
     bool HasRotatingAlignmentRequest() const;

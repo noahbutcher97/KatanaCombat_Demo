@@ -131,12 +131,21 @@ bool FKnockbackTelemetryTest::RunTest(const FString&)
 			F.Victim->HitReactionComponent->HitReactionSettingsOverride = Immune;
 			Combat->ClearActionReactionTelemetry();
 			TestFalse(TEXT("Immune victim gets no push"), F.Victim->HitReactionComponent->StartKnockback(F.Hit()));
-			const TArray<FActionReactionTelemetryRecord>& Rejected = Combat->GetActionReactionTelemetry();
-			if (TestEqual(TEXT("A rejected push writes one row"), Rejected.Num(), 1))
+			const TArray<FActionReactionTelemetryRecord>& Rows = Combat->GetActionReactionTelemetry();
+			const auto CountDisposition = [&Rows](const TCHAR* Disposition)
 			{
-				TestEqual(TEXT("Owner"), Rejected[0].AlignmentOwner, FName(TEXT("HitKnockback")));
-				TestEqual(TEXT("Disposition"), Rejected[0].AlignmentDisposition, FName(TEXT("Rejected")));
-				TestEqual(TEXT("Zero resolved distance"), Rejected[0].MovementMagnitude, 0.0f);
+				return Rows.FilterByPredicate([Disposition](const FActionReactionTelemetryRecord& Row)
+					{ return Row.AlignmentDisposition == FName(Disposition); }).Num();
+			};
+			// The first push is still running, so the new attempt replaces it: it ends Cancelled.
+			TestEqual(TEXT("The replaced running push writes one Cancelled row"), CountDisposition(TEXT("Cancelled")), 1);
+			const FActionReactionTelemetryRecord* Rejected = Rows.FindByPredicate([](const FActionReactionTelemetryRecord& Row)
+				{ return Row.AlignmentDisposition == FName(TEXT("Rejected")); });
+			TestEqual(TEXT("A rejected push writes one Rejected row"), CountDisposition(TEXT("Rejected")), 1);
+			if (TestNotNull(TEXT("Rejected row"), Rejected))
+			{
+				TestEqual(TEXT("Owner"), Rejected->AlignmentOwner, FName(TEXT("HitKnockback")));
+				TestEqual(TEXT("Zero resolved distance"), Rejected->MovementMagnitude, 0.0f);
 			}
 		}
 	}

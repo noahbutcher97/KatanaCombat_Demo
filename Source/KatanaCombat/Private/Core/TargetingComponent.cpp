@@ -146,6 +146,9 @@ void UTargetingComponent::TickComponent(
 {
     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+    // Before any dispatch: suspended displacements age on every tick, whichever request is active.
+    AccumulateDisplacementSuspension(DeltaTime);
+
     FAlignmentRequestRecord* ActiveRecord = AlignmentRequests.Find(ActiveAlignmentRequest);
     if (ActiveRecord && ActiveRecord->Spec.Executor == EAlignmentExecutor::ProceduralDisplacement)
     {
@@ -893,7 +896,7 @@ bool UTargetingComponent::UpdateAlignmentRequest(
     return true;
 }
 
-void UTargetingComponent::ReleaseAlignmentRequest(FAlignmentRequestHandle Handle)
+void UTargetingComponent::ReleaseAlignmentRequest(FAlignmentRequestHandle Handle, const TCHAR* CancelReason)
 {
     FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle);
     if (!Record)
@@ -901,6 +904,7 @@ void UTargetingComponent::ReleaseAlignmentRequest(FAlignmentRequestHandle Handle
         return;
     }
     RemoveDisplacementChannel(*Record);
+    CancelRunningDisplacement(*Record, CancelReason);
 
     const FAlignmentRequestRecord ReleasedRecord = *Record;
     RemoveRegisteredAlignmentModifiersForHandle(Handle);
@@ -925,9 +929,11 @@ void UTargetingComponent::ReleaseAllAlignmentRequests(EAlignmentReleaseReason Re
         return;
     }
 
+    const FString CancelReason = StaticEnum<EAlignmentReleaseReason>()->GetNameStringByValue(static_cast<int64>(Reason));
     for (TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
     {
         RemoveDisplacementChannel(Pair.Value);
+        CancelRunningDisplacement(Pair.Value, *CancelReason);
     }
     TArray<FAlignmentRequestHandle> Handles;
     AlignmentRequests.GetKeys(Handles);
@@ -1196,6 +1202,7 @@ void UTargetingComponent::ReevaluateAlignmentRequests()
         if (FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle))
         {
             RemoveDisplacementChannel(*Record);
+            CancelRunningDisplacement(*Record, TEXT("TargetLost"));
             RemoveRegisteredAlignmentModifiersForHandle(Handle);
             RemoveAlignmentWarpTarget(*Record);
         }
@@ -1213,13 +1220,21 @@ void UTargetingComponent::ReevaluateAlignmentRequests()
     }
 
     ActiveAlignmentRequest = ChooseActiveAlignmentRequest();
+    const FAlignmentRequestRecord* NewActiveRecord = AlignmentRequests.Find(ActiveAlignmentRequest);
+    const FString SuspendedBy = NewActiveRecord ? NewActiveRecord->Spec.OwnerId.ToString() : FString();
     for (TPair<FAlignmentRequestHandle, FAlignmentRequestRecord>& Pair : AlignmentRequests)
     {
         if (Pair.Key != ActiveAlignmentRequest
             && Pair.Value.Spec.Executor == EAlignmentExecutor::ProceduralDisplacement
             && Pair.Value.DisplacementChannel != EDisplacementChannel::None)
         {
-            RemoveDisplacementChannel(Pair.Value); // resumes from DisplacementElapsed when active again
+            // Resumes from DisplacementElapsed when active again, unless the suspension outlasts the push it had left.
+            RemoveDisplacementChannel(Pair.Value);
+            if (Pair.Value.MotionState.Outcome == EAlignmentMotionOutcome::Running)
+            {
+                Pair.Value.bDisplacementSuspended = true;
+                AppendDisplacementTelemetry(Pair.Value, TEXT("Suspended"), SuspendedBy);
+            }
         }
     }
     if (const FAlignmentRequestRecord* ActiveRecord = AlignmentRequests.Find(ActiveAlignmentRequest))

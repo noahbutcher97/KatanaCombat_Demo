@@ -1,5 +1,8 @@
 #include "CombatTestHelpers.h"
+#include "Core/CombatComponent.h"
 #include "Core/TargetingComponent.h"
+#include "Debug/ActionReactionTelemetry.h"
+#include "HAL/IConsoleManager.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -90,6 +93,56 @@ FAlignmentRequestSpec MakePush(const float Distance, const float Duration, const
 	Spec.Displacement.Duration = Duration;
 	Spec.Displacement.SpeedProfile = Profile;
 	return Spec;
+}
+
+/** A block-contact turn: outranks HitKnockback, so acquiring it suspends a running push. */
+FAlignmentRequestSpec MakeBlockContact()
+{
+	FAlignmentRequestSpec Block;
+	Block.OwnerId = TEXT("BlockTest");
+	Block.OwnerGeneration = 1;
+	Block.Priority = EDefenseAlignmentPriority::BlockContact;
+	Block.Executor = EAlignmentExecutor::CharacterMovement;
+	Block.DesiredRotation = FRotator::ZeroRotator;
+	Block.MaximumTurnRate = 90.f;
+	Block.RemainingTurnBudget = 10.f;
+	return Block;
+}
+
+/** Turns Combat.ActionReaction.Debug on for its scope. Declare it before the fixture, so it is restored on every exit after teardown. */
+struct FActionReactionTelemetryOn
+{
+	IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(TEXT("Combat.ActionReaction.Debug"));
+	int32 Previous = Variable ? Variable->GetInt() : 0;
+	FActionReactionTelemetryOn() { if (Variable) { Variable->Set(1, ECVF_SetByCode); } }
+	~FActionReactionTelemetryOn() { if (Variable) { Variable->Set(Previous, ECVF_SetByCode); } }
+};
+
+/** The fixture push's telemetry rows (owner DisplacementTest), in order. */
+TArray<FActionReactionTelemetryRecord> DisplacementRows(const FDisplacementFixture& F)
+{
+	return F.Character->GetCombatComponent()->GetActionReactionTelemetry().FilterByPredicate(
+		[](const FActionReactionTelemetryRecord& Row) { return Row.AlignmentOwner == FName(TEXT("DisplacementTest")); });
+}
+
+/** One row's disposition and detail. */
+void TestRow(FAutomationTestBase& Test, const TArray<FActionReactionTelemetryRecord>& Rows, const int32 Index,
+	const TCHAR* Disposition, const TCHAR* Detail)
+{
+	if (!Test.TestTrue(FString::Printf(TEXT("Row %d (%s) exists"), Index, Disposition), Rows.IsValidIndex(Index))) { return; }
+	Test.TestEqual(FString::Printf(TEXT("Row %d disposition"), Index), Rows[Index].AlignmentDisposition, FName(Disposition));
+	Test.TestEqual(FString::Printf(TEXT("Row %d event"), Index), Rows[Index].Event, EActionReactionTelemetryEvent::AlignmentChanged);
+	if (Detail)
+	{
+		Test.TestEqual(FString::Printf(TEXT("Row %d (%s) detail"), Index, Disposition), Rows[Index].Detail, FString(Detail));
+	}
+}
+
+/** A wall whose face sits Gap cm ahead of the capsule's front (+X), tall and wide enough that the push cannot pass. */
+UBoxComponent* WallAhead(FDisplacementFixture& F, const float Gap)
+{
+	const float Radius = F.Character->GetCapsuleComponent()->GetScaledCapsuleRadius();
+	return F.Box(FVector(F.Character->GetActorLocation().X + Radius + Gap + 5.f, 0, 100), FVector(5, 500, 200));
 }
 
 /** Replace the fixture's large floor with one that ends 20 cm ahead of the character (+X). */
@@ -204,6 +257,32 @@ bool FDisplacementVariableFrameTimesTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementAnimRootMotionTickTest, "KatanaCombat.Displacement.Executor.AnimRootMotionTickDoesNotConsumePushClock",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementAnimRootMotionTickTest::RunTest(const FString&)
+{
+	FDisplacementFixture F;
+	const FVector Start = F.Character->GetActorLocation();
+	F.Targeting()->AcquireAlignmentRequest(MakePush(60.f, 0.25f));
+	F.Step(1.f / 60); // installs the movement channel
+	F.Step(1.f / 60); // applies the push's first movement step
+	// Animation root motion on the next movement step, as TickCharacterPose leaves it when a root-motion
+	// montage has just started: character movement applies it and ignores every root-motion source
+	// (ApplyRootMotionToVelocity), so none of the push is applied on this step.
+	const double BeforeOverride = F.Character->GetActorLocation().X;
+	F.Movement()->RootMotionParams.Set(FTransform::Identity);
+	F.Step(1.f / 60);
+	const double OverriddenStep = F.Character->GetActorLocation().X - BeforeOverride;
+	TestTrue(FString::Printf(TEXT("Animation root motion overrode the push on that step (moved %.3f cm)"), OverriddenStep),
+		FMath::Abs(OverriddenStep) < 0.1);
+	for (int32 I = 0; I < 200 && F.Targeting()->GetAlignmentRequestCountForTesting() > 0; ++I) { F.Step(1.f / 60); }
+	TestEqual(TEXT("The push released itself"), F.Targeting()->GetAlignmentRequestCountForTesting(), 0);
+	const double Travel = F.Character->GetActorLocation().X - Start.X;
+	TestTrue(FString::Printf(TEXT("The overridden step did not consume push time: lands on 60 cm (moved %.2f)"), Travel),
+		FMath::IsNearlyEqual(Travel, 60.0, 1.0));
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementHitstopTest, "KatanaCombat.Displacement.Executor.PausesUnderHitstopDilation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FDisplacementHitstopTest::RunTest(const FString&)
@@ -242,6 +321,67 @@ bool FDisplacementWallTest::RunTest(const FString&)
 	TestTrue(FString::Printf(TEXT("Blocked before the push's end (%.3f of %.3f s)"), State.Elapsed, Spec.Displacement.Duration),
 		State.Elapsed < Spec.Displacement.Duration);
 	TestTrue(TEXT("Stopped at the wall"), F.Character->GetActorLocation().X < 20.0);
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementWallTimeTest, "KatanaCombat.Displacement.Executor.WallBlockedAfterTimeNotTicks",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementWallTimeTest::RunTest(const FString&)
+{
+	FDisplacementFixture F;
+	// Flush against the wall, so the push stalls from its first movement step and its request time at
+	// Blocked is the time it spent blocked. At 240 Hz a tick count would end it after 12.5 ms.
+	WallAhead(F, 0.1f);
+	FAlignmentRequestSpec Spec = MakePush(80.f, 0.3f);
+	Spec.bReleaseWhenFinished = false; // hold the outcome
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+	FAlignmentMotionState State;
+	for (int32 I = 0; I < 160 && F.Targeting()->GetAlignmentMotionState(Handle, State) && State.Outcome == EAlignmentMotionOutcome::Running; ++I)
+	{
+		F.Step(1.f / 240);
+	}
+	F.Targeting()->GetAlignmentMotionState(Handle, State);
+	TestEqual(TEXT("The wall blocks the push"), State.Outcome, EAlignmentMotionOutcome::Blocked);
+	TestTrue(FString::Printf(TEXT("Blocked after 0.05 s of request time, not after a tick count (%.4f s)"), State.Elapsed),
+		State.Elapsed >= 0.045);
+	TestTrue(FString::Printf(TEXT("Blocked before the push's end (%.3f of %.3f s)"), State.Elapsed, Spec.Displacement.Duration),
+		State.Elapsed < Spec.Displacement.Duration);
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementIntermittentContactTest, "KatanaCombat.Displacement.Executor.IntermittentContactDoesNotBlock",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementIntermittentContactTest::RunTest(const FString&)
+{
+	FDisplacementFixture F;
+	FAlignmentRequestSpec Spec = MakePush(80.f, 0.3f);
+	Spec.bReleaseWhenFinished = false; // hold the outcome
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+	// Each contact stalls the push for two 60 Hz steps (0.033 s, under the 0.05 s Blocked limit); the free
+	// steps between them reset the blocked time, so the two contacts never add up to Blocked.
+	const auto Contact = [this, &F](const TCHAR* Name)
+	{
+		const double Before = F.Character->GetActorLocation().X;
+		UBoxComponent* Obstacle = WallAhead(F, 0.1f);
+		F.Step(1.f / 60);
+		F.Step(1.f / 60);
+		const double Stalled = F.Character->GetActorLocation().X - Before;
+		TestTrue(FString::Printf(TEXT("%s stalled the push for two steps (moved %.3f cm)"), Name, Stalled), Stalled < 0.2);
+		Obstacle->GetOwner()->Destroy();
+	};
+	for (int32 I = 0; I < 3; ++I) { F.Step(1.f / 60); } // installs, then two free steps
+	Contact(TEXT("The first contact"));
+	for (int32 I = 0; I < 2; ++I) { F.Step(1.f / 60); }
+	Contact(TEXT("The second contact"));
+	FAlignmentMotionState State;
+	for (int32 I = 0; I < 40 && F.Targeting()->GetAlignmentMotionState(Handle, State) && State.Outcome == EAlignmentMotionOutcome::Running; ++I)
+	{
+		F.Step(1.f / 60);
+	}
+	F.Targeting()->GetAlignmentMotionState(Handle, State);
+	TestEqual(TEXT("Brief contacts separated by free movement do not end the push"), State.Outcome, EAlignmentMotionOutcome::Reached);
 	F.Targeting()->ReleaseAlignmentRequest(Handle);
 	return true;
 }
@@ -325,28 +465,115 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementPriorityTest, "KatanaCombat.Displa
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FDisplacementPriorityTest::RunTest(const FString&)
 {
+	const FActionReactionTelemetryOn Telemetry;
 	FDisplacementFixture F;
 	const FVector Start = F.Character->GetActorLocation();
-	F.Targeting()->AcquireAlignmentRequest(MakePush(40.f, 0.2f));
+	// EaseOut, so a resume that replayed the curve's front-loaded start would overshoot; held, so the outcome
+	// shows whether the resumed request clock reached the push's end.
+	FAlignmentRequestSpec Spec = MakePush(40.f, 0.2f, EDisplacementSpeedProfile::EaseOut);
+	Spec.bReleaseWhenFinished = false;
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
 	// Run mid-push first so a suspension that reset the push clock would be caught on resume.
 	for (int32 I = 0; I < 6; ++I) { F.Step(1.f / 60); }
 	const double TravelBeforeSuspend = F.Character->GetActorLocation().X - Start.X;
 	TestTrue(TEXT("Mid-push before the suspension"), TravelBeforeSuspend > 2.0 && TravelBeforeSuspend < 38.0);
-	FAlignmentRequestSpec Block;
-	Block.OwnerId = TEXT("BlockTest"); Block.OwnerGeneration = 1;
-	Block.Priority = EDefenseAlignmentPriority::BlockContact;
-	Block.Executor = EAlignmentExecutor::CharacterMovement;
-	Block.DesiredRotation = FRotator::ZeroRotator; Block.MaximumTurnRate = 90.f; Block.RemainingTurnBudget = 10.f;
-	const FAlignmentRequestHandle BlockHandle = F.Targeting()->AcquireAlignmentRequest(Block);
+	const FAlignmentRequestHandle BlockHandle = F.Targeting()->AcquireAlignmentRequest(MakeBlockContact());
 	if (!TestTrue(TEXT("Block request acquired"), BlockHandle.IsValid())) { return false; }
 	const double Suspended = F.Character->GetActorLocation().X;
-	for (int32 I = 0; I < 10; ++I) { F.Step(1.f / 60); }
+	// 0.083 s: shorter than the 0.117 s the push has left, so it resumes rather than cancels.
+	for (int32 I = 0; I < 5; ++I) { F.Step(1.f / 60); }
 	TestTrue(TEXT("No push while suspended"), FMath::Abs(F.Character->GetActorLocation().X - Suspended) < 1.0);
 	// A removed source is only marked; the next movement tick drops it, so check after stepping.
 	TestFalse(TEXT("Suspended push has no source"), F.Movement()->GetRootMotionSource(TEXT("KatanaProceduralDisplacement")).IsValid());
 	F.Targeting()->ReleaseAlignmentRequest(BlockHandle);
 	for (int32 I = 0; I < 30; ++I) { F.Step(1.f / 60); }
-	TestTrue(TEXT("Push resumes and completes"), FMath::IsNearlyEqual(F.Character->GetActorLocation().X - Start.X, 40.0, 4.0));
+	FAlignmentMotionState State;
+	TestTrue(TEXT("The owner still holds the request"), F.Targeting()->GetAlignmentMotionState(Handle, State));
+	TestEqual(TEXT("The resumed push reaches its end"), State.Outcome, EAlignmentMotionOutcome::Reached);
+	const double Travel = F.Character->GetActorLocation().X - Start.X;
+	TestTrue(FString::Printf(TEXT("Push resumes from its clock and lands on 40 cm (moved %.2f)"), Travel), FMath::IsNearlyEqual(Travel, 40.0, 1.0));
+	// Telemetry: suspended by the block, resumed after it, then the terminal row.
+	const TArray<FActionReactionTelemetryRecord> Rows = DisplacementRows(F);
+	TestEqual(TEXT("Three rows"), Rows.Num(), 3);
+	TestRow(*this, Rows, 0, TEXT("Suspended"), TEXT("BlockTest"));
+	TestRow(*this, Rows, 1, TEXT("Resumed"), nullptr);
+	TestRow(*this, Rows, 2, TEXT("Reached"), TEXT("DurationReached"));
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementLongSuspensionTest, "KatanaCombat.Displacement.Executor.LongSuspensionDoesNotResume",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementLongSuspensionTest::RunTest(const FString&)
+{
+	const FActionReactionTelemetryOn Telemetry;
+	FDisplacementFixture F;
+	FAlignmentRequestSpec Spec = MakePush(60.f, 0.25f, EDisplacementSpeedProfile::EaseOut);
+	Spec.bReleaseWhenFinished = false; // hold the outcome
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+	for (int32 I = 0; I < 3; ++I) { F.Step(1.f / 60); } // installs, then 0.033 s of the 0.25 s push
+	const FAlignmentRequestHandle BlockHandle = F.Targeting()->AcquireAlignmentRequest(MakeBlockContact());
+	if (!TestTrue(TEXT("Block request acquired"), BlockHandle.IsValid())) { return false; }
+	// A 1 s suspension, far longer than the 0.217 s the push has left.
+	for (int32 I = 0; I < 60; ++I) { F.Step(1.f / 60); }
+	F.Targeting()->ReleaseAlignmentRequest(BlockHandle);
+	const double Released = F.Character->GetActorLocation().X;
+	for (int32 I = 0; I < 30; ++I) { F.Step(1.f / 60); }
+	const double After = F.Character->GetActorLocation().X - Released;
+	TestTrue(FString::Printf(TEXT("A stale push does not resume (moved %.2f cm)"), After), FMath::Abs(After) < 1.0);
+	FAlignmentMotionState State;
+	TestTrue(TEXT("The owner still holds the request"), F.Targeting()->GetAlignmentMotionState(Handle, State));
+	TestEqual(TEXT("A stale push ends Cancelled"), State.Outcome, EAlignmentMotionOutcome::Cancelled);
+	// Telemetry: suspended, then cancelled through the terminal path with its reason; never resumed.
+	F.Targeting()->ReleaseAlignmentRequest(Handle); // already ended, so the owner's release adds no row
+	const TArray<FActionReactionTelemetryRecord> Rows = DisplacementRows(F);
+	TestEqual(TEXT("Two rows"), Rows.Num(), 2);
+	TestRow(*this, Rows, 0, TEXT("Suspended"), TEXT("BlockTest"));
+	TestRow(*this, Rows, 1, TEXT("Cancelled"), TEXT("StaleSuspension"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementCancelledRowTest, "KatanaCombat.Displacement.Executor.ReleaseWritesCancelledRowWithReason",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementCancelledRowTest::RunTest(const FString&)
+{
+	const FActionReactionTelemetryOn Telemetry;
+	if (!TestNotNull(TEXT("Telemetry CVar exists"), Telemetry.Variable)) { return false; }
+	FDisplacementFixture F;
+	UCombatComponent* Combat = F.Character->GetCombatComponent();
+	if (!TestNotNull(TEXT("Combat component"), Combat)) { return false; }
+	// A running push removed by anything but its own outcome writes one Cancelled row with the reason.
+	struct FCase
+	{
+		const TCHAR* Name;
+		TFunction<void(UTargetingComponent&, FAlignmentRequestHandle)> Release;
+		const TCHAR* Reason;
+	};
+	const FCase Cases[] = {
+		{TEXT("Owner release"), [](UTargetingComponent& T, const FAlignmentRequestHandle H) { T.ReleaseAlignmentRequest(H); }, TEXT("Released")},
+		{TEXT("Release with a caller reason"), [](UTargetingComponent& T, const FAlignmentRequestHandle H) { T.ReleaseAlignmentRequest(H, TEXT("Replaced")); }, TEXT("Replaced")},
+		{TEXT("Death"), [](UTargetingComponent& T, FAlignmentRequestHandle) { T.ReleaseAllAlignmentRequests(EAlignmentReleaseReason::Death); }, TEXT("Death")},
+	};
+	for (const FCase& Case : Cases)
+	{
+		Combat->ClearActionReactionTelemetry();
+		const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(MakePush(60.f, 0.5f));
+		for (int32 I = 0; I < 3; ++I) { F.Step(1.f / 60); }
+		Case.Release(*F.Targeting(), Handle);
+		const TArray<FActionReactionTelemetryRecord> Rows = DisplacementRows(F);
+		TestEqual(FString::Printf(TEXT("%s: one row"), Case.Name), Rows.Num(), 1);
+		TestRow(*this, Rows, 0, TEXT("Cancelled"), Case.Reason);
+		TestEqual(FString::Printf(TEXT("%s: request removed"), Case.Name), F.Targeting()->GetAlignmentRequestCountForTesting(), 0);
+	}
+
+	// A push that already ended reports nothing more when its owner releases it.
+	FAlignmentRequestSpec Held = MakePush(30.f, 0.2f);
+	Held.bReleaseWhenFinished = false;
+	const FAlignmentRequestHandle HeldHandle = F.Targeting()->AcquireAlignmentRequest(Held);
+	for (int32 I = 0; I < 20; ++I) { F.Step(1.f / 60); }
+	Combat->ClearActionReactionTelemetry();
+	F.Targeting()->ReleaseAlignmentRequest(HeldHandle);
+	TestEqual(TEXT("Releasing a finished push writes no row"), DisplacementRows(F).Num(), 0);
 	return true;
 }
 

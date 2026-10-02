@@ -39,9 +39,11 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementMathChannelTest, "KatanaCombat.Dis
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FDisplacementMathChannelTest::RunTest(const FString&)
 {
-	TestEqual(TEXT("Root-motion montage with warping uses the animation channel"), DisplacementMath::SelectChannel(true, true), EDisplacementChannel::Animation);
-	TestEqual(TEXT("No root motion uses movement"), DisplacementMath::SelectChannel(false, true), EDisplacementChannel::Movement);
-	TestEqual(TEXT("Root motion without warping cannot modify the animation"), DisplacementMath::SelectChannel(true, false), EDisplacementChannel::Movement);
+	TestEqual(TEXT("Advancing root-motion montage with warping uses the animation channel"), DisplacementMath::SelectChannel(true, true, true), EDisplacementChannel::Animation);
+	TestEqual(TEXT("No root motion uses movement"), DisplacementMath::SelectChannel(false, true, false), EDisplacementChannel::Movement);
+	TestEqual(TEXT("Root motion without warping cannot modify the animation"), DisplacementMath::SelectChannel(true, false, true), EDisplacementChannel::Movement);
+	TestEqual(TEXT("A montage that is not advancing (blending out or paused) extracts no root motion, so movement carries the push"),
+		DisplacementMath::SelectChannel(true, true, false), EDisplacementChannel::Movement);
 	return true;
 }
 

@@ -20,9 +20,11 @@ double DistanceBetween(const EDisplacementSpeedProfile Profile, const double Dis
 	return Distance * (Progress(Profile, T1 / Duration) - Progress(Profile, T0 / Duration));
 }
 
-EDisplacementChannel SelectChannel(const bool bPlayingRootMotion, const bool bHasMotionWarping)
+EDisplacementChannel SelectChannel(const bool bPlayingRootMotion, const bool bHasMotionWarping, const bool bRootMotionMontageAdvancing)
 {
-	return bPlayingRootMotion && bHasMotionWarping ? EDisplacementChannel::Animation : EDisplacementChannel::Movement;
+	return bPlayingRootMotion && bHasMotionWarping && bRootMotionMontageAdvancing
+		? EDisplacementChannel::Animation
+		: EDisplacementChannel::Movement;
 }
 
 bool IsValid(const FProceduralDisplacement& Displacement)

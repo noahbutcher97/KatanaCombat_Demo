@@ -1,4 +1,5 @@
 #include "Animation/RootMotionSource_ProceduralDisplacement.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "Utilities/DisplacementMath.h"
 
 FRootMotionSource* FRootMotionSource_ProceduralDisplacement::Clone() const
@@ -42,6 +43,15 @@ void FRootMotionSource_ProceduralDisplacement::PrepareRootMotion(
 	const UCharacterMovementComponent& MoveComponent)
 {
 	RootMotionParams.Clear();
+
+	// Animation root motion overrides every root-motion source on this step (ApplyRootMotionToVelocity),
+	// so none of the curve would be applied. PrepareRootMotion runs after TickCharacterPose has gathered
+	// the step's animation root motion, so this is exactly that case: leave the clock alone, because the
+	// source's time is the record of push time actually applied.
+	if (MoveComponent.HasAnimRootMotion())
+	{
+		return;
+	}
 
 	// Evaluate the curve over this step's own simulation time, so every step lands on the curve
 	// whatever the previous step lasted. Past the curve's end the step is zero.

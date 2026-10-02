@@ -121,7 +121,10 @@ displacement between two request times. Deltas over any partition of `[0, T]` su
 The executor re-evaluates the channel every tick:
 
 1. **Animation channel**, used when the owner is playing a montage whose root motion is
-   extracted. A custom `URootMotionModifier_ProceduralDisplacement` (subclass of
+   extracted and whose instance is advancing (`FAnimMontageInstance::IsPlaying`). A montage
+   blending out after its last section, or paused, still counts as playing root motion but
+   extracts none, so the push takes the movement channel instead of freezing with it; only
+   hitstop pauses a push. A custom `URootMotionModifier_ProceduralDisplacement` (subclass of
    `URootMotionModifier`, named like the engine's `_Warp` and `_Scale` modifiers) is added at
    runtime through `UMotionWarpingComponent::AddModifier`, spanning the rest of the push in
    montage time. Its `ProcessRootMotion` converts this frame's curve delta into the
@@ -139,19 +142,32 @@ The executor re-evaluates the channel every tick:
    curve's end. The executor owns termination. On removal the finish velocity clamps
    horizontal speed to zero (`ClampVelocity` 0), which keeps a fall's downward speed. The
    source's own time is the record of applied push time. Character movement's dilated
-   delta pauses it under hitstop.
+   delta pauses it under hitstop. On a step with animation root motion, character movement
+   applies only the animation and ignores every source, so the source leaves its clock
+   alone on that step (`HasAnimRootMotion()` in `PrepareRootMotion`). A root-motion montage
+   that starts mid-push therefore takes over the curve where the movement channel left it.
 
-If the animation channel ends before the curve completes (the montage stops or is
-replaced), the remainder continues through the movement channel. In both channels character
-movement handles floors, slopes, steps, ledges (the victim falls) and walls (it slides).
+If the animation channel ends before the curve completes (the montage stops advancing,
+stops, or is replaced), the remainder continues through the movement channel. In both
+channels character movement handles floors, slopes, steps, ledges (the victim falls) and
+walls (it slides).
 
 ### Outcomes and lifecycle
 
 - **Reached** when request time reaches `Duration`.
-- **Blocked** when, for 3 consecutive ticks, actual horizontal movement is below 10% of the
-  commanded delta (a head-on wall).
+- **Blocked** when 0.05 s of request time in a row passes on steps whose actual movement
+  along the push is below 10% of the expected progress (a head-on wall). It counts time, not
+  ticks, so a graze ends a push the same way at any frame rate; 0.05 s is three 60 Hz ticks.
+  Steps whose expected progress is under 0.1 cm (hitstop) neither count nor reset it.
 - **Invalid** when no channel can be installed (no motion warping component and no
   character movement, or movement mode `None`).
+- **Cancelled** when the request is removed while still running (release,
+  `ReleaseAllAlignmentRequests`, a lost target), or when a suspension outlasts the push.
+- **Suspension.** A higher-priority request suspends a running push: its channel is removed
+  and its clock stops. When it is active again it resumes from its clock only if the
+  suspension, measured on the owner's dilated time (hitstop does not count), was shorter
+  than the push it had left (`Duration` minus elapsed). Otherwise it ends `Cancelled`, and
+  releases itself if it carries `bReleaseWhenFinished`.
 - The request carries `bReleaseWhenFinished`: the targeting component releases it on any
   terminal outcome and removes the active modifier or source. Release, preemption,
   `ReleaseAllAlignmentRequests` and death remove whichever channel is active.
@@ -170,7 +186,8 @@ asset serializes the enum).
 
 - `DisplacementMath`: both profiles; partitions sum to `Distance`; `EaseOut` covers more
   than half of `Distance` in the first half of `Duration`.
-- Channel selection as a pure decision function (root-motion montage playing or not).
+- Channel selection as a pure decision function (root-motion montage playing or not,
+  motion warping present or not, montage instance advancing or not).
 - `URootMotionModifier_ProceduralDisplacement::ProcessRootMotion` on a test character: add vs replace,
   direction conversion, zero delta at zero `DeltaSeconds`.
 - Arbiter: acquire, priority ordering, suspension, self-release on each terminal outcome,
@@ -239,8 +256,18 @@ one. `EnterPairedAnimationState` and `EndPlay` release it.
 - Action-reaction telemetry records the start and finish as `AlignmentChanged` rows within the
   existing schema (no new event values, no `schema_version` bump; `analyze_capture.py`
   accepts only 1 or 2). `StartKnockback` writes `AlignmentOwner = HitKnockback` with
-  disposition `Started` or `Rejected`. For every self-releasing displacement, the executor
-  writes the terminal outcome (`Reached`, `Blocked`, `Invalid`) and the measured travel.
+  disposition `Started` or `Rejected`. The targeting component then writes every
+  displacement's later rows with `AlignmentOwner` = the request's owner, the measured travel,
+  and the reason in `Detail`:
+  - the terminal outcome: `Reached` (`DurationReached`), `Blocked` (`ProgressStalled`),
+    `Invalid` (`NoDeliverableChannel`) or `Cancelled` (`StaleSuspension`);
+  - `Cancelled` when a still-running push is removed by anything else: `Released` or the
+    releasing caller's reason (such as `Replaced`), the `EAlignmentReleaseReason` name (such
+    as `Death` or `ComponentTeardown`), or `TargetLost`;
+  - `Suspended` when a higher-priority request takes over (`Detail`: its owner), and
+    `Resumed` when the push continues afterwards.
+
+  The `Combat.Debug.Knockback` log line for each row ends with the same reason.
 
 ### Tests (knockback)
 
