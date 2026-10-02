@@ -29,8 +29,45 @@ FKnockbackConfig Resolve(const UAttackData* AttackData, const UCombatSettings* S
 
 float PushDistance(const float Distance, const float ChargeLevel, const float MaxChargeKnockbackMultiplier, const float VictimScale)
 {
-	const float ChargeMultiplier = FMath::Lerp(1.0f, FMath::Max(1.0f, MaxChargeKnockbackMultiplier), FMath::Clamp(ChargeLevel, 0.0f, 1.0f));
+	// FMath::Clamp(NaN, 0, 1) is 1, so an unguarded non-finite charge would read as full charge.
+	const float Charge = FMath::IsFinite(ChargeLevel) ? FMath::Clamp(ChargeLevel, 0.0f, 1.0f) : 0.0f;
+	const float Multiplier = FMath::IsFinite(MaxChargeKnockbackMultiplier) ? FMath::Max(1.0f, MaxChargeKnockbackMultiplier) : 1.0f;
+	const float ChargeMultiplier = FMath::Lerp(1.0f, Multiplier, Charge);
 	return FMath::Max(0.0f, Distance) * ChargeMultiplier * FMath::Max(0.0f, VictimScale);
+}
+
+bool IsUsablePushDistance(const float PushDistance)
+{
+	return FMath::IsFinite(PushDistance) && PushDistance > KINDA_SMALL_NUMBER;
+}
+
+FString NoPushDistanceCause(const UAttackData* AttackData, const UCombatSettings* Settings, const float VictimScale,
+	const float PushDistance)
+{
+	if (IsUsablePushDistance(PushDistance))
+	{
+		return FString();
+	}
+	if (!AttackData)
+	{
+		return TEXT("no attack data");
+	}
+	if (!Settings)
+	{
+		return TEXT("no combat settings");
+	}
+	if (!AttackData->Knockback.bOverrideDistance && !Settings->DefaultKnockback.Contains(AttackData->AttackType))
+	{
+		return FString::Printf(TEXT("missing type default (%s)"),
+			*StaticEnum<EAttackType>()->GetNameStringByValue(static_cast<int64>(AttackData->AttackType)));
+	}
+	const float AuthoredDistance = Resolve(AttackData, Settings).Distance;
+	if (!FMath::IsFinite(AuthoredDistance) || !FMath::IsFinite(VictimScale) || !FMath::IsFinite(PushDistance))
+	{
+		return TEXT("non-finite scale or distance");
+	}
+	// Charge only adds (its multiplier is at least 1), so an authored distance that survives means the scale removed it.
+	return AuthoredDistance > KINDA_SMALL_NUMBER ? TEXT("zero victim scale") : TEXT("zero authored distance");
 }
 
 FVector ResolveDirection(const EKnockbackDirection Mode, const FVector& AttackerLocation,
@@ -45,12 +82,20 @@ FVector ResolveDirection(const EKnockbackDirection Mode, const FVector& Attacker
 	const FVector Swing = -DirectionToAttacker;
 	const FVector FlatSwing(Swing.X, Swing.Y, 0.0);
 	const double SwingLength = Swing.Size();
-	if (SwingLength <= UE_SMALL_NUMBER || FlatSwing.Size() < 0.5 * SwingLength)
+	// No usable blade velocity, or an overhead chop (mostly vertical): its horizontal part says little about where
+	// the blade is going, so push straight away.
+	if (!FMath::IsFinite(SwingLength) || SwingLength <= UE_SMALL_NUMBER || FlatSwing.Size() < 0.5 * SwingLength)
 	{
 		return Away;
 	}
+	// Continuous in the swing: remove only the part of the flat swing that points toward the attacker, and replace
+	// it with the same length of Away. Straight away stays away, a tangential swing stays tangential and a pure
+	// back-swing becomes Away, with no jump between them.
 	const FVector Along = FlatSwing.GetSafeNormal();
-	return FVector::DotProduct(Along, Away) > 0.0 ? Along : Away;
+	const double Radial = FVector::DotProduct(Along, Away);
+	const FVector Clipped = Along - FMath::Min(0.0, Radial) * Away;
+	const double Lost = 1.0 - Clipped.Size();
+	return (Clipped + Lost * Away).GetSafeNormal();
 }
 
 bool ShouldApply(const FEligibility& Eligibility)

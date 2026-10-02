@@ -14,8 +14,9 @@ UCombatSettings::UCombatSettings()
 	Light.AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
 	DefaultKnockback.Add(EAttackType::Light, Light);
 
+	// The Heavy reactions are authored knockback animations that travel about 89 cm on their own, so the push adds 20.
 	FKnockbackConfig Heavy = Light;
-	Heavy.Distance = 60.0f;
+	Heavy.Distance = 20.0f;
 	Heavy.Duration = 0.25f;
 	DefaultKnockback.Add(EAttackType::Heavy, Heavy);
 }

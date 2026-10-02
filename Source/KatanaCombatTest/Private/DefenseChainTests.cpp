@@ -11,6 +11,7 @@
 #include "AI/EnemyCombatAIComponent.h"
 #include "Containers/Ticker.h"
 #include "Core/CombatComponent.h"
+#include "Core/HitReactionComponent.h"
 #include "Core/PairedAnimationComponent.h"
 #include "Core/TargetingComponent.h"
 #include "Data/AttackConfiguration.h"
@@ -1134,6 +1135,86 @@ bool FDefenseChainPartialStartRollbackTest::RunTest(const FString& Parameters)
 		EActionReactionTelemetryEvent::PairedStageStartFailed,
 		EActionReactionTelemetryReason::StagePlaybackFailed);
 	TestEqual(TEXT("Partial paired start records one playback failure"), PlaybackFailures, 1);
+
+	Fixture.Destroy();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseChainStageStartReleasesDefenderPushTest,
+	"KatanaCombat.Defense.Chain.StageStartReleasesDefenderPush",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseChainStageStartReleasesDefenderPushTest::RunTest(const FString& Parameters)
+{
+	FScopedActionReactionTelemetry TelemetryEnabled(1);
+	FDefenseChainFixture Fixture;
+	if (!Fixture.Initialize() || !Fixture.StartCommittedParry() || !Fixture.OpenCounterWindow())
+	{
+		AddError(TEXT("Failed to create the defender-push fixture"));
+		Fixture.Destroy();
+		return false;
+	}
+	UHitReactionComponent* DefenderReaction = Fixture.Defender->HitReactionComponent;
+	UTargetingComponent* DefenderTargeting = Fixture.Defender->TargetingComponent;
+	if (!TestNotNull(TEXT("Defender hit reaction"), DefenderReaction)
+		|| !TestNotNull(TEXT("Defender targeting"), DefenderTargeting))
+	{
+		Fixture.Destroy();
+		return false;
+	}
+
+	// A hit from the source attacker pushes the defender, who starts the counter stage while the push still runs.
+	const FHitReactionInfo Hit = FCombatTestHelpers::CreateTestHitInfo(
+		Fixture.SourceAttacker,
+		10.0f,
+		FVector(1.0f, 0.0f, 0.0f),
+		FCombatTestHelpers::CreateTestAttack(EAttackType::Light));
+	if (!TestTrue(TEXT("The defender is pushed"), DefenderReaction->StartKnockback(Hit)))
+	{
+		Fixture.Destroy();
+		return false;
+	}
+	const FAlignmentRequestHandle Push = DefenderReaction->KnockbackAlignmentHandle;
+	FAlignmentRequestSpec PushSpec;
+	TestTrue(TEXT("The defender's targeting holds the push"),
+		DefenderTargeting->GetAlignmentRequestSpec(Push, PushSpec)
+		&& PushSpec.Executor == EAlignmentExecutor::ProceduralDisplacement);
+
+	Fixture.CounterAttack->CounterData = CreateChainStageData(EPairedReactionType::Counter);
+	int32 NextInstanceId = 700;
+	Fixture.SetPlaybackOverride([&NextInstanceId](
+		const EPairedAnimationRole Role,
+		const UPairedAnimationData* Data,
+		int32& OutInstanceId)
+	{
+		OutInstanceId = ++NextInstanceId;
+		return true;
+	});
+	Fixture.DefenderCombat->ClearActionReactionTelemetry();
+	Fixture.DefenderCombat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
+
+	TestEqual(TEXT("The counter stage started"),
+		Fixture.Paired->GetChainState(), EChainCounterState::CounterActive);
+	FAlignmentRequestSpec Remaining;
+	TestFalse(TEXT("The stage start released the defender's push"),
+		DefenderTargeting->GetAlignmentRequestSpec(Push, Remaining));
+	TestTrue(TEXT("The defender's stage alignment is the active request"),
+		DefenderTargeting->GetActiveAlignmentRequest()
+			== Fixture.Paired->GetActiveDefenseSequenceContext().AttackerAlignmentLease);
+	// Released by the stage start itself, with its reason.
+	const TArray<FActionReactionTelemetryRecord> Cancelled =
+		Fixture.DefenderCombat->GetActionReactionTelemetry().FilterByPredicate(
+			[](const FActionReactionTelemetryRecord& Row)
+			{
+				return Row.AlignmentOwner == FName(TEXT("HitKnockback"))
+					&& Row.AlignmentDisposition == FName(TEXT("Cancelled"));
+			});
+	if (TestEqual(TEXT("The released push writes one Cancelled row"), Cancelled.Num(), 1))
+	{
+		TestEqual(TEXT("Released by the chain stage start"),
+			Cancelled[0].Detail, FString(TEXT("ChainStart")));
+	}
 
 	Fixture.Destroy();
 	return true;

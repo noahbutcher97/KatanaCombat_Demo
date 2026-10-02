@@ -204,7 +204,7 @@ only when a directional hit reaction starts. Blocked and parried hits, super arm
 suppressed paired states and lethal hits never push. On the defense path the victim is
 already dying before the reaction; on the `ApplyDamage` path the reaction runs before health
 changes and death releases the push in the same frame. The legacy `PlayHitReaction` fallback
-path (no settings) never pushes. Until step 4, every reaction is full-body, so every
+path (no settings) never pushes, and logs that once per component. Until step 4, every reaction is full-body, so every
 reaction pushes; step 4 makes additive flinches not push through the same decision function.
 
 ### Data
@@ -214,11 +214,11 @@ reaction pushes; step 4 makes additive flinches not push through the same decisi
 | Add `FKnockbackConfig` (`CombatTypes.h`) | Values only: `Distance` (cm, `ClampMin=0, ClampMax=500`), `Duration` (s, `ClampMin=0.05, ClampMax=1`), `DirectionMode` (`EKnockbackDirection`: `AwayFromAttacker`, `AlongSwing`), `SpeedProfile` (`Linear`, `EaseOut`), `AnimationBlend` (`AddToAnimation`, `ReplaceAnimation`; default `AddToAnimation`). The resolved result, and the type of the defaults map. The blend is data, so the per-type decision from the measurement is a data change. |
 | Add `FKnockbackOverride` (`CombatTypes.h`) | The same five fields, each with an inline override toggle. It is a separate type so the defaults map shows plain, editable values rather than fields greyed out behind toggles that do not apply there. |
 | Add `UAttackData::Knockback` | `FKnockbackOverride`; each field overridden independently, else the attacker's combat-settings default. |
-| Add `UCombatSettings::DefaultKnockback` | `TMap<EAttackType, FKnockbackConfig>`: Light `{25 cm, 0.2 s, AwayFromAttacker, EaseOut}`, Heavy `{60 cm, 0.25 s, AwayFromAttacker, EaseOut}`. Missing types resolve to no push. The attacker's combat settings are the character's `ABaseCombatCharacter::CombatSettings`. |
+| Add `UCombatSettings::DefaultKnockback` | `TMap<EAttackType, FKnockbackConfig>`: Light `{25 cm, 0.2 s, AwayFromAttacker, EaseOut}`, Heavy `{20 cm, 0.25 s, AwayFromAttacker, EaseOut}`. Missing types resolve to no push. The attacker's combat settings are the character's `ABaseCombatCharacter::CombatSettings`. |
 | Rename `UHitReactionSettings::GlobalKnockbackMultiplier` → `KnockbackScale` | Default 1, `ClampMin=0, ClampMax=5`. Victim-side distance scale: 1 normal, 0 immune. No asset serializes the old name. |
 | Delete `FHitReactionEntry::KnockbackForce` | Saved 200s ignored on load. |
-| Add `UAttackData::MaxChargeKnockbackMultiplier` | Default 1 (off), `ClampMin=1`. Heavy category. |
-| Add `FHitReactionInfo::ChargeLevel` | 0..1, default 0, set by the damage sites. |
+| Add `UAttackData::MaxChargeKnockbackMultiplier` | Default 1 (off), `ClampMin=1`, `ClampMax=5`. Heavy category. |
+| Add `FHitReactionInfo::ChargeLevel` | 0..1, default 0. No damage site writes it yet; the charge PR will. |
 
 `ResolveKnockback(AttackData, AttackerCombatSettings)` is pure and returns the resolved
 config. Then:
@@ -229,6 +229,7 @@ PushDistance = Distance × Lerp(1, MaxChargeKnockbackMultiplier, HitInfo.ChargeL
 ```
 
 The authored distance is the uncharged push; charge only adds. Duration is never scaled.
+A non-finite charge level counts as 0 (uncharged) and a non-finite multiplier as 1.
 When the attacker is not an `ABaseCombatCharacter`, the victim's own combat settings are
 used; if neither exists, there is no push.
 
@@ -236,8 +237,11 @@ used; if neither exists, there is no push.
 
 - `AwayFromAttacker` (default): `CombatMath::FlatDirection(AttackerLocation, VictimLocation)`.
 - `AlongSwing`: the flattened negation of `DirectionToAttacker` (the blade's velocity at
-  contact). It falls back to `AwayFromAttacker` when the horizontal part is under half of
-  that vector's length (overhead chops) or when it points toward the attacker (back-swings).
+  contact), continuous in the swing. Only the part that points toward the attacker is
+  removed and replaced by the same length of `AwayFromAttacker`: a swing straight away stays
+  straight away, a tangential swing stays tangential, and a pure back-swing becomes
+  `AwayFromAttacker`. It falls back to `AwayFromAttacker` when the horizontal part is under
+  half of that vector's length (overhead chops).
 - Degenerate direction: no push.
 
 ### Request
@@ -247,7 +251,10 @@ used; if neither exists, there is no push.
 acquires a `ProceduralDisplacement` request: `Clock = ActorTime`, `AnimationBlend` from the
 resolved config (`AddToAnimation` for both types until the reaction measurement says
 otherwise), priority `HitKnockback`, `bReleaseWhenFinished`. A new push releases the previous
-one. `EnterPairedAnimationState` and `EndPlay` release it.
+one (`Replaced`). These also release it, each naming itself in the `Cancelled` row:
+`EnterPairedAnimationState` (`PairedEntry`), `UCombatComponent::PrepareForPairedTakeover`
+(`PairedTakeover`, so the character who starts a paired animation drops its own push too), a
+defense-chain stage start for the defender (`ChainStart`), and `EndPlay` (`EndPlay`).
 
 ### Observability
 
@@ -256,7 +263,10 @@ one. `EnterPairedAnimationState` and `EndPlay` release it.
 - Action-reaction telemetry records the start and finish as `AlignmentChanged` rows within the
   existing schema (no new event values, no `schema_version` bump; `analyze_capture.py`
   accepts only 1 or 2). `StartKnockback` writes `AlignmentOwner = HitKnockback` with
-  disposition `Started` or `Rejected`. The targeting component then writes every
+  disposition `Started` or `Rejected`. A `Rejected` row names its cause in `Detail`, and the
+  debug line prints it: `no push distance: <cause>` (`no attack data`, `no combat settings`,
+  `missing type default (<type>)`, `non-finite scale or distance`, `zero victim scale` or
+  `zero authored distance`), `degenerate direction`, or `acquire rejected`. The targeting component then writes every
   displacement's later rows with `AlignmentOwner` = the request's owner, the measured travel,
   and the reason in `Detail`:
   - the terminal outcome: `Reached` (`DurationReached`), `Blocked` (`ProgressStalled`),
@@ -534,9 +544,9 @@ The bounded executor and its tests remain as the kinematic reference until then.
   `Saved/Logs/KnockbackMeasurement.json`. It also checks that the reactions play root
   motion. They do in the assets: every `DA_HitReaction` montage uses the pack's `RootMotion`
   sequences, so the animation channel carries the push. The Heavy reactions are authored
-  knockback animations (`UE5M_Root_knockback_*`), so the 60 cm default lands on travel the
-  animation already has. The measurement sets the default `AnimationBlend` per attack type,
-  and whether the 25/60 cm defaults need lowering, by the user's decision. A
+  knockback animations (`UE5M_Root_knockback_*`) that travel about 89 cm on their own, so the
+  push lands on travel the animation already has. The measurement sets the default
+  `AnimationBlend` per attack type; the distances are decided: Light 25 cm, Heavy 20 cm. A
   focused PIE test replaces the planned capture-harness scenario, because the harness is one
   monolithic latent command. Flat ground, walls, ledges, hitstop and suspension are covered
   headless by the `KatanaCombat.Displacement.Executor.*` tests. Slopes ride on character

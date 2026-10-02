@@ -148,7 +148,7 @@ Source/KatanaCombat/Public/
 | HeavyBaseDamage | 50.0f | |
 | CounterDamageMultiplier | 1.5x | |
 | Knockback (Light) | 25 cm / 0.2 s | `UCombatSettings::DefaultKnockback`, EaseOut, AwayFromAttacker, AddToAnimation |
-| Knockback (Heavy) | 60 cm / 0.25 s | `UCombatSettings::DefaultKnockback` default; per-attack overrides in `UAttackData::Knockback`. Per-type defaults are pending a decision from the PIE measurement (`KatanaCombat.Knockback.PIE.ReactionMeasurement`, `Saved/Logs/KnockbackMeasurement.json`): the Light reaction's own travel peaks at 18.5 cm; the Heavy reaction (an authored knockback animation) travels 89 cm on its own. |
+| Knockback (Heavy) | 20 cm / 0.25 s | `UCombatSettings::DefaultKnockback` default; per-attack overrides in `UAttackData::Knockback`. The Heavy reactions are authored knockback animations travelling about 89 cm, so the push adds 20 cm. |
 
 ## Documentation
 

@@ -3570,6 +3570,12 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 		{
 			SourcePaired->RetireOwnerMontageCallback(PreviousData->VictimMontage);
 		}
+		// The defender's own knockback push ends when its stage starts. Its stage bridge outranks the push, so
+		// without this the push would only be suspended and could resume once the chain releases the bridge.
+		if (UHitReactionComponent* DefenderHitReaction = Defender->HitReactionComponent.Get())
+		{
+			DefenderHitReaction->ReleaseKnockback(TEXT("ChainStart"));
+		}
 		SourceHitReaction->EnterPairedAnimationState(
 			PairedAnimData->VictimMontage,
 			PairedAnimData->VictimDeathOutcome,

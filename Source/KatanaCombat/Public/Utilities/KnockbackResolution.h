@@ -12,10 +12,28 @@ namespace KnockbackResolution
 /** Field-wise: the attack's override when set, else the settings default for its type. A null attack or null settings gives Distance 0 (spec: no settings, no push), as does a missing type default without a distance override. */
 KATANACOMBAT_API FKnockbackConfig Resolve(const UAttackData* AttackData, const UCombatSettings* Settings);
 
-/** Distance x Lerp(1, max(1, MaxChargeKnockbackMultiplier), clamp(ChargeLevel, 0, 1)) x max(0, VictimScale). */
+/**
+ * Distance x Lerp(1, max(1, MaxChargeKnockbackMultiplier), clamp(ChargeLevel, 0, 1)) x max(0, VictimScale).
+ * A non-finite charge level counts as uncharged (0) and a non-finite multiplier as 1.
+ */
 KATANACOMBAT_API float PushDistance(float Distance, float ChargeLevel, float MaxChargeKnockbackMultiplier, float VictimScale);
 
-/** Horizontal unit direction, or zero when the actors are stacked vertically. */
+/** A push distance the executor can deliver: finite and above KINDA_SMALL_NUMBER. */
+KATANACOMBAT_API bool IsUsablePushDistance(float PushDistance);
+
+/**
+ * Why a hit resolves no usable push distance, for the Rejected telemetry row and the debug log: "no attack data",
+ * "no combat settings", "missing type default (<type>)", "non-finite scale or distance", "zero victim scale" or
+ * "zero authored distance". Settings are the ones Resolve used; empty when PushDistance is usable.
+ */
+KATANACOMBAT_API FString NoPushDistanceCause(const UAttackData* AttackData, const UCombatSettings* Settings,
+	float VictimScale, float PushDistance);
+
+/**
+ * Horizontal unit direction, or zero when the actors are stacked vertically. AlongSwing is continuous in the
+ * swing: the part of the flat blade velocity that points toward the attacker is replaced by the same length of
+ * AwayFromAttacker. A mostly vertical (overhead chop) or non-finite blade velocity gives AwayFromAttacker.
+ */
 KATANACOMBAT_API FVector ResolveDirection(EKnockbackDirection Mode, const FVector& AttackerLocation,
 	const FVector& VictimLocation, const FVector& DirectionToAttacker);
 

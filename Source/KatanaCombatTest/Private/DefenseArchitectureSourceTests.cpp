@@ -689,11 +689,32 @@ bool FKnockbackReactionOrderSourceTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("PlayHitReaction has one push site"), CountOccurrences(Body, TEXT("StartKnockback(")), 1);
 	TestTrue(TEXT("Super armor feeds the eligibility decision"), Body.Contains(TEXT("bSuperArmor = bHasSuperArmor")));
 
-	for (const TCHAR* Releaser : { TEXT("UHitReactionComponent::EnterPairedAnimationState"), TEXT("UHitReactionComponent::EndPlay") })
+	// Each releaser names itself in the push's Cancelled row.
+	struct FReleaser
 	{
+		const TCHAR* Path;
+		const TCHAR* Function;
+		const TCHAR* Call;
+	};
+	const FReleaser Releasers[] = {
+		{TEXT("Source/KatanaCombat/Private/Core/HitReactionComponent.cpp"),
+			TEXT("UHitReactionComponent::EnterPairedAnimationState"), TEXT("ReleaseKnockback(TEXT(\"PairedEntry\"))")},
+		{TEXT("Source/KatanaCombat/Private/Core/HitReactionComponent.cpp"),
+			TEXT("UHitReactionComponent::EndPlay"), TEXT("ReleaseKnockback(TEXT(\"EndPlay\"))")},
+		// The paired takeover runs for the victim and for the character who starts the paired animation.
+		{TEXT("Source/KatanaCombat/Private/Core/CombatComponent.cpp"),
+			TEXT("UCombatComponent::PrepareForPairedTakeover"), TEXT("ReleaseKnockback(TEXT(\"PairedTakeover\"))")},
+		{TEXT("Source/KatanaCombat/Private/Core/PairedAnimationComponent.cpp"),
+			TEXT("UPairedAnimationComponent::TryStartDefenseChainStage"), TEXT("ReleaseKnockback(TEXT(\"ChainStart\"))")},
+	};
+	for (const FReleaser& Releaser : Releasers)
+	{
+		FString ReleaserSource;
 		FString ReleaserBody;
-		TestTrue(FString::Printf(TEXT("%s releases the push"), Releaser),
-			ExtractFunctionBody(Source, Releaser, ReleaserBody) && ReleaserBody.Contains(TEXT("ReleaseKnockback()")));
+		TestTrue(FString::Printf(TEXT("%s releases the push"), Releaser.Function),
+			LoadProjectSource(Releaser.Path, ReleaserSource)
+			&& ExtractFunctionBody(ReleaserSource, Releaser.Function, ReleaserBody)
+			&& ReleaserBody.Contains(Releaser.Call));
 	}
 	return true;
 }

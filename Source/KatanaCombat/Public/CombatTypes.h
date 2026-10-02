@@ -461,7 +461,7 @@ enum class EKnockbackDirection : uint8
 {
 	/** Straight away from the attacker (horizontal). */
 	AwayFromAttacker,
-	/** Along the blade's horizontal velocity at contact; falls back to AwayFromAttacker when that is mostly vertical or points toward the attacker. */
+	/** Along the blade's horizontal velocity at contact, continuously: any part pointing back toward the attacker is replaced by the same length of AwayFromAttacker. Falls back to AwayFromAttacker when that velocity is mostly vertical. */
 	AlongSwing
 };
 
@@ -850,7 +850,7 @@ struct FHitReactionInfo
     UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
     float HitConfidence = 1.0f;
 
-    /** Attacker's latched charge level (0..1) for this hit; scales knockback. Set by the damage sites. */
+    /** Attacker's latched charge level (0..1) for this hit; scales knockback. No damage site writes it yet (it stays 0); the charge PR will. */
     UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
     float ChargeLevel = 0.0f;
 

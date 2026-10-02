@@ -51,6 +51,10 @@ class KATANACOMBAT_API UHitReactionComponent : public UActorComponent
 	friend class FKnockbackReplaceTest;
 	friend class FKnockbackDeathTest;
 	friend class FKnockbackTelemetryTest;
+	friend class FKnockbackRejectionCauseTest;
+	friend class FKnockbackInitiatorPairedReleaseTest;
+	friend class FKnockbackPairedEntryReleaseTest;
+	friend class FDefenseChainStageStartReleasesDefenderPushTest;
 
 public:
     UHitReactionComponent();
@@ -75,8 +79,11 @@ public:
     UFUNCTION(BlueprintPure, Category = "Settings")
     UHitReactionSettings* GetEffectiveSettings() const;
 
-    /** Release the running knockback push, if any. */
-    void ReleaseKnockback();
+    /**
+     * Release the running knockback push, if any. Reason names the cause in the push's Cancelled
+     * telemetry row and debug line (Replaced, PairedEntry, PairedTakeover, ChainStart, EndPlay).
+     */
+    void ReleaseKnockback(const TCHAR* Reason);
 
     // ============================================================================
     // ACTIVE REACTION STATE (for i-frame tracking)
@@ -553,6 +560,8 @@ private:
 
 	FAlignmentRequestHandle KnockbackAlignmentHandle;
 	int32 NextKnockbackAlignmentGeneration = 1;
+	/** The legacy reaction path never pushes; it says so once per component. */
+	bool bLoggedLegacyKnockbackSkip = false;
 
 	FAlignmentRequestHandle DefensePresentationAlignmentHandle;
 	FAlignmentRequestHandle AttackerResponseAlignmentHandle;

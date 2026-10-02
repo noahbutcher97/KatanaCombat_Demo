@@ -69,7 +69,7 @@ void UHitReactionComponent::BeginPlay()
 
 void UHitReactionComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	ReleaseKnockback();
+	ReleaseKnockback(TEXT("EndPlay"));
 	ReleasePresentationAlignment(false);
 	ReleasePresentationAlignment(true);
 	if (AnimInstance)
@@ -509,7 +509,15 @@ void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
         }
     }
 
-    // Fallback: Legacy approach using component properties
+    // Fallback: Legacy approach using component properties. It never pushes; say so once per component,
+    // so a missing settings entry is not mistaken for a knockback fault.
+    if (!bLoggedLegacyKnockbackSkip)
+    {
+        bLoggedLegacyKnockbackSkip = true;
+        UE_LOG(LogTemp, Warning,
+            TEXT("[KNOCKBACK] %s: knockback skipped: legacy reaction path (no settings-driven directional reaction played for this hit; logged once per component)"),
+            CharOwner ? *CharOwner->GetName() : TEXT("Unknown"));
+    }
     if (UAnimMontage* ReactionMontage = SelectHitReactionMontage(HitInfo))
     {
         AnimInstance->Montage_Play(ReactionMontage);
@@ -1475,7 +1483,7 @@ void UHitReactionComponent::EndStagger()
 
 void UHitReactionComponent::EnterPairedAnimationState(UAnimMontage* VictimMontage, EReactionOutcome DeathOutcome, float RagdollBlendTime, bool bIsLethal, AActor* Partner)
 {
-    ReleaseKnockback();
+    ReleaseKnockback(TEXT("PairedEntry"));
     const FString OwnerName = OwnerCharacter ? OwnerCharacter->GetName() : TEXT("Unknown");
     const bool bWasInPairedAnimationState = IsInPairedAnimationState();
 
@@ -1652,7 +1660,7 @@ bool UHitReactionComponent::ApplyPendingDeathOutcome()
 	return true;
 }
 
-void UHitReactionComponent::ReleaseKnockback()
+void UHitReactionComponent::ReleaseKnockback(const TCHAR* Reason)
 {
 	if (!KnockbackAlignmentHandle.IsValid())
 	{
@@ -1662,7 +1670,8 @@ void UHitReactionComponent::ReleaseKnockback()
 	{
 		if (UTargetingComponent* Targeting = Character->GetTargetingComponent())
 		{
-			Targeting->ReleaseAlignmentRequest(KnockbackAlignmentHandle);
+			// A push still running ends Cancelled with this reason; one that already finished reports nothing more.
+			Targeting->ReleaseAlignmentRequest(KnockbackAlignmentHandle, Reason);
 		}
 	}
 	KnockbackAlignmentHandle = {};
@@ -1670,7 +1679,7 @@ void UHitReactionComponent::ReleaseKnockback()
 
 bool UHitReactionComponent::StartKnockback(const FHitReactionInfo& HitInfo)
 {
-	ReleaseKnockback();
+	ReleaseKnockback(TEXT("Replaced"));
 
 	ABaseCombatCharacter* Victim = Cast<ABaseCombatCharacter>(GetOwnerCharacterCached());
 	UTargetingComponent* Targeting = Victim ? Victim->GetTargetingComponent() : nullptr;
@@ -1685,19 +1694,26 @@ bool UHitReactionComponent::StartKnockback(const FHitReactionInfo& HitInfo)
 		: Victim->CombatSettings.Get();
 	const FKnockbackConfig Config = KnockbackResolution::Resolve(HitInfo.AttackData, AttackerSettings);
 	const UHitReactionSettings* Settings = GetEffectiveSettings();
+	const float VictimScale = Settings ? Settings->KnockbackScale : 1.0f;
 	const float Distance = KnockbackResolution::PushDistance(
 		Config.Distance,
 		HitInfo.ChargeLevel,
 		HitInfo.AttackData ? HitInfo.AttackData->MaxChargeKnockbackMultiplier : 1.0f,
-		Settings ? Settings->KnockbackScale : 1.0f);
+		VictimScale);
 
-	// Every outcome below reaches the single exit, which writes the telemetry row and the debug log;
-	// the push itself is only acquired when both the distance and the direction are usable.
+	// Every outcome below reaches the single exit, which writes the telemetry row (a rejected push names its
+	// cause in Detail) and the debug log; the push itself is only acquired when both the distance and the
+	// direction are usable.
 	const FVector VictimLocation = Victim->GetActorLocation();
 	FVector Direction = FVector::ZeroVector;
 	bool bStarted = false;
-	const TCHAR* Outcome = TEXT("no push distance");
-	if (Distance > KINDA_SMALL_NUMBER)
+	FString Outcome;
+	if (!KnockbackResolution::IsUsablePushDistance(Distance))
+	{
+		Outcome = FString::Printf(TEXT("no push distance: %s"),
+			*KnockbackResolution::NoPushDistanceCause(HitInfo.AttackData, AttackerSettings, VictimScale, Distance));
+	}
+	else
 	{
 		const FVector AttackerLocation = HitInfo.Attacker
 			? HitInfo.Attacker->GetActorLocation()
@@ -1742,13 +1758,17 @@ bool UHitReactionComponent::StartKnockback(const FHitReactionInfo& HitInfo)
 		Record.AlignmentDisposition = bStarted ? FName(TEXT("Started")) : FName(TEXT("Rejected"));
 		Record.MovementMagnitude = Distance;
 		Record.AttackDataPath = FSoftObjectPath(HitInfo.AttackData.Get());
+		if (!bStarted)
+		{
+			Record.Detail = Outcome;
+		}
 		Combat->AppendActionReactionTelemetry(MoveTemp(Record));
 	}
 	if (CombatDebug::IsKnockbackDebugEnabled())
 	{
 		UE_LOG(LogTemp, Log, TEXT("[KNOCKBACK] %s pushed %.1f cm over %.2f s (mode %s, charge %.2f, scale %.2f) -> %s"),
 			*Victim->GetName(), Distance, Config.Duration, *UEnum::GetValueAsString(Config.DirectionMode),
-			HitInfo.ChargeLevel, Settings ? Settings->KnockbackScale : 1.0f, Outcome);
+			HitInfo.ChargeLevel, VictimScale, *Outcome);
 		if (bStarted)
 		{
 			DrawDebugDirectionalArrow(GetWorld(), VictimLocation, VictimLocation + Direction * Distance, 20.f,

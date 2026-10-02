@@ -655,6 +655,106 @@ bool FDisplacementReleaseTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementReleaseAllTest, "KatanaCombat.Displacement.Executor.ReleaseAllRemovesChannel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementReleaseAllTest::RunTest(const FString&)
+{
+	const FActionReactionTelemetryOn Telemetry;
+	if (!TestNotNull(TEXT("Telemetry CVar exists"), Telemetry.Variable)) { return false; }
+	FDisplacementFixture F;
+	F.Character->GetCombatComponent()->ClearActionReactionTelemetry();
+	F.Targeting()->AcquireAlignmentRequest(MakePush(60.f, 0.5f));
+	for (int32 I = 0; I < 5; ++I) { F.Step(1.f / 60); }
+	TestTrue(TEXT("Push is running through the movement channel"), F.Movement()->GetRootMotionSource(TEXT("KatanaProceduralDisplacement")).IsValid());
+	// Death and component teardown release every request at once, not through the owner's release.
+	F.Targeting()->ReleaseAllAlignmentRequests(EAlignmentReleaseReason::Death);
+	F.Step(1.f / 60); // the marked source is dropped on the next movement tick
+	TestFalse(TEXT("Source removed by the broad release"), F.Movement()->GetRootMotionSource(TEXT("KatanaProceduralDisplacement")).IsValid());
+	const double Released = F.Character->GetActorLocation().X;
+	for (int32 I = 0; I < 10; ++I) { F.Step(1.f / 60); }
+	TestTrue(FString::Printf(TEXT("No drift after the broad release (moved %.2f cm)"), F.Character->GetActorLocation().X - Released),
+		FMath::Abs(F.Character->GetActorLocation().X - Released) < 1.0);
+	const TArray<FActionReactionTelemetryRecord> Rows = DisplacementRows(F);
+	TestEqual(TEXT("One row"), Rows.Num(), 1);
+	TestRow(*this, Rows, 0, TEXT("Cancelled"), TEXT("Death"));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementRotationRestoreTest, "KatanaCombat.Displacement.Executor.RotationRestoredWhilePushRuns",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementRotationRestoreTest::RunTest(const FString&)
+{
+	FDisplacementFixture F;
+	F.Movement()->bOrientRotationToMovement = true;
+	F.Character->bUseControllerRotationYaw = true;
+	// A rotating request below HitKnockback, so the push runs while it is still held.
+	FAlignmentRequestSpec Guard = MakeBlockContact();
+	Guard.OwnerId = TEXT("GuardTest");
+	Guard.Priority = EDefenseAlignmentPriority::GuardFacing;
+	const FAlignmentRequestHandle GuardHandle = F.Targeting()->AcquireAlignmentRequest(Guard);
+	if (!TestTrue(TEXT("Rotating request acquired"), GuardHandle.IsValid())) { return false; }
+	TestFalse(TEXT("The rotating request takes orient-to-movement while held"), F.Movement()->bOrientRotationToMovement);
+	TestFalse(TEXT("The rotating request takes controller yaw while held"), F.Character->bUseControllerRotationYaw);
+
+	const FVector Start = F.Character->GetActorLocation();
+	FAlignmentRequestSpec Spec = MakePush(60.f, 0.5f);
+	Spec.bReleaseWhenFinished = false; // hold the outcome
+	const FAlignmentRequestHandle Push = F.Targeting()->AcquireAlignmentRequest(Spec);
+	TestTrue(TEXT("The push outranks the rotating request"), F.Targeting()->GetActiveAlignmentRequest() == Push);
+	for (int32 I = 0; I < 5; ++I) { F.Step(1.f / 60); }
+	FAlignmentMotionState State;
+	F.Targeting()->GetAlignmentMotionState(Push, State);
+	TestEqual(TEXT("Pushing while the rotating request is held"), State.Outcome, EAlignmentMotionOutcome::Running);
+	TestTrue(FString::Printf(TEXT("The push moved the character (%.2f cm)"), F.Character->GetActorLocation().X - Start.X),
+		F.Character->GetActorLocation().X - Start.X > 2.0);
+
+	F.Targeting()->ReleaseAlignmentRequest(GuardHandle);
+	TestTrue(TEXT("Orient-to-movement is restored once no rotating request remains"), F.Movement()->bOrientRotationToMovement);
+	TestTrue(TEXT("Controller yaw is restored once no rotating request remains"), F.Character->bUseControllerRotationYaw);
+	F.Targeting()->GetAlignmentMotionState(Push, State);
+	TestEqual(TEXT("The push still runs after the restore"), State.Outcome, EAlignmentMotionOutcome::Running);
+	TestTrue(TEXT("The push keeps its channel"), F.Movement()->GetRootMotionSource(TEXT("KatanaProceduralDisplacement")).IsValid());
+	const double BeforeMore = F.Character->GetActorLocation().X;
+	for (int32 I = 0; I < 3; ++I) { F.Step(1.f / 60); }
+	TestTrue(TEXT("The push keeps moving the character"), F.Character->GetActorLocation().X - BeforeMore > 1.0);
+	TestTrue(TEXT("The restored settings stay restored while it runs"), F.Movement()->bOrientRotationToMovement);
+	F.Targeting()->ReleaseAlignmentRequest(Push);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementReachedRowTest, "KatanaCombat.Displacement.Executor.ReachedRowNamesRequestOwner",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementReachedRowTest::RunTest(const FString&)
+{
+	const FActionReactionTelemetryOn Telemetry;
+	if (!TestNotNull(TEXT("Telemetry CVar exists"), Telemetry.Variable)) { return false; }
+	FDisplacementFixture F;
+	UCombatComponent* Combat = F.Character->GetCombatComponent();
+	if (!TestNotNull(TEXT("Combat component"), Combat)) { return false; }
+	Combat->ClearActionReactionTelemetry();
+	const FVector Start = F.Character->GetActorLocation();
+	// Its own owner, so the check below does not rest on the fixture's row filter.
+	FAlignmentRequestSpec Spec = MakePush(50.f, 0.25f);
+	Spec.OwnerId = TEXT("TerminalRowTest");
+	F.Targeting()->AcquireAlignmentRequest(Spec);
+	for (int32 I = 0; I < 60 && F.Targeting()->GetAlignmentRequestCountForTesting() > 0; ++I) { F.Step(1.f / 60); }
+	TestEqual(TEXT("The push completed and released itself"), F.Targeting()->GetAlignmentRequestCountForTesting(), 0);
+	const double Travel = F.Character->GetActorLocation().X - Start.X;
+	TestTrue(FString::Printf(TEXT("Lands on 50 cm (moved %.2f)"), Travel), FMath::IsNearlyEqual(Travel, 50.0, 1.0));
+
+	const TArray<FActionReactionTelemetryRecord> Reached = Combat->GetActionReactionTelemetry().FilterByPredicate(
+		[](const FActionReactionTelemetryRecord& Row) { return Row.AlignmentDisposition == FName(TEXT("Reached")); });
+	if (TestEqual(TEXT("One Reached row"), Reached.Num(), 1))
+	{
+		TestEqual(TEXT("The terminal row names the request's owner"), Reached[0].AlignmentOwner, FName(TEXT("TerminalRowTest")));
+		TestEqual(TEXT("Event"), Reached[0].Event, EActionReactionTelemetryEvent::AlignmentChanged);
+		TestEqual(TEXT("Detail"), Reached[0].Detail, FString(TEXT("DurationReached")));
+		TestTrue(FString::Printf(TEXT("Magnitude is the measured travel (%.2f row, %.2f actor)"), Reached[0].MovementMagnitude, Travel),
+			FMath::IsNearlyEqual(static_cast<double>(Reached[0].MovementMagnitude), Travel, 1.0));
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementOwnerReleaseTest, "KatanaCombat.Displacement.Executor.OwnerReleasedRequestHoldsOutcome",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FDisplacementOwnerReleaseTest::RunTest(const FString&)

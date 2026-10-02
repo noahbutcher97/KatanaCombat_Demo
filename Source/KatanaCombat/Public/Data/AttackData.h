@@ -206,9 +206,9 @@ public:
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float MaxChargeDamageMultiplier = 2.5f;
 
-    /** Knockback multiplier at full charge (1 = charge does not affect knockback). */
+    /** Knockback multiplier at full charge (1 = charge does not affect knockback). Capped at 5; a non-finite value counts as 1. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
-        meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides, ClampMin = "1.0"))
+        meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides, ClampMin = "1.0", ClampMax = "5.0"))
     float MaxChargeKnockbackMultiplier = 1.0f;
 
     /** DEPRECATED: Posture system removed. Stagger is contextual and duration-based (ApplyStagger). */
