@@ -565,11 +565,19 @@ struct FAlignmentMotionState
 {
 	EAlignmentMotionOutcome Outcome = EAlignmentMotionOutcome::Running;
 	double Elapsed = 0.0;
+	/**
+	 * Translation the request has measured. For ProceduralDisplacement: all forward movement along the push, measured at
+	 * each advance and at a release. It includes the animation root motion the animation channel keeps (AddToAnimation)
+	 * and the movement on steps that animation root motion overrode. It skips the step a channel delivered just before
+	 * the executor removed that channel (a channel switch, a suspension, an owner that can no longer move).
+	 */
 	double Travel = 0.0;
 	double Turn = 0.0;
 	/**
-	 * ProceduralDisplacement only: the push's own share of Travel. Travel counts all forward movement along the push,
-	 * including the animation root motion the animation channel keeps (AddToAnimation); this leaves that out.
+	 * ProceduralDisplacement only: the movement the push itself delivered along its direction. It leaves out the kept
+	 * animation root motion and the movement on steps that animation root motion overrode, and it includes the step a
+	 * removed channel delivered. So it is not a share of Travel: it is lower by what it leaves out, and it can exceed
+	 * Travel by the removal steps Travel skips.
 	 */
 	double PushTravel = 0.0;
 };

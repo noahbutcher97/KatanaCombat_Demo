@@ -5,51 +5,45 @@
 
 #include <limits>
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackResolveDefaultsTest, "KatanaCombat.Knockback.Resolution.TypeDefaultsAreUsable",
-	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
-bool FKnockbackResolveDefaultsTest::RunTest(const FString&)
+namespace
 {
-	// The shipped type defaults are tuning. Assert only what any tuning must keep, never the numbers themselves.
+/** One of the enum's named values, not its generated _MAX (UEnum::IsValidEnumValue accepts that too). */
+bool IsNamedKnockbackEnumValue(const UEnum* Enum, const int64 Value)
+{
+	return Enum && Enum->IsValidEnumValue(Value) && Value < Enum->GetMaxEnumValue();
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackShippedTypeDefaultsTest, "KatanaCombat.Knockback.Resolution.ShippedTypeDefaultsAreValid",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FKnockbackShippedTypeDefaultsTest::RunTest(const FString&)
+{
+	// The shipped type defaults are tuning, and so is which types they cover: a type left out of the map, or given a
+	// zero distance, does not push. So check every entry the map has, for what any entry must keep, and never which
+	// entries exist or their numbers. The rules themselves are pinned with a fixture by TypeDefaultResolutionRules.
 	UCombatSettings* Settings = NewObject<UCombatSettings>();
-	for (const EAttackType Type : {EAttackType::Light, EAttackType::Heavy})
+	for (const TPair<EAttackType, FKnockbackConfig>& Entry : Settings->DefaultKnockback)
 	{
-		const FString Name = StaticEnum<EAttackType>()->GetNameStringByValue(static_cast<int64>(Type));
-		const FKnockbackConfig* Default = Settings->DefaultKnockback.Find(Type);
-		if (!TestNotNull(*FString::Printf(TEXT("%s has a type default"), *Name), Default))
-		{
-			continue;
-		}
+		const int64 TypeValue = static_cast<int64>(Entry.Key);
+		const bool bNamedType = IsNamedKnockbackEnumValue(StaticEnum<EAttackType>(), TypeValue);
+		const FString Name = bNamedType
+			? StaticEnum<EAttackType>()->GetNameStringByValue(TypeValue)
+			: FString::Printf(TEXT("Attack type %lld"), TypeValue);
+		TestTrue(FString::Printf(TEXT("%s is a valid attack type"), *Name), bNamedType);
+		const FKnockbackConfig& Default = Entry.Value;
 		// Finite first: this build compares NaN as equal to anything.
-		TestTrue(FString::Printf(TEXT("%s default distance is finite and not negative (%f)"), *Name, Default->Distance),
-			FMath::IsFinite(Default->Distance) && Default->Distance >= 0.0f);
-		TestTrue(FString::Printf(TEXT("%s default duration is finite and positive (%f)"), *Name, Default->Duration),
-			FMath::IsFinite(Default->Duration) && Default->Duration > 0.0f);
+		TestTrue(FString::Printf(TEXT("%s default distance is finite and not negative (%f)"), *Name, Default.Distance),
+			FMath::IsFinite(Default.Distance) && Default.Distance >= 0.0f);
+		TestTrue(FString::Printf(TEXT("%s default duration is finite and positive (%f)"), *Name, Default.Duration),
+			FMath::IsFinite(Default.Duration) && Default.Duration > 0.0f);
 		TestTrue(FString::Printf(TEXT("%s default direction mode is a valid value"), *Name),
-			StaticEnum<EKnockbackDirection>()->IsValidEnumValue(static_cast<int64>(Default->DirectionMode)));
+			IsNamedKnockbackEnumValue(StaticEnum<EKnockbackDirection>(), static_cast<int64>(Default.DirectionMode)));
 		TestTrue(FString::Printf(TEXT("%s default speed profile is a valid value"), *Name),
-			StaticEnum<EDisplacementSpeedProfile>()->IsValidEnumValue(static_cast<int64>(Default->SpeedProfile)));
+			IsNamedKnockbackEnumValue(StaticEnum<EDisplacementSpeedProfile>(), static_cast<int64>(Default.SpeedProfile)));
 		TestTrue(FString::Printf(TEXT("%s default animation blend is a valid value"), *Name),
-			StaticEnum<EDisplacementAnimationBlend>()->IsValidEnumValue(static_cast<int64>(Default->AnimationBlend)));
-
-		// With no override, an attack of the type resolves to its type default, field by field.
-		const FKnockbackConfig Resolved = KnockbackResolution::Resolve(FCombatTestHelpers::CreateTestAttack(Type), Settings);
-		TestTrue(FString::Printf(TEXT("%s resolves its default distance (%f)"), *Name, Resolved.Distance),
-			FMath::IsFinite(Resolved.Distance) && Resolved.Distance == Default->Distance);
-		TestTrue(FString::Printf(TEXT("%s resolves its default duration (%f)"), *Name, Resolved.Duration),
-			FMath::IsFinite(Resolved.Duration) && Resolved.Duration == Default->Duration);
-		TestEqual(FString::Printf(TEXT("%s resolves its default direction mode"), *Name), Resolved.DirectionMode, Default->DirectionMode);
-		TestEqual(FString::Printf(TEXT("%s resolves its default speed profile"), *Name), Resolved.SpeedProfile, Default->SpeedProfile);
-		TestEqual(FString::Printf(TEXT("%s resolves its default animation blend"), *Name), Resolved.AnimationBlend, Default->AnimationBlend);
+			IsNamedKnockbackEnumValue(StaticEnum<EDisplacementAnimationBlend>(), static_cast<int64>(Default.AnimationBlend)));
 	}
-
-	// A type with no default and no distance override does not push. The fixture removes the type's default itself,
-	// so this does not rest on which types the shipped defaults cover.
-	Settings->DefaultKnockback.Remove(EAttackType::Special);
-	UAttackData* Special = FCombatTestHelpers::CreateTestAttack(EAttackType::Special);
-	TestEqual(TEXT("Missing type resolves to no push"), KnockbackResolution::Resolve(Special, Settings).Distance, 0.0f);
-	TestEqual(TEXT("Null attack resolves to no push"), KnockbackResolution::Resolve(nullptr, Settings).Distance, 0.0f);
-	TestEqual(TEXT("Null settings without overrides resolve to no push"),
-		KnockbackResolution::Resolve(FCombatTestHelpers::CreateTestAttack(EAttackType::Light), nullptr).Distance, 0.0f);
+	AddInfo(FString::Printf(TEXT("%d shipped type defaults checked"), Settings->DefaultKnockback.Num()));
 	return true;
 }
 
@@ -66,6 +60,39 @@ FKnockbackConfig ResolutionTestLightDefault()
 	Config.AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
 	return Config;
 }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackTypeDefaultRulesTest, "KatanaCombat.Knockback.Resolution.TypeDefaultResolutionRules",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FKnockbackTypeDefaultRulesTest::RunTest(const FString&)
+{
+	// The fixture sets every default these rules read, so none rests on the shipped map.
+	UCombatSettings* Settings = NewObject<UCombatSettings>();
+	// Every enum differs from FKnockbackConfig's own defaults, so a field resolved from nowhere cannot pass as inherited.
+	FKnockbackConfig TypeDefault = ResolutionTestLightDefault();
+	TypeDefault.DirectionMode = EKnockbackDirection::AlongSwing;
+	TypeDefault.SpeedProfile = EDisplacementSpeedProfile::Linear;
+	TypeDefault.AnimationBlend = EDisplacementAnimationBlend::ReplaceAnimation;
+	Settings->DefaultKnockback.Add(EAttackType::Light, TypeDefault);
+	Settings->DefaultKnockback.Remove(EAttackType::Special);
+
+	// With no override, an attack of the type resolves to its type default, field by field.
+	const FKnockbackConfig Resolved = KnockbackResolution::Resolve(FCombatTestHelpers::CreateTestAttack(EAttackType::Light), Settings);
+	TestTrue(FString::Printf(TEXT("Resolves the type default's distance (%f)"), Resolved.Distance),
+		FMath::IsFinite(Resolved.Distance) && Resolved.Distance == TypeDefault.Distance);
+	TestTrue(FString::Printf(TEXT("Resolves the type default's duration (%f)"), Resolved.Duration),
+		FMath::IsFinite(Resolved.Duration) && Resolved.Duration == TypeDefault.Duration);
+	TestEqual(TEXT("Resolves the type default's direction mode"), Resolved.DirectionMode, TypeDefault.DirectionMode);
+	TestEqual(TEXT("Resolves the type default's speed profile"), Resolved.SpeedProfile, TypeDefault.SpeedProfile);
+	TestEqual(TEXT("Resolves the type default's animation blend"), Resolved.AnimationBlend, TypeDefault.AnimationBlend);
+
+	// A type with no default and no distance override does not push.
+	UAttackData* Special = FCombatTestHelpers::CreateTestAttack(EAttackType::Special);
+	TestEqual(TEXT("Missing type resolves to no push"), KnockbackResolution::Resolve(Special, Settings).Distance, 0.0f);
+	TestEqual(TEXT("Null attack resolves to no push"), KnockbackResolution::Resolve(nullptr, Settings).Distance, 0.0f);
+	TestEqual(TEXT("Null settings without overrides resolve to no push"),
+		KnockbackResolution::Resolve(FCombatTestHelpers::CreateTestAttack(EAttackType::Light), nullptr).Distance, 0.0f);
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FKnockbackResolveOverridesTest, "KatanaCombat.Knockback.Resolution.IndependentOverrides",

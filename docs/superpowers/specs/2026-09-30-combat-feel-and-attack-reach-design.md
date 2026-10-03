@@ -159,8 +159,8 @@ The executor re-evaluates the channel every tick:
    `RootMotionFromEverything`. Only skipped steps count: not a handoff frame (the channel
    switch removes the source), a frame with no channel installed, or hitstop (the step's
    simulation time is dilated). An override exactly as long as the time left is not longer
-   than it, so a 1e-6 s tolerance absorbs float sums of frame times; a longer override in the
-   push's last frame cancels its last step.
+   than it (the clock tolerance, under Outcomes); a longer override in the push's last frame
+   cancels its last step.
 
 If the animation channel ends before the curve completes (the montage stops advancing,
 stops, or is replaced), the remainder continues through the movement channel from the
@@ -174,7 +174,7 @@ slides).
 
 ### Outcomes and lifecycle
 
-- **Reached** when request time reaches `Duration`.
+- **Reached** when request time reaches `Duration`, within the clock tolerance (below).
 - **Blocked** when 0.05 s of request time in a row passes on steps whose actual movement
   along the push is below 10% of the expected progress (a head-on wall). It counts time, not
   ticks, so a graze ends a push the same way at any frame rate; 0.05 s is three 60 Hz ticks.
@@ -190,8 +190,21 @@ slides).
 - **Suspension.** A higher-priority request suspends a running push: its channel is removed
   and its clock stops. When it is active again it resumes from its clock only if the
   suspension, measured on the owner's dilated time (hitstop does not count), was shorter
-  than the push it had left (`Duration` minus elapsed). Otherwise it ends `Cancelled`, and
-  releases itself if it carries `bReleaseWhenFinished`.
+  than the push it had left (`Duration` minus elapsed). A suspension exactly as long as that is
+  not longer, within the clock tolerance. Otherwise it ends `Cancelled`, and releases itself if
+  it carries `bReleaseWhenFinished`. A push whose clock had already reached its end when it was
+  suspended reports `Reached` when it is active again.
+- **Clock tolerance.** Every comparison of the request clock against `Duration` allows 1e-6 s:
+  `Reached` (at the advance and when a removal races the last step), the `AnimationOverride`
+  bound and the suspension bound. The clocks are float sums of frame times, which land a hair
+  either side of the exact value. At 60 Hz one overridden step is 0.0166666675 s against
+  0.0166666657 s left on a 0.25 s push's last step, and a suspension exactly as long as the push
+  had left compares about 1e-8 s longer. At a fixed 240 Hz the movement source's clock sits
+  2.98e-8 s short of a 0.2 s push and 7.45e-8 s short of a 0.25 s push after the step that
+  delivers the rest of it. Without the tolerance that delivered push would run one more frame,
+  where an overridden step would end it `Cancelled` (`AnimationOverride`) and a release would
+  report `Cancelled`. The tolerance is far below any frame, so it absorbs rounding, never a real
+  step.
 - The request carries `bReleaseWhenFinished`: the targeting component releases it on any
   terminal outcome and removes the active modifier or source. Release, preemption,
   `ReleaseAllAlignmentRequests` and death remove whichever channel is active.
@@ -290,12 +303,20 @@ the no-montage parry bridge, and at each stage start), and `EndPlay` (`EndPlay`)
   start to commanded end), the push's trail coloured by channel (cyan animation, orange
   movement) and an end marker with the outcome and the push's own travel against the
   requested distance (green `Reached`, red `Blocked`, yellow `Cancelled`, magenta `Invalid`).
+  The push's own travel (`FAlignmentMotionState::PushTravel`) is the movement the push itself
+  delivered along its direction. It leaves out the reaction's kept root motion and the movement
+  on steps that animation root motion overrode, and it keeps the step a channel delivered just
+  before the executor removed it (a channel switch, a suspension, an owner that can no longer
+  move).
   The draws sit at the feet (capsule bottom plus 5 cm), on top of the mesh
   (`SDPG_Foreground`), and last at least 2 s (`CombatDebug::KnockbackDebugMinDrawDuration`;
   a longer `Combat.Debug.DrawDuration` wins), since a push lasts a fraction of a second and
   the default draw lasts one frame. It logs the resolved config, charge level, scale and
   outcome, and each row's push travel next to the total travel along the push, which also
   counts the reaction's own kept root motion (`push 25.0 of 25.0 cm (total along push 50.8 cm)`).
+  The total is the rows' `MovementMagnitude` (`FAlignmentMotionState::Travel`). It is measured
+  only at an advance or a release, so it skips the step a removed channel delivered, and the
+  push travel can exceed it.
 - Action-reaction telemetry records the start and finish as `AlignmentChanged` rows within the
   existing schema (no new event values, no `schema_version` bump; `analyze_capture.py`
   accepts only 1 or 2). `StartKnockback` writes `AlignmentOwner = HitKnockback` with
@@ -612,9 +633,10 @@ The bounded executor and its tests remain as the kinematic reference until then.
   `AnimationBlend` per attack type; the distances are decided: Light 25 cm, Heavy 20 cm. A
   focused PIE test replaces the planned capture-harness scenario, because the harness is one
   monolithic latent command. Flat ground, walls, ledges, hitstop, suspension, an animation
-  override and a release racing the last step are covered headless by the
-  `KatanaCombat.Displacement.Executor.*` tests. Slopes ride on character
-  movement's floor handling and are checked by hand in PIE.
+  override, a release racing the last step, the clock tolerance (a fixed 240 Hz push and a
+  suspension as long as the push had left) and the push's own travel (overridden steps and
+  removal steps) are covered headless by the `KatanaCombat.Displacement.Executor.*` tests.
+  Slopes ride on character movement's floor handling and are checked by hand in PIE.
 - **Proofs the push can disturb**: `DefenseGateAPIEProofTests` (the parry bridge has a 75 cm
   per-role budget; its out-of-cone case lands a hit), `DefenseGateBSemanticPIEProofTests`
   (an unblockable hit on the player followed by a perfect parry without a position reset)

@@ -1230,6 +1230,7 @@ void UTargetingComponent::ReevaluateAlignmentRequests()
             && Pair.Value.DisplacementChannel != EDisplacementChannel::None)
         {
             // Resumes from DisplacementElapsed when active again, unless the suspension outlasts the push it had left.
+            // The removal keeps the step the channel applied since the last advance, in the clock and in PushTravel.
             RemoveDisplacementChannel(Pair.Value);
             if (Pair.Value.MotionState.Outcome == EAlignmentMotionOutcome::Running)
             {

@@ -5,6 +5,7 @@
 #include "HAL/IConsoleManager.h"
 #include "Components/BoxComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/RootMotionSource.h"
 #include "EngineUtils.h"
@@ -295,6 +296,18 @@ void OverrideNextMovementStep(FDisplacementFixture& F)
 	F.Movement()->RootMotionParams.Set(FTransform::Identity);
 }
 
+/**
+ * As OverrideNextMovementStep, but the animation moves the character WorldStep cm along +X (the push direction), so it
+ * really moves while the push is overridden. Animation root motion is mesh-local: character movement converts it
+ * through the mesh's transform (USkeletalMeshComponent::ConvertLocalRootMotionToWorld), so build it from the world step
+ * through that transform's inverse.
+ */
+void OverrideNextMovementStepMoving(FDisplacementFixture& F, const double WorldStep)
+{
+	const FVector Local = F.Character->GetMesh()->GetComponentTransform().InverseTransformVector(FVector(WorldStep, 0.0, 0.0));
+	F.Movement()->RootMotionParams.Set(FTransform(Local));
+}
+
 /** A finite value within a tolerance of the expected one: this build compares NaN as equal to anything. Named for this
  *  file, because a unity build can share an anonymous namespace with KnockbackPIETests.cpp's IsFiniteAndNear. */
 bool IsFiniteDisplacementNear(const double Value, const double Expected, const double Tolerance)
@@ -471,6 +484,181 @@ bool FDisplacementLastStepOverrideTest::RunTest(const FString&)
 		TestTrue(FString::Printf(TEXT("%s: travel %.2f cm, expected %.0f"), Case.Name, Travel, Case.Travel), IsFiniteDisplacementNear(Travel, Case.Travel, 1.0));
 		F.Targeting()->ReleaseAlignmentRequest(Handle);
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementOverriddenPushTravelTest, "KatanaCombat.Displacement.Executor.OverriddenStepsAddNoPushTravel",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementOverriddenPushTravelTest::RunTest(const FString&)
+{
+	// On a movement step that animation root motion overrides, character movement applies only the animation: the
+	// character moves, but none of that movement is the push. Travel counts it; PushTravel must not.
+	const float Step = 1.f / 60;
+	const double AnimationStep = 3.0; // cm along the push on each overridden step
+	{
+		// Every step overridden: the push delivers nothing and ends Cancelled (AnimationOverride).
+		FDisplacementFixture F;
+		FAlignmentRequestSpec Spec = MakePush(60.f, 0.25f);
+		Spec.bReleaseWhenFinished = false; // hold the outcome
+		const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+		F.Step(Step); // installs the movement channel; the executor measures from here
+		const double Measured = F.Character->GetActorLocation().X;
+		FAlignmentMotionState State;
+		for (int32 I = 0; I < 120 && F.Targeting()->GetAlignmentMotionState(Handle, State) && State.Outcome == EAlignmentMotionOutcome::Running; ++I)
+		{
+			OverrideNextMovementStepMoving(F, AnimationStep);
+			F.Step(Step);
+		}
+		F.Targeting()->GetAlignmentMotionState(Handle, State);
+		TestEqual(TEXT("Every step overridden: the push ends Cancelled"), State.Outcome, EAlignmentMotionOutcome::Cancelled);
+		const double Moved = F.Character->GetActorLocation().X - Measured;
+		// The premise: the animation moved the character along the push while it overrode it.
+		TestTrue(FString::Printf(TEXT("Every step overridden: the animation moved the character along the push (%.2f cm)"), Moved),
+			FMath::IsFinite(Moved) && Moved > 10.0);
+		TestTrue(FString::Printf(TEXT("Every step overridden: the push's own travel stays under 1 cm (%.3f cm)"), State.PushTravel),
+			FMath::IsFinite(State.PushTravel) && FMath::Abs(State.PushTravel) < 1.0);
+		TestTrue(FString::Printf(TEXT("Every step overridden: Travel is the animation's movement (%.3f of %.3f cm)"), State.Travel, Moved),
+			IsFiniteDisplacementNear(State.Travel, Moved, 0.5));
+		AddInfo(FString::Printf(TEXT("Every step overridden: moved %.3f cm, Travel %.3f cm, PushTravel %.3f cm"), Moved, State.Travel, State.PushTravel));
+		F.Targeting()->ReleaseAlignmentRequest(Handle);
+	}
+	{
+		// Two steps overridden mid-push: the push holds for them, then delivers all of its distance. Its own travel is
+		// that distance, so the exclusion takes the overridden steps and nothing else.
+		FDisplacementFixture F;
+		const FVector Start = F.Character->GetActorLocation();
+		FAlignmentRequestSpec Spec = MakePush(60.f, 0.25f);
+		Spec.bReleaseWhenFinished = false; // hold the outcome
+		const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+		for (int32 I = 0; I < 7; ++I) { F.Step(Step); } // installs, then 0.1 s of the 0.25 s push
+		const double BeforeOverride = F.Character->GetActorLocation().X;
+		for (int32 I = 0; I < 2; ++I)
+		{
+			OverrideNextMovementStepMoving(F, AnimationStep);
+			F.Step(Step);
+		}
+		const double Overridden = F.Character->GetActorLocation().X - BeforeOverride;
+		TestTrue(FString::Printf(TEXT("Two steps overridden: the animation moved the character along the push (%.2f cm)"), Overridden),
+			FMath::IsFinite(Overridden) && Overridden > AnimationStep);
+		FAlignmentMotionState State;
+		for (int32 I = 0; I < 60 && F.Targeting()->GetAlignmentMotionState(Handle, State) && State.Outcome == EAlignmentMotionOutcome::Running; ++I)
+		{
+			F.Step(Step);
+		}
+		F.Targeting()->GetAlignmentMotionState(Handle, State);
+		TestEqual(TEXT("Two steps overridden: the push reaches its end"), State.Outcome, EAlignmentMotionOutcome::Reached);
+		const double Moved = F.Character->GetActorLocation().X - Start.X;
+		TestTrue(FString::Printf(TEXT("Two steps overridden: the character moved the push and the animation (%.2f cm)"), Moved),
+			IsFiniteDisplacementNear(Moved, Spec.Displacement.Distance + Overridden, 1.0));
+		TestTrue(FString::Printf(TEXT("Two steps overridden: the push's own travel is its distance (%.3f of 60 cm)"), State.PushTravel),
+			IsFiniteDisplacementNear(State.PushTravel, Spec.Displacement.Distance, 1.0));
+		TestTrue(FString::Printf(TEXT("Two steps overridden: Travel is all the movement (%.3f of %.3f cm)"), State.Travel, Moved),
+			IsFiniteDisplacementNear(State.Travel, Moved, 0.5));
+		AddInfo(FString::Printf(TEXT("Two steps overridden: the animation moved %.3f cm; moved %.3f cm, Travel %.3f cm, PushTravel %.3f cm"),
+			Overridden, Moved, State.Travel, State.PushTravel));
+		F.Targeting()->ReleaseAlignmentRequest(Handle);
+	}
+	return true;
+}
+
+namespace
+{
+/**
+ * Push 60 cm over 0.25 s (linear, so each 60 Hz step is 4 cm) through the movement channel for five frames, then run
+ * only the next frame's movement tick: the push's sixth step is applied, and this component has not measured it.
+ * Returns the handle; OutDelivered is that step's movement along the push.
+ */
+FAlignmentRequestHandle PushThenApplyUnmeasuredStep(FDisplacementFixture& F, const float Step, double& OutDelivered)
+{
+	FAlignmentRequestSpec Spec = MakePush(60.f, 0.25f);
+	Spec.bReleaseWhenFinished = false; // hold the outcome
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+	for (int32 I = 0; I < 5; ++I) { F.Step(Step); } // installs, then 4 of the push's 15 steps
+	const double BeforeStep = F.Character->GetActorLocation().X;
+	F.Movement()->TickComponent(Step, LEVELTICK_All, nullptr);
+	OutDelivered = F.Character->GetActorLocation().X - BeforeStep;
+	return Handle;
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementSuspensionPushTravelTest, "KatanaCombat.Displacement.Executor.SuspensionKeepsDeliveredPushStep",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementSuspensionPushTravelTest::RunTest(const FString&)
+{
+	const FActionReactionTelemetryOn Telemetry;
+	if (!TestNotNull(TEXT("Telemetry CVar exists"), Telemetry.Variable)) { return false; }
+	FDisplacementFixture F;
+	const FVector Start = F.Character->GetActorLocation();
+	const float Step = 1.f / 60;
+	// The fixture's Step split in two, in the engine's order: character movement applies a push step, then a
+	// higher-priority request suspends the push before this component's tick measures that step. The suspension's
+	// channel removal must keep the step in the push's own travel.
+	double Delivered = 0.0;
+	const FAlignmentRequestHandle Handle = PushThenApplyUnmeasuredStep(F, Step, Delivered);
+	TestTrue(FString::Printf(TEXT("Character movement applied a push step before the suspension (%.2f cm)"), Delivered),
+		FMath::IsFinite(Delivered) && Delivered > 1.0);
+	const FAlignmentRequestHandle BlockHandle = F.Targeting()->AcquireAlignmentRequest(MakeBlockContact());
+	if (!TestTrue(TEXT("Block request acquired"), BlockHandle.IsValid()))
+	{
+		F.Targeting()->ReleaseAlignmentRequest(Handle);
+		return false;
+	}
+	F.Targeting()->ResetAlignmentExecutionFrameForTesting();
+	F.Targeting()->TickComponent(Step, LEVELTICK_All, nullptr);
+	for (int32 I = 0; I < 3; ++I) { F.Step(Step); } // 0.067 s suspended in all, under the 0.167 s the push has left
+	F.Targeting()->ReleaseAlignmentRequest(BlockHandle);
+	FAlignmentMotionState State;
+	for (int32 I = 0; I < 30 && F.Targeting()->GetAlignmentMotionState(Handle, State) && State.Outcome == EAlignmentMotionOutcome::Running; ++I)
+	{
+		F.Step(Step);
+	}
+	F.Targeting()->GetAlignmentMotionState(Handle, State);
+	TestEqual(TEXT("The resumed push reaches its end"), State.Outcome, EAlignmentMotionOutcome::Reached);
+	const double Moved = F.Character->GetActorLocation().X - Start.X;
+	TestTrue(FString::Printf(TEXT("The character moved the whole push (%.2f cm)"), Moved), IsFiniteDisplacementNear(Moved, 60.0, 1.0));
+	TestTrue(FString::Printf(TEXT("The push's own travel keeps the step applied before the suspension (%.3f of 60 cm)"), State.PushTravel),
+		IsFiniteDisplacementNear(State.PushTravel, 60.0, 1.0));
+	AddInfo(FString::Printf(TEXT("Step applied before the suspension %.3f cm; moved %.3f cm, Travel %.3f cm, PushTravel %.3f cm"),
+		Delivered, Moved, State.Travel, State.PushTravel));
+	const TArray<FActionReactionTelemetryRecord> Rows = DisplacementRows(F);
+	TestEqual(TEXT("Three rows"), Rows.Num(), 3);
+	TestRow(*this, Rows, 0, TEXT("Suspended"), TEXT("BlockTest"));
+	TestRow(*this, Rows, 1, TEXT("Resumed"), nullptr);
+	TestRow(*this, Rows, 2, TEXT("Reached"), TEXT("DurationReached"));
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementUndeliverablePushTravelTest, "KatanaCombat.Displacement.Executor.UndeliverableRemovalKeepsDeliveredPushStep",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementUndeliverablePushTravelTest::RunTest(const FString&)
+{
+	FDisplacementFixture F;
+	const FVector Start = F.Character->GetActorLocation();
+	const float Step = 1.f / 60;
+	// Character movement applies a push step, then the owner stops being movable before this component's tick: the
+	// executor drops the channel it can no longer deliver through, and that removal must keep the step it applied.
+	double Delivered = 0.0;
+	const FAlignmentRequestHandle Handle = PushThenApplyUnmeasuredStep(F, Step, Delivered);
+	TestTrue(FString::Printf(TEXT("Character movement applied a push step before movement stopped (%.2f cm)"), Delivered),
+		FMath::IsFinite(Delivered) && Delivered > 1.0);
+	F.Movement()->DisableMovement();
+	// The premise: the source is still installed, so the step goes through the executor's own removal for an owner
+	// that cannot move, not through the branch for a source something else removed.
+	const TSharedPtr<FRootMotionSource> Source = F.Movement()->GetRootMotionSource(TEXT("KatanaProceduralDisplacement"));
+	TestTrue(TEXT("The push's source is still installed when this component ticks"),
+		Source.IsValid() && !Source->Status.HasFlag(ERootMotionSourceStatusFlags::MarkedForRemoval));
+	F.Targeting()->ResetAlignmentExecutionFrameForTesting();
+	F.Targeting()->TickComponent(Step, LEVELTICK_All, nullptr);
+	FAlignmentMotionState State;
+	TestTrue(TEXT("The owner still holds the request"), F.Targeting()->GetAlignmentMotionState(Handle, State));
+	TestEqual(TEXT("An undeliverable push ends Invalid"), State.Outcome, EAlignmentMotionOutcome::Invalid);
+	const double Moved = F.Character->GetActorLocation().X - Start.X;
+	TestTrue(FString::Printf(TEXT("The push's own travel keeps the step applied before the removal (%.3f of %.3f cm)"), State.PushTravel, Moved),
+		IsFiniteDisplacementNear(State.PushTravel, Moved, 0.1));
+	AddInfo(FString::Printf(TEXT("Step applied before the removal %.3f cm; moved %.3f cm, Travel %.3f cm, PushTravel %.3f cm"),
+		Delivered, Moved, State.Travel, State.PushTravel));
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
 	return true;
 }
 
@@ -729,6 +917,62 @@ bool FDisplacementLongSuspensionTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementSuspensionTieTest, "KatanaCombat.Displacement.Executor.SuspensionAsLongAsPushLeftResumes",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementSuspensionTieTest::RunTest(const FString&)
+{
+	const FActionReactionTelemetryOn Telemetry;
+	if (!TestNotNull(TEXT("Telemetry CVar exists"), Telemetry.Variable)) { return false; }
+	// A suspension exactly as long as the push it had left is not longer than it, so the push resumes. Float sums of
+	// frame times make it compare a hair longer at 60 Hz; the clock tolerance must absorb that, as it does for an override.
+	FDisplacementFixture F;
+	const FVector Start = F.Character->GetActorLocation();
+	FAlignmentRequestSpec Spec = MakePush(60.f, 0.25f);
+	Spec.bReleaseWhenFinished = false; // hold the outcome
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+	const float Step = 1.f / 60;
+	for (int32 I = 0; I < 6; ++I) { F.Step(Step); } // installs, then 5 of the push's 15 steps
+	FAlignmentMotionState State;
+	F.Targeting()->GetAlignmentMotionState(Handle, State);
+	const int32 LeftSteps = FMath::RoundToInt((Spec.Displacement.Duration - State.Elapsed) / Step);
+	const FAlignmentRequestHandle BlockHandle = F.Targeting()->AcquireAlignmentRequest(MakeBlockContact());
+	if (!TestTrue(TEXT("Block request acquired"), BlockHandle.IsValid()))
+	{
+		F.Targeting()->ReleaseAlignmentRequest(Handle);
+		return false;
+	}
+	for (int32 I = 0; I < LeftSteps; ++I) { F.Step(Step); } // suspended for as many steps as the push has left
+	// The premise, read from the request exactly as the executor will compare it: the suspension is as long as the push
+	// had left in exact arithmetic, and a hair longer in the float sums of the tick deltas and the push clock.
+	const auto* Record = F.Targeting()->AlignmentRequests.Find(Handle);
+	const double Suspended = Record ? Record->DisplacementSuspendedSeconds : 0.0;
+	const double Left = Record ? Spec.Displacement.Duration - Record->DisplacementElapsed : 0.0;
+	AddInfo(FString::Printf(TEXT("Push left %.10f s; the %d-step suspension is %.10f s, longer by %.3g s"), Left, LeftSteps, Suspended, Suspended - Left));
+	if (!TestTrue(FString::Printf(TEXT("A suspension of %d steps is as long as the push had left, plus rounding (%.3g s)"), LeftSteps, Suspended - Left),
+		Record && LeftSteps > 0 && Suspended > Left && Suspended - Left < 1e-6))
+	{
+		F.Targeting()->ReleaseAlignmentRequest(BlockHandle);
+		F.Targeting()->ReleaseAlignmentRequest(Handle);
+		return false;
+	}
+	F.Targeting()->ReleaseAlignmentRequest(BlockHandle);
+	for (int32 I = 0; I < 30 && F.Targeting()->GetAlignmentMotionState(Handle, State) && State.Outcome == EAlignmentMotionOutcome::Running; ++I)
+	{
+		F.Step(Step);
+	}
+	F.Targeting()->GetAlignmentMotionState(Handle, State);
+	TestEqual(TEXT("The push resumes and reaches its end"), State.Outcome, EAlignmentMotionOutcome::Reached);
+	const double Travel = F.Character->GetActorLocation().X - Start.X;
+	TestTrue(FString::Printf(TEXT("The push lands on 60 cm (moved %.2f)"), Travel), IsFiniteDisplacementNear(Travel, 60.0, 1.0));
+	const TArray<FActionReactionTelemetryRecord> Rows = DisplacementRows(F);
+	TestEqual(TEXT("Three rows"), Rows.Num(), 3);
+	TestRow(*this, Rows, 0, TEXT("Suspended"), TEXT("BlockTest"));
+	TestRow(*this, Rows, 1, TEXT("Resumed"), nullptr);
+	TestRow(*this, Rows, 2, TEXT("Reached"), TEXT("DurationReached"));
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementCancelledRowTest, "KatanaCombat.Displacement.Executor.ReleaseWritesCancelledRowWithReason",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FDisplacementCancelledRowTest::RunTest(const FString&)
@@ -817,6 +1061,93 @@ bool FDisplacementReleaseRaceTest::RunTest(const FString&)
 	{
 		TestTrue(FString::Printf(TEXT("The row's travel includes the last step (%.2f of 60 cm)"), Rows[0].MovementMagnitude),
 			IsFiniteDisplacementNear(Rows[0].MovementMagnitude, 60.0, 1.0));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementFixedStepRoundingTest, "KatanaCombat.Displacement.Executor.FixedStepRoundingReachesOnLastStep",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementFixedStepRoundingTest::RunTest(const FString&)
+{
+	const FActionReactionTelemetryOn Telemetry;
+	if (!TestNotNull(TEXT("Telemetry CVar exists"), Telemetry.Variable)) { return false; }
+	// At a fixed 240 Hz the source's float clock sums its 1/240 s steps to a hair under a 0.25 s push after the step
+	// that delivers the rest of it. The push is delivered, so its clock has reached the end: the targeting tick reports
+	// Reached on that step, and a release between the two ticks reports Reached too. Without the clock tolerance the
+	// push would run one frame more, where an overridden step (a root-motion animation starting) cancels it.
+	enum class EEnd : uint8 { TargetingTick, Release };
+	struct FCase
+	{
+		const TCHAR* Name;
+		EEnd End;
+	};
+	const FCase Cases[] = {
+		{TEXT("Targeting tick"), EEnd::TargetingTick},
+		{TEXT("Release before the targeting tick"), EEnd::Release},
+	};
+	for (const FCase& Case : Cases)
+	{
+		FDisplacementFixture F;
+		const FVector Start = F.Character->GetActorLocation();
+		FAlignmentRequestSpec Spec = MakePush(60.f, 0.25f);
+		Spec.bReleaseWhenFinished = false; // hold the outcome
+		const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+		const float Step = 1.f / 240;
+		const int32 NominalSteps = FMath::RoundToInt(Spec.Displacement.Duration / Step);
+		F.Step(Step); // installs the movement channel
+		// The push's movement steps up to its nominal last one, each followed by the targeting tick except the last.
+		for (int32 I = 1; I <= NominalSteps; ++I)
+		{
+			F.Movement()->TickComponent(Step, LEVELTICK_All, nullptr);
+			if (I < NominalSteps)
+			{
+				F.Targeting()->ResetAlignmentExecutionFrameForTesting();
+				F.Targeting()->TickComponent(Step, LEVELTICK_All, nullptr);
+			}
+		}
+		// The premise: the push is delivered, but its clock is short of the push by rounding alone.
+		const TSharedPtr<FRootMotionSource> Source = F.Movement()->GetRootMotionSource(TEXT("KatanaProceduralDisplacement"));
+		const double Short = Source.IsValid() ? Spec.Displacement.Duration - Source->GetTime() : -1.0;
+		FAlignmentMotionState State;
+		F.Targeting()->GetAlignmentMotionState(Handle, State);
+		const double Moved = F.Character->GetActorLocation().X - Start.X;
+		AddInfo(FString::Printf(TEXT("%s: after %d steps of 1/240 s the source's clock is %.3g s short of the push; moved %.3f cm"),
+			Case.Name, NominalSteps, Short, Moved));
+		if (!TestTrue(FString::Printf(TEXT("%s: after %d steps the source's clock is a hair short of the push (%.3g s)"), Case.Name, NominalSteps, Short),
+				Short > 0.0 && Short < 1e-6)
+			|| !TestEqual(FString::Printf(TEXT("%s: the executor has not measured that step yet"), Case.Name), State.Outcome, EAlignmentMotionOutcome::Running)
+			|| !TestTrue(FString::Printf(TEXT("%s: the character has moved the whole push (%.2f cm)"), Case.Name, Moved), IsFiniteDisplacementNear(Moved, 60.0, 1.0)))
+		{
+			F.Targeting()->ReleaseAlignmentRequest(Handle);
+			continue;
+		}
+
+		if (Case.End == EEnd::TargetingTick)
+		{
+			F.Targeting()->ResetAlignmentExecutionFrameForTesting();
+			F.Targeting()->TickComponent(Step, LEVELTICK_All, nullptr);
+			F.Targeting()->GetAlignmentMotionState(Handle, State);
+			TestEqual(FString::Printf(TEXT("%s: Reached on the push's last step"), Case.Name), State.Outcome, EAlignmentMotionOutcome::Reached);
+			// A root-motion animation that starts on the next frame overrides that step: it must not touch a delivered push.
+			OverrideNextMovementStep(F);
+			F.Step(Step);
+			F.Targeting()->GetAlignmentMotionState(Handle, State);
+			TestEqual(FString::Printf(TEXT("%s: still Reached after an overridden step"), Case.Name), State.Outcome, EAlignmentMotionOutcome::Reached);
+			F.Targeting()->ReleaseAlignmentRequest(Handle); // already ended, so the owner's release adds no row
+		}
+		else
+		{
+			F.Targeting()->ReleaseAlignmentRequest(Handle, TEXT("Replaced"));
+		}
+		TestEqual(FString::Printf(TEXT("%s: the request is removed"), Case.Name), F.Targeting()->GetAlignmentRequestCountForTesting(), 0);
+		const TArray<FActionReactionTelemetryRecord> Rows = DisplacementRows(F);
+		TestEqual(FString::Printf(TEXT("%s: one terminal row"), Case.Name), Rows.Num(), 1);
+		TestRow(*this, Rows, 0, TEXT("Reached"), TEXT("DurationReached"));
+		if (Rows.IsValidIndex(0))
+		{
+			TestTrue(FString::Printf(TEXT("%s: the row's travel is the whole push (%.2f of 60 cm)"), Case.Name, Rows[0].MovementMagnitude),
+				IsFiniteDisplacementNear(Rows[0].MovementMagnitude, 60.0, 1.0));
+		}
 	}
 	return true;
 }

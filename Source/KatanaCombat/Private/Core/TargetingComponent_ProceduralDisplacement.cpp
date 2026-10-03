@@ -23,9 +23,12 @@ constexpr double DisplacementBlockedSecondsLimit = 0.05;
 constexpr double DisplacementBlockedSecondsTolerance = 1e-6;
 constexpr double DisplacementBlockedProgressFraction = 0.1;
 constexpr double DisplacementMinimumExpectedStep = 0.1;
-// An override exactly as long as the push it has left is not longer than it, but float sums of frame times land a
-// hair either side: at 60 Hz one overridden step is 0.0166666675 s against 0.0166666657 s left on the last step.
-constexpr double DisplacementOverrideSecondsTolerance = 1e-6;
+// Every comparison of the push clock against its Duration allows this much: Reached, the AnimationOverride bound and
+// the stale-suspension bound. Float sums of frame times land a hair either side of the exact value: at 60 Hz one
+// overridden step is 0.0166666675 s against 0.0166666657 s left on the last step, and at a fixed 240 Hz the source's
+// clock sits 7.45e-8 s short of a 0.25 s push (2.98e-8 s of a 0.2 s one) after the step that delivered the rest of it.
+// Far below any frame, so it absorbs rounding, never a real step.
+constexpr double DisplacementClockSecondsTolerance = 1e-6;
 const FName DisplacementSourceName(TEXT("KatanaProceduralDisplacement"));
 // The executor cancels a push for two causes of its own, so each terminal row names its cause.
 const TCHAR* const StaleSuspensionReason = TEXT("StaleSuspension");
@@ -35,6 +38,18 @@ const TCHAR* const AnimationOverrideReason = TEXT("AnimationOverride");
 double ProgressAlong(const FVector& From, const FVector& To, const FVector& Direction)
 {
 	return FVector::DotProduct(To - From, Direction);
+}
+
+/** The push clock has reached the push's Duration, allowing for float sums of frame times. */
+bool IsDisplacementClockAtEnd(const double Elapsed, const double Duration)
+{
+	return Elapsed >= Duration - DisplacementClockSecondsTolerance;
+}
+
+/** Seconds outlasts the time the push has left (Duration minus Elapsed) by more than the clock tolerance: a tie does not. */
+bool ExceedsDisplacementTimeLeft(const double Seconds, const double Elapsed, const double Duration)
+{
+	return Seconds > Duration - Elapsed + DisplacementClockSecondsTolerance;
 }
 
 /** The channel that can carry the push this frame: animation only while the root-motion montage advances. */
@@ -126,11 +141,11 @@ void UTargetingComponent::CancelRunningDisplacement(FAlignmentRequestRecord& Rec
 	}
 	if (OwnerCharacter)
 	{
-		AccrueDisplacementTravel(Record, OwnerCharacter->GetActorLocation(), KeptAnimationTravel);
+		AccrueDisplacementTravel(Record, OwnerCharacter->GetActorLocation(), KeptAnimationTravel, /*bCountTravel=*/ true);
 	}
 	RemoveDisplacementChannel(Record);
 	// A release that lands after the push's last step reports the push it delivered, not a cancellation.
-	const EAlignmentMotionOutcome Outcome = Record.DisplacementElapsed >= Record.Spec.Displacement.Duration
+	const EAlignmentMotionOutcome Outcome = IsDisplacementClockAtEnd(Record.DisplacementElapsed, Record.Spec.Displacement.Duration)
 		? EAlignmentMotionOutcome::Reached
 		: EAlignmentMotionOutcome::Cancelled;
 	Record.MotionState.Outcome = Outcome;
@@ -140,14 +155,25 @@ void UTargetingComponent::CancelRunningDisplacement(FAlignmentRequestRecord& Rec
 }
 
 double UTargetingComponent::AccrueDisplacementTravel(FAlignmentRequestRecord& Record, const FVector& Location,
-	const double KeptAnimationTravel)
+	const double KeptAnimationTravel, const bool bCountTravel)
 {
 	double Progress = 0.0;
 	if (Record.bDisplacementHasLastLocation)
 	{
 		Progress = ProgressAlong(Record.DisplacementLastLocation, Location, Record.Spec.Displacement.Direction);
-		Record.MotionState.Travel += FMath::Max(0.0, Progress);
-		Record.MotionState.PushTravel += DisplacementMath::PushStep(Progress, KeptAnimationTravel);
+		if (bCountTravel)
+		{
+			Record.MotionState.Travel += FMath::Max(0.0, Progress);
+		}
+		// On a movement step that animation root motion overrode, character movement applied only the animation, so
+		// the step's movement is the animation's, not the push's. The source counts exactly those steps (its
+		// OverriddenTime, mirrored by the sync), and zeroes the count on a step that applies the curve. That classes
+		// each measurement by its last movement step, which is exact while one movement step falls between two
+		// measurements, as it does in play: character movement, then this component, once per frame.
+		if (Record.DisplacementOverriddenSeconds <= 0.0)
+		{
+			Record.MotionState.PushTravel += DisplacementMath::PushStep(Progress, KeptAnimationTravel);
+		}
 	}
 	Record.DisplacementLastLocation = Location;
 	Record.bDisplacementHasLastLocation = true;
@@ -203,11 +229,11 @@ bool UTargetingComponent::InstallDisplacementChannel(FAlignmentRequestRecord& Re
 	}
 	UCharacterMovementComponent* Movement = OwnerCharacter->GetCharacterMovement();
 	const FProceduralDisplacement& Displacement = Record.Spec.Displacement;
-	const double Remaining = Displacement.Duration - Record.DisplacementElapsed;
-	if (Remaining <= 0.0)
+	if (IsDisplacementClockAtEnd(Record.DisplacementElapsed, Displacement.Duration))
 	{
 		return false;
 	}
+	const double Remaining = Displacement.Duration - Record.DisplacementElapsed;
 
 	const EDisplacementChannel Channel = SelectLiveDisplacementChannel(*OwnerCharacter, MotionWarpingComponent != nullptr);
 	if (Channel == EDisplacementChannel::Animation)
@@ -283,10 +309,20 @@ void UTargetingComponent::SyncDisplacementElapsed(FAlignmentRequestRecord& Recor
 	}
 }
 
-void UTargetingComponent::RemoveDisplacementChannel(FAlignmentRequestRecord& Record)
+void UTargetingComponent::RemoveDisplacementChannel(FAlignmentRequestRecord& Record, const double KeptAnimationTravel)
 {
 	SyncDisplacementElapsed(Record); // a suspension between movement and this tick keeps the applied step
-	if (URootMotionModifier_ProceduralDisplacement* Modifier = Record.DisplacementModifier.Get())
+	URootMotionModifier_ProceduralDisplacement* Modifier = Record.DisplacementModifier.Get();
+	// The step the channel delivered since the last measurement is the push's own: count it toward PushTravel before
+	// the measured location goes (a channel switch, a suspension, an owner that can no longer move, or the end). The
+	// kept animation is what the caller took from the modifier this tick plus whatever the modifier still holds (a
+	// suspension took none). Travel keeps its gap here: it is measured only at an advance or a release.
+	if (Record.bDisplacementHasLastLocation && OwnerCharacter)
+	{
+		const double Kept = KeptAnimationTravel + (Modifier ? Modifier->ConsumeAnimationTravel() : 0.0);
+		AccrueDisplacementTravel(Record, OwnerCharacter->GetActorLocation(), Kept, /*bCountTravel=*/ false);
+	}
+	if (Modifier)
 	{
 		// MarkedForRemoval lets UMotionWarpingComponent purge the modifier on its next root-motion update
 		// (UpdateWithContext), so one removed while no root motion plays stays inert in its list until then.
@@ -324,13 +360,14 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 
 	const FProceduralDisplacement& Displacement = Record->Spec.Displacement;
 
-	// Active again after a suspension: resume from the request clock only if the suspension was shorter
-	// than the push it had left. A longer one would deliver the rest long after the hit that caused it.
+	// Active again after a suspension: resume from the request clock unless the suspension was longer than the push
+	// it had left (a tie is not, within the clock tolerance). A longer one would deliver the rest long after the hit
+	// that caused it. A push whose clock had already reached its end is not stale: it reports Reached below.
 	bool bStaleSuspension = false;
 	if (Record->bDisplacementSuspended || Record->DisplacementSuspendedSeconds > 0.0)
 	{
-		const double Remaining = Displacement.Duration - Record->DisplacementElapsed;
-		bStaleSuspension = Remaining > 0.0 && Record->DisplacementSuspendedSeconds > Remaining;
+		bStaleSuspension = !IsDisplacementClockAtEnd(Record->DisplacementElapsed, Displacement.Duration)
+			&& ExceedsDisplacementTimeLeft(Record->DisplacementSuspendedSeconds, Record->DisplacementElapsed, Displacement.Duration);
 		if (!bStaleSuspension && Record->bDisplacementSuspended)
 		{
 			AppendDisplacementTelemetry(*Record, TEXT("Resumed"),
@@ -370,31 +407,24 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	// A montage holding its last pose (auto blend-out disabled) or paused extracts no root motion, so the push
 	// moves to the movement channel rather than freezing with the montage.
 	const EDisplacementChannel LiveChannel = SelectLiveDisplacementChannel(*OwnerCharacter, MotionWarpingComponent != nullptr);
+	// The removals below count the outgoing channel's step toward PushTravel, less the AnimationTravel it kept. They
+	// clear the measured location, so the measurement below skips this frame: Travel and the Blocked rule keep that gap.
 	if (Record->DisplacementChannel != EDisplacementChannel::None && Record->DisplacementChannel != LiveChannel)
 	{
-		// The removal clears the measured location, so the travel measurement below skips this frame (Travel keeps
-		// that gap). The step the outgoing channel delivered is still the push's own, so count it toward PushTravel:
-		// the animation channel's step less the animation it kept, or the movement source's step unless animation
-		// root motion overrode it (then the step was the animation's).
-		if (Record->bDisplacementHasLastLocation && Record->DisplacementOverriddenSeconds <= 0.0)
-		{
-			Record->MotionState.PushTravel += DisplacementMath::PushStep(ProgressAlong(
-				Record->DisplacementLastLocation, OwnerCharacter->GetActorLocation(), Displacement.Direction), AnimationTravel);
-		}
-		RemoveDisplacementChannel(*Record);
+		RemoveDisplacementChannel(*Record, AnimationTravel);
 	}
 	// A channel installed before the owner stopped being movable would freeze mid-push (its clock
 	// stops with character movement); drop it so the install below reports Invalid.
 	if (Record->DisplacementChannel != EDisplacementChannel::None && !CanDeliverDisplacement())
 	{
-		RemoveDisplacementChannel(*Record);
+		RemoveDisplacementChannel(*Record, AnimationTravel);
 	}
 
 	// Progress along the push direction, measured from actual movement against the expected
 	// push plus any animation root motion that was kept.
 	const FVector Location = OwnerCharacter->GetActorLocation();
 	const bool bMeasured = Record->bDisplacementHasLastLocation;
-	const double Actual = AccrueDisplacementTravel(*Record, Location, AnimationTravel);
+	const double Actual = AccrueDisplacementTravel(*Record, Location, AnimationTravel, /*bCountTravel=*/ true);
 	if (bMeasured)
 	{
 		const double Expected = AnimationTravel + DisplacementMath::DistanceBetween(
@@ -417,7 +447,7 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 		Outcome = EAlignmentMotionOutcome::Cancelled;
 		CancelReason = StaleSuspensionReason;
 	}
-	else if (Record->DisplacementElapsed >= Displacement.Duration)
+	else if (IsDisplacementClockAtEnd(Record->DisplacementElapsed, Displacement.Duration))
 	{
 		Outcome = EAlignmentMotionOutcome::Reached;
 	}
@@ -425,8 +455,7 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	{
 		Outcome = EAlignmentMotionOutcome::Blocked;
 	}
-	else if (Record->DisplacementOverriddenSeconds
-		> Displacement.Duration - Record->DisplacementElapsed + DisplacementOverrideSecondsTolerance)
+	else if (ExceedsDisplacementTimeLeft(Record->DisplacementOverriddenSeconds, Record->DisplacementElapsed, Displacement.Duration))
 	{
 		// Animation root motion has held the movement channel longer than the push it had left (the suspension
 		// rule): the rest would arrive after the push should have ended. With no motion warping component, or in

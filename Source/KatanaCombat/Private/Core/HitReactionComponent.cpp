@@ -1670,7 +1670,8 @@ void UHitReactionComponent::ReleaseKnockback(const TCHAR* Reason)
 	{
 		if (UTargetingComponent* Targeting = Character->GetTargetingComponent())
 		{
-			// A push still running ends Cancelled with this reason; one that already finished reports nothing more.
+			// A push still running ends Cancelled with this reason, or Reached if its last step was already applied; one
+			// that already finished reports nothing more.
 			Targeting->ReleaseAlignmentRequest(KnockbackAlignmentHandle, Reason);
 		}
 	}
