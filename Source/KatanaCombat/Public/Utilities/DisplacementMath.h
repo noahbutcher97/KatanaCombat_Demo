@@ -23,8 +23,9 @@ KATANACOMBAT_API EDisplacementChannel SelectChannel(bool bPlayingRootMotion, boo
 /**
  * The push's own share of one measured step: Progress (movement along the push since the last measurement) less
  * KeptAnimationTravel (the animation root motion along the push that the animation channel kept), forward only.
- * The movement channel keeps no animation root motion, so there the share is the movement itself. A step blocked
- * by a wall gives zero, whichever way the kept animation tried to move.
+ * The movement channel keeps no animation root motion, so there the share is the movement itself; the executor
+ * does not call this for a movement step that animation root motion overrode, since that movement is not the
+ * push's. A step blocked by a wall gives zero, whichever way the kept animation tried to move.
  */
 KATANACOMBAT_API double PushStep(double Progress, double KeptAnimationTravel);
 

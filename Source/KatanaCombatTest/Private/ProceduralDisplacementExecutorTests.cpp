@@ -565,7 +565,8 @@ namespace
 {
 /**
  * Push 60 cm over 0.25 s (linear, so each 60 Hz step is 4 cm) through the movement channel for five frames, then run
- * only the next frame's movement tick: the push's sixth step is applied, and this component has not measured it.
+ * only the next frame's movement tick: the push's fifth step is applied (the first frame only installs the channel),
+ * and this component has not measured it.
  * Returns the handle; OutDelivered is that step's movement along the push.
  */
 FAlignmentRequestHandle PushThenApplyUnmeasuredStep(FDisplacementFixture& F, const float Step, double& OutDelivered)
