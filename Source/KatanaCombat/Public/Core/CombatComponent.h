@@ -1273,6 +1273,16 @@ protected:
 	bool CloseHitWindowFromPhaseTransition(
 		const FAnimNotifyRuntimeSourceId& CloseSource,
 		int32 MontageInstanceId);
+	/** A charged hold started inside Active: retire that section's Hit window and return to Windup. */
+	void ReturnActivePhaseToChargeWindup(int32 MontageInstanceId);
+	/**
+	 * True when a notify comes from the montage section a charged hold jumped away from, while that hold still
+	 * owns playback. One animation tick can queue that section's later notifies behind the hold's jump; they
+	 * are stale and must not change phase or publish windows.
+	 */
+	bool IsNotifyFromSectionAbandonedByCharge(
+		const FAnimNotifyRuntimeSourceId& NotifySource,
+		int32 MontageInstanceId) const;
 	void ClearPublishedAttackWindowsForAttack(const FAttackInstanceId& AttackInstance);
 
 	/** Match press/release pairs */

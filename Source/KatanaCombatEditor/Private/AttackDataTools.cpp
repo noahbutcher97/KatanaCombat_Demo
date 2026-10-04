@@ -241,6 +241,13 @@ bool UAttackDataTools::ValidateNotifyGenerationTiming(UAttackData* AttackData, F
         }
     }
 
+    FString ChargedHoldError;
+    if (!FAttackDataNotifyGenerationService::ValidateChargedHoldTiming(AttackData, ChargedHoldError))
+    {
+        OutErrorMessage = FText::FromString(ChargedHoldError);
+        return false;
+    }
+
     OutErrorMessage = LOCTEXT("NotifyGenValid", "Notify generation timing is valid");
     return true;
 }

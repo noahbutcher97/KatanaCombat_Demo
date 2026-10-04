@@ -408,6 +408,13 @@ struct FHoldEvent
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
 	int32 MontageInstanceId = INDEX_NONE;
 
+	/**
+	 * Charged holds only: index of the montage section playback left when this hold jumped to its charge loop,
+	 * or INDEX_NONE for holds that keep playing in place. While the hold lasts, that section no longer owns
+	 * playback, so notifies from it that one animation tick queued behind the hold are stale.
+	 */
+	int32 ChargeAbandonedSectionIndex = INDEX_NONE;
+
 	/** When did this hold start? */
 	UPROPERTY(BlueprintReadOnly, Category = "Hold")
 	float StartTime = 0.0f;

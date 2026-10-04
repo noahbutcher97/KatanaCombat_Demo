@@ -103,6 +103,30 @@ bool FAttackDataNotifyGenerationService::ShouldGenerateHoldWindowStart(const UAt
 	return false;
 }
 
+bool FAttackDataNotifyGenerationService::ValidateChargedHoldTiming(const UAttackData* AttackData, FString& OutError)
+{
+	if (!AttackData
+		|| AttackData->AttackType != EAttackType::Heavy
+		|| !ShouldGenerateHoldWindowStart(AttackData))
+	{
+		return true;
+	}
+
+	// Generation writes Active at WindupDuration and the hold at HoldWindowStart, both section-relative.
+	const FAttackPhaseTimingOverride& Timing = AttackData->ManualTiming;
+	if (Timing.HoldWindowStart < Timing.WindupDuration)
+	{
+		return true;
+	}
+
+	OutError = FString::Printf(
+		TEXT("Charged hold start %.3fs must be before the Active transition at %.3fs (WindupDuration): the hold jumps to '%s', so a hold at or after Active enters the charge loop already Active"),
+		Timing.HoldWindowStart,
+		Timing.WindupDuration,
+		*AttackData->ChargeLoopSection.ToString());
+	return false;
+}
+
 FAttackDataNotifyAnalysis FAttackDataNotifyGenerationService::AnalyzeAttackDataNotifies(const UAttackData* AttackData)
 {
 	FAttackDataNotifyAnalysis Analysis;
@@ -281,6 +305,15 @@ FAttackDataNotifyAnalysis FAttackDataNotifyGenerationService::AnalyzeAttackDataN
 	if (AttackData->CounterData && AttackData->CounterData->bIsLethal)
 	{
 		Analysis.BranchReadinessWarnings.Add(TEXT("CounterData is lethal; Chain counter steps are nonlethal by default unless runtime policy explicitly allows lethal counter data"));
+	}
+
+	// Checked last so audits still receive the notify classification above; an invalid analysis yields an
+	// invalid plan, so no migration writes a charged hold at or after Active.
+	FString ChargedHoldError;
+	if (!ValidateChargedHoldTiming(AttackData, ChargedHoldError))
+	{
+		Analysis.Errors.Add(ChargedHoldError);
+		return Analysis;
 	}
 
 	Analysis.bValid = true;

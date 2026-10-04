@@ -78,4 +78,12 @@ public:
 	static FAttackDataNotifyPlan BuildAttackDataNotifyPlan(const FAttackDataNotifyAnalysis& Analysis, bool bRegenerateCanonicalNotifies = false);
 	static bool ApplyAttackDataNotifyPlan(UAttackData* AttackData, const FAttackDataNotifyPlan& Plan);
 	static bool ShouldGenerateHoldWindowStart(const UAttackData* AttackData);
+
+	/**
+	 * A charged heavy's generated hold must come strictly before its generated Active transition
+	 * (ManualTiming.HoldWindowStart < WindupDuration): the hold jumps to the charge loop, so a hold at or after
+	 * Active enters the loop already Active. Mirrors UAttackData::ValidateChargedHoldOrdering, which checks
+	 * the authored notifies. Returns false and sets OutError when the timing would generate that layout.
+	 */
+	static bool ValidateChargedHoldTiming(const UAttackData* AttackData, FString& OutError);
 };
