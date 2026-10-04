@@ -42,6 +42,18 @@ struct KATANACOMBATEDITOR_API FCombatCaptureSettings
 	int64 MaxDataBytes = 512ll * 1024 * 1024;
 	/** Run/scenario/source identities supplied by the repository runner. */
 	TMap<FString, FString> Metadata;
+
+	/** Opt in to a PresentationCapture MP4 of the PIE viewport, recorded in the same session.
+	 * Requires a rendering editor (-RenderOffScreen works; -NullRHI cannot record video).
+	 * The clip is written under the bundle's video/ directory and joined by capture-link.json. */
+	bool bRecordVideo = false;
+	/** Requested video rate, 1-120. A scheduling target; the achieved cadence is recorded, not promised. */
+	int32 VideoFramesPerSecond = 60;
+	/** Output bounding box by height: 360 (640x360), 720 (1280x720) or 1080 (1920x1080).
+	 * Only a viewport of exactly that size is recorded without scaling. */
+	int32 VideoResolution = 720;
+	/** Clip bound, 1-30 seconds; 0 uses MaxWallSeconds clamped to the recorder's 30 s limit. */
+	int32 VideoSeconds = 0;
 };
 
 /**
@@ -65,17 +77,33 @@ public:
 	/** Marker with a bounded JSON payload the recorder stores verbatim (native 0.4.0). */
 	void Mark(const FString& Label, const TSharedPtr<FJsonObject>& Payload);
 	/** Writes `contact` markers with the reaction-review payload when the attacker's weapon
-	 * trace hits the victim or the attacker's paired animation reaches a sync point. Requires a
-	 * recording session; the observer is released by Stop. */
+	 * trace hits a non-character victim, when a committed defense contact from the attacker
+	 * lands on the victim (character hits, blocks and parries, with their outcome), or when the
+	 * attacker's paired animation reaches a sync point. Requires a recording session; the
+	 * observer is released by Stop. */
 	bool ObserveContacts(ABaseCombatCharacter* Attacker, const FString& AttackerRole,
 		ABaseCombatCharacter* Victim, const FString& VictimRole, FString& OutError);
+	/** Marks committed defense contacts between any two recorded combat participants, in
+	 * either direction, with their roles and outcome. The console recorder uses it. */
+	bool ObserveParticipantContacts(FString& OutError);
 	/** Weapon-trace and paired-sync contact markers written so far by ObserveContacts. */
 	void GetContactCounts(int32& OutWeapon, int32& OutPaired) const;
+	/** Committed defense-contact markers (hits, blocks, parries) written so far. */
+	int32 GetCommittedContactCount() const;
 	bool IsRecording() const;
 	FString GetOutputDirectory() const;
 	int32 GetSampleCount() const;
 	int32 GetFrameCount() const;
 	FString GetStopReason() const;
+	/** True once this session started a clip; stays true after Stop for inspection. */
+	bool HasVideo() const;
+	/** True while this session's clip is still recording or being finalized by its encoder.
+	 * Video stops asynchronously: wait for this to clear before reading the MP4. */
+	bool IsVideoFinalizing() const;
+	/** PresentationCapture's directory for this session's clip, or empty without video. */
+	FString GetVideoDirectory() const;
+	/** capture-link.json joining the clip to this bundle, or empty without video. */
+	FString GetLinkPath() const;
 
 	static bool IsExpectedPIEViewportClient(const UWorld* World,
 		const FViewportClient* DrawnClient, const FViewportClient* ExpectedClient);
