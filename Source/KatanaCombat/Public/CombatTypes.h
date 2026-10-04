@@ -3508,6 +3508,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAttackConsumed, const FAttackCons
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnAttackConsumedNative, const FAttackConsumedEvent&);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnDefenseResolvedNative, const FDefenseResolution&);
 
+// Hit reaction events: UHitReactionComponent broadcasts them, and UPairedAnimationComponent also binds them so a
+// defender's hit reaction or stun ends its defense sequence.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHitReactionStarted, EAttackDirection, Direction, bool, bIsHeavyHit);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnStunBegin, float, Duration);
+
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================

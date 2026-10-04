@@ -504,13 +504,18 @@ public:
 	void ClearQueue(bool bCancelCurrent = false);
 
 	/**
-	 * Execute the Light/Heavy response buffered during this interaction's parry bridge, now that its
-	 * CounterWindow is open. A response buffered for another interaction expires instead.
+	 * Execute the Light/Heavy response buffered during this interaction's committed stage (the parry bridge
+	 * or the counter), now that its response window (CounterWindow or FinisherReady) is open. A response
+	 * buffered for another interaction expires instead.
 	 */
 	void ReleaseBufferedChainResponse(FDefenseInteractionId OpenedInteraction);
 
-	/** Expire any buffered Chain response; its sequence ended before opening a response window. */
-	void DiscardBufferedChainResponse();
+	/**
+	 * Expire any buffered Chain response that can no longer execute: its sequence ended, or a stage started
+	 * without it. Reason is recorded in action-reaction telemetry.
+	 */
+	void DiscardBufferedChainResponse(
+		EActionReactionTelemetryReason Reason = EActionReactionTelemetryReason::TerminalCleanup);
 
 	/**
 	 * Cancel actions based on priority
@@ -992,6 +997,7 @@ public:
 	friend class FCombatInputPairedVictimTakeoverTest;
 	friend class FCombatInputRejectedReleaseCleanupTest;
 	friend class FCombatHoldCleanupPreservesMovementModeTest;
+	friend struct FDefenseChainFixture;
 #endif // WITH_AUTOMATION_TESTS
 
 protected:
@@ -1060,8 +1066,10 @@ protected:
 	uint64 NextActionQueueEntryId = 1;
 
 	/**
-	 * One newest-wins ChainOnly slot for Light/Heavy pressed during a parry bridge, released when that
-	 * interaction's CounterWindow opens and expired if the sequence ends first. It never feeds ActionQueue.
+	 * One newest-wins ChainOnly slot for Light/Heavy pressed during a committed stage that has a response
+	 * window to come (the parry bridge before CounterWindow, the counter before FinisherReady). Released when
+	 * that interaction's window opens; expired if the sequence ends or a stage starts without it. It never
+	 * feeds ActionQueue.
 	 */
 	struct FBufferedChainResponse
 	{
@@ -1071,7 +1079,7 @@ protected:
 	};
 	TOptional<FBufferedChainResponse> BufferedChainResponse;
 
-	/** Capture a bridge-time Light/Heavy press into the newest-wins Chain response slot. */
+	/** Capture a Light/Heavy press made before its response window opened into the newest-wins slot. */
 	void BufferChainResponse(
 		EInputType InputType,
 		uint64 InputSerial,

@@ -1422,8 +1422,9 @@ void UCombatComponent::OnInputEventInternal(
 		PairedAnimComp = GetOwner() ? GetOwner()->FindComponentByClass<UPairedAnimationComponent>() : nullptr;
 	}
 
-	// Input is always captured: a Light/Heavy press while this owner's parry bridge has not yet opened
-	// CounterWindow is buffered for that window instead of being rejected by the sequence's input lock.
+	// Input is always captured: a Light/Heavy press while this owner's committed stage has not yet opened its
+	// response window (the parry bridge before CounterWindow, the counter before FinisherReady) is buffered for
+	// that window instead of being rejected by the sequence's input lock.
 	const bool bIsChainResponsePress = PairedAnimComp
 		&& EventType == EInputEventType::Press
 		&& (InputType == EInputType::LightAttack || InputType == EInputType::HeavyAttack);
@@ -1495,7 +1496,7 @@ void UCombatComponent::OnInputEventInternal(
 	}
 	if (bBuffersChainResponse)
 	{
-		// ChainOnly: a bridge-time press never falls through to the normal attack queue.
+		// ChainOnly: a press made before its response window opened never falls through to the normal queue.
 		BufferChainResponse(
 			InputType,
 			InputSerial,
@@ -1794,7 +1795,7 @@ void UCombatComponent::ReleaseBufferedChainResponse(const FDefenseInteractionId 
 			: EActionReactionTelemetryReason::ChainExpired);
 }
 
-void UCombatComponent::DiscardBufferedChainResponse()
+void UCombatComponent::DiscardBufferedChainResponse(const EActionReactionTelemetryReason Reason)
 {
 	if (!BufferedChainResponse.IsSet())
 	{
@@ -1806,7 +1807,7 @@ void UCombatComponent::DiscardBufferedChainResponse()
 		InputSerial,
 		ECombatInputRoute::ChainOnly,
 		ECombatInputDisposition::Expired,
-		EActionReactionTelemetryReason::TerminalCleanup);
+		Reason);
 }
 
 bool UCombatComponent::CanProcessInput(EInputType InputType) const

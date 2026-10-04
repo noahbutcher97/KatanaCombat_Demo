@@ -250,12 +250,13 @@ Heavy1  Heavy2   Heavy3   Heavy4  (Heavy branches)
 - `FOnPerfectParry(AActor* ParriedActor)`
 - `FOnPerfectEvade(AActor* EvadedActor)`
 - `FOnFinisherAvailable(AActor* Target)`
+- `FOnHitReactionStarted(EAttackDirection Direction, bool bIsHeavyHit)` - broadcast by HitReactionComponent; PairedAnimationComponent also binds it
+- `FOnStunBegin(float Duration)` - broadcast by HitReactionComponent; PairedAnimationComponent also binds it
 
 **Component-specific delegates** (declared in component headers):
 - `FOnWeaponHit` (WeaponComponent) - Hit detection events
 - `FOnDamageReceived` (HitReactionComponent) - Damage application
-- `FOnHitReactionStarted` (HitReactionComponent) - Hit reaction playback
-- `FOnStunBegin/FOnStunEnd` (HitReactionComponent) - Stun state changes
+- `FOnStunEnd` (HitReactionComponent) - Stun end
 
 ---
 

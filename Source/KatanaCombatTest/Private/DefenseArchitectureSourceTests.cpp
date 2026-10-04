@@ -780,3 +780,38 @@ bool FKnockbackDefenseOutcomeSourceTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("PlayHitReaction has exactly one caller"), Calls, 1);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseHitReactionDelegatesAreSharedTypesSourceTest,
+	"KatanaCombat.Defense.Architecture.HitReactionDelegatesAreSharedTypes",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseHitReactionDelegatesAreSharedTypesSourceTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	// The paired animation component ends a defense sequence on the defender's hit reaction and stun, so these
+	// delegate types are used across components and are declared with the other shared delegates.
+	FString CombatTypes;
+	FString HitReaction;
+	if (!TestTrue(TEXT("CombatTypes.h is readable"),
+			LoadProjectSource(TEXT("Source/KatanaCombat/Public/CombatTypes.h"), CombatTypes))
+		|| !TestTrue(TEXT("HitReactionComponent.h is readable"),
+			LoadProjectSource(TEXT("Source/KatanaCombat/Public/Core/HitReactionComponent.h"), HitReaction)))
+	{
+		return false;
+	}
+	CombatTypes = StripCppComments(CombatTypes);
+	HitReaction = StripCppComments(HitReaction);
+	const TCHAR* const Declarations[] = {
+		TEXT("DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHitReactionStarted,"),
+		TEXT("DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnStunBegin,"),
+	};
+	for (const TCHAR* Declaration : Declarations)
+	{
+		TestTrue(FString::Printf(TEXT("CombatTypes.h declares %s"), Declaration),
+			CombatTypes.Contains(Declaration));
+		TestFalse(FString::Printf(TEXT("HitReactionComponent.h no longer declares %s"), Declaration),
+			HitReaction.Contains(Declaration));
+	}
+	return true;
+}

@@ -206,14 +206,12 @@ public:
 	}
 
 	/**
-	 * True while this component owns a parry bridge that has not yet opened CounterWindow. Light/Heavy
-	 * pressed now is captured as a ChainOnly response and executes when the window opens.
+	 * True while this component owns a committed stage whose response window has not opened yet: a parry
+	 * bridge before CounterWindow, or a counter that can reach FinisherReady (it has finisher data and either
+	 * waits for input or has a retryable automatic finisher). Light/Heavy pressed now is captured as a
+	 * ChainOnly response and executes when that window opens.
 	 */
-	bool IsChainAwaitingResponseWindow() const
-	{
-		return ChainState == EChainCounterState::ParryActive
-			&& ActiveDefenseSequence.OriginatingInteraction.IsValid();
-	}
+	bool IsChainAwaitingResponseWindow() const;
 
 	/** True while Chain mode has a retained parried target for follow-up counter/finisher steps. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
@@ -625,6 +623,8 @@ protected:
 	 * stays held.
 	 */
 	void ReleaseDefenderForResponseWindow();
+	/** True when the active counter stage can wait in FinisherReady instead of ending with its montage. */
+	bool CanCounterWaitForFinisher() const;
 	void CleanupDefenseSequence(int32 ExpectedStageGeneration, float BlendOutTime, FName Reason);
 	void ScheduleChainResponseDeadline(
 		EChainCounterState ResponseState,
