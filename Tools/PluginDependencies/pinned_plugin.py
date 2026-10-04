@@ -51,6 +51,8 @@ class PinnedPlugin:
     missing_required_message: str = "Dependency revision is missing its plugin"
     shadow_directories: tuple = ()
     """Repository-relative directories where ignored source files must not hide behind tracked ones."""
+    local_source_note: str = ""
+    """Explains a lock whose repository is a local path, for the message when that path is missing."""
 
     @property
     def plugin(self):
@@ -164,9 +166,26 @@ def dependency_source_manifest(spec, project):
             if Path(name).suffix in SOURCE_SUFFIXES}
 
 
-def read_install_record(spec, project):
-    marker = Path(project) / spec.marker
-    return json.loads(marker.read_text()) if marker.is_file() else {}
+def _is_url(repository):
+    return re.match(r"^[A-Za-z][A-Za-z0-9+.-]+://", str(repository)) is not None
+
+
+def missing_local_source(spec, repository, revision):
+    note = f" {spec.local_source_note}" if spec.local_source_note else ""
+    return ValueError(f"{spec.name} source {repository} (the repository named in {spec.lock}) does not exist on this machine."
+                      f"{note} Run setup on the machine that has it, or point setup at a checkout containing {revision}: "
+                      f"python {spec.setup_script} --repository <{spec.name}-checkout>")
+
+
+def fetch_error(spec, repository, revision, error):
+    """An actionable message, with git's own error, for a pinned source that cannot be cloned or checked out."""
+    detail = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else (error.stderr or "")
+    hint = ""
+    if "checkout" in error.cmd:
+        hint = (f" The repository does not contain {revision}; run python {spec.setup_script} "
+                f"--repository <a {spec.name} checkout containing it>.")
+    return ValueError(f"Could not fetch {spec.name} {revision} from {repository}: "
+                      f"{detail.strip() or error}.{hint}")
 
 
 def install(spec, repository=None, project=None, finish=None):
@@ -185,25 +204,35 @@ def install(spec, repository=None, project=None, finish=None):
     if not target.exists():
         if not repository:
             raise ValueError("Supply --repository with a checkout or repository containing the pinned commit")
+        if not _is_url(repository) and not Path(repository).exists():
+            raise missing_local_source(spec, repository, revision)
         with tempfile.TemporaryDirectory(prefix="dependency-stage-", dir=cache) as directory:
             scratch = Path(directory).resolve()
             assert scratch.parent == cache and scratch.name.startswith("dependency-stage-")
             staged = scratch / "checkout"
-            subprocess.run(["git", "-c", "core.autocrlf=false", "clone", "--no-hardlinks", "--no-checkout",
-                            "--", str(repository), str(staged)], check=True, capture_output=True)
-            git(staged, "config", "core.autocrlf", "false")
-            git(staged, "checkout", "--detach", revision)
+            try:
+                subprocess.run(["git", "-c", "core.autocrlf=false", "clone", "--no-hardlinks", "--no-checkout",
+                                "--", str(repository), str(staged)], check=True, capture_output=True)
+                git(staged, "config", "core.autocrlf", "false")
+                git(staged, "checkout", "--detach", revision)
+            except subprocess.CalledProcessError as error:
+                raise fetch_error(spec, repository, revision, error) from error
             verified_files(spec, staged, revision)
             staged.rename(target)
     files = verified_files(spec, target, revision)
     expected = native_files(spec, files)
     plugin = project / spec.plugin
     marker = cache / "plugin-install.json"
-    previous = json.loads(marker.read_text()) if marker.is_file() else {}
+
+    def previous_record():
+        # Read only where a decision needs it, as the original AnimationAnalysis installer did.
+        return json.loads(marker.read_text()) if marker.is_file() else {}
+
     if plugin.exists() and installed_plugin_files(spec, plugin) == expected:
         validate_plugin(spec, project, files)
     else:
         if plugin.exists():
+            previous = previous_record()
             if plugin.is_symlink() or not previous.get("files") or installed_plugin_files(spec, plugin) != previous["files"]:
                 raise ValueError("Existing plugin has unowned or modified source; preserve it before installing")
         with tempfile.TemporaryDirectory(prefix="plugin-stage-", dir=cache) as directory:
@@ -223,7 +252,10 @@ def install(spec, repository=None, project=None, finish=None):
                 plugin.rename(backup)  # Preserve the prior generated plugin, including build outputs.
             staged.rename(plugin)
         validate_plugin(spec, project, files)
-    extra = finish(plugin, previous if previous.get("revision") == revision else {}) if finish else {}
+    extra = {}
+    if finish:
+        previous = previous_record()
+        extra = finish(plugin, previous if previous.get("revision") == revision else {})
     result = dict(schema_version=1, revision=revision, files=expected, **extra)
     temporary = marker.with_suffix(".tmp")
     temporary.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")

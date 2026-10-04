@@ -156,6 +156,27 @@ class PresentationCaptureDependencyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Tools/PresentationCapture/setup_dependency.py"):
             checkout(self.project)
 
+    def test_a_missing_local_source_names_the_path_and_the_owner_repository(self):
+        missing = self.root / "not-on-this-machine"
+        self.lock.write_text(json.dumps(dict(schema_version=1, name="PresentationCapture", repository=str(missing),
+                                             revision=self.revision)))
+        with self.assertRaises(ValueError) as raised:
+            self.install(builder=FakeWorkerBuilder())
+        message = str(raised.exception)
+        for expected in (str(missing), "does not exist on this machine", "owner's local repository",
+                         "Tools/PresentationCapture/setup_dependency.py --repository"):
+            self.assertIn(expected, message)
+        self.assertFalse((self.project / SPEC.cache / self.revision).exists())
+
+    def test_a_repository_without_the_pin_reports_git_and_the_fix(self):
+        self.write_lock("f" * 40)
+        with self.assertRaises(ValueError) as raised:
+            self.install(builder=FakeWorkerBuilder())
+        message = str(raised.exception)
+        self.assertIn("Could not fetch PresentationCapture", message)
+        self.assertIn("fatal:", message, "git's own error is surfaced")
+        self.assertIn("does not contain", message)
+
     def test_failed_encoder_check_publishes_no_install_record(self):
         def failing(plugin, scratch):
             raise ValueError("encoder self-check failed")

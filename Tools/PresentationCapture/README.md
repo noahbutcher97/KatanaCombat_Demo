@@ -6,13 +6,19 @@ PresentationCapture repository; this directory holds only Katana's revision lock
 `FCombatCaptureSession` uses it for opt-in video; see the
 [capture guide](../../docs/guides/COMBAT_CAPTURE_AND_ANALYSIS.md#video-capture).
 
-The repository has no remote. [dependency.json](dependency.json) pins a local repository path and an
-exact commit, the way AnimationAnalysis setup runs with `--repository`:
+The repository has no remote, by the owner's decision. Its source of truth is the owner's local repository
+`D:/UnrealProjects/Plugins/PresentationCapture` on the build machine. [dependency.json](dependency.json) pins
+that path and an exact commit, the way AnimationAnalysis setup runs with `--repository`:
 
 ```powershell
 python Tools/PresentationCapture/setup_dependency.py
 python Tools/PresentationCapture/setup_dependency.py --repository <checkout-containing-the-pin>
 ```
+
+The first form works only where that path exists. Elsewhere setup stops before cloning and names the
+missing path; pass `--repository` with a checkout that contains the pinned commit. CI installs the recorder
+in the self-hosted job (`.github/workflows/ue5-ci.yml`, "Install pinned PresentationCapture recorder"); that
+runner runs on the same machine as the owner's repository. GitHub-hosted validation does not build the editor.
 
 Setup clones the pinned commit into ignored `Saved/PresentationCaptureDependencies/<revision>`,
 verifies committed bytes, and copies only the core plugin directory (`Plugin/PresentationCapture`) into
