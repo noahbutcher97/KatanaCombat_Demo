@@ -1,6 +1,7 @@
 """Consumer pinning must survive upstream edits and reject altered installed sources."""
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -136,6 +137,22 @@ class DependencyTests(unittest.TestCase):
         self.write_lock("main")
         with self.assertRaisesRegex(ValueError, "full, lowercase"):
             read_lock(self.project)
+
+    def test_missing_plugin_reinstalls_without_reading_a_damaged_install_record(self):
+        install(self.upstream, self.project)
+        shutil.rmtree(self.project / "Plugins/AnimationAnalysis")
+        (self.project / "Saved/AnalysisDependencies/plugin-install.json").write_text("{truncated")
+        self.assertEqual(install(project=self.project)["revision"], self.revision)
+        dependency_source_manifest(self.project)
+
+    def test_a_damaged_install_record_still_refuses_a_modified_plugin_with_the_actionable_error(self):
+        install(self.upstream, self.project)
+        path = self.project / "Plugins/AnimationAnalysis/Source/AnimationCapture/Fixture.cpp"
+        path.write_text("// local edit\n")
+        (self.project / "Saved/AnalysisDependencies/plugin-install.json").write_text("{truncated")
+        with self.assertRaisesRegex(ValueError, "unowned or modified source"):
+            install(project=self.project)
+        self.assertEqual(path.read_text(), "// local edit\n")
 
     def test_untracked_python_module_is_rejected(self):
         install(self.upstream, self.project)

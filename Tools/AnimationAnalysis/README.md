@@ -16,6 +16,9 @@ and copies its native source and shader resources into ignored `Plugins/Animatio
 descriptor already enables that plugin. Run setup before building a fresh Katana
 checkout. The public clone URL is tracked; no developer-specific path is required.
 Use `--repository <checkout-or-URL>` to explicitly override the source for local work.
+The pin, verification and install mechanics are shared with the
+[PresentationCapture dependency](../PresentationCapture/README.md) in
+`Tools/PluginDependencies/pinned_plugin.py`; this directory binds the AnimationAnalysis paths and messages.
 
 Edit shared Python/native code in the standalone repository, verify and commit it,
 then update the full revision in the lock and run setup again. The installer checks

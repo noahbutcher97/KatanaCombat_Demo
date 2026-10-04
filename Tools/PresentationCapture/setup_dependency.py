@@ -1,14 +1,9 @@
-"""Install the pinned shared suite from an explicit repository; never follow its branch tip."""
+"""Install the pinned PresentationCapture recorder and build its workers; never follow a branch tip."""
 import argparse
 import json
 import subprocess
 
-from animation_analysis_dependency import PROJECT, SPEC
-import pinned_plugin
-
-
-def install(repository=None, project=PROJECT):
-    return pinned_plugin.install(SPEC, repository, project)
+from presentation_capture_dependency import install
 
 
 if __name__ == "__main__":

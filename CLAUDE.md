@@ -38,6 +38,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "Tools\Codex\run-agent-basel
 
 The baseline builds `KatanaCombatEditor`, runs `Automation RunTests KatanaCombat` with `;Quit`, writes timestamped evidence under `Saved/Logs/`, and exits nonzero on detected build or test failure. Direct `UnrealEditor-Cmd.exe` runs may still fail to exit cleanly; inspect the log rather than treating a lingering process as proof of failure.
 
+**Rendered capture with video** (required for changes a player sees or feels; the baseline is `-NullRHI`):
+commit, build a capture worktree with `python Tools/CombatCapture/capture_worktree.py --ref <branch>`, then run
+`run_scenario.py --mode rendered --video` from it. The `katana-capture` skill (`.agents/skills/katana-capture/SKILL.md`)
+covers review and the clip-quality gate; the [capture guide](docs/guides/COMBAT_CAPTURE_AND_ANALYSIS.md#video-capture)
+has the full contract. In PIE, `Combat.Capture.Start <Name> 30 0 60 Video=1` records linked video and data.
+
 **Test Results**: Check the log file at `D:\UnrealProjects\5.6\KatanaCombat\Saved\Logs\KatanaCombat.log`
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ".agents\skills\katana-verify\scripts\summarize-automation-log.ps1"
@@ -304,6 +310,13 @@ discovery, skeleton defaults and combat/warp telemetry in the `CombatCaptureSess
 adapter. Follow `docs/architecture/ANIMATION_ANALYSIS_SUITE.md` for all existing and
 new capture/analysis tooling; native extraction does not complete the paired
 preview/evaluation or offline orchestration migration.
+
+The PresentationCapture video recorder is pinned the same way: `Tools/PresentationCapture/dependency.json`
+names its private GitHub repository and commit (`--repository` overrides it for local plugin work), setup
+generates the ignored `Plugins/PresentationCapture` and builds its two worker executables, CI installs it in the
+self-hosted job, and a stale or incomplete copy stops the build with `[PresentationCapture pin mismatch]`.
+Both pins share `Tools/PluginDependencies/pinned_plugin.py`. Only the core recorder is installed, not its
+AnimationAnalysis bridge. `FCombatCaptureSession` owns the link between the clip and the data session.
 
 **CRITICAL: These patterns MUST be followed for all editor tooling in KatanaCombatEditor module.**
 
@@ -606,10 +619,18 @@ Player Input → CombatComponent::ExecuteAction()
 ## Known Issues
 
 - **Commit hooks**: The pre-commit diagnostics, validation and post-commit PowerShell scripts parsed and ran during the September 11 checkpoint. Use normal Git commits; the earlier syntax-error note is obsolete. Hook reminders do not replace build and automation evidence.
-- **DX12 crashes with RTX 5090**: See Environment Notes below for workaround.
+- **D3D12 is not the default RHI**: see Environment Notes below.
 
 ## Environment Notes
 
-**GPU Crash Workaround (RTX 5090 + UE 5.6)**: Currently using DX11 (`Config/DefaultEngine.ini:47`) due to driver 581.57 + DX12 crashes. Revert to DX12 when stable Studio Driver available.
+**RHI (RTX 5090 Laptop GPU, UE 5.6)**: D3D11 stays the default (`Config/DefaultEngine.ini:47`). The workaround was
+for D3D12 crashes on driver 581.57. Test runs on 2026-10-03 with driver 617.14 did not reproduce a crash in 11 offscreen
+`-dx12` PIE launches. That is "not reproduced in 11 offscreen PIE launches", not "fixed": the original note
+concerned batch operations and animation previews in the on-screen editor, which those launches did not exercise.
+D3D12 was slower and hitchier in that day's clip-recording runs: 44-49 against 57-59 FPS, a comparison that excludes the two runs
+with detected CPU contention (35 and 38.6 FPS); every D3D12 clip-recording run had 2-9 frames over 60 ms (per-run maxima
+93-219 ms) against peaks of 63-68 ms on unloaded D3D11. The cause of the gap is unverified (hypotheses: runtime
+PSO creation, SM6 render cost, CPU contention). AnimationAnalysis async, surface and GPU-mesh capture are
+D3D11-only. Use `-dx12` per launch (`run_scenario.py --rhi dx12`) when D3D12 is wanted.
 
 **Plugin Conflicts**: 14 conflicting marketplace plugins disabled in `KatanaCombat.uproject:53-109`. Only enabled: ModelingToolsEditorMode, StateTree, GameplayStateTree, MotionWarping.

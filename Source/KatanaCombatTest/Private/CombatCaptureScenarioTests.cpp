@@ -33,6 +33,8 @@
 #include "Engine/GameInstance.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/LocalPlayer.h"
+#include "Editor/UnrealEdEngine.h"
+#include "PlayInEditorDataTypes.h"
 #include "EngineUtils.h"
 #include "EnhancedInputSubsystems.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -45,12 +47,16 @@
 #include "Misc/Paths.h"
 #include "Misc/SecureHash.h"
 #include "Serialization/JsonSerializer.h"
+#include "Settings/LevelEditorPlaySettings.h"
 #include "Slate/SceneViewport.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
 #include "UnrealClient.h"
+#include "UnrealEdGlobals.h"
 #include "UObject/StrongObjectPtr.h"
 #include "UObject/Package.h"
+#include "Widgets/SViewport.h"
+#include "Widgets/SWindow.h"
 
 namespace
 {
@@ -66,6 +72,178 @@ FVector ScenarioVector(const TArray<TSharedPtr<FJsonValue>>& Values)
 	return Values.Num() == 3 ? FVector(Values[0]->AsNumber(), Values[1]->AsNumber(), Values[2]->AsNumber()) : FVector::ZeroVector;
 }
 
+/** Opt-in PresentationCapture clip requested by the runner (-CombatCaptureVideo=1). */
+struct FScenarioVideoRequest
+{
+	bool bEnabled = false;
+	int32 FramesPerSecond = 60;
+	int32 Resolution = 720;
+	/** Clip bound. The recorder's maximum keeps the clip running through the scenario; a shorter bound
+	 * (run_scenario.py --video-seconds) lets the recorder end the clip on its own first. */
+	int32 Seconds = 30;
+
+	/** The recorder's output box for the resolution; a viewport of exactly this size is recorded unscaled. */
+	FIntPoint Size() const
+	{
+		return Resolution == 360 ? FIntPoint(640, 360) : Resolution == 1080 ? FIntPoint(1920, 1080) : FIntPoint(1280, 720);
+	}
+	static FScenarioVideoRequest FromCommandLine()
+	{
+		FScenarioVideoRequest Request;
+		int32 Enabled = 0;
+		FParse::Value(FCommandLine::Get(), TEXT("CombatCaptureVideo="), Enabled);
+		Request.bEnabled = Enabled == 1;
+		FParse::Value(FCommandLine::Get(), TEXT("CombatCaptureVideoFPS="), Request.FramesPerSecond);
+		FParse::Value(FCommandLine::Get(), TEXT("CombatCaptureVideoResolution="), Request.Resolution);
+		FParse::Value(FCommandLine::Get(), TEXT("CombatCaptureVideoSeconds="), Request.Seconds);
+		return Request;
+	}
+};
+
+/**
+ * When PIE ends, the engine copies a floating PIE window's size and position into the editor play
+ * settings and saves them to the checkout's per-user config (UEditorEngine::EndPlayMap). A video run
+ * must not change the user's "New Editor Window (PIE)" settings, so it restores what was there.
+ */
+struct FPlaySettingsSnapshot
+{
+	TArray<FIntPoint> MultipleInstancePositions;
+	FIntPoint LastSize = FIntPoint::ZeroValue, NewWindowPosition = FIntPoint::ZeroValue;
+	int32 NewWindowWidth = 0, NewWindowHeight = 0;
+	bool bCenterNewWindow = false, bTaken = false;
+
+	void Take()
+	{
+		const ULevelEditorPlaySettings* Settings = GetDefault<ULevelEditorPlaySettings>();
+		MultipleInstancePositions = Settings->MultipleInstancePositions;
+		LastSize = Settings->LastSize;
+		NewWindowPosition = Settings->NewWindowPosition;
+		NewWindowWidth = Settings->NewWindowWidth;
+		NewWindowHeight = Settings->NewWindowHeight;
+		bCenterNewWindow = Settings->CenterNewWindow;
+		bTaken = true;
+	}
+	void Restore()
+	{
+		if (!bTaken) { return; }
+		ULevelEditorPlaySettings* Settings = GetMutableDefault<ULevelEditorPlaySettings>();
+		Settings->MultipleInstancePositions = MultipleInstancePositions;
+		Settings->LastSize = LastSize;
+		Settings->NewWindowPosition = NewWindowPosition;
+		Settings->NewWindowWidth = NewWindowWidth;
+		Settings->NewWindowHeight = NewWindowHeight;
+		Settings->CenterNewWindow = bCenterNewWindow;
+		Settings->SaveConfig();
+		bTaken = false;
+	}
+};
+
+/** Restores the play settings once PIE has really ended (EndPlayMap runs on a later editor tick). */
+class FRestorePlaySettingsCommand : public IAutomationLatentCommand
+{
+public:
+	explicit FRestorePlaySettingsCommand(TSharedRef<FPlaySettingsSnapshot> InSnapshot) : Snapshot(InSnapshot) {}
+	bool Update() override
+	{
+		if (StartWall == 0) { StartWall = FPlatformTime::Seconds(); }
+		if (GEditor && GEditor->PlayWorld && FPlatformTime::Seconds() - StartWall < 10) { return false; }
+		Snapshot->Restore();
+		return true;
+	}
+private:
+	TSharedRef<FPlaySettingsSnapshot> Snapshot;
+	double StartWall = 0;
+};
+
+/**
+ * Starts PIE in its own window whose client area is exactly the requested size. The recorder
+ * reads the viewport widget's area of the window backbuffer, so the widget must match the output
+ * box to record without scaling. In the level editor viewport the widget size comes from the
+ * editor layout instead: 759x378 under -RenderOffScreen in test captures recorded on 2026-10-03, whatever -ResX/-ResY say.
+ */
+class FStartPIEInWindowCommand : public IAutomationLatentCommand
+{
+public:
+	FStartPIEInWindowCommand(FIntPoint InSize, TSharedRef<FPlaySettingsSnapshot> InSnapshot) : Size(InSize), Snapshot(InSnapshot) {}
+	bool Update() override
+	{
+		Snapshot->Take();
+		ULevelEditorPlaySettings* PlaySettings = NewObject<ULevelEditorPlaySettings>(GetTransientPackage()); // Starts from the user's defaults.
+		PlaySettings->NewWindowWidth = Size.X;
+		PlaySettings->NewWindowHeight = Size.Y;
+		PlaySettings->CenterNewWindow = true;
+		PlaySettings->LastExecutedPlayModeType = PlayMode_InEditorFloating;
+		FRequestPlaySessionParams Params;
+		Params.EditorPlaySettings = PlaySettings;
+		if (GUnrealEd->CheckForPlayerStart() == nullptr) { FAutomationEditorCommonUtils::SetPlaySessionStartToActiveViewport(Params); }
+		GUnrealEd->RequestPlaySession(Params);
+		return true;
+	}
+private:
+	FIntPoint Size;
+	TSharedRef<FPlaySettingsSnapshot> Snapshot;
+};
+
+/**
+ * Resizes the PIE window until its game viewport widget is exactly Box. A window's client size
+ * includes Slate's own title bar (1280x720 left a 1280x688 viewport in the first trial), so the
+ * window is grown by the measured shortfall instead of assuming any chrome size. Gives up after a
+ * few attempts; the capture link then records the mismatch and the clip is flagged as scaled.
+ */
+class FFitPIEViewportCommand : public IAutomationLatentCommand
+{
+public:
+	explicit FFitPIEViewportCommand(FIntPoint InBox) : Box(InBox) {}
+	bool Update() override
+	{
+		if (StartWall == 0) { StartWall = FPlatformTime::Seconds(); }
+		const bool bTimedOut = FPlatformTime::Seconds() - StartWall > 20;
+		UWorld* World = AutomationCommon::GetAnyGameWorld();
+		UGameViewportClient* Client = World && World->WorldType == EWorldType::PIE ? World->GetGameViewport() : nullptr;
+		const TSharedPtr<SViewport> Widget = Client ? Client->GetGameViewportWidget() : nullptr;
+		const TSharedPtr<SWindow> Window = Client ? Client->GetWindow() : nullptr;
+		if (!Widget || !Window) { return bTimedOut; }
+		if (SettleFrames > 0) { --SettleFrames; return false; } // Let the layout follow the last resize.
+		const FVector2D Measured = Widget->GetCachedGeometry().GetAbsoluteSize();
+		const FIntPoint Current(FMath::RoundToInt(Measured.X), FMath::RoundToInt(Measured.Y));
+		if (Current == Box || Attempts >= 4 || bTimedOut)
+		{
+			UE_LOG(LogTemp, Display, TEXT("PIE viewport widget %dx%d for a %dx%d video box after %d resize(s)"), Current.X, Current.Y, Box.X, Box.Y, Attempts);
+			return true;
+		}
+		if (Current.GetMin() <= 0) { return false; }
+		++Attempts;
+		SettleFrames = 2;
+		Window->ReshapeWindow(Window->GetPositionInScreen(), Window->GetSizeInScreen() + FVector2D(Box - Current));
+		return false;
+	}
+private:
+	FIntPoint Box;
+	double StartWall = 0;
+	int32 Attempts = 0, SettleFrames = 0;
+};
+
+TSharedPtr<FPlaySettingsSnapshot> QueueScenarioPIE()
+{
+	const FScenarioVideoRequest Video = FScenarioVideoRequest::FromCommandLine();
+	if (!Video.bEnabled)
+	{
+		ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
+		return nullptr;
+	}
+	TSharedRef<FPlaySettingsSnapshot> Snapshot = MakeShared<FPlaySettingsSnapshot>();
+	ADD_LATENT_AUTOMATION_COMMAND(FStartPIEInWindowCommand(Video.Size(), Snapshot));
+	ADD_LATENT_AUTOMATION_COMMAND(FFitPIEViewportCommand(Video.Size()));
+	return Snapshot;
+}
+
+void QueueScenarioEnd(const TSharedPtr<FPlaySettingsSnapshot>& Snapshot)
+{
+	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	if (Snapshot.IsValid()) { ADD_LATENT_AUTOMATION_COMMAND(FRestorePlaySettingsCommand(Snapshot.ToSharedRef())); }
+}
+
 class FCombatRecoveryScenario : public IAutomationLatentCommand
 {
 public:
@@ -77,6 +255,7 @@ public:
 	{
 		if (StartWall == 0) { StartWall = FPlatformTime::Seconds(); }
 		if (bDone) { return true; }
+		if (bCaptureStopped) { return Finish(); } // Waiting for the clip to finalize.
 		if (FPlatformTime::Seconds() - StartWall > 90)
 		{
 			Check(TEXT("scenario_completes"), false, TEXT("Wall watchdog expired")); return Finish();
@@ -523,11 +702,15 @@ private:
 		Camera->SetActorRotation((Focus - Camera->GetActorLocation()).Rotation());
 		Camera->GetCameraComponent()->SetFieldOfView(CameraFov);
 		PC->SetViewTarget(Camera.Get());
+		// A clip is recorded unscaled only when the viewport equals the recorder's output box; the
+		// definition's 960x540 is not a recorder size. Both are 16:9, so the framing is unchanged.
+		ViewportSize = VideoRequest.bEnabled ? VideoRequest.Size()
+			: FIntPoint(Definition->GetNumberField(TEXT("viewport_width")), Definition->GetNumberField(TEXT("viewport_height")));
 		if (UGameViewportClient* Viewport = World->GetGameViewport(); FApp::CanEverRender() && Viewport && Viewport->GetGameViewport())
 		{
 			OriginalViewportSize = Viewport->Viewport->GetSizeXY();
 			bOriginalFixedViewport = Viewport->GetGameViewport()->HasFixedSize();
-			Viewport->GetGameViewport()->SetFixedViewportSize(Definition->GetNumberField(TEXT("viewport_width")), Definition->GetNumberField(TEXT("viewport_height")));
+			Viewport->GetGameViewport()->SetFixedViewportSize(ViewportSize.X, ViewportSize.Y);
 		}
 		BeginSimulation = World->GetTimeSeconds();
 		if (Mode != TEXT("disabled"))
@@ -541,6 +724,19 @@ private:
 			Settings.Metadata.Add(TEXT("runtime_experiment"), Experiment);
 			Settings.Metadata.Add(TEXT("camera_view"), CameraView);
 			Settings.Metadata.Add(TEXT("placement"), PlacementName);
+			if (VideoRequest.bEnabled)
+			{
+				if (Mode != TEXT("rendered")) { Check(TEXT("video_capture_mode"), false, TEXT("Video is recorded only in rendered mode")); return false; }
+				// The clip replaces PNG frames: synchronous readback stalls would show in the video as hitches.
+				Settings.FrameHz = 0;
+				Settings.bRecordVideo = true;
+				Settings.VideoFramesPerSecond = VideoRequest.FramesPerSecond;
+				Settings.VideoResolution = VideoRequest.Resolution;
+				Settings.VideoSeconds = VideoRequest.Seconds;
+				Settings.Metadata.Add(TEXT("video_fps"), FString::FromInt(VideoRequest.FramesPerSecond));
+				Settings.Metadata.Add(TEXT("video_resolution"), FString::FromInt(VideoRequest.Resolution));
+				Settings.Metadata.Add(TEXT("video_seconds"), FString::FromInt(VideoRequest.Seconds));
+			}
 			// Bind the bounded recorder metadata to a full sidecar, rather than
 			// making detailed authoring experiments depend on a string-size limit.
 			FJsonSerializer::Serialize(ExperimentOverrides, TJsonWriterFactory<TCHAR, TCondensedJsonPrintPolicy<TCHAR>>::Create(&RuntimeOverridesJson));
@@ -556,6 +752,7 @@ private:
 			}
 			FString Error; if (!Capture.Start(World.Get(), Settings, Participants, Error)) { Check(TEXT("capture_started"), false, Error); return false; }
 			Directory = Capture.GetOutputDirectory();
+			if (VideoRequest.bEnabled) { Check(TEXT("video_started"), Capture.HasVideo(), Capture.GetVideoDirectory()); }
 			Check(TEXT("contact_observer_bound"), Capture.ObserveContacts(Player.Get(), TEXT("Attacker"), Victim.Get(), TEXT("Victim"), Error), Error);
 		}
 		else { Directory = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("CombatCaptures") / (RunId + TEXT("-disabled-")) + FGuid::NewGuid().ToString(EGuidFormats::Digits)); IFileManager::Get().MakeDirectory(*Directory, true); }
@@ -799,6 +996,8 @@ private:
 	bool Finish()
 	{
 		if (bDone) { return true; }
+		if (bCaptureStopped) { return PublishAfterVideo(); }
+		bCaptureStopped = true;
 		Mark(TEXT("scenario_finished"));
 		if (bEntryRequested)
 		{
@@ -823,7 +1022,27 @@ private:
 		FString Error;
 		Capture.GetContactCounts(WeaponContactMarkers, PairedContactMarkers);
 		if (Capture.IsRecording()) { Check(TEXT("capture_export"), Capture.Stop(TEXT("scenario_finished"), Error), Error); }
-		else if (Mode != TEXT("disabled") && !Directory.IsEmpty()) { Check(TEXT("capture_export"), false, TEXT("Recorder stopped before the scenario")); }
+		else
+		{
+			if (Mode != TEXT("disabled") && !Directory.IsEmpty()) { Check(TEXT("capture_export"), false, TEXT("Recorder stopped before the scenario")); }
+			// The data session stopped itself; Stop still stops the clip and finalizes the link.
+			FString Unused; Capture.Stop(TEXT("scenario_finished"), Unused);
+		}
+		CommittedContactMarkers = Capture.GetCommittedContactCount();
+		VideoStopWall = FPlatformTime::Seconds();
+		return PublishAfterVideo();
+	}
+
+	/** The clip finalizes asynchronously after Stop; publish the result once its files are complete. */
+	bool PublishAfterVideo()
+	{
+		if (Capture.IsVideoFinalizing() && FPlatformTime::Seconds() - VideoStopWall < 45.0) { return false; }
+		VideoFinalizeWait = FPlatformTime::Seconds() - VideoStopWall;
+		if (Capture.HasVideo())
+		{
+			Check(TEXT("video_finalized"), !Capture.IsVideoFinalizing(),
+				FString::Printf(TEXT("Recorder finished %.2f s after the session stopped"), VideoFinalizeWait));
+		}
 		if (Mode != TEXT("disabled") && !Directory.IsEmpty())
 		{
 			// Contact markers carry the reaction-review payload: stage, hit, attacker, victim, region,
@@ -858,6 +1077,21 @@ private:
 			}
 			Result->SetBoolField(TEXT("victim_dead_at_interruption"), bVictimDeadAtInterruption);
 			Result->SetNumberField(TEXT("weapon_contact_markers"), WeaponContactMarkers); Result->SetNumberField(TEXT("paired_contact_markers"), PairedContactMarkers);
+			Result->SetNumberField(TEXT("committed_contact_markers"), CommittedContactMarkers);
+			Result->SetArrayField(TEXT("viewport_px"), {MakeShared<FJsonValueNumber>(ViewportSize.X), MakeShared<FJsonValueNumber>(ViewportSize.Y)});
+			if (VideoRequest.bEnabled)
+			{
+				auto VideoResult = MakeShared<FJsonObject>();
+				VideoResult->SetNumberField(TEXT("requested_fps"), VideoRequest.FramesPerSecond);
+				VideoResult->SetNumberField(TEXT("requested_resolution"), VideoRequest.Resolution);
+				VideoResult->SetNumberField(TEXT("requested_seconds"), VideoRequest.Seconds);
+				VideoResult->SetBoolField(TEXT("started"), Capture.HasVideo());
+				VideoResult->SetStringField(TEXT("directory"), Capture.GetVideoDirectory());
+				VideoResult->SetStringField(TEXT("link"), Capture.GetLinkPath());
+				VideoResult->SetBoolField(TEXT("finalized"), Capture.HasVideo() && !Capture.IsVideoFinalizing());
+				VideoResult->SetNumberField(TEXT("finalize_wait_s"), VideoFinalizeWait);
+				Result->SetObjectField(TEXT("video"), VideoResult);
+			}
 			if (bRequested && Definition->GetStringField(TEXT("scenario")) == TEXT("FinisherRecovery"))
 			{
 				Result->SetNumberField(TEXT("victim_health_at_request"), VictimHealthAtRequest);
@@ -894,7 +1128,7 @@ private:
 	void Cleanup()
 	{
 		RestoreMovementExperiment();
-		if (Capture.IsRecording()) { FString Unused; Capture.Stop(TEXT("fixture_destroyed"), Unused); }
+		{ FString Unused; Capture.Stop(TEXT("fixture_destroyed"), Unused); } // Unconditional: also finalizes video and its link.
 		if (Player.IsValid())
 		{
 			Inject(Player->LightAttackAction, FInputActionValue(false)); Inject(Player->HeavyAttackAction, FInputActionValue(false)); Inject(Player->MoveAction, FInputActionValue(FVector2D::ZeroVector));
@@ -951,6 +1185,11 @@ private:
 	TArray<FName> AssetRoots;
 	FVector Base, OriginalMeshLocation;
 	FIntPoint OriginalViewportSize = FIntPoint::ZeroValue;
+	FIntPoint ViewportSize = FIntPoint::ZeroValue;
+	FScenarioVideoRequest VideoRequest = FScenarioVideoRequest::FromCommandLine();
+	double VideoStopWall = 0, VideoFinalizeWait = 0;
+	bool bCaptureStopped = false;
+	int32 CommittedContactMarkers = 0;
 	EVisibilityBasedAnimTickOption OriginalPlayerTick, OriginalVictimTick;
 	double StartWall = 0, BeginSimulation = 0, PairedStart = 0, RecoveryStart = 0;
 	TOptional<double> ExpectedPrimarySyncTime, FirstLethalMontageTime, InterruptionMontageTime;
@@ -997,10 +1236,9 @@ bool FCombatRecoveryScenarioTest::RunTest(const FString& Parameters)
 	}
 	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(Definition->GetObjectField(TEXT("maps"))->GetStringField(Map)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitForShadersToFinishCompiling());
-	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
+	const TSharedPtr<FPlaySettingsSnapshot> PlaySettings = QueueScenarioPIE();
 	ADD_LATENT_AUTOMATION_COMMAND(FCombatRecoveryScenario(this, Definition, Map, Variant));
-	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	QueueScenarioEnd(PlaySettings);
 	return true;
 }
 
@@ -1025,9 +1263,8 @@ bool FHoldReleaseRecoveryScenarioTest::RunTest(const FString& Parameters)
 	}
 	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(Definition->GetObjectField(TEXT("maps"))->GetStringField(Map)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitForShadersToFinishCompiling());
-	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
+	const TSharedPtr<FPlaySettingsSnapshot> PlaySettings = QueueScenarioPIE();
 	ADD_LATENT_AUTOMATION_COMMAND(FCombatRecoveryScenario(this, Definition, Map, Variant));
-	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	QueueScenarioEnd(PlaySettings);
 	return true;
 }
