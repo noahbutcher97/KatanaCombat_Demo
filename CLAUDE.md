@@ -305,8 +305,9 @@ new capture/analysis tooling; native extraction does not complete the paired
 preview/evaluation or offline orchestration migration.
 
 The PresentationCapture video recorder is pinned the same way: `Tools/PresentationCapture/dependency.json`
-names its local repository and commit, setup generates the ignored `Plugins/PresentationCapture` and builds its
-two worker executables, and a stale or incomplete copy stops the build with `[PresentationCapture pin mismatch]`.
+names its private GitHub repository and commit (`--repository` overrides it for local plugin work), setup
+generates the ignored `Plugins/PresentationCapture` and builds its two worker executables, CI installs it in the
+self-hosted job, and a stale or incomplete copy stops the build with `[PresentationCapture pin mismatch]`.
 Both pins share `Tools/PluginDependencies/pinned_plugin.py`. Only the core recorder is installed, not its
 AnimationAnalysis bridge. `FCombatCaptureSession` owns the link between the clip and the data session.
 
@@ -617,9 +618,12 @@ Player Input → CombatComponent::ExecuteAction()
 
 **RHI (RTX 5090 Laptop GPU, UE 5.6)**: D3D11 stays the default (`Config/DefaultEngine.ini:47`). The workaround was
 for D3D12 crashes on driver 581.57. A 2026-10-03 spike on driver 617.14 did not reproduce a crash in 11 offscreen
-`-dx12` PIE launches, but D3D12 ran slower and hitchier: 44-49 against 57-59 FPS, and every D3D12 run had frames
-over 60 ms (maxima 93-219 ms). That is "not reproduced offscreen", not "fixed": the original note concerned the
-on-screen editor, and AnimationAnalysis async, surface and GPU-mesh capture are D3D11-only. Use `-dx12` per
-launch (`run_scenario.py --rhi dx12`) when D3D12 is wanted.
+`-dx12` PIE launches. That is "not reproduced in 11 offscreen PIE launches", not "fixed": the original note
+concerned batch operations and animation previews in the on-screen editor, which the spike did not exercise.
+D3D12 was slower and hitchier in the spike runs: 44-49 against 57-59 FPS, a comparison that excludes the two runs
+with detected CPU contention (35 and 38.6 FPS); every D3D12 spike run had 2-9 frames over 60 ms (per-run maxima
+93-219 ms) against peaks of 63-68 ms on unloaded D3D11. The cause of the gap is unverified (hypotheses: runtime
+PSO creation, SM6 render cost, CPU contention). AnimationAnalysis async, surface and GPU-mesh capture are
+D3D11-only. Use `-dx12` per launch (`run_scenario.py --rhi dx12`) when D3D12 is wanted.
 
 **Plugin Conflicts**: 14 conflicting marketplace plugins disabled in `KatanaCombat.uproject:53-109`. Only enabled: ModelingToolsEditorMode, StateTree, GameplayStateTree, MotionWarping.

@@ -43,9 +43,9 @@ Combat.Capture.Mark recovery_finished
 Combat.Capture.Stop
 ```
 
-Start arguments are `[Scenario] [MaxWallSeconds=60] [FrameHz=5] [SampleHz=60]`, positional or as `Name=Value`, followed by optional `Video=1 VideoFPS=60 VideoResolution=720 VideoSeconds=0` (see [Video capture](#video-capture)). The example records for at most 30 wall-clock seconds, requests five PNGs and 60 motion samples per simulation second, and labels the session `LightAttackRecovery`. Perform the interaction normally between commands. Set frame rate to `0` for telemetry/motion only. A manual marker records when its command executes; input telemetry carries the actual combat input timestamps. The console recorder also writes `contact` markers for every hit, block and parry between two recorded characters.
+Start arguments are `[Scenario] [MaxWallSeconds=60] [FrameHz=5] [SampleHz=60]`, positional or as `Name=Value`, followed by optional `Video=1 VideoFPS=60 VideoResolution=720 VideoSeconds=0` (see [Video capture](#video-capture)). The example records for at most 30 wall-clock seconds, requests five PNGs and 60 motion samples per simulation second, and labels the session `LightAttackRecovery`. Perform the interaction normally between commands. Set frame rate to `0` for telemetry/motion only. A manual marker records when its command executes; input telemetry carries the actual combat input timestamps. The console recorder also marks every hit and block between two recorded characters (`contact`) and every perfect parry (`defense`).
 
-Each recording gets a unique `Saved/CombatCaptures/<UTC>-<GUID>/` directory, printed in the log. Stop, a configured limit, PIE teardown, or editor-module shutdown finalizes it. Existing recordings are preserved. One recording can be active at a time. Capture temporarily enables the existing action/reaction and defense telemetry switches, then restores their previous values. It does not clear existing component telemetry or change actors, cameras, animation ticking, combat decisions, or assets.
+Each recording gets a unique `Saved/CombatCaptures/<UTC>-<GUID>/` directory, printed in the log. Stop, a configured limit, PIE teardown, or editor-module shutdown finalizes it; with video, each of those paths also stops the clip and finalizes `capture-link.json` with how the capture ended. Existing recordings are preserved. One recording can be active at a time. Capture temporarily enables the existing action/reaction and defense telemetry switches, then restores their previous values. It does not clear existing component telemetry or change actors, cameras, animation ticking, combat decisions, or assets.
 
 Console discovery enrolls the characters present at start, sorted by actor path. Roles are `Player1`, `Character1`, etc.; inspect `session.json` to see the actual mapping. New spawns are not enrolled automatically. For specific role names, non-character actors, explicit meshes, or custom bone/socket points, use the C++ API below. With multiple PIE worlds, use the intended world's console or pass that world explicitly to the API.
 
@@ -189,8 +189,9 @@ quality verdicts.
 ## Video capture
 
 One capture can hold both the data session and an MP4 of what the player saw. The video comes from
-[PresentationCapture](../../Tools/PresentationCapture/README.md), pinned like AnimationAnalysis: run
-`python Tools/PresentationCapture/setup_dependency.py` before building a fresh checkout. It reads the real
+[PresentationCapture](../../Tools/PresentationCapture/README.md), pinned like AnimationAnalysis to its private
+GitHub repository (Git credentials need read access): run `python Tools/PresentationCapture/setup_dependency.py`
+before building a fresh checkout. The self-hosted CI job installs it the same way. It reads the real
 PIE backbuffer, encodes H.264 out of process and stamps each frame with its acquisition time
 (variable frame rate). It needs a rendering editor: `-RenderOffScreen` works, `-NullRHI` cannot record,
 so the baseline never exercises it.
@@ -208,7 +209,10 @@ created. Starting the encoder blocks the game thread for 0.1-0.2 s, after the da
 acquisition time, `expectedPTSSeconds`), its telemetry `manifest.json` (per game frame platform seconds)
 and the encoder log. `Stop` stops the clip first and returns; the encoder then finalizes on later ticks,
 so wait for `FCombatCaptureSession::IsVideoFinalizing()` to clear (or for `video-manifest.json`) before
-reading it. The scenario driver waits before publishing `scenario.json`.
+reading it. The scenario driver waits before publishing `scenario.json`. Without `Stop`, the clip still ends
+with the capture: when PIE ends (link status `stopped_by_pie_end`), when the data session stops itself at a
+limit (`stopped_by_analysis_session`, with the session's stop reason) or when the session object is destroyed
+(`stopped_by_teardown`); `Stop` writes `stopped`. Each path releases the recorder channel that names the bundle.
 
 **Link.** `capture-link.json` holds the clip's relative directory, capture, clock and world identities,
 and both start instants as engine frame, platform time and world time. AnimationAnalysis's
@@ -255,10 +259,18 @@ The gate grades the recording, never the combat: it does not change the mechanic
 Encoding is software Media Foundation H.264, so CPU load from other processes, not the RHI, drives most
 pressure; record on an idle machine.
 
+**References.** Video runs are not eligible as mechanical references: they record no PNG frames, so
+`visual.window_evidence` is `not_run` and `summarize_runs.py --reference-captures` rejects them. Select
+references from ordinary rendered runs. The clip and its review outputs (`video/`, `video-review/`) are
+excluded from the bundle identity, so a recorder still finalizing or review frames written after evaluation
+cannot change a run's identity or mechanical result.
+
 **Scenario runs.** `run_scenario.py --mode rendered --video` records the registered scenario with a clip
 (`--video-resolution`, `--video-fps`), sizes `-ResX`/`-ResY` to the box and writes `video_quality`, the
 reasons and the join into `run.json` beside the unchanged mechanical `status`. `--rhi dx12` or `--rhi d3d11`
-forces an RHI for that launch; `run.json` records the RHI the editor log shows. Runner provenance includes
+forces an RHI for that launch; `run.json` records the RHI the editor log shows. A malformed or missing clip
+becomes `video_quality: invalid` with the error; it never fails the batch. Video runs restore the editor's
+"New Editor Window (PIE)" size and position settings, which the engine otherwise saves from the fitted window. Runner provenance includes
 the recorder pin, its generated source, DLL and worker executables. The motion `report.html` links the
 video review.
 
@@ -267,7 +279,8 @@ updates a detached sibling worktree (`<main checkout>-capture-run` by default) a
 plugin setups present at that revision (reusing this checkout's AnimationAnalysis pin clone), builds with
 `-WaitMutex` and prints the `run_scenario.py` command, with `--skip-build`. Captures then measure a
 committed revision, unaffected by edits in progress elsewhere. It refuses a target with tracked or
-untracked changes, an ordinary directory, a worktree it did not create and the main checkout. It never
+untracked changes, an ordinary directory, a worktree it did not create, the main checkout, and a worktree
+whose HEAD holds commits no branch or tag contains (they would be left to the reflog). It never
 deletes, cleans, resets or force-checks-out; ownership and history live in the ignored
 `Saved/capture-worktree.json`. A fresh worktree checks out its LFS content and builds from scratch, and the
 runner's isolated `Saved/CombatCaptureCache` derived-data cache starts cold.

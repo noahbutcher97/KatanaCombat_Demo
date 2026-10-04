@@ -24,8 +24,9 @@ A capture is evidence for review, not a verdict. Report what the frames show, wi
    ```
 
    It creates or updates the detached sibling `<main checkout>-capture-run`, runs the AnimationAnalysis and
-   PresentationCapture setups, builds with `-WaitMutex`, and prints `CAPTURE_WORKTREE=<path>` and the run
-   command. It refuses a target with uncommitted changes or one it did not create, and never deletes anything.
+   PresentationCapture setups (both clone from GitHub; PresentationCapture's repository is private), builds with
+   `-WaitMutex`, and prints `CAPTURE_WORKTREE=<path>` and the run command. It refuses a target with uncommitted
+   changes, one it did not create, or one holding commits no branch contains, and never deletes anything.
 3. Run the scenario from that worktree, on an idle machine (contention degrades the clip):
 
    ```powershell
@@ -38,8 +39,9 @@ A capture is evidence for review, not a verdict. Report what the frames show, wi
    (`--scenario Tools/CombatCapture/scenarios/hold-release-recovery.json`).
 
 Ordinary PIE (a person playing, or an ad hoc check): in the PIE console run
-`Combat.Capture.Start <Name> 30 0 60 Video=1`, play, then `Combat.Capture.Stop`. Wait for the log line about
-finalization, then run `python Tools/CombatCapture/video_capture.py Saved/CombatCaptures/<bundle>`. That clip is
+`Combat.Capture.Start <Name> 30 0 60 Video=1`, play, then `Combat.Capture.Stop` (ending PIE also finalizes it).
+The encoder finishes after Stop: wait until `video/<captureId>/video-manifest.json` exists in the bundle, then run
+`python Tools/CombatCapture/video_capture.py Saved/CombatCaptures/<bundle>`. That clip is
 the level viewport scaled to the output box; scenario clips are native.
 
 ## Where Outputs Land
@@ -81,6 +83,7 @@ the level viewport scaled to the output box; scenario clips are native.
 - `invalid`: no complete, consistent clip (unfinalized, counts or PTS disagree). Read the reasons.
 
 The gate never changes the mechanical status, and the mechanical status never vouches for the clip.
+Video runs cannot serve as mechanical references (no PNG frames); pick references from ordinary rendered runs.
 
 ## Retention
 
