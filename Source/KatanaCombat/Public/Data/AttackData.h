@@ -441,5 +441,14 @@ public:
      * @return True if validation passed
      */
     bool ValidateTerminalTag(TArray<FText>& Errors) const;
+
+    /**
+     * Validate a charged heavy's hold ordering
+     * A heavy attack with a ChargeLoopSection must start its AnimNotify_HoldWindowStart strictly before
+     * the section's Active AnimNotify_AttackPhaseTransition; otherwise the hold carries Active into the loop
+     * @param Errors - Accumulated error messages
+     * @return True if validation passed
+     */
+    bool ValidateChargedHoldOrdering(TArray<FText>& Errors) const;
 #endif
 };

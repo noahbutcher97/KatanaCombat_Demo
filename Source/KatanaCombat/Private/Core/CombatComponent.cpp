@@ -4759,6 +4759,10 @@ bool UCombatComponent::OnHoldWindowStartWithContext(
 				if (bActivated)
 				{
 					HoldState.MarkHoldCompleted();
+					if (CurrentPhase == EAttackPhase::Active)
+					{
+						ReturnActivePhaseToChargeWindup(MontageInstanceId);
+					}
 				}
 
 				if (CombatDebug::IsHoldDebugEnabled())
@@ -5431,6 +5435,36 @@ bool UCombatComponent::CloseHitWindowFromPhaseTransition(
 	return true;
 }
 
+void UCombatComponent::ReturnActivePhaseToChargeWindup(const int32 MontageInstanceId)
+{
+	// A charged hold jumps this montage instance to its charge loop, skipping the section's Recovery. The
+	// strike now belongs to the release section, whose own Active and Recovery transitions open and close
+	// its hit window. Retire the skipped section's Hit window (same attack generation, same instance) so
+	// the loop carries no open window and the release's Recovery closes the window the release opened,
+	// then return to Windup, which also stops weapon traces for the loop.
+	FAttackInstanceId CurrentAttack;
+	CurrentAttack.Attacker = GetOwner();
+	CurrentAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
+	const int32 RetiredWindows = OpenAttackWindowRecords.RemoveAll(
+		[&CurrentAttack, MontageInstanceId](const FAttackWindowInstanceId& Candidate)
+		{
+			return Candidate.Kind == EAttackWindowKind::Hit
+				&& Candidate.AttackInstance == CurrentAttack
+				&& Candidate.MontageInstanceId == MontageInstanceId;
+		});
+	if (ActiveHitWindow.IsValid()
+		&& ActiveHitWindow.AttackInstance == CurrentAttack
+		&& ActiveHitWindow.MontageInstanceId == MontageInstanceId)
+	{
+		ActiveHitWindow = {};
+	}
+	if (RetiredWindows > 0)
+	{
+		RequestDefenderThreatRefresh(AttackIntentTarget.Get(), EThreatRefreshReason::WindowChanged);
+	}
+	SetPhase(EAttackPhase::Windup);
+}
+
 void UCombatComponent::ClearPublishedAttackWindowsForAttack(const FAttackInstanceId& AttackInstance)
 {
 	if (!AttackInstance.IsValid())
@@ -5525,6 +5559,18 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 			if (CombatDebug::IsPhaseDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[PHASE] Recovery entered - Hit detection DISABLED"));
+			}
+			break;
+
+		case EAttackPhase::Windup:
+			// Hit detection belongs to Active only. Leaving Active for Windup (a charged hold re-arming
+			// its strike for the release section) stops traces until the next Active transition.
+			if (OldPhase == EAttackPhase::Active)
+			{
+				if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+				{
+					ICombatInterface::Execute_OnDisableHitDetection(Character);
+				}
 			}
 			break;
 

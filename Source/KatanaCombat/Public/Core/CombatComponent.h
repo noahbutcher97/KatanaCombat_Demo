@@ -1273,6 +1273,8 @@ protected:
 	bool CloseHitWindowFromPhaseTransition(
 		const FAnimNotifyRuntimeSourceId& CloseSource,
 		int32 MontageInstanceId);
+	/** A charged hold started inside Active: retire that section's Hit window and return to Windup. */
+	void ReturnActivePhaseToChargeWindup(int32 MontageInstanceId);
 	void ClearPublishedAttackWindowsForAttack(const FAttackInstanceId& AttackInstance);
 
 	/** Match press/release pairs */

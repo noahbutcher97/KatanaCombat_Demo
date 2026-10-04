@@ -4,6 +4,7 @@
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotifyState_AttackPhase.h"
 #include "Animation/AnimNotify_AttackPhaseTransition.h"
+#include "Animation/AnimNotify_HoldWindowStart.h"
 
 #if WITH_EDITOR
 #include "Misc/DataValidation.h"
@@ -313,6 +314,7 @@ EDataValidationResult UAttackData::IsDataValid(FDataValidationContext& Context) 
     const bool bHasCycles = DetectCycles(Visited, ValidationErrors);
     const bool bDirectionalValid = ValidateDirectionalFollowUps(ValidationErrors);
     const bool bTerminalValid = ValidateTerminalTag(ValidationErrors);
+    const bool bChargedHoldValid = ValidateChargedHoldOrdering(ValidationErrors);
 
     // PT-17 NOTE: String-based error filtering
     // ==========================================
@@ -526,6 +528,61 @@ bool UAttackData::ValidateTerminalTag(TArray<FText>& Errors) const
     }
 
     return bIsValid;
+}
+
+bool UAttackData::ValidateChargedHoldOrdering(TArray<FText>& Errors) const
+{
+    // A charged heavy jumps to ChargeLoopSection when its hold window starts (CLAUDE.md rule 4: the
+    // button is checked at window start). If the section's Active transition fires first, the attack
+    // enters the loop already Active, so the hold must start strictly before Active. Light holds ease the
+    // play rate in place and are not section jumps, so they are not checked here.
+    if (AttackType != EAttackType::Heavy || ChargeLoopSection.IsNone() || !AttackMontage)
+    {
+        return true;
+    }
+
+    float SectionStart = 0.0f;
+    float SectionEnd = 0.0f;
+    GetSectionTimeRange(SectionStart, SectionEnd);
+    TOptional<float> FirstHold;
+    TOptional<float> FirstActive;
+    for (const FAnimNotifyEvent& NotifyEvent : AttackMontage->Notifies)
+    {
+        const float TriggerTime = NotifyEvent.GetTriggerTime();
+        if (TriggerTime < SectionStart || TriggerTime >= SectionEnd)
+        {
+            continue;
+        }
+        if (Cast<UAnimNotify_HoldWindowStart>(NotifyEvent.Notify))
+        {
+            FirstHold = FirstHold.IsSet() ? FMath::Min(FirstHold.GetValue(), TriggerTime) : TriggerTime;
+        }
+        else if (const UAnimNotify_AttackPhaseTransition* Transition =
+            Cast<UAnimNotify_AttackPhaseTransition>(NotifyEvent.Notify))
+        {
+            if (Transition->TransitionToPhase == EAttackPhase::Active)
+            {
+                FirstActive = FirstActive.IsSet()
+                    ? FMath::Min(FirstActive.GetValue(), TriggerTime)
+                    : TriggerTime;
+            }
+        }
+    }
+
+    if (FirstHold.IsSet() && FirstActive.IsSet() && FirstActive.GetValue() <= FirstHold.GetValue())
+    {
+        Errors.Add(FText::FromString(FString::Printf(
+            TEXT("%s: Charged hold in section '%s' of '%s' starts at %.4fs, not before the Active transition at %.4fs. The hold jumps to '%s', so the attack would enter the charge loop already Active; move AnimNotify_HoldWindowStart before the Active AnimNotify_AttackPhaseTransition."),
+            *GetName(),
+            *MontageSection.ToString(),
+            *AttackMontage->GetName(),
+            FirstHold.GetValue(),
+            FirstActive.GetValue(),
+            *ChargeLoopSection.ToString()
+        )));
+        return false;
+    }
+    return true;
 }
 
 #endif // WITH_EDITOR
