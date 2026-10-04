@@ -444,8 +444,9 @@ public:
 
     /**
      * Validate a charged heavy's hold ordering
-     * A heavy attack with a ChargeLoopSection must start its AnimNotify_HoldWindowStart strictly before
-     * the section's Active AnimNotify_AttackPhaseTransition; otherwise the hold carries Active into the loop
+     * A heavy attack with a ChargeLoopSection must start every AnimNotify_HoldWindowStart in its section, of
+     * any input, strictly before the section's first Active AnimNotify_AttackPhaseTransition; any of them can
+     * start the charge, and one after Active carries Active into the loop. One error per late hold notify.
      * @param Errors - Accumulated error messages
      * @return True if validation passed
      */

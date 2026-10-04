@@ -532,10 +532,14 @@ bool UAttackData::ValidateTerminalTag(TArray<FText>& Errors) const
 
 bool UAttackData::ValidateChargedHoldOrdering(TArray<FText>& Errors) const
 {
-    // A charged heavy jumps to ChargeLoopSection when its hold window starts (CLAUDE.md rule 4: the
-    // button is checked at window start). If the section's Active transition fires first, the attack
-    // enters the loop already Active, so the hold must start strictly before Active. Light holds ease the
-    // play rate in place and are not section jumps, so they are not checked here.
+    // A charged heavy jumps to ChargeLoopSection when a hold window starts with its button held (the button
+    // state is checked once, when the window starts). If the section's Active transition fires first, the
+    // attack enters the loop already Active, so the hold must start strictly before Active. The runtime
+    // (UCombatComponent::OnHoldWindowStartWithContext) accepts any hold notify whose own input is held at that
+    // moment and never matches that input to the Heavy: when an earlier notify's button is not held, a later
+    // notify still starts the charge. So every hold notify in the section must precede the section's first
+    // Active, whatever input it names. Light holds ease the play rate in place and are not section jumps, so
+    // they are not checked here.
     if (AttackType != EAttackType::Heavy || ChargeLoopSection.IsNone() || !AttackMontage)
     {
         return true;
@@ -544,7 +548,12 @@ bool UAttackData::ValidateChargedHoldOrdering(TArray<FText>& Errors) const
     float SectionStart = 0.0f;
     float SectionEnd = 0.0f;
     GetSectionTimeRange(SectionStart, SectionEnd);
-    TOptional<float> FirstHold;
+    struct FHoldPlacement
+    {
+        float TriggerTime = 0.0f;
+        EInputType InputType = EInputType::None;
+    };
+    TArray<FHoldPlacement> Holds;
     TOptional<float> FirstActive;
     for (const FAnimNotifyEvent& NotifyEvent : AttackMontage->Notifies)
     {
@@ -553,9 +562,9 @@ bool UAttackData::ValidateChargedHoldOrdering(TArray<FText>& Errors) const
         {
             continue;
         }
-        if (Cast<UAnimNotify_HoldWindowStart>(NotifyEvent.Notify))
+        if (const UAnimNotify_HoldWindowStart* Hold = Cast<UAnimNotify_HoldWindowStart>(NotifyEvent.Notify))
         {
-            FirstHold = FirstHold.IsSet() ? FMath::Min(FirstHold.GetValue(), TriggerTime) : TriggerTime;
+            Holds.Add({TriggerTime, Hold->InputType});
         }
         else if (const UAnimNotify_AttackPhaseTransition* Transition =
             Cast<UAnimNotify_AttackPhaseTransition>(NotifyEvent.Notify))
@@ -569,20 +578,33 @@ bool UAttackData::ValidateChargedHoldOrdering(TArray<FText>& Errors) const
         }
     }
 
-    if (FirstHold.IsSet() && FirstActive.IsSet() && FirstActive.GetValue() <= FirstHold.GetValue())
+    if (!FirstActive.IsSet())
     {
+        return true;
+    }
+
+    bool bIsValid = true;
+    for (const FHoldPlacement& Hold : Holds)
+    {
+        if (Hold.TriggerTime < FirstActive.GetValue())
+        {
+            continue;
+        }
+        const FString InputName = StaticEnum<EInputType>()->GetNameStringByValue(static_cast<int64>(Hold.InputType));
         Errors.Add(FText::FromString(FString::Printf(
-            TEXT("%s: Charged hold in section '%s' of '%s' starts at %.4fs, not before the Active transition at %.4fs. The hold jumps to '%s', so the attack would enter the charge loop already Active; move AnimNotify_HoldWindowStart before the Active AnimNotify_AttackPhaseTransition."),
+            TEXT("%s: Charged hold (%s) in section '%s' of '%s' starts at %.4fs, not before the Active transition at %.4fs. A held %s at this notify jumps to '%s', so the attack would enter the charge loop already Active; move every AnimNotify_HoldWindowStart in the section before its first Active AnimNotify_AttackPhaseTransition."),
             *GetName(),
+            *InputName,
             *MontageSection.ToString(),
             *AttackMontage->GetName(),
-            FirstHold.GetValue(),
+            Hold.TriggerTime,
             FirstActive.GetValue(),
+            *InputName,
             *ChargeLoopSection.ToString()
         )));
-        return false;
+        bIsValid = false;
     }
-    return true;
+    return bIsValid;
 }
 
 #endif // WITH_EDITOR
