@@ -97,6 +97,61 @@ struct FScenarioVideoRequest
 };
 
 /**
+ * When PIE ends, the engine copies a floating PIE window's size and position into the editor play
+ * settings and saves them to the checkout's per-user config (UEditorEngine::EndPlayMap). A video run
+ * must not change the user's "New Editor Window (PIE)" settings, so it restores what was there.
+ */
+struct FPlaySettingsSnapshot
+{
+	TArray<FIntPoint> MultipleInstancePositions;
+	FIntPoint LastSize = FIntPoint::ZeroValue, NewWindowPosition = FIntPoint::ZeroValue;
+	int32 NewWindowWidth = 0, NewWindowHeight = 0;
+	bool bCenterNewWindow = false, bTaken = false;
+
+	void Take()
+	{
+		const ULevelEditorPlaySettings* Settings = GetDefault<ULevelEditorPlaySettings>();
+		MultipleInstancePositions = Settings->MultipleInstancePositions;
+		LastSize = Settings->LastSize;
+		NewWindowPosition = Settings->NewWindowPosition;
+		NewWindowWidth = Settings->NewWindowWidth;
+		NewWindowHeight = Settings->NewWindowHeight;
+		bCenterNewWindow = Settings->CenterNewWindow;
+		bTaken = true;
+	}
+	void Restore()
+	{
+		if (!bTaken) { return; }
+		ULevelEditorPlaySettings* Settings = GetMutableDefault<ULevelEditorPlaySettings>();
+		Settings->MultipleInstancePositions = MultipleInstancePositions;
+		Settings->LastSize = LastSize;
+		Settings->NewWindowPosition = NewWindowPosition;
+		Settings->NewWindowWidth = NewWindowWidth;
+		Settings->NewWindowHeight = NewWindowHeight;
+		Settings->CenterNewWindow = bCenterNewWindow;
+		Settings->SaveConfig();
+		bTaken = false;
+	}
+};
+
+/** Restores the play settings once PIE has really ended (EndPlayMap runs on a later editor tick). */
+class FRestorePlaySettingsCommand : public IAutomationLatentCommand
+{
+public:
+	explicit FRestorePlaySettingsCommand(TSharedRef<FPlaySettingsSnapshot> InSnapshot) : Snapshot(InSnapshot) {}
+	bool Update() override
+	{
+		if (StartWall == 0) { StartWall = FPlatformTime::Seconds(); }
+		if (GEditor && GEditor->PlayWorld && FPlatformTime::Seconds() - StartWall < 10) { return false; }
+		Snapshot->Restore();
+		return true;
+	}
+private:
+	TSharedRef<FPlaySettingsSnapshot> Snapshot;
+	double StartWall = 0;
+};
+
+/**
  * Starts PIE in its own window whose client area is exactly the requested size. The recorder
  * reads the viewport widget's area of the window backbuffer, so the widget must match the output
  * box to record without scaling. In the level editor viewport the widget size comes from the
@@ -105,9 +160,10 @@ struct FScenarioVideoRequest
 class FStartPIEInWindowCommand : public IAutomationLatentCommand
 {
 public:
-	explicit FStartPIEInWindowCommand(FIntPoint InSize) : Size(InSize) {}
+	FStartPIEInWindowCommand(FIntPoint InSize, TSharedRef<FPlaySettingsSnapshot> InSnapshot) : Size(InSize), Snapshot(InSnapshot) {}
 	bool Update() override
 	{
+		Snapshot->Take();
 		ULevelEditorPlaySettings* PlaySettings = NewObject<ULevelEditorPlaySettings>(GetTransientPackage()); // Starts from the user's defaults.
 		PlaySettings->NewWindowWidth = Size.X;
 		PlaySettings->NewWindowHeight = Size.Y;
@@ -121,6 +177,7 @@ public:
 	}
 private:
 	FIntPoint Size;
+	TSharedRef<FPlaySettingsSnapshot> Snapshot;
 };
 
 /**
@@ -162,15 +219,25 @@ private:
 	int32 Attempts = 0, SettleFrames = 0;
 };
 
-void QueueScenarioPIE()
+TSharedPtr<FPlaySettingsSnapshot> QueueScenarioPIE()
 {
 	const FScenarioVideoRequest Video = FScenarioVideoRequest::FromCommandLine();
-	if (Video.bEnabled)
+	if (!Video.bEnabled)
 	{
-		ADD_LATENT_AUTOMATION_COMMAND(FStartPIEInWindowCommand(Video.Size()));
-		ADD_LATENT_AUTOMATION_COMMAND(FFitPIEViewportCommand(Video.Size()));
+		ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
+		return nullptr;
 	}
-	else { ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false)); }
+	TSharedRef<FPlaySettingsSnapshot> Snapshot = MakeShared<FPlaySettingsSnapshot>();
+	ADD_LATENT_AUTOMATION_COMMAND(FStartPIEInWindowCommand(Video.Size(), Snapshot));
+	ADD_LATENT_AUTOMATION_COMMAND(FFitPIEViewportCommand(Video.Size()));
+	return Snapshot;
+}
+
+void QueueScenarioEnd(const TSharedPtr<FPlaySettingsSnapshot>& Snapshot)
+{
+	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	if (Snapshot.IsValid()) { ADD_LATENT_AUTOMATION_COMMAND(FRestorePlaySettingsCommand(Snapshot.ToSharedRef())); }
 }
 
 class FCombatRecoveryScenario : public IAutomationLatentCommand
@@ -950,7 +1017,12 @@ private:
 		FString Error;
 		Capture.GetContactCounts(WeaponContactMarkers, PairedContactMarkers);
 		if (Capture.IsRecording()) { Check(TEXT("capture_export"), Capture.Stop(TEXT("scenario_finished"), Error), Error); }
-		else if (Mode != TEXT("disabled") && !Directory.IsEmpty()) { Check(TEXT("capture_export"), false, TEXT("Recorder stopped before the scenario")); }
+		else
+		{
+			if (Mode != TEXT("disabled") && !Directory.IsEmpty()) { Check(TEXT("capture_export"), false, TEXT("Recorder stopped before the scenario")); }
+			// The data session stopped itself; Stop still stops the clip and finalizes the link.
+			FString Unused; Capture.Stop(TEXT("scenario_finished"), Unused);
+		}
 		CommittedContactMarkers = Capture.GetCommittedContactCount();
 		VideoStopWall = FPlatformTime::Seconds();
 		return PublishAfterVideo();
@@ -1050,7 +1122,7 @@ private:
 	void Cleanup()
 	{
 		RestoreMovementExperiment();
-		if (Capture.IsRecording()) { FString Unused; Capture.Stop(TEXT("fixture_destroyed"), Unused); }
+		{ FString Unused; Capture.Stop(TEXT("fixture_destroyed"), Unused); } // Unconditional: also finalizes video and its link.
 		if (Player.IsValid())
 		{
 			Inject(Player->LightAttackAction, FInputActionValue(false)); Inject(Player->HeavyAttackAction, FInputActionValue(false)); Inject(Player->MoveAction, FInputActionValue(FVector2D::ZeroVector));
@@ -1158,10 +1230,9 @@ bool FCombatRecoveryScenarioTest::RunTest(const FString& Parameters)
 	}
 	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(Definition->GetObjectField(TEXT("maps"))->GetStringField(Map)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitForShadersToFinishCompiling());
-	QueueScenarioPIE();
+	const TSharedPtr<FPlaySettingsSnapshot> PlaySettings = QueueScenarioPIE();
 	ADD_LATENT_AUTOMATION_COMMAND(FCombatRecoveryScenario(this, Definition, Map, Variant));
-	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	QueueScenarioEnd(PlaySettings);
 	return true;
 }
 
@@ -1186,9 +1257,8 @@ bool FHoldReleaseRecoveryScenarioTest::RunTest(const FString& Parameters)
 	}
 	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(Definition->GetObjectField(TEXT("maps"))->GetStringField(Map)));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitForShadersToFinishCompiling());
-	QueueScenarioPIE();
+	const TSharedPtr<FPlaySettingsSnapshot> PlaySettings = QueueScenarioPIE();
 	ADD_LATENT_AUTOMATION_COMMAND(FCombatRecoveryScenario(this, Definition, Map, Variant));
-	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
-	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	QueueScenarioEnd(PlaySettings);
 	return true;
 }

@@ -35,7 +35,8 @@ public class KatanaCombatTest : ModuleRules
 				"StateTreeModule",  // Enemy AI proof asset validation
 				"GameplayStateTreeModule",
 				"Slate",            // Scenario video: size the PIE window's viewport widget
-				"SlateCore"
+				"SlateCore",
+				"PresentationCapture" // Video teardown: the recorder channel must be released
 			});
 		}
 

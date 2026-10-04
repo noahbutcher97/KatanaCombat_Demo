@@ -4,6 +4,7 @@
 #include "CombatTestHelpers.h"
 #include "Characters/EnemyCharacter.h"
 #include "Characters/PlayerCharacter.h"
+#include "CombatTypes.h"
 #include "Core/CombatComponent.h"
 #include "Core/WeaponComponent.h"
 #include "Data/AttackData.h"
@@ -138,6 +139,81 @@ bool FCombatCaptureCommittedContactTest::RunTest(const FString&)
 		TestEqual(TEXT("Block outcome is recorded"), Fields->GetStringField(TEXT("outcome")), FString(TEXT("NormalBlock")));
 		TestEqual(TEXT("Committed contact source"), Fields->GetStringField(TEXT("source")), FString(TEXT("committed_contact")));
 	}
+
+	World->DestroyActor(Player);
+	World->DestroyActor(Enemy);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+/**
+ * The two labels that keep non-strikes out of contact consumers. The resolver produces a perfect
+ * parry only at the guard press (InputIntent, no physical contact) and ignored outcomes for friendly,
+ * invulnerable, consumed or invalid contacts; neither has a cheap headless fixture, so the resolutions
+ * are broadcast on each defender's own committed-resolution delegate, as the commit paths do.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCombatCaptureContactLabelTest,
+	"KatanaCombat.Capture.CommittedContactLabels", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCombatCaptureContactLabelTest::RunTest(const FString&)
+{
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	World->WorldType = EWorldType::PIE;
+	APlayerCharacter* Player = FCombatTestHelpers::CreateTestPlayerCharacter(World, FVector(100.0f, 0.0f, 0.0f));
+	AEnemyCharacter* Enemy = FCombatTestHelpers::CreateTestEnemyCharacter(World);
+	FCombatCaptureSettings Settings;
+	Settings.Scenario = TEXT("CommittedContactLabels");
+	Settings.FrameHz = 0;
+	FCombatCaptureSession Capture;
+	FString Error;
+	if (!TestTrue(TEXT("Capture starts"), Capture.Start(World, Settings, {CaptureRole(TEXT("Player1"), Player), CaptureRole(TEXT("Character1"), Enemy)}, Error)))
+	{
+		AddError(Error);
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+	TestTrue(TEXT("Participant contact observer binds"), Capture.ObserveParticipantContacts(Error));
+
+	FDefenseResolution Parry;
+	Parry.Stage = EDefenseQueryStage::InputIntent;
+	Parry.Decision.Outcome = EDefenseOutcome::PerfectParry;
+	Parry.Decision.AttackerResponse = EAttackerResponse::ParryStagger;
+	Parry.Decision.AttackInstance.Attacker = Enemy;
+	Player->CombatComponent->OnDefenseResolvedNative.Broadcast(Parry);
+
+	FDefenseResolution Ignored;
+	Ignored.Stage = EDefenseQueryStage::Contact;
+	Ignored.Decision.Outcome = EDefenseOutcome::IgnoredInvalid;
+	Ignored.Decision.AttackInstance.Attacker = Player;
+	Ignored.bHasActualContact = true;
+	Ignored.ActualContact.bIsValid = true;
+	Ignored.ActualContact.HitInfo.Attacker = Player;
+	Ignored.ActualContact.HitInfo.ImpactPoint = Enemy->GetActorLocation();
+	Ignored.ActualContact.HitInfo.WeaponVelocity = FVector(-1000.0f, 0.0f, 0.0f);
+	Enemy->CombatComponent->OnDefenseResolvedNative.Broadcast(Ignored);
+	TestTrue(TEXT("Capture exports"), Capture.Stop(TEXT("labels_observed"), Error));
+
+	const FString Directory = Capture.GetOutputDirectory();
+	TestEqual(TEXT("Neither resolution is a strike"), ReadCaptureMarkers(Directory, TEXT("contact")).Num(), 0);
+	const TArray<TSharedPtr<FJsonObject>> Defense = ReadCaptureMarkers(Directory, TEXT("defense"));
+	if (TestEqual(TEXT("The input-stage parry is one defense marker"), Defense.Num(), 1))
+	{
+		const TSharedPtr<FJsonObject>& Fields = Defense[0]->GetObjectField(TEXT("payload"));
+		TestEqual(TEXT("Parry stage"), Fields->GetStringField(TEXT("stage")), FString(TEXT("defense")));
+		TestEqual(TEXT("Parry outcome"), Fields->GetStringField(TEXT("outcome")), FString(TEXT("PerfectParry")));
+		TestEqual(TEXT("The enemy's attack was parried"), Fields->GetStringField(TEXT("attacker")), FString(TEXT("Character1")));
+		TestEqual(TEXT("The player parried"), Fields->GetStringField(TEXT("victim")), FString(TEXT("Player1")));
+		TestFalse(TEXT("No strike direction without contact"), Fields->HasField(TEXT("direction_cm")));
+	}
+	const TArray<TSharedPtr<FJsonObject>> IgnoredRows = ReadCaptureMarkers(Directory, TEXT("contact_ignored"));
+	if (TestEqual(TEXT("The ignored resolution is one contact_ignored marker"), IgnoredRows.Num(), 1))
+	{
+		const TSharedPtr<FJsonObject>& Fields = IgnoredRows[0]->GetObjectField(TEXT("payload"));
+		TestEqual(TEXT("Ignored stage"), Fields->GetStringField(TEXT("stage")), FString(TEXT("ignored")));
+		TestEqual(TEXT("Ignored outcome"), Fields->GetStringField(TEXT("outcome")), FString(TEXT("IgnoredInvalid")));
+		TestTrue(TEXT("Ignored identity is separate"), Fields->GetStringField(TEXT("hit")).StartsWith(TEXT("ignored-")));
+	}
+	TestEqual(TEXT("Only the parry counts as a committed contact"), Capture.GetCommittedContactCount(), 1);
 
 	World->DestroyActor(Player);
 	World->DestroyActor(Enemy);

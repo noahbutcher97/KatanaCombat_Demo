@@ -9,20 +9,30 @@
 #include "Components/StateTreeComponent.h"
 #include "Core/CombatComponent.h"
 #include "Dom/JsonObject.h"
+#include "Editor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
+#include "HAL/FileManager.h"
 #include "HAL/IConsoleManager.h"
 #include "Misc/App.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "PresentationCapture/PresentationRecording.h"
 #include "Serialization/JsonSerializer.h"
 #include "Tests/AutomationCommon.h"
 #include "Tests/AutomationEditorCommon.h"
 
 namespace
 {
+TSet<FString> CaptureBundles()
+{
+	TArray<FString> Names;
+	IFileManager::Get().FindFiles(Names, *(FPaths::ProjectSavedDir() / TEXT("CombatCaptures") / TEXT("*")), false, true);
+	return TSet<FString>(Names);
+}
+
 TSharedPtr<FJsonObject> ReadJsonFile(const FString& Path)
 {
 	FString Text;
@@ -114,12 +124,15 @@ private:
 		{
 			return true;
 		}
+		const TSet<FString> BundlesBefore = CaptureBundles();
 		Console(World, TEXT("Combat.Capture.Start ConsoleVideo 20 0 60 Video=1 VideoFPS=60 VideoResolution=720"));
 		Capture = CombatCaptureCommands::GetSession();
 		if (!FApp::CanEverRender())
 		{
 			// The refusal happens before a bundle is created, so no silent data-only capture remains.
 			Test->TestFalse(TEXT("Video is refused without a rendering editor"), Capture && Capture->IsRecording());
+			Test->TestTrue(TEXT("No capture bundle is created for a refused video request"),
+				CaptureBundles().Difference(BundlesBefore).IsEmpty());
 			return true;
 		}
 		if (!Test->TestTrue(TEXT("Console capture with video records"), Capture && Capture->IsRecording() && Capture->HasVideo()))
@@ -284,5 +297,118 @@ bool FCombatCaptureConsoleVideoTest::RunTest(const FString&)
 	ADD_LATENT_AUTOMATION_COMMAND(FConsoleVideoCaptureCommand(this));
 	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	return true;
+}
+
+namespace
+{
+/**
+ * Video that ends without Combat.Capture.Stop: PIE ending (the ordinary human path) and the data
+ * session stopping itself at a limit. Each must stop the clip, finalize capture-link.json with the
+ * reason and release the recorder channel, so a later recording never claims this bundle.
+ */
+class FVideoTeardownCommand : public IAutomationLatentCommand
+{
+public:
+	FVideoTeardownCommand(FAutomationTestBase* InTest, bool bInPIEEnd) : Test(InTest), bPIEEnd(bInPIEEnd) {}
+
+	bool Update() override
+	{
+		const double Now = FPlatformTime::Seconds();
+		if (StartWall == 0) { StartWall = Now; }
+		if (Now - StartWall > 90) { Test->AddError(TEXT("Video teardown exceeded its watchdog")); return true; }
+		UWorld* World = AutomationCommon::GetAnyGameWorld();
+		if (!Capture)
+		{
+			if (!World || World->WorldType != EWorldType::PIE || FCombatCaptureSession::DiscoverParticipants(World).IsEmpty()) { return false; }
+			// The session limit is 2 wall seconds; the clip's own bound is 10, so the data session ends first.
+			IConsoleManager::Get().ProcessUserConsoleInput(bPIEEnd ? TEXT("Combat.Capture.Start VideoPIEEnd 20 0 60 Video=1")
+				: TEXT("Combat.Capture.Start VideoSessionLimit 2 0 60 Video=1 VideoSeconds=10"), *GLog, World);
+			Capture = CombatCaptureCommands::GetSession();
+			if (!Test->TestTrue(TEXT("Console capture with video records"), Capture && Capture->IsRecording() && Capture->HasVideo())) { return true; }
+			StartSimulation = World->GetTimeSeconds();
+			return false;
+		}
+		if (bPIEEnd)
+		{
+			// End PIE without Combat.Capture.Stop; the next latent command does it.
+			return World && World->GetTimeSeconds() - StartSimulation >= 1.5;
+		}
+		if (Capture->IsRecording() || Capture->IsVideoFinalizing()) { return false; }
+		VerifyVideoTeardown(Test, Capture, TEXT("stopped_by_analysis_session"), TEXT("analysis_session_stopped:wall_time_limit_reached"));
+		return true;
+	}
+
+	static void VerifyVideoTeardown(FAutomationTestBase* Test, FCombatCaptureSession* Capture, const TCHAR* Status, const TCHAR* Reason)
+	{
+		Test->TestFalse(TEXT("The data session stopped"), Capture->IsRecording());
+		Test->TestFalse(TEXT("The clip finalized"), Capture->IsVideoFinalizing());
+		const TSharedPtr<FJsonObject> Link = ReadJsonFile(Capture->GetLinkPath());
+		if (!Test->TestTrue(TEXT("capture-link.json is written"), Link.IsValid())) { return; }
+		Test->TestEqual(TEXT("The link records how the capture ended"), Link->GetStringField(TEXT("status")), FString(Status));
+		const TSharedPtr<FJsonObject> Video = Link->GetObjectField(TEXT("video"));
+		Test->TestEqual(TEXT("The link records why the clip stopped"), Video->GetStringField(TEXT("stop_reason")), FString(Reason));
+		Test->TestTrue(TEXT("The link records the stop instant"), Video->HasField(TEXT("stop_requested")));
+		const TSharedPtr<FJsonObject> Manifest = ReadJsonFile(Capture->GetVideoDirectory() / TEXT("video-manifest.json"));
+		Test->TestTrue(TEXT("The recorder finalized a complete clip"), Manifest.IsValid() && Manifest->GetBoolField(TEXT("complete")));
+		Test->TestFalse(TEXT("The recorder channel no longer names this bundle"),
+			PresentationRecording::GetChannelStatus().Contains(TEXT("KatanaCombatCapture")));
+	}
+
+private:
+	FAutomationTestBase* Test;
+	bool bPIEEnd;
+	FCombatCaptureSession* Capture = nullptr;
+	double StartWall = 0, StartSimulation = 0;
+};
+
+/** After PIE has ended without Combat.Capture.Stop: wait for the clip, then check the link and channel. */
+class FVerifyPIEEndTeardownCommand : public IAutomationLatentCommand
+{
+public:
+	explicit FVerifyPIEEndTeardownCommand(FAutomationTestBase* InTest) : Test(InTest) {}
+	bool Update() override
+	{
+		const double Now = FPlatformTime::Seconds();
+		if (StartWall == 0) { StartWall = Now; }
+		FCombatCaptureSession* Capture = CombatCaptureCommands::GetSession();
+		if (!Capture) { Test->AddError(TEXT("No console capture session")); return true; }
+		if ((Capture->IsVideoFinalizing() || (GEditor && GEditor->PlayWorld)) && Now - StartWall < 45) { return false; }
+		FVideoTeardownCommand::VerifyVideoTeardown(Test, Capture, TEXT("stopped_by_pie_end"), TEXT("pie_ended"));
+		FString Markers;
+		FFileHelper::LoadFileToString(Markers, *(Capture->GetOutputDirectory() / TEXT("markers.jsonl")));
+		Test->TestTrue(TEXT("The data session marks the PIE-end stop"), Markers.Contains(TEXT("\"reason\":\"pie_ended\"")));
+		return true;
+	}
+private:
+	FAutomationTestBase* Test;
+	double StartWall = 0;
+};
+} // namespace
+
+IMPLEMENT_COMPLEX_AUTOMATION_TEST(FCombatCaptureVideoTeardownTest,
+	"KatanaCombat.Capture.Video.Teardown", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+void FCombatCaptureVideoTeardownTest::GetTests(TArray<FString>& Names, TArray<FString>& Commands) const
+{
+	Names.Add(TEXT("PIEEnd")); Commands.Add(TEXT("PIEEnd"));
+	Names.Add(TEXT("SessionLimit")); Commands.Add(TEXT("SessionLimit"));
+}
+
+bool FCombatCaptureVideoTeardownTest::RunTest(const FString& Parameters)
+{
+	if (!FApp::CanEverRender())
+	{
+		AddInfo(TEXT("Video teardown needs a rendering editor; the -NullRHI refusal is covered by KatanaCombat.Capture.Video.ConsolePIE"));
+		return true;
+	}
+	const bool bPIEEnd = Parameters == TEXT("PIEEnd");
+	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(TEXT("/Game/ProjectFiles/Levels/Lvl_ThirdPerson1")));
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitForShadersToFinishCompiling());
+	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
+	ADD_LATENT_AUTOMATION_COMMAND(FVideoTeardownCommand(this, bPIEEnd));
+	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
+	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
+	if (bPIEEnd) { ADD_LATENT_AUTOMATION_COMMAND(FVerifyPIEEndTeardownCommand(this)); }
 	return true;
 }

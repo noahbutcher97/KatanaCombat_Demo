@@ -21,7 +21,9 @@
 #include "HAL/IConsoleManager.h"
 #include "HAL/FileManager.h"
 #include "HAL/PlatformProcess.h"
+#include "Containers/Ticker.h"
 #include "Dom/JsonObject.h"
+#include "Editor.h"
 #include "Engine/GameViewportClient.h"
 #include "Misc/App.h"
 #include "Misc/FileHelper.h"
@@ -364,6 +366,9 @@ struct FCombatCaptureSession::FImpl
 		FCaptureAnchor Start, StopRequest;
 		FIntPoint SceneViewport = FIntPoint::ZeroValue, ViewportWidget = FIntPoint::ZeroValue;
 	} Video;
+	bool bChannelSet = false;
+	FDelegateHandle PIEEndedHandle;
+	FTSTicker::FDelegateHandle VideoTicker;
 
 	void ReleaseObserver()
 	{
@@ -502,7 +507,62 @@ struct FCombatCaptureSession::FImpl
 		Session.Mark(TEXT("video_started"), Payload);
 		PresentationRecording::SetChannelStatus(VideoChannel,
 			FString::Printf(TEXT("Katana combat capture %s; joined by capture-link.json"), *Session.GetOutputDirectory()));
+		bChannelSet = true;
+		WatchVideo();
 		return true;
+	}
+
+	/** The clip and the data session can each end without Stop: PIE ending, the data session's own
+	 * limits, or the clip's own bound. Each path must stop the clip, finalize the link and release the
+	 * recorder channel so a later, unrelated recording never inherits this bundle's name. */
+	void WatchVideo()
+	{
+		PIEEndedHandle = FEditorDelegates::PrePIEEnded.AddLambda([this](bool)
+			{
+				if (Video.bStarted && !Video.bStopRequested)
+				{
+					StopVideo(TEXT("pie_ended"));
+					WriteLink(TEXT("stopped_by_pie_end"));
+				}
+			});
+		VideoTicker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([this](float)
+			{
+				if (Video.bStarted && !Video.bStopRequested && !Session.IsRecording())
+				{
+					StopVideo(TEXT("analysis_session_stopped:") + Session.GetStopReason());
+					WriteLink(TEXT("stopped_by_analysis_session"));
+				}
+				if (bChannelSet && !(PresentationRecording::IsBusy() && IsOwnClip()))
+				{
+					ClearChannel(); // The clip ended at its own bound; its manifest is already written.
+				}
+				if (Video.bStopRequested && !bChannelSet)
+				{
+					VideoTicker.Reset();
+					return false;
+				}
+				return true;
+			}));
+	}
+
+	void ReleaseVideoHooks()
+	{
+		if (PIEEndedHandle.IsValid())
+		{
+			FEditorDelegates::PrePIEEnded.Remove(PIEEndedHandle);
+			PIEEndedHandle.Reset();
+		}
+		if (VideoTicker.IsValid())
+		{
+			FTSTicker::GetCoreTicker().RemoveTicker(VideoTicker);
+			VideoTicker.Reset();
+		}
+	}
+
+	void ClearChannel()
+	{
+		if (bChannelSet) { PresentationRecording::SetChannelStatus(VideoChannel, FString()); }
+		bChannelSet = false;
 	}
 
 	void StopVideo(const FString &Reason)
@@ -521,7 +581,13 @@ struct FCombatCaptureSession::FImpl
 		if (Session.IsRecording()) { Session.Mark(TEXT("video_stop_requested"), Payload); }
 		// Stop only this session's clip; finalization continues asynchronously in the recorder.
 		if (PresentationRecording::IsBusy() && IsOwnClip()) { PresentationRecording::Stop(); }
-		PresentationRecording::SetChannelStatus(VideoChannel, FString());
+		// Stop writes the recorder's telemetry manifest synchronously, so the channel is already recorded.
+		ClearChannel();
+		if (PIEEndedHandle.IsValid())
+		{
+			FEditorDelegates::PrePIEEnded.Remove(PIEEndedHandle);
+			PIEEndedHandle.Reset();
+		}
 	}
 
 	bool IsOwnClip() const
@@ -613,6 +679,8 @@ FCombatCaptureSession::~FCombatCaptureSession()
 		Impl->StopVideo(TEXT("session_destroyed"));
 		Impl->WriteLink(TEXT("stopped_by_teardown"));
 	}
+	Impl->ClearChannel();
+	Impl->ReleaseVideoHooks();
 	Impl->ReleaseObserver();
 }
 
@@ -648,6 +716,8 @@ bool FCombatCaptureSession::Start(UWorld *World, const FCombatCaptureSettings &S
 	TArray<FAnimationCaptureSubject> Subjects;
 	Impl->CombatParticipants.Reset();
 	Impl->RetainedWeaponContacts = Impl->RetainedPairedContacts = Impl->RetainedCommittedContacts = 0;
+	Impl->ReleaseVideoHooks();
+	Impl->ClearChannel();
 	Impl->Video = FImpl::FVideo();
 	Impl->LinkPath.Empty();
 	for (const auto &Participant : Participants)
@@ -691,7 +761,8 @@ bool FCombatCaptureSession::Start(UWorld *World, const FCombatCaptureSettings &S
 }
 bool FCombatCaptureSession::Stop(const FString &Reason, FString &Error)
 {
-	// Stop the clip first so its last frames still have samples; it finalizes asynchronously.
+	// Stop the clip first so its last frames still have samples; it finalizes asynchronously. This
+	// runs whether or not the data session already stopped itself.
 	const bool bVideoWasActive = Impl->Video.bStarted && !Impl->Video.bStopRequested;
 	Impl->StopVideo(Reason);
 	const bool bSaved = Impl->Session.Stop(Reason, Error);
