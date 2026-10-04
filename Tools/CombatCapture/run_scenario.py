@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import time
 import uuid
 
@@ -19,18 +20,24 @@ from capture_format import implementation_identity
 from evaluate_capture import evaluate_and_write
 from scenario_placement import resolve_placement
 from animation_analysis_dependency import SOURCE_SUFFIXES, dependency_source_manifest
+from video_capture import RESOLUTION_BOXES, VideoError, analyze as analyze_video
 
 REPO = Path(__file__).resolve().parents[2]
 TOOLS = Path(__file__).resolve().parent
+sys.path.insert(0, str(REPO / "Tools/PresentationCapture"))
+from presentation_capture_dependency import dependency_source_manifest as recorder_source_manifest  # noqa: E402
 
 
 def source_state(repo=REPO):
-    paths = [p for directory in ("Source", "Config", "Tools/CombatCapture", "Tools/AnimationAnalysis", "Plugins/AnimationAnalysis") for p in (repo / directory).rglob("*")
+    directories = ("Source", "Config", "Tools/CombatCapture", "Tools/AnimationAnalysis", "Plugins/AnimationAnalysis",
+                   "Tools/PresentationCapture", "Tools/PluginDependencies", "Plugins/PresentationCapture")
+    paths = [p for directory in directories for p in (repo / directory).rglob("*")
              if p.is_file() and p.suffix in SOURCE_SUFFIXES
              and not any(part in ("Binaries", "Intermediate", "Saved") for part in p.relative_to(repo).parts)]
     paths += list(repo.glob("*.uproject"))
     files = file_manifest(repo, (p.relative_to(repo) for p in paths))
     files.update(dependency_source_manifest(repo))
+    files.update(recorder_source_manifest(repo))
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip()
     return dict(revision=revision, files=files, identity=identity(files))
 
@@ -39,6 +46,8 @@ def editor_binary_state(repo=REPO):
     """Capture project and independent native producer binaries by relative path."""
     paths = list((repo / "Binaries/Win64").glob("UnrealEditor-KatanaCombat*.dll"))
     paths += list((repo / "Plugins/AnimationAnalysis/Binaries/Win64").glob("UnrealEditor-AnimationCapture.dll"))
+    recorder = repo / "Plugins/PresentationCapture/Binaries/Win64"
+    paths += list(recorder.glob("UnrealEditor-PresentationCapture.dll")) + list(recorder.glob("PresentationCapture*.exe"))
     return file_manifest(repo, (p.relative_to(repo) for p in paths))
 
 
@@ -107,7 +116,8 @@ def run_one(args, batch_dir, source, map_key, variant, mode, iteration):
     result = dict(run_id=run_id, status="inconclusive", map_key=map_key, variant=variant, mode=mode,
                   camera_view=args.camera_view,
                   iteration=iteration, reason="Run in progress", run_directory=str(run_dir),
-                  render_backend="rendered" if mode == "rendered" or args.render_world else "NullRHI")
+                  render_backend="rendered" if mode == "rendered" or args.render_world else "NullRHI",
+                  rhi=args.rhi, video=args.video_request)
     atomic_json(run_dir / "run.json", result)
     started = time.monotonic()
     try:
@@ -119,7 +129,7 @@ def run_one(args, batch_dir, source, map_key, variant, mode, iteration):
                        editor_binaries=editor_binary_state(),
                        build_this_batch=not args.skip_build, declared_changes=args.declare_change,
                        runtime_experiment=args.finisher_experiment, warp_tuning=args.warp_tuning, camera_view=args.camera_view,
-                       placement=args.placement,
+                       placement=args.placement, rhi=args.rhi, video=args.video_request,
                        scenario_path=args.scenario.relative_to(REPO).as_posix())
         atomic_json(run_dir / "run-context.json", context)
         before = content_snapshot()
@@ -131,7 +141,14 @@ def run_one(args, batch_dir, source, map_key, variant, mode, iteration):
                    f"-ShaderWorkingDir={batch_dir / 'shaders'}", f"-CombatCaptureMode={mode}",
                    f"-CombatCaptureRunContext={run_dir / 'run-context.json'}", f"-CombatCaptureControlOffset={args.control_offset_cm}"]
         command.append(f"-CombatFinisherExperiment={args.finisher_experiment}")
-        command += ["-RenderOffScreen", "-windowed", "-ResX=960", "-ResY=540"] if mode == "rendered" or args.render_world else ["-NullRHI"]
+        rendered = mode == "rendered" or args.render_world
+        size = RESOLUTION_BOXES[args.video_resolution] if args.video else (960, 540)
+        command += ["-RenderOffScreen", "-windowed", f"-ResX={size[0]}", f"-ResY={size[1]}"] if rendered else ["-NullRHI"]
+        if rendered and args.rhi != "default":
+            command.append("-dx12" if args.rhi == "dx12" else "-d3d11")
+        if args.video:
+            command += ["-CombatCaptureVideo=1", f"-CombatCaptureVideoFPS={args.video_fps}",
+                        f"-CombatCaptureVideoResolution={args.video_resolution}"]
         env = dict(os.environ)
         env["UE-LocalDataCachePath"] = str(REPO / "Saved/CombatCaptureCache")
         atomic_json(run_dir / "command.json", command)
@@ -167,6 +184,9 @@ def run_one(args, batch_dir, source, map_key, variant, mode, iteration):
                       evaluation=str(capture / "evaluation.html"), wall_duration_s=scenario["wall_duration_s"],
                       simulation_duration_s=scenario["simulation_duration_s"], timing=evaluation["timing"],
                       measurements=evaluation["measurements"], assets_identity=assets["identity"])
+        if args.video:
+            # Clip quality is evidence about the recording; it never changes the mechanical status.
+            result.update(video_report(capture))
         if not automation_succeeded(text, exit_code, scope):
             result.update(status="fail", reason="Automation process or exact requested scenario did not pass")
     except (CaptureError, OSError, ValueError, KeyError, TypeError) as error:
@@ -174,7 +194,24 @@ def run_one(args, batch_dir, source, map_key, variant, mode, iteration):
     result["total_process_and_analysis_wall_s"] = time.monotonic() - started
     atomic_json(run_dir / "run.json", result)
     print(f"{result['status']}: {map_key}/{variant}/{mode}/{iteration} â€” {result.get('evaluation', run_dir / 'run.json')}", flush=True)
+    if args.video:
+        print(f"video_quality: {result.get('video_quality', 'invalid')} - {result.get('video_review') or result.get('video', {}).get('error')}", flush=True)
     return result
+
+
+def video_report(capture):
+    """Validate, join and grade the run's clip; failures become an `invalid` verdict, not an exception."""
+    try:
+        video = analyze_video(capture)
+    except (VideoError, OSError, KeyError, ValueError) as error:
+        return dict(video_quality="invalid", video=dict(error=str(error)))
+    return dict(video_quality=video["video_quality"], video_review=str(capture / "video-review.html"),
+                video=dict(path=str(capture / video["video"]), reasons=video["quality"]["reasons"],
+                           measured=video["quality"].get("measured"), thresholds=video["quality"]["thresholds"],
+                           validation_issues=video["validation"]["issues"], ffprobe=video["validation"]["ffprobe"],
+                           max_pts_deviation_us=video["validation"]["max_pts_deviation_us"],
+                           resolution=video["resolution"], join=video["join"],
+                           contacts=[m for m in video["markers"] if m["marker"] in ("contact", "defense")]))
 
 
 def main():
@@ -202,7 +239,18 @@ def main():
     parser.add_argument("--entry-config", type=Path, help="Complete transient paired-entry configuration JSON for paired-warp-tuning")
     parser.add_argument("--references", type=Path, help="Explicitly selected reference directory; never automatically promotes current results")
     parser.add_argument("--declare-change", action="append", default=[], help="Document each intended source/asset difference from a reference")
+    parser.add_argument("--video", action="store_true", help="Also record an MP4 of the scenario with PresentationCapture (rendered mode only)")
+    parser.add_argument("--video-fps", type=int, default=60, help="Requested video rate, 1-120; the achieved cadence is graded, not promised")
+    parser.add_argument("--video-resolution", type=int, choices=sorted(RESOLUTION_BOXES), default=720,
+                        help="Video output box height; the PIE viewport is sized to match so the clip is not scaled")
+    parser.add_argument("--rhi", choices=("default", "d3d11", "dx12"), default="default",
+                        help="Rendered runs only: default keeps the project RHI (D3D11); dx12 or d3d11 forces one for this launch")
     args = parser.parse_args()
+    if args.video and args.mode != "rendered":
+        parser.error("--video records only rendered runs; use --mode rendered")
+    if not 1 <= args.video_fps <= 120:
+        parser.error("--video-fps must be 1-120")
+    args.video_request = dict(fps=args.video_fps, resolution=args.video_resolution) if args.video else None
     if not 1 <= args.repeat <= 20 or not 30 <= args.timeout <= 1800:
         parser.error("Repeat must be 1..20 and timeout 30..1800 seconds")
     if not math.isfinite(args.control_offset_cm) or abs(args.control_offset_cm) > 1000:
