@@ -67,6 +67,11 @@ def ensure_worktree(repo, ref, path):
             raise WorktreeError(f"{path} has uncommitted changes; commit or move them before updating:\n{changes}")
         record = json.loads(marker.read_text(encoding="utf-8"))
         previous = git(path, "rev-parse", "HEAD")
+        recorded = record.get("history", [{}])[-1].get("commit")
+        if previous != recorded and previous != commit and not git(path, "for-each-ref", "--contains", previous, "--format=%(refname)"):
+            # Moving would leave commits made in this detached worktree reachable only from the reflog.
+            raise WorktreeError(f"{path} is at {previous}, not the {recorded} this script last checked out, and no branch or "
+                                "tag contains it; push or branch those commits before updating")
         if previous != commit:
             git(path, "checkout", "--detach", commit)
         record.setdefault("history", []).append(dict(commit=commit, ref=ref, at=now, previous=previous))

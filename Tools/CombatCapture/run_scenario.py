@@ -209,18 +209,26 @@ def run_one(args, batch_dir, source, map_key, variant, mode, iteration):
 
 
 def video_report(capture):
-    """Validate, join and grade the run's clip; failures become an `invalid` verdict, not an exception."""
+    """Validate, join and grade the run's clip; any failure becomes an `invalid` verdict, never an exception.
+
+    The clip is evidence about the recording. Malformed recorder or link output (a null field, a wrong
+    type) must not crash the batch or replace the mechanical status, so every exception is caught here.
+    """
     try:
         video = analyze_video(capture)
-    except (VideoError, OSError, KeyError, ValueError) as error:
-        return dict(video_quality="invalid", video=dict(error=str(error)))
-    return dict(video_quality=video["video_quality"], video_review=str(capture / "video-review.html"),
-                video=dict(path=str(capture / video["video"]), reasons=video["quality"]["reasons"],
-                           measured=video["quality"].get("measured"), thresholds=video["quality"]["thresholds"],
-                           validation_issues=video["validation"]["issues"], ffprobe=video["validation"]["ffprobe"],
-                           max_pts_deviation_us=video["validation"]["max_pts_deviation_us"],
-                           resolution=video["resolution"], join=video["join"],
-                           contacts=[m for m in video["markers"] if m["marker"] in ("contact", "defense")]))
+        return dict(video_quality=video["video_quality"], video_review=str(capture / "video-review.html"),
+                    video=video_summary(capture, video))
+    except Exception as error:  # noqa: BLE001 - deliberately total; see the docstring.
+        return dict(video_quality="invalid", video=dict(error=f"{type(error).__name__}: {error}"))
+
+
+def video_summary(capture, video):
+    return dict(path=str(capture / video["video"]), reasons=video["quality"]["reasons"],
+                measured=video["quality"].get("measured"), thresholds=video["quality"]["thresholds"],
+                validation_issues=video["validation"]["issues"], ffprobe=video["validation"]["ffprobe"],
+                max_pts_deviation_us=video["validation"]["max_pts_deviation_us"],
+                resolution=video["resolution"], join=video["join"],
+                contacts=[m for m in video["markers"] if m["marker"] in ("contact", "defense")])
 
 
 def main():

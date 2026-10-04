@@ -63,6 +63,19 @@ class CaptureWorktreeTests(unittest.TestCase):
             ensure_worktree(self.repo, self.second, self.target)
         self.assertTrue((self.target / "Notes.txt").is_file())
 
+    def test_refuses_to_orphan_commits_made_in_the_capture_worktree(self):
+        ensure_worktree(self.repo, self.first, self.target)
+        (self.target / "Source.cpp").write_text("// quick fix during a capture\n")
+        git(self.target, "add", "--", "Source.cpp")
+        git(self.target, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "Local")
+        local = git(self.target, "rev-parse", "HEAD")
+        with self.assertRaisesRegex(WorktreeError, "no branch or tag contains it"):
+            ensure_worktree(self.repo, self.second, self.target)
+        self.assertEqual(git(self.target, "rev-parse", "HEAD"), local)
+        git(self.repo, "branch", "kept-capture-fix", local)
+        self.assertEqual(ensure_worktree(self.repo, self.second, self.target)["action"], "updated",
+                         "once a branch holds the commit, moving away loses nothing")
+
     def test_refuses_a_worktree_it_did_not_create(self):
         git(self.repo, "worktree", "add", "--detach", str(self.target), self.first)
         with self.assertRaisesRegex(WorktreeError, "not created by capture_worktree.py"):

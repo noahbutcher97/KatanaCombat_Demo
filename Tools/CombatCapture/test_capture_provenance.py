@@ -74,6 +74,22 @@ class CaptureProvenanceTests(unittest.TestCase):
         self.assertEqual(rhi_identity(log), dict(rhi="D3D12", selection="forced", feature_level="SM6"))
         self.assertEqual(rhi_identity("no renderer")["rhi"], None)
 
+    def test_video_and_review_outputs_never_change_the_bundle_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "session.json").write_text('{"schema_version":2}')
+            (root / "samples.jsonl").write_text('{"index":1}\n')
+            before = capture_format.bundle_identity(root)
+            clip = root / "video/CAPTURE"
+            clip.mkdir(parents=True)
+            (clip / "single-frames.csv").write_text("videoSample\n0\n")  # The recorder may still be finalizing.
+            review = root / "video-review"
+            review.mkdir()
+            (review / "contact-sheet.png").write_bytes(b"written after evaluation")
+            self.assertEqual(before, capture_format.bundle_identity(root))
+            (root / "samples.jsonl").write_text('{"index":2}\n')
+            self.assertNotEqual(before, capture_format.bundle_identity(root))
+
     def test_bundle_selection_excludes_derived_reports_but_includes_scenario_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

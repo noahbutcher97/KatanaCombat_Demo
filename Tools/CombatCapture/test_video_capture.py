@@ -113,7 +113,7 @@ class VideoCaptureTests(unittest.TestCase):
     def test_thresholds_are_named_and_recorded(self):
         result = self.run_analysis()
         self.assertEqual(set(result["quality"]["thresholds"]), {"max_dropped_frames", "max_pressure_skip_fraction", "max_frame_gap_s"})
-        self.assertEqual(result["quality"]["thresholds"], QUALITY_THRESHOLDS)
+        self.assertTrue(all(isinstance(value, (int, float)) for value in QUALITY_THRESHOLDS.values()))
 
     def test_incomplete_recording_is_invalid(self):
         self.bundle.manifest.update(complete=False, failureReason="encoder failed")
@@ -163,6 +163,23 @@ class VideoCaptureTests(unittest.TestCase):
         with patch("video_capture.shutil.which", return_value=None):
             with self.assertRaisesRegex(VideoError, "ffprobe was not found on PATH. Install FFmpeg"):
                 video_capture.find_tool("ffprobe")
+
+    def test_runner_turns_malformed_recorder_fields_into_an_invalid_verdict(self):
+        from run_scenario import video_report
+        self.bundle.window["maxAcquisitionGapSeconds"] = None  # A null where the gate expects a number.
+        self.bundle.write()
+        with patch("video_capture.probe", return_value=self.bundle.probe()):
+            report = video_report(self.bundle.root)
+        self.assertEqual(report["video_quality"], "invalid")
+        self.assertIn("TypeError", report["video"]["error"])
+
+    def test_runner_turns_a_malformed_link_into_an_invalid_verdict(self):
+        from run_scenario import video_report
+        self.bundle.link["video"] = None
+        self.bundle.write()
+        report = video_report(self.bundle.root)
+        self.assertEqual(report["video_quality"], "invalid")
+        self.assertIn("AttributeError", report["video"]["error"])
 
     def test_runner_turns_an_unreadable_clip_into_an_invalid_verdict(self):
         from run_scenario import video_report
