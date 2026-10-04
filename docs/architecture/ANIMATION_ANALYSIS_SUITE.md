@@ -79,6 +79,13 @@ retain legacy schema names, and reusable retention still requires migration. The
 foundation has moved; whole-suite migration remains incomplete. Existing legacy asset names stay
 in project integration until a scoped asset migration updates their consumers.
 
+Video (2026-10): the [PresentationCapture recorder](../../Tools/PresentationCapture/README.md) is a second pinned
+dependency; `FCombatCaptureSession` links its clip to the native session through `capture-link.json`. The new
+`Tools/CombatCapture/video_capture.py` (MP4 validation against recorder accounting, engine-frame join, clock
+cross-check, clip-quality grade) and the shared pin helper `Tools/PluginDependencies/pinned_plugin.py` read only
+recorder and AnimationAnalysis files with no Katana dependency, so they are migration candidates for the shared
+repositories; they stay here, tracked as mixed responsibilities, until that move is planned.
+
 ## Implementation order and migration acceptance
 
 1. **Contracts and isolation first.** Implement the portable package boundary and compatibility readers with neutral datasets. Exercise from a temporary directory with no project on the import path. Declare optional dependencies and replace sibling-script imports in reusable services. Keep working project commands as thin consumers.

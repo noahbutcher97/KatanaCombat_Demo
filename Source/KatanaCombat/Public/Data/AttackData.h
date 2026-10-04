@@ -113,6 +113,10 @@ public:
         meta = (ClampMin = "0", ClampMax = "10"))
     int32 MaxHitCount = 0;
 
+    /** Knockback for this attack; fields not overridden come from the attacker's CombatSettings default for this attack type. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Damage|Knockback")
+    FKnockbackOverride Knockback;
+
     // ============================================================================
     // HITSTOP (Per-Attack Impact Freeze)
     // ============================================================================
@@ -201,6 +205,15 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
         meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides))
     float MaxChargeDamageMultiplier = 2.5f;
+
+    /**
+     * Knockback multiplier at full charge (1 = charge does not affect knockback). Clamped to [1, 5] in the editor and
+     * at runtime; a non-finite value counts as 1. ClampMax must equal KnockbackResolution::MaxChargeKnockbackMultiplierCap
+     * (UHT metadata cannot name it; a resolution test fails if they differ).
+     */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack Type|Heavy Attack",
+        meta = (EditCondition = "AttackType == EAttackType::Heavy", EditConditionHides, ClampMin = "1.0", ClampMax = "5.0"))
+    float MaxChargeKnockbackMultiplier = 1.0f;
 
     /** DEPRECATED: Posture system removed. Stagger is contextual and duration-based (ApplyStagger). */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Deprecated",
@@ -441,5 +454,15 @@ public:
      * @return True if validation passed
      */
     bool ValidateTerminalTag(TArray<FText>& Errors) const;
+
+    /**
+     * Validate a charged heavy's hold ordering
+     * A heavy attack with a ChargeLoopSection must start every AnimNotify_HoldWindowStart in its section, of
+     * any input, strictly before the section's first Active AnimNotify_AttackPhaseTransition; any of them can
+     * start the charge, and one after Active carries Active into the loop. One error per late hold notify.
+     * @param Errors - Accumulated error messages
+     * @return True if validation passed
+     */
+    bool ValidateChargedHoldOrdering(TArray<FText>& Errors) const;
 #endif
 };

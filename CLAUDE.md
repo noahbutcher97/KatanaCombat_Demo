@@ -38,6 +38,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "Tools\Codex\run-agent-basel
 
 The baseline builds `KatanaCombatEditor`, runs `Automation RunTests KatanaCombat` with `;Quit`, writes timestamped evidence under `Saved/Logs/`, and exits nonzero on detected build or test failure. Direct `UnrealEditor-Cmd.exe` runs may still fail to exit cleanly; inspect the log rather than treating a lingering process as proof of failure.
 
+**Rendered capture with video** (required for changes a player sees or feels; the baseline is `-NullRHI`):
+commit, build a capture worktree with `python Tools/CombatCapture/capture_worktree.py --ref <branch>`, then run
+`run_scenario.py --mode rendered --video` from it. The `katana-capture` skill (`.agents/skills/katana-capture/SKILL.md`)
+covers review and the clip-quality gate; the [capture guide](docs/guides/COMBAT_CAPTURE_AND_ANALYSIS.md#video-capture)
+has the full contract. In PIE, `Combat.Capture.Start <Name> 30 0 60 Video=1` records linked video and data.
+
 **Test Results**: Check the log file at `D:\UnrealProjects\5.6\KatanaCombat\Saved\Logs\KatanaCombat.log`
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ".agents\skills\katana-verify\scripts\summarize-automation-log.ps1"
@@ -53,6 +59,7 @@ Combat.Debug.Phase 1            // Attack phase indicators
 Combat.Debug.Environment 1      // Terrain/slope visualization
 Combat.Debug.Queue 1            // Action queue state
 Combat.Debug.Hold 1             // Hold state visualization
+Combat.Debug.Knockback 1         // Knockback push direction, displacement channel, outcome
 Combat.Debug.DrawDuration 2.0   // Debug shape persistence (seconds)
 
 // Bounded runtime telemetry (dump before stopping PIE)
@@ -113,6 +120,8 @@ Source/KatanaCombat/Public/
 │   ├── AnimNotifyState_HoldWindow.h           ← Legacy; do not seed by default
 │   ├── AnimNotifyState_ComboWindow.h          ← Legacy/manual override; do not seed by default
 │   ├── AnimNotifyState_PairedAnimationSync.h  ← Sync point effects trigger
+│   ├── RootMotionModifier_ProceduralDisplacement.h ← Motion Warping channel for the displacement executor
+│   ├── RootMotionSource_ProceduralDisplacement.h ← Character-movement channel for the displacement executor
 │   └── AnimNotifyState_PairedAnimationCollision.h ← Partner collision management
 ├── Characters/
 │   ├── BaseCombatCharacter.h  ← Base class with 5 combat components
@@ -126,6 +135,8 @@ Source/KatanaCombat/Public/
     ├── CombatMath.h                      ← Authoritative direction math (angles, cones, classification, DirectionToAttacker)
     ├── CombatTargetQuery.h               ← Shared target gathering (dedup, alive/hostile filters)
     ├── AlignmentMotionLibrary.h          ← Bounded turn/translation stepping
+    ├── DisplacementMath.h                ← Fixed-curve displacement profiles (travel at a given clock time)
+    ├── KnockbackResolution.h             ← Knockback config resolution, push distance, push direction
     ├── MontageUtilityLibrary.h           ← 27 montage utility functions
     ├── PairedAnimationUtilityLibrary.h   ← 15 functions (validation, contact points)
     └── CinematicEffectsUtilityLibrary.h  ← Time dilation, hitstop, camera shake
@@ -142,6 +153,8 @@ Source/KatanaCombat/Public/
 | LightBaseDamage | 25.0f | |
 | HeavyBaseDamage | 50.0f | |
 | CounterDamageMultiplier | 1.5x | |
+| Knockback (Light) | 25 cm / 0.2 s | `UCombatSettings::DefaultKnockback`, EaseOut, AwayFromAttacker, AddToAnimation |
+| Knockback (Heavy) | 20 cm / 0.25 s | `UCombatSettings::DefaultKnockback` default; per-attack overrides in `UAttackData::Knockback`. The Heavy reactions are authored knockback animations travelling about 89 cm, so the push adds 20 cm. |
 
 ## Documentation
 
@@ -284,6 +297,11 @@ This applies to ALL `BlueprintNativeEvent` interface methods:
 - Convert `FLinearColor` to `FColor` directly (use `.ToFColor(true)`)
 - Use component tick without explicit permission
 - **Make internal state variables `BlueprintReadOnly`**: If a parameter isn't meaningful to view/edit at runtime in the editor, don't expose it to Blueprint. This adds visual load and confusion. Reserve Blueprint visibility for intentional public API, not internal implementation details.
+- **Use internal planning labels in the product**: no gate, slice, step, plan-phase, round, task or finding codes, and no decision IDs or names of investigation runs.
+  - Examples: `Gate A`, `slice 1`, `step 3a`, `Phase 5c`, `PT-13`, `INPUT-1`, `BUG-2`, `F1-3`, a reviewer's `P1`, "the spike".
+  - Where: names of assets, folders, files, classes and tests; code comments, tooltips and log text; commit messages, branch names and PR titles.
+  - Describe the thing instead, so a reader without our planning docs understands it: "the rendered parry, counter and finisher test", not "the Gate A proof". See `AGENTS.md` → Coding Style & Naming Conventions.
+  - Gameplay vocabulary (Windup/Active/Recovery phases, combo steps, chain stages) is fine.
 
 ## Editor Tool Architecture Patterns
 
@@ -297,6 +315,13 @@ discovery, skeleton defaults and combat/warp telemetry in the `CombatCaptureSess
 adapter. Follow `docs/architecture/ANIMATION_ANALYSIS_SUITE.md` for all existing and
 new capture/analysis tooling; native extraction does not complete the paired
 preview/evaluation or offline orchestration migration.
+
+The PresentationCapture video recorder is pinned the same way: `Tools/PresentationCapture/dependency.json`
+names its private GitHub repository and commit (`--repository` overrides it for local plugin work), setup
+generates the ignored `Plugins/PresentationCapture` and builds its two worker executables, CI installs it in the
+self-hosted job, and a stale or incomplete copy stops the build with `[PresentationCapture pin mismatch]`.
+Both pins share `Tools/PluginDependencies/pinned_plugin.py`. Only the core recorder is installed, not its
+AnimationAnalysis bridge. `FCombatCaptureSession` owns the link between the clip and the data session.
 
 **CRITICAL: These patterns MUST be followed for all editor tooling in KatanaCombatEditor module.**
 
@@ -413,6 +438,7 @@ bool IsWithinConstraint(float TestYaw) const { ... }
 ## Git Conventions
 
 - **Clean commit messages**: No trailers, sign-offs, or co-author tags - just the message and content
+- **Plain-language history**: commit messages, branch names and PR titles describe the change itself. They carry no planning labels (gate, slice, step, round, task or finding codes); see the DON'T list under Coding Guidelines
 - Include rollback checkpoint (previous commit hash) in significant commits
 - Use descriptive commit messages with bullet points for changes
 - Bypass pre-commit hooks with `--no-verify` if they have errors (hooks in `.claude/hooks/` may have issues)
@@ -599,10 +625,18 @@ Player Input → CombatComponent::ExecuteAction()
 ## Known Issues
 
 - **Commit hooks**: The pre-commit diagnostics, validation and post-commit PowerShell scripts parsed and ran during the September 11 checkpoint. Use normal Git commits; the earlier syntax-error note is obsolete. Hook reminders do not replace build and automation evidence.
-- **DX12 crashes with RTX 5090**: See Environment Notes below for workaround.
+- **D3D12 is not the default RHI**: see Environment Notes below.
 
 ## Environment Notes
 
-**GPU Crash Workaround (RTX 5090 + UE 5.6)**: Currently using DX11 (`Config/DefaultEngine.ini:47`) due to driver 581.57 + DX12 crashes. Revert to DX12 when stable Studio Driver available.
+**RHI (RTX 5090 Laptop GPU, UE 5.6)**: D3D11 stays the default (`Config/DefaultEngine.ini:47`). The workaround was
+for D3D12 crashes on driver 581.57. Test runs on 2026-10-03 with driver 617.14 did not reproduce a crash in 11 offscreen
+`-dx12` PIE launches. That is "not reproduced in 11 offscreen PIE launches", not "fixed": the original note
+concerned batch operations and animation previews in the on-screen editor, which those launches did not exercise.
+D3D12 was slower and hitchier in that day's clip-recording runs: 44-49 against 57-59 FPS, a comparison that excludes the two runs
+with detected CPU contention (35 and 38.6 FPS); every D3D12 clip-recording run had 2-9 frames over 60 ms (per-run maxima
+93-219 ms) against peaks of 63-68 ms on unloaded D3D11. The cause of the gap is unverified (hypotheses: runtime
+PSO creation, SM6 render cost, CPU contention). AnimationAnalysis async, surface and GPU-mesh capture are
+D3D11-only. Use `-dx12` per launch (`run_scenario.py --rhi dx12`) when D3D12 is wanted.
 
 **Plugin Conflicts**: 14 conflicting marketplace plugins disabled in `KatanaCombat.uproject:53-109`. Only enabled: ModelingToolsEditorMode, StateTree, GameplayStateTree, MotionWarping.

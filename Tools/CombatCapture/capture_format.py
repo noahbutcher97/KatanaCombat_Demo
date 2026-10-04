@@ -7,6 +7,11 @@ from animation_analysis.contracts import ClockStamp
 from animation_analysis.temporal import TimeInterval, bracket_observations, event_window
 
 
+# A recorded clip and its review outputs are separate evidence: the recorder can still be finalizing,
+# and review frames are written after evaluation, so neither may change the bundle's identity.
+VIDEO_DIRECTORIES = ("video", "video-review")
+
+
 def input_names(root, include_scenario=False):
     """Legacy bundle selection; derived reports never identify their own inputs."""
     root = Path(root)
@@ -14,6 +19,7 @@ def input_names(root, include_scenario=False):
     if include_scenario:
         metadata.update(("scenario.json", "run-context.json", "asset-identity.json"))
     return [p.relative_to(root) for p in root.rglob("*") if p.is_file()
+            and p.relative_to(root).parts[0] not in VIDEO_DIRECTORIES
             and (p.suffix in (".jsonl", ".csv", ".png") or p.name in metadata)]
 
 

@@ -26,6 +26,11 @@ that message rather than setting `KATANA_ALLOW_PLUGIN_DRIFT`, which is only for
 deliberate local plugin edits. The standard baseline runs setup automatically.
 See [dependency setup](Tools/AnimationAnalysis/README.md); the generated plugin is
 ignored, and shared implementation edits belong in its separate repository.
+The PresentationCapture video recorder follows the same contract, from its private
+GitHub repository: `python Tools/PresentationCapture/setup_dependency.py` installs its pin
+and builds its workers, and builds stop with `[PresentationCapture pin mismatch]` until it does. See
+[its setup](Tools/PresentationCapture/README.md). Changes a player sees or feels need a
+rendered capture with video; see `.agents/skills/katana-capture/SKILL.md`.
 
 Run the standard Codex baseline:
 ```powershell
@@ -62,6 +67,26 @@ Follow Unreal Engine C++ conventions: `U`, `A`, `F`, `E`, and `I` prefixes where
 
 Name files, classes, functions, tests, assets, and tools after their purpose, domain, or observable behavior. Names must be understandable to contributors using the tracked repository alone. Do not introduce names based on private workflow gates (such as `GateA`), local-only milestones, machine setup, or AI-tooling conventions. Migrate existing opaque names in scoped changes that update their consumers and documentation together.
 
+The same rule covers every piece of text that lives in the product or its history:
+- code comments;
+- tooltips and other editor metadata;
+- log and error messages;
+- test names;
+- Content asset and folder names;
+- commit messages;
+- branch names and pull request titles, which become merge-commit messages.
+
+None of these may use internal planning, phasing or sequencing labels:
+- milestone or gate names (`Gate A`);
+- plan steps or slices (`step 3a`, `slice 1`);
+- plan phases (`Phase 5c`);
+- review rounds and task numbers;
+- numbered finding or issue codes (`PT-13`, `INPUT-1`, `BUG-2`, `F1-3`, a reviewer's `P1`);
+- decision IDs;
+- names for investigation runs ("the spike").
+
+Describe the thing itself, so that a reader with only the tracked repository understands it. Write "the rendered parry, counter and finisher test", not "the Gate A proof"; write "procedural blend times for combo transitions", not "BUG-2 FIX". Gameplay vocabulary is not a planning label: attack phases (Windup, Active, Recovery), combo steps and chain stages are fine. Planning documents under `docs/plans/` and `docs/superpowers/`, and agent instruction files, may use their own labels. Code and content that cite those documents must still describe what they refer to.
+
 The capture foundation and portable analysis package are owned by the separate AnimationAnalysis repository; Katana consumes a pinned revision. Apply the [suite architecture contract](docs/architecture/ANIMATION_ANALYSIS_SUITE.md) to the entire existing suite and new work: portable contracts and analysis, a separate Unreal adapter, then Katana-specific adapters, profiles and scenarios. Project classes, skeleton defaults, asset paths, scenario assertions and local setup belong in the project integration. Audit and migrate existing mixed responsibilities; extracting the foundation does not complete the whole suite. Shared core execution and Unreal adapter builds must remain independent of Katana gameplay dependencies. Keep compatibility, evidence provenance and retention intact during scoped migrations.
 
 Core combat rules to preserve:
@@ -82,7 +107,7 @@ Use the smallest verification ladder that proves the change:
 
 ## Commit & Pull Request Guidelines
 
-Recent history uses short, imperative summaries, sometimes with scope prefixes such as `CP-3:` or `Phase 6:`. Keep the first line specific: `Fix counter window pose matching` or `Update paired animation docs`. Pull requests should describe gameplay/editor impact, list tests run, link issues or plans, and include screenshots or video for visible animation, UI, or asset changes.
+Use short, imperative summaries that say what changed. Don't add planning prefixes: older history has some, such as `CP-3:` or `Phase 6:`, and they are no longer used. Keep the first line specific: `Fix counter window pose matching` or `Update paired animation docs`. Pull requests should describe gameplay/editor impact, list tests run, link issues or plans, and include screenshots or video for visible animation, UI, or asset changes.
 
 Do not include AI attributions, generated-by footers, or assistant co-author trailers in commit messages.
 

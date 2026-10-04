@@ -43,9 +43,9 @@ Combat.Capture.Mark recovery_finished
 Combat.Capture.Stop
 ```
 
-Start arguments are `[Scenario] [MaxWallSeconds=60] [FrameHz=5] [SampleHz=60]`. The example records for at most 30 wall-clock seconds, requests five PNGs and 60 motion samples per simulation second, and labels the session `LightAttackRecovery`. Perform the interaction normally between commands. Set frame rate to `0` for telemetry/motion only. A manual marker records when its command executes; input telemetry carries the actual combat input timestamps.
+Start arguments are `[Scenario] [MaxWallSeconds=60] [FrameHz=5] [SampleHz=60]`, positional or as `Name=Value`, followed by optional `Video=1 VideoFPS=60 VideoResolution=720 VideoSeconds=0` (see [Video capture](#video-capture)). The example records for at most 30 wall-clock seconds, requests five PNGs and 60 motion samples per simulation second, and labels the session `LightAttackRecovery`. Perform the interaction normally between commands. Set frame rate to `0` for telemetry/motion only. A manual marker records when its command executes; input telemetry carries the actual combat input timestamps. The console recorder also marks every hit and block between two recorded characters (`contact`) and every perfect parry (`defense`).
 
-Each recording gets a unique `Saved/CombatCaptures/<UTC>-<GUID>/` directory, printed in the log. Stop, a configured limit, PIE teardown, or editor-module shutdown finalizes it. Existing recordings are preserved. One recording can be active at a time. Capture temporarily enables the existing action/reaction and defense telemetry switches, then restores their previous values. It does not clear existing component telemetry or change actors, cameras, animation ticking, combat decisions, or assets.
+Each recording gets a unique `Saved/CombatCaptures/<UTC>-<GUID>/` directory, printed in the log. Stop, a configured limit, PIE teardown, or editor-module shutdown finalizes it; with video, each of those paths also stops the clip and finalizes `capture-link.json` with how the capture ended. Existing recordings are preserved. One recording can be active at a time. Capture temporarily enables the existing action/reaction and defense telemetry switches, then restores their previous values. It does not clear existing component telemetry or change actors, cameras, animation ticking, combat decisions, or assets.
 
 Console discovery enrolls the characters present at start, sorted by actor path. Roles are `Player1`, `Character1`, etc.; inspect `session.json` to see the actual mapping. New spawns are not enrolled automatically. For specific role names, non-character actors, explicit meshes, or custom bone/socket points, use the C++ API below. With multiple PIE worlds, use the intended world's console or pass that world explicitly to the API.
 
@@ -140,21 +140,35 @@ The scenario forces pose evaluation for its two required participants and restor
 
 ## Contact markers and reaction review
 
-`FCombatCaptureSession::ObserveContacts(Attacker, "Attacker", Victim, "Victim", Error)` writes a
-`contact` marker each time the attacker's weapon trace hits the victim (`UWeaponComponent::OnWeaponHit`)
-or the attacker's paired animation reaches a sync point (`UPairedAnimationComponent::OnPairedAnimationSyncPoint`).
-Call it after `Start`; `Stop` releases the observer. The marker row carries a `payload` the
-AnimationAnalysis recorder (native 0.4.0) stores verbatim:
+`FCombatCaptureSession::ObserveContacts(Attacker, "Attacker", Victim, "Victim", Error)` takes two combat
+characters and writes a `contact` marker each time the attacker strikes the victim, from two sources: a
+committed defense contact on the victim (`UCombatComponent::OnDefenseResolvedNative`: hits, blocks and
+parries, with their outcome) and the attacker's paired-animation sync points
+(`UPairedAnimationComponent::OnPairedAnimationSyncPoint`). The observer also listens to
+`UWeaponComponent::OnWeaponHit`, but the weapon sends that event only for targets that are not combat
+characters, so with this API's victim it never fires: `GetContactCounts` reports zero weapon contacts, as
+`KatanaCombat.Capture.CommittedContactMarkers` asserts. Weapon hits on other actors are not observed.
+`ObserveParticipantContacts(Error)` marks committed contacts between any two recorded combat characters,
+in either direction; the console recorder uses it. Call either after `Start`; `Stop` releases the
+observer. The marker row carries a `payload` the AnimationAnalysis recorder (native 0.4.0) stores verbatim:
 
-| Key | Weapon trace | Paired sync point |
+| Key | Committed contact | Paired sync point |
 |---|---|---|
 | `stage` | `contact` | `contact` |
-| `hit` | `weapon-<n>` | `paired-<n>` |
-| `attacker`, `victim` | the roles given to `ObserveContacts` | same |
-| `source` | `weapon_trace` | `paired_sync` |
-| `region` | hit bone name | empty |
-| `direction_cm` | negated impact normal (unit) | victim minus attacker position (unit) |
+| `hit` | `committed-<n>` | `paired-<n>` |
+| `attacker`, `victim` | the recorded roles | the roles given to `ObserveContacts` |
+| `source` | `committed_contact` | `paired_sync` |
+| `outcome` | `Hit`, `UnblockableHit`, `NormalBlock` (`EDefenseOutcome`) | absent |
+| `region` | resolved target bone | empty |
+| `direction_cm` | strike travel (unit); `direction_source` names the source | victim minus attacker position (unit) |
 | `impact_cm` / `sync_point` | impact point | sync point name |
+
+Committed contacts also record `query_stage`, `attacker_response` and `damage_disposition`. Character
+targets take the weapon's defense-contact path, which never reaches `OnWeaponHit`; until 2026-10 those
+hits wrote no marker at all. Two committed resolutions keep their own labels so contact consumers never
+read them as strikes: an input-stage perfect parry is a `defense` marker (`stage` `defense`), and a
+resolution the resolver ignored (friendly, invulnerable, consumed or invalid, such as a swing through a
+finisher victim) is a `contact_ignored` marker (`stage` `ignored`).
 
 A finisher's damage is applied at its paired sync point, not by the weapon trace, so finisher
 captures carry `paired_sync` contacts; every sync point of the pair writes one marker, named in
@@ -175,6 +189,132 @@ from pose. Its guide is `docs/guides/reaction-review.md` in the AnimationAnalysi
 are sampled bone measurements relative to a stated contact; they are not contact, penetration or
 quality verdicts.
 
+## Video capture
+
+One capture can hold both the data session and an MP4 of what the player saw. The video comes from
+[PresentationCapture](../../Tools/PresentationCapture/README.md), pinned like AnimationAnalysis to its private
+GitHub repository (Git credentials need read access): run `python Tools/PresentationCapture/setup_dependency.py`
+before building a fresh checkout. The self-hosted CI job installs it the same way. It reads the real
+PIE backbuffer, encodes H.264 out of process and stamps each frame with its acquisition time
+(variable frame rate). It needs a rendering editor: `-RenderOffScreen` works, `-NullRHI` cannot record,
+so the baseline never exercises it.
+
+**Record.** In PIE: `Combat.Capture.Start <Name> 30 0 60 Video=1`, play, `Combat.Capture.Stop`. Options:
+`VideoFPS` (1-120, default 60), `VideoResolution` (360, 720 or 1080: output boxes 640x360, 1280x720,
+1920x1080), `VideoSeconds` (1-30; 0 follows `MaxWallSeconds`, capped at the recorder's 30 s). With
+`Video=1`, `FrameHz` defaults to 0: synchronous PNG readback stalls the game thread, and the stalls would
+show in the clip. From C++, set `FCombatCaptureSettings::bRecordVideo` and the `Video*` fields. A video
+request without a rendering editor, or while the recorder is busy, is refused before any bundle is
+created. Starting the encoder blocks the game thread for 0.1-0.2 s, after the data session starts.
+
+**Outputs.** The clip lands in the bundle: `video/<captureId>/single.mp4`, with the recorder's
+`video-manifest.json` (completion, cadence, gaps, skips), `single-frames.csv` (per frame `drawGameFrame`,
+acquisition time, `expectedPTSSeconds`), its telemetry `manifest.json` (per game frame platform seconds)
+and the encoder log. `Stop` stops the clip first and returns; the encoder then finalizes on later ticks,
+so wait for `FCombatCaptureSession::IsVideoFinalizing()` to clear (or for `video-manifest.json`) before
+reading it. The scenario driver waits before publishing `scenario.json`. Without `Stop`, the clip still ends
+with the capture: when PIE ends (link status `stopped_by_pie_end`), when the data session stops itself at a
+limit (`stopped_by_analysis_session`, with the session's stop reason) or when the session object is destroyed
+(`stopped_by_teardown`); `Stop` writes `stopped`. Each path releases the recorder channel that names the bundle.
+
+The recorder can also end the clip on its own while the data session keeps recording: at its `VideoSeconds`
+bound, when its encoder or a write fails, or when another recorder client (the toolbar) stops it. The session
+notices on its next core tick, marks `video_stopped_by_recorder` and writes the link `stopped_by_recorder` at
+once. When the recorder has finalized the clip, it rewrites the link from `video-manifest.json`:
+`stopped_by_recorder_error` with the recorder's `failureReason` for an incomplete clip,
+`stopped_by_recorder_limit` for a complete clip seen stopping at or after its capture epoch plus the bound,
+otherwise `stopped_by_recorder` (stopped before the bound, without an error). An external stop within one
+engine tick of the bound reads as the limit. `IsVideoFinalizing()` stays true until that rewrite. A later
+`Stop`, PIE end or teardown keeps the recorder's outcome and stop instant.
+
+**Link.** `capture-link.json` holds the clip's relative directory, capture, clock and world identities,
+and both start instants as engine frame, platform time and world time. AnimationAnalysis's
+`session.json` has no absolute start, so the link recovers it from the recorder's own status (platform
+time minus capture wall seconds, within a microsecond) instead of changing the plugin. It also records
+the PIE viewport widget and scene viewport sizes, and how the clip ended: `video.stopped_by` is `session`
+or `recorder`, `video.stop_reason` says why, and the instant is `stop_requested` for a session stop or
+`recorder_stop_observed` (the first core tick on which the recorder no longer reported the clip as capturing,
+within one engine tick of its own stop) for a recorder end. `video_started`, `video_stop_requested` and
+`video_stopped_by_recorder` markers carry `platform_seconds` and `game_frame` anchors, and the recorder's
+`manifest.json` names this bundle in `optionalChannels`.
+
+**Join.** A video frame's `drawGameFrame` and a sample's `engine_frame` are both `GFrameCounter` on the
+game thread, so frame k shows the world state of the sample with the same engine frame. This is a
+game-frame to game-frame match, not the render-frame equality the recorder's schema warns against. The
+test recordings made on 2026-10-03 and the rendered scenario runs that verified this integration joined
+100% of frames. Exact joins need the game frame rate at or below
+`SampleHz` in dilated world time; otherwise the analysis reports the nearest earlier sample and its lag.
+Map events to frames by engine frame, never by seconds: a frame's PTS is its backbuffer acquisition,
+8-37 ms after its game frame. Telemetry `unscaled_timestamp` values are platform seconds.
+
+**Resolution.** The recorder reads the viewport widget's area of the window backbuffer and scales it into
+the output box. In the level editor viewport that widget is sized by the editor layout, 759x378 under
+`-RenderOffScreen` regardless of `-ResX`/`-ResY`, so console clips are scaled (to 1280x636 at 720). Scenario
+video runs start PIE in their own window and grow it until the viewport widget equals the box (Slate's
+title bar otherwise takes 32 px of a 1280x720 window), then fix the scene viewport to the same size. The
+definition's 960x540 has the same 16:9 framing. `video-analysis.json` reports `resolution.native` only
+when widget, scene viewport and output all equal the requested box.
+
+**Analyze.** `python Tools/CombatCapture/video_capture.py <bundle>` (ffprobe and ffmpeg from PATH;
+Pillow for the contact sheet) checks the MP4 against the recorder (codec, size, decoded frame count, every
+decoded PTS within 2 us of the CSV), joins every frame to its sample, cross-checks the platform clocks,
+maps every marker to the first frame that shows it, extracts review frames and writes
+`video-analysis.json`, `video-review/contact-sheet.png` and `video-review.html`. `--frames 12,40` picks
+frames; `--no-extract` skips them. Exit 0 means `ok`, 1 `degraded` or `invalid`, 2 unreadable input.
+
+**Clip-quality gate.** `video_quality` is `ok`, `degraded` above a named threshold, or `invalid` when the
+clip is incomplete or inconsistent. The thresholds are evidence settings in `QUALITY_THRESHOLDS`:
+
+| Threshold | Value | Why |
+|---|---|---|
+| `max_dropped_frames` | 0 | An admitted frame lost after acquisition; the recorder also marks the clip incomplete |
+| `max_pressure_skip_fraction` | 0.01 | Due acquisitions skipped under encoder pressure are missing frames. Clean D3D11 test recordings on 2026-10-03 skipped 0-1 of about 270 (under 0.4%); CPU-contended runs skipped 45-59% |
+| `max_frame_gap_s` | 0.1 | Above six 60 FPS frames a stall reads as a hitch and can pass for hitstop (authored hitstops are 0.04-0.1 s). Clean D3D11 test recordings that day peaked at 71-72 ms, D3D12 runs at 117-537 ms |
+
+The gate grades the recording, never the combat: it does not change the mechanical evaluation. A gap below
+0.1 s can still hide the shortest hitstop, so check `local_max_gap_ms` on the markers around an event.
+Encoding is software Media Foundation H.264, so CPU load from other processes, not the RHI, drives most
+pressure; record on an idle machine.
+
+**References.** Video runs are not eligible as mechanical references: they record no PNG frames, so
+`visual.window_evidence` is `not_run` and `summarize_runs.py --reference-captures` rejects them. Select
+references from ordinary rendered runs. The clip and its review outputs (`video/`, `video-review/`) are
+excluded from the bundle identity, so a recorder still finalizing or review frames written after evaluation
+cannot change a run's identity or mechanical result.
+
+**Scenario runs.** `run_scenario.py --mode rendered --video` records the registered scenario with a clip
+(`--video-resolution`, `--video-fps`, `--video-seconds` 1-30, default 30), sizes `-ResX`/`-ResY` to the box
+and writes `video_quality`, the reasons, the join and the link's status and stop reason into `run.json` beside
+the unchanged mechanical `status`. A `--video-seconds` shorter than the scenario lets the recorder end the clip
+first (`stopped_by_recorder_limit`); the clip then covers only the start of the run. `--rhi dx12` or `--rhi d3d11`
+forces an RHI for that launch; `run.json` records the RHI the editor log shows. A malformed or missing clip
+becomes `video_quality: invalid` with the error; it never fails the batch. Video runs restore the editor's
+"New Editor Window (PIE)" size and position settings, which the engine otherwise saves from the fitted window. Runner provenance includes
+the recorder pin, its generated source, DLL and worker executables. The motion `report.html` links the
+video review.
+
+**Capture worktrees.** `python Tools/CombatCapture/capture_worktree.py --ref <branch-or-commit>` creates or
+updates a detached sibling worktree (`<main checkout>-capture-run` by default) at that commit, runs the
+plugin setups present at that revision (reusing this checkout's AnimationAnalysis pin clone), builds with
+`-WaitMutex` and prints the `run_scenario.py` command, with `--skip-build`. Captures then measure a
+committed revision, unaffected by edits in progress elsewhere. It refuses a target with tracked or
+untracked changes, an ordinary directory, a worktree it did not create, the main checkout, and a worktree
+whose HEAD differs from the commit it last checked out and holds commits no branch or tag contains (they
+would be left to the reflog), even when that HEAD is the requested commit. `--analysis-repository` and
+`--recorder-repository` take a checkout or a clone URL (`https://`, `ssh://` or `git@host:owner/repo.git`). It never
+deletes, cleans, resets or force-checks-out; ownership and history live in the ignored
+`Saved/capture-worktree.json`. A fresh worktree checks out its LFS content and builds from scratch, and the
+runner's isolated `Saved/CombatCaptureCache` derived-data cache starts cold.
+
+**Review and retention.** Agents follow the `katana-capture` skill: read `run.json` and the link, map
+markers to frames, extract frames with ffmpeg and read them as images. Keep the MP4 with its manifest,
+frames CSV, telemetry manifest and encoder log, the link, samples, markers and telemetry. Prune extracted
+review PNGs after review as described under [Eligibility and selected references](#eligibility-and-selected-references).
+
+**Automation.** `KatanaCombat.Capture.Video.ConsolePIE` drives ordinary PIE through the console with
+`Video=1`, lands two light attacks on a training dummy, and checks the link, the finalized clip, a 100%
+engine-frame join and a `Hit` contact marker per landed hit; headless it checks the refusal. `KatanaCombat.Capture.CommittedContactMarkers` checks hit and block markers headless.
+
 ## Bundle schema (version 2)
 
 | File | Contents |
@@ -189,6 +329,9 @@ quality verdicts.
 | `scenario.json` | Optional scenario definition, events, individual gameplay assertions, actual interruption outcome and project package dependencies |
 | `run-context.json`, `asset-identity.json` | Runner identity, source/config/scenario hashes, engine/build and editor DLL hashes, declared candidate changes, transitive project package hashes and absent soft dependencies |
 | `evaluation.json`, `evaluation.html` | Per-assertion result, evidence interval, eligibility, threshold/reference basis, evidence links and bundle/evaluator identity |
+| `capture-link.json` | Video only: clip directory and identities, both start instants, viewport sizes, stop instant and join rule (see [Video capture](#video-capture)) |
+| `video/<captureId>/` | Video only: PresentationCapture's `single.mp4`, `video-manifest.json`, `single-frames.csv`, telemetry `manifest.json` and encoder log |
+| `video-analysis.json`, `video-review.html`, `video-review/` | Derived by `video_capture.py`: validation, quality grade, frame-to-sample join, marker-to-frame map, review PNGs and contact sheet |
 
 Positions and distances are Unreal centimetres; Euler rotations are degrees; bone quaternions use XYZW; timestamps/intervals are seconds. Simulation timestamps share the selected world's clock. The recorder's wall elapsed time starts at session creation. Telemetry retains its existing `unscaled_timestamp` convention; correlate to samples using `simulation_timestamp`, not by equating the two wall clock fields. Frame records include pose identities and measured lag to the preceding sample. The analyzer still reads schema 1; the transition evaluator requires schema 2 to establish pose freshness.
 
@@ -243,6 +386,7 @@ Analysis and evaluation replace previous success with an explicit in-progress st
 
 ```powershell
 python -m unittest discover -s Tools/CombatCapture -p 'test_*.py' -v
+python -m unittest discover -s Tools/PresentationCapture -p 'test_*.py' -v
 ```
 
-After an editor build, run `Automation RunTests KatanaCombat.Capture;Quit` once with rendering and once with `-NullRHI`. The suite covers world/viewport identity, invalid roles, concurrent capture, lifecycle/limits, teardown restoration, and two real-map integrations. The finisher scenario additionally asserts that at least one `contact` marker with the reaction payload was written (`contact_markers_present`); the hold-release scenario records the count without requiring one. See [the implementation plan](../plans/COMBAT_CAPTURE_AND_ANALYSIS.md) for scope and acceptance.
+After an editor build, run `Automation RunTests KatanaCombat.Capture;Quit` once with rendering and once with `-NullRHI`. Only the rendered run records video. The suite covers world/viewport identity, invalid roles, concurrent capture, lifecycle/limits, teardown restoration, and two real-map integrations. The finisher scenario additionally asserts that at least one `contact` marker with the reaction payload was written (`contact_markers_present`); the hold-release scenario records the count without requiring one. See [the implementation plan](../plans/COMBAT_CAPTURE_AND_ANALYSIS.md) for scope and acceptance.

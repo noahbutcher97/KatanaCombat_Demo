@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import capture_format
-from run_scenario import editor_binary_state, source_state
+from run_scenario import editor_binary_state, rhi_identity, source_state
 
 
 class CaptureProvenanceTests(unittest.TestCase):
@@ -68,6 +68,27 @@ class CaptureProvenanceTests(unittest.TestCase):
             before = capture_format.implementation_identity(entrypoint)
         with patch("capture_format.implementation_manifest", return_value={"metrics.py": "second"}):
             self.assertNotEqual(before, capture_format.implementation_identity(entrypoint))
+
+    def test_rhi_identity_is_read_from_the_editor_log(self):
+        log = "\n".join(["[0]LogRHI: Using Forced RHI: D3D12", "[0]LogRHI: Using Highest Feature Level of D3D12: SM6"])
+        self.assertEqual(rhi_identity(log), dict(rhi="D3D12", selection="forced", feature_level="SM6"))
+        self.assertEqual(rhi_identity("no renderer")["rhi"], None)
+
+    def test_video_and_review_outputs_never_change_the_bundle_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "session.json").write_text('{"schema_version":2}')
+            (root / "samples.jsonl").write_text('{"index":1}\n')
+            before = capture_format.bundle_identity(root)
+            clip = root / "video/CAPTURE"
+            clip.mkdir(parents=True)
+            (clip / "single-frames.csv").write_text("videoSample\n0\n")  # The recorder may still be finalizing.
+            review = root / "video-review"
+            review.mkdir()
+            (review / "contact-sheet.png").write_bytes(b"written after evaluation")
+            self.assertEqual(before, capture_format.bundle_identity(root))
+            (root / "samples.jsonl").write_text('{"index":2}\n')
+            self.assertNotEqual(before, capture_format.bundle_identity(root))
 
     def test_bundle_selection_excludes_derived_reports_but_includes_scenario_inputs(self):
         with tempfile.TemporaryDirectory() as directory:

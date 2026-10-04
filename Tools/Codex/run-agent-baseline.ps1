@@ -119,6 +119,25 @@ if (Test-Path -LiteralPath (Join-Path $Root "Tools\AnimationAnalysis\dependency.
     }
 }
 
+# Same contract for the generated PresentationCapture recorder; it also builds and self-checks its workers.
+$RecorderSetup = Join-Path $Root "Tools\PresentationCapture\setup_dependency.py"
+if (Test-Path -LiteralPath (Join-Path $Root "Tools\PresentationCapture\dependency.json")) {
+    $RecorderCode = Invoke-LoggedProcess `
+        -Label "Sync PresentationCapture plugin to pinned revision" `
+        -FilePath "python" `
+        -Arguments @($RecorderSetup) `
+        -WorkingDirectory $Root `
+        -StdOutPath "$Prefix-recorder-dependency.out.log" `
+        -StdErrPath "$Prefix-recorder-dependency.err.log"
+
+    if ($RecorderCode -ne 0) {
+        Write-Error ("PresentationCapture dependency setup failed with exit code $RecorderCode. See $Prefix-recorder-dependency.out.log and .err.log. " +
+            "A file-in-use error means an Unreal Editor is running; close it and retry. " +
+            "An 'unowned or modified source' error means local plugin edits exist; preserve them before re-running.")
+        exit $RecorderCode
+    }
+}
+
 $BuildCode = Invoke-LoggedProcess `
     -Label "Build KatanaCombatEditor Win64 Development" `
     -FilePath $BuildBat `

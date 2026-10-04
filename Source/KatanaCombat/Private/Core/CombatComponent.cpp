@@ -114,6 +114,23 @@ bool IsAttackTaggedUnblockable(const UAttackData* AttackData)
 	return UnblockableTag.IsValid() && AttackData->AttackTags.HasTag(UnblockableTag);
 }
 
+/**
+ * Section of Montage that holds a notify, read from the notify's own trigger time; INDEX_NONE when the notify
+ * is not one of Montage's. The montage position cannot answer this during dispatch: a section jump made by an
+ * earlier notify in the same dispatch has already moved it.
+ */
+int32 ResolveNotifySectionIndex(const UAnimMontage* Montage, const FAnimNotifyRuntimeSourceId& NotifySource)
+{
+	if (!Montage
+		|| !NotifySource.IsValid()
+		|| NotifySource.SourceAnimation != FSoftObjectPath(Montage)
+		|| !Montage->Notifies.IsValidIndex(NotifySource.NotifyEventIndex))
+	{
+		return INDEX_NONE;
+	}
+	return Montage->GetSectionIndexFromPosition(Montage->Notifies[NotifySource.NotifyEventIndex].GetTriggerTime());
+}
+
 void RequestDefenderThreatRefresh(AActor* Defender, EThreatRefreshReason Reason)
 {
 	if (UCombatComponent* DefenderCombat = Defender
@@ -1843,6 +1860,19 @@ FAttackWindowInstanceId UCombatComponent::OpenAttackWindow(
 		|| !CurrentAttackData
 		|| CurrentPhase == EAttackPhase::None)
 	{
+		return Result;
+	}
+
+	// Parry and counter window states that begin in the same dispatch as a charged hold's jump are dispatched
+	// after it (notify states begin after point notifies); the section they describe is no longer playing.
+	if (IsNotifyFromSectionAbandonedByCharge(NotifySource, MontageInstanceId))
+	{
+		if (CombatDebug::IsPhaseDebugEnabled())
+		{
+			UE_LOG(LogCombat, Log,
+				TEXT("[PHASE] Ignored %s window queued behind a charged hold; its section no longer owns playback"),
+				*UEnum::GetValueAsString(Kind));
+		}
 		return Result;
 	}
 
@@ -4876,6 +4906,18 @@ bool UCombatComponent::OnHoldWindowStartWithContext(
 				if (bActivated)
 				{
 					HoldState.MarkHoldCompleted();
+					// The jump leaves the hold notify's section. Notifies from it that this animation tick already
+					// queued behind the hold (a slow frame or hitch can span the hold and Active) no longer
+					// describe playback; IsNotifyFromSectionAbandonedByCharge rejects them while the hold lasts.
+					const int32 AbandonedSection = ResolveNotifySectionIndex(ActiveMontage, NotifySource);
+					HoldState.CurrentHold.ChargeAbandonedSectionIndex =
+						AbandonedSection != ActiveMontage->GetSectionIndex(CurrentAttackData->ChargeLoopSection)
+							? AbandonedSection
+							: INDEX_NONE;
+					if (CurrentPhase == EAttackPhase::Active)
+					{
+						ReturnActivePhaseToChargeWindup(MontageInstanceId);
+					}
 				}
 
 				if (CombatDebug::IsHoldDebugEnabled())
@@ -5475,6 +5517,17 @@ bool UCombatComponent::OnPhaseTransitionWithContext(
 		return false;
 	}
 
+	if (IsNotifyFromSectionAbandonedByCharge(NotifySource, MontageInstanceId))
+	{
+		if (CombatDebug::IsPhaseDebugEnabled())
+		{
+			UE_LOG(LogCombat, Log,
+				TEXT("[PHASE] Ignored %s transition queued behind a charged hold; its section no longer owns playback"),
+				*UEnum::GetValueAsString(NewPhase));
+		}
+		return false;
+	}
+
 	if (NewPhase == EAttackPhase::Active)
 	{
 		FAttackInstanceId CurrentAttack;
@@ -5546,6 +5599,56 @@ bool UCombatComponent::CloseHitWindowFromPhaseTransition(
 	ActiveHitWindow = {};
 	RequestDefenderThreatRefresh(AttackIntentTarget.Get(), EThreatRefreshReason::WindowChanged);
 	return true;
+}
+
+void UCombatComponent::ReturnActivePhaseToChargeWindup(const int32 MontageInstanceId)
+{
+	// A charged hold jumps this montage instance to its charge loop, skipping the section's Recovery. The
+	// strike now belongs to the release section, whose own Active and Recovery transitions open and close
+	// its hit window. Retire the skipped section's Hit window (same attack generation, same instance) so
+	// the loop carries no open window and the release's Recovery closes the window the release opened,
+	// then return to Windup, which also stops weapon traces for the loop.
+	FAttackInstanceId CurrentAttack;
+	CurrentAttack.Attacker = GetOwner();
+	CurrentAttack.AttackGeneration = AttackStateMachine.AttackGeneration;
+	const int32 RetiredWindows = OpenAttackWindowRecords.RemoveAll(
+		[&CurrentAttack, MontageInstanceId](const FAttackWindowInstanceId& Candidate)
+		{
+			return Candidate.Kind == EAttackWindowKind::Hit
+				&& Candidate.AttackInstance == CurrentAttack
+				&& Candidate.MontageInstanceId == MontageInstanceId;
+		});
+	if (ActiveHitWindow.IsValid()
+		&& ActiveHitWindow.AttackInstance == CurrentAttack
+		&& ActiveHitWindow.MontageInstanceId == MontageInstanceId)
+	{
+		ActiveHitWindow = {};
+	}
+	if (RetiredWindows > 0)
+	{
+		RequestDefenderThreatRefresh(AttackIntentTarget.Get(), EThreatRefreshReason::WindowChanged);
+	}
+	SetPhase(EAttackPhase::Windup);
+}
+
+bool UCombatComponent::IsNotifyFromSectionAbandonedByCharge(
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId) const
+{
+	// Scoped to the live charged hold: release terminates the hold before the release section plays, so a
+	// release section that reuses the abandoned one is accepted again. Light holds never set the section.
+	const FHoldEvent& Hold = HoldState.CurrentHold;
+	if (!HoldState.IsHolding()
+		|| Hold.ChargeAbandonedSectionIndex == INDEX_NONE
+		|| Hold.MontageInstanceId != MontageInstanceId
+		|| Hold.SourceAttackInstance.Attacker.Get() != GetOwner()
+		|| Hold.SourceAttackInstance.AttackGeneration != AttackStateMachine.AttackGeneration
+		|| Hold.NotifySource.SourceAnimation != NotifySource.SourceAnimation)
+	{
+		return false;
+	}
+	return ResolveNotifySectionIndex(AttackStateMachine.GetActiveMontage(), NotifySource)
+		== Hold.ChargeAbandonedSectionIndex;
 }
 
 void UCombatComponent::ClearPublishedAttackWindowsForAttack(const FAttackInstanceId& AttackInstance)
@@ -5642,6 +5745,18 @@ void UCombatComponent::SetPhase(EAttackPhase NewPhase)
 			if (CombatDebug::IsPhaseDebugEnabled())
 			{
 				UE_LOG(LogCombat, Log, TEXT("[PHASE] Recovery entered - Hit detection DISABLED"));
+			}
+			break;
+
+		case EAttackPhase::Windup:
+			// Hit detection belongs to Active only. Leaving Active for Windup (a charged hold re-arming
+			// its strike for the release section) stops traces until the next Active transition.
+			if (OldPhase == EAttackPhase::Active)
+			{
+				if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+				{
+					ICombatInterface::Execute_OnDisableHitDetection(Character);
+				}
 			}
 			break;
 
@@ -7041,6 +7156,16 @@ bool UCombatComponent::IsInputBlocked() const
 
 void UCombatComponent::PrepareForPairedTakeover()
 {
+	// The paired animation owns the body from here, on both sides: the victim (EnterPairedAnimationState) and the
+	// character who starts it (BeginPairedAnimation). The owner's own knockback push would otherwise carry on into
+	// the paired montage, or resume after an entry bridge that only suspended it.
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		if (Character->HitReactionComponent)
+		{
+			Character->HitReactionComponent->ReleaseKnockback(TEXT("PairedTakeover"));
+		}
+	}
 	EndBlock();
 	SetPhase(EAttackPhase::None);
 	ClearQueue(false);

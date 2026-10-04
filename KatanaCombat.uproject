@@ -32,6 +32,12 @@
                         "TargetAllowList": ["Editor"]
                     },
                     {
+                        "Name": "PresentationCapture",
+                        "Enabled": true,
+                        "TargetAllowList": ["Editor"],
+                        "SupportedTargetPlatforms": ["Win64"]
+                    },
+                    {
                         "Name":  "ModelingToolsEditorMode",
                         "Enabled":  true,
                         "TargetAllowList":  [

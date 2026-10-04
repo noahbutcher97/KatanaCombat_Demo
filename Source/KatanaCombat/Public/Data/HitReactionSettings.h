@@ -82,10 +82,10 @@ public:
         meta = (ClampMin = "0.0", ClampMax = "1.0"))
     float HeavyDamageHealthPercent = 0.25f;
 
-    /** [NOT WIRED] No knockback physics is applied; this multiplier is never read (pending wire-or-delete). */
+    /** Victim-side knockback distance scale: 1 = normal, 0 = immune (e.g. 0.3 for a large enemy). Duration is never scaled. */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Parameters",
         meta = (ClampMin = "0.0", ClampMax = "5.0"))
-    float GlobalKnockbackMultiplier = 1.0f;
+    float KnockbackScale = 1.0f;
 
     // ========================================================================
     // SELECTION API

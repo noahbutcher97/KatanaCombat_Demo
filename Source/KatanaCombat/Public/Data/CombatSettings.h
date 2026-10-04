@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/DataAsset.h"
+#include "CombatTypes.h"
 #include "CombatSettings.generated.h"
 
 class UWeaponData;
@@ -83,6 +84,10 @@ public:
     /** Defense kinematics, threat policy, and presentation configuration */
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Subsystems")
     TObjectPtr<UDefenseConfiguration> DefenseConfiguration;
+
+    /** Knockback per attack type; attacks override fields individually. Types missing from the map do not push. */
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
+    TMap<EAttackType, FKnockbackConfig> DefaultKnockback;
 
     // ============================================================================
     // FUTURE SUBSYSTEMS (Add as implemented)

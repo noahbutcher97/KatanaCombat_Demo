@@ -282,7 +282,7 @@ def write_report(root, report, frames, markers):
 <style>body{font:16px system-ui;background:#111820;color:#e8eef4;max-width:1100px;margin:32px auto;padding:0 20px}a{color:#86d4ff}img{max-width:100%;max-height:65vh}pre{white-space:pre-wrap;background:#1a2531;padding:16px}input{width:100%}button{padding:8px 18px}small{color:#aebfcd}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:10px;border-bottom:1px solid #344657}</style>
 <h1>Combat capture analysis</h1><p>SCENARIO</p><p>STATUS</p>
 <p><a href="session.json">Session metadata</a> Â· <a href="analysis.json">Analysis JSON</a> Â· <a href="samples.jsonl">Motion samples</a></p>
-<div id="viewer"><button id="play">Play sampled frames</button><input id="scrub" type="range" min="0" value="0"><p id="caption"></p><img id="frame" alt="Captured PIE viewport"></div>
+VIDEOLINK<div id="viewer"><button id="play">Play sampled frames</button><input id="scrub" type="range" min="0" value="0"><p id="caption"></p><img id="frame" alt="Captured PIE viewport"></div>
 <p><small>Playback follows captured simulation timestamps. Sparse samples cannot show motion between frames.</small></p>
 TABLES
 <h2>Measurements and evidence limits</h2><pre>REPORT</pre>
@@ -296,6 +296,10 @@ scrub.oninput=()=>{clearTimeout(timer);timer=null;show();};
 function advance(){const i=Number(scrub.value);if(i>=frames.length-1){timer=null;return;}
 timer=setTimeout(()=>{scrub.value=i+1;show();advance();},Math.max(1,(frames[i+1].simulation_time_s-frames[i].simulation_time_s)*1000));}
 document.getElementById('play').onclick=()=>{if(timer){clearTimeout(timer);timer=null;}else{if(Number(scrub.value)>=frames.length-1)scrub.value=0;show();advance();}};show();</script>"""
+    video_link = ('<p><a href="video-review.html">Video review</a>: the clip recorded with this capture, joined by '
+                  '<a href="capture-link.json">capture-link.json</a>. Run video_capture.py if the page is missing.</p>\n'
+                  if (root / "capture-link.json").is_file() else "")
+    page = page.replace("VIDEOLINK", video_link)
     page = page.replace("SCENARIO", html.escape(report["scenario"] + " â€” " + report["map"]))
     page = page.replace("STATUS", html.escape("Data integrity: " + report["data_integrity"] + ". This is not an animation-quality verdict."))
     page = page.replace("TABLES", tables).replace("REPORT", html.escape(json.dumps(report, indent=2))).replace("PAYLOAD", payload)
