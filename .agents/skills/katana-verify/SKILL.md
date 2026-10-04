@@ -14,6 +14,7 @@ Select the smallest check set that proves the change:
 3. Combat behavior changes: build, then run the narrowest matching `Automation RunTests KatanaCombat.<Category>` path.
 4. Broad combat changes: run all `KatanaCombat` automation tests.
 5. Asset, montage, Blueprint, level, or data-asset changes: require Unreal Editor, commandlet, UEMCP, or screenshot/log evidence before claiming behavior.
+6. Feel-affecting changes (anything a player sees or feels): also record and review a rendered capture with video; follow the `katana-capture` skill.
 
 Read `references/verification-ladder.md` for exact commands and log checks.
 

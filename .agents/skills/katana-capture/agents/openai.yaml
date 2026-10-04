@@ -1,0 +1,4 @@
+interface:
+  display_name: "Katana Capture"
+  short_description: "Record and review rendered KatanaCombat captures with video."
+  default_prompt: "Record the change with a rendered scenario capture with video from a capture worktree, then review the clip, its quality verdict and the joined markers."
