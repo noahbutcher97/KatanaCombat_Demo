@@ -19,6 +19,7 @@
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
 #include "UObject/GarbageCollection.h"
+#include "UObject/UnrealType.h"
 
 namespace
 {
@@ -1467,5 +1468,152 @@ bool FDefenseContactExpiredFallbackSuppressionTest::RunTest(const FString& Param
 	World->DestroyActor(Source);
 	World->DestroyActor(Target);
 	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseContactGuardedDamageFollowsResolvedOutcomeTest,
+	"KatanaCombat.Defense.Contact.GuardedContactDamageFollowsResolvedOutcome",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseContactGuardedDamageFollowsResolvedOutcomeTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+
+	// Fixture values, chosen apart from the shipped defaults so a fallback to those defaults cannot pass
+	// by coincidence. The legacy facing cone on the combat component is set wider than the resolver's block
+	// tolerance, which opens the range where the two checks disagree.
+	constexpr float BlockTolerance = 30.0f;
+	constexpr float LegacyFacingCone = 75.0f;
+	constexpr float AttackDamage = 30.0f;
+	constexpr float AttackerDistance = 150.0f;
+
+	struct FGuardedContactCase
+	{
+		float AttackerYaw;
+		bool bExpectBlock;
+		bool bLegacyConeWouldBlock;
+	};
+	const FGuardedContactCase Cases[] = {
+		{20.0f, true, true},
+		{50.0f, false, true},
+		{100.0f, false, false},
+	};
+
+	FFloatProperty* LegacyConeProperty = FindFProperty<FFloatProperty>(
+		UCombatComponent::StaticClass(), TEXT("BlockFacingConeHalfAngle"));
+	if (!TestNotNull(TEXT("Legacy facing cone property is reachable from the fixture"), LegacyConeProperty))
+	{
+		return false;
+	}
+
+	for (const FGuardedContactCase& Case : Cases)
+	{
+		const FString Label = FString::Printf(TEXT("[attacker %.0f deg off facing]"), Case.AttackerYaw);
+		UWorld* World = FCombatTestHelpers::CreateTestWorld();
+		APlayerCharacter* Target = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+		const float YawRadians = FMath::DegreesToRadians(Case.AttackerYaw);
+		AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(
+			World,
+			FVector(FMath::Cos(YawRadians), FMath::Sin(YawRadians), 0.0f) * AttackerDistance);
+		if (!Target || !Source || !Target->CombatComponent || !Target->HitReactionComponent
+			|| !Source->WeaponComponent)
+		{
+			AddError(FString::Printf(TEXT("%s Failed to create guarded contact fixture"), *Label));
+			FCombatTestHelpers::DestroyTestWorld(World);
+			return false;
+		}
+
+		Target->SetActorRotation(FRotator::ZeroRotator);
+		Source->SetActorRotation((Target->GetActorLocation() - Source->GetActorLocation()).Rotation());
+		UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>();
+		Configuration->NormalBlockFinalTolerance = BlockTolerance;
+		Target->CombatComponent->DefenseConfigurationOverride = Configuration;
+		LegacyConeProperty->SetPropertyValue_InContainer(Target->CombatComponent.Get(), LegacyFacingCone);
+		Target->HitReactionComponent->DamageResistance = 1.0f;
+		Target->HitReactionComponent->bHasSuperArmor = false;
+		UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+		Attack->BaseDamage = AttackDamage;
+		Attack->AttackTags.Reset();
+		const float ExpectedHitDamage = AttackDamage * Source->WeaponComponent->GetDamageMultiplier();
+
+		UCombatEventRecorder* Recorder = NewObject<UCombatEventRecorder>();
+		BindRecorder(Source, Target, Recorder);
+		int32 ResolutionCount = 0;
+		FDefenseResolution Resolution;
+		Target->CombatComponent->OnDefenseResolvedNative.AddLambda(
+			[&ResolutionCount, &Resolution](const FDefenseResolution& Resolved)
+			{
+				++ResolutionCount;
+				Resolution = Resolved;
+			});
+
+		TestTrue(*FString::Printf(TEXT("%s Defender enters held guard"), *Label),
+			Target->CombatComponent->BeginBlock(Source));
+		TestTrue(*FString::Printf(TEXT("%s Defender is still guarding at contact"), *Label),
+			Target->CombatComponent->IsBlocking());
+		TestTrue(*FString::Printf(TEXT("%s Defender still faces its fixture yaw at contact"), *Label),
+			FMath::IsNearlyZero(Target->GetActorRotation().Yaw, 0.01f));
+		TestEqual(*FString::Printf(TEXT("%s Fixture legacy facing cone is applied"), *Label),
+			LegacyConeProperty->GetPropertyValue_InContainer(Target->CombatComponent.Get()),
+			LegacyFacingCone);
+		if (Case.bLegacyConeWouldBlock)
+		{
+			const FHitReactionInfo LegacyQuestion = FCombatTestHelpers::CreateTestHitInfo(
+				Source, ExpectedHitDamage,
+				(Source->GetActorLocation() - Target->GetActorLocation()).GetSafeNormal(),
+				Attack);
+			TestTrue(*FString::Printf(
+					TEXT("%s The legacy facing cone would block this contact if it were consulted"), *Label),
+				Target->CombatComponent->CanBlockHit(LegacyQuestion));
+		}
+
+		const float InitialHealth = Target->CurrentHealth;
+		Source->WeaponComponent->ProcessHitForTesting(
+			MakeWeaponContactHit(Target, Source->GetActorLocation()), Attack);
+		FTSTicker::GetCoreTicker().Tick(0.0f);
+
+		const EDefenseOutcome ExpectedOutcome = Case.bExpectBlock
+			? EDefenseOutcome::NormalBlock
+			: EDefenseOutcome::Hit;
+		const float ExpectedDamage = Case.bExpectBlock ? 0.0f : ExpectedHitDamage;
+		const int32 ExpectedDamageEvents = Case.bExpectBlock ? 0 : 1;
+
+		TestEqual(*FString::Printf(TEXT("%s Contact resolves exactly once"), *Label), ResolutionCount, 1);
+		TestEqual(*FString::Printf(TEXT("%s Resolver outcome"), *Label),
+			Resolution.Decision.Outcome, ExpectedOutcome);
+		if (!Case.bExpectBlock)
+		{
+			TestEqual(*FString::Printf(TEXT("%s A guarded hit is outside the block tolerance, not unguarded"), *Label),
+				Resolution.Decision.Reason, EDefenseReason::OutsideBlockTolerance);
+		}
+		TestEqual(*FString::Printf(TEXT("%s Resolver used the fixture block tolerance"), *Label),
+			Resolution.Decision.RequiredFinalTolerance, BlockTolerance);
+		TestTrue(*FString::Printf(TEXT("%s Resolver measured a finite contact yaw"), *Label),
+			FMath::IsFinite(Resolution.Decision.MeasuredYawDegrees));
+		TestTrue(*FString::Printf(TEXT("%s Resolver measured the fixture yaw (got %.2f)"),
+				*Label, Resolution.Decision.MeasuredYawDegrees),
+			FMath::IsNearlyEqual(FMath::Abs(Resolution.Decision.MeasuredYawDegrees), Case.AttackerYaw, 0.5f));
+
+		const float HealthLost = InitialHealth - Target->CurrentHealth;
+		TestTrue(*FString::Printf(TEXT("%s Health stays finite"), *Label), FMath::IsFinite(HealthLost));
+		TestEqual(*FString::Printf(TEXT("%s Health lost matches the resolved outcome"), *Label),
+			HealthLost, ExpectedDamage);
+		TestEqual(*FString::Printf(TEXT("%s Damage events match the resolved outcome"), *Label),
+			Recorder->DamageReceivedCount, ExpectedDamageEvents);
+		TestEqual(*FString::Printf(TEXT("%s Health events match the resolved outcome"), *Label),
+			Recorder->HealthChangedCount, ExpectedDamageEvents);
+		TestEqual(*FString::Printf(TEXT("%s Block presentation plays only for a resolved block"), *Label),
+			Target->HitReactionComponent->GetDefensePresentationAttemptCountForTesting(),
+			Case.bExpectBlock ? 1 : 0);
+		TestEqual(*FString::Printf(TEXT("%s Weapon impact presentation runs once"), *Label),
+			Source->GetResolvedWeaponImpactAttemptCountForTesting(), 1);
+		TestEqual(*FString::Printf(TEXT("%s Attacker reports one accepted hit"), *Label),
+			Recorder->AttackHitCount, 1);
+
+		World->DestroyActor(Source);
+		World->DestroyActor(Target);
+		FCombatTestHelpers::DestroyTestWorld(World);
+	}
 	return true;
 }
