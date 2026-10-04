@@ -32,6 +32,11 @@
                         "TargetAllowList": ["Editor"]
                     },
                     {
+                        "Name": "PresentationCapture",
+                        "Enabled": true,
+                        "TargetAllowList": ["Editor"]
+                    },
+                    {
                         "Name":  "ModelingToolsEditorMode",
                         "Enabled":  true,
                         "TargetAllowList":  [
