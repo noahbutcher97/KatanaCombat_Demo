@@ -2487,3 +2487,95 @@ bool FDefenseChainSharedNotifyAcrossActorsTest::RunTest(const FString& Parameter
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseGuardRefusedDuringPairedAnimationTest,
+	"KatanaCombat.Defense.Guard.BlockRefusedDuringPairedAnimation",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseGuardRefusedDuringPairedAnimationTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+
+	// The victim of a counter or finisher cannot raise a guard while the paired animation owns its body.
+	{
+		UWorld* World = FCombatTestHelpers::CreateTestWorld();
+		APlayerCharacter* Attacker = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+		AEnemyCharacter* Victim = FCombatTestHelpers::CreateTestEnemyCharacter(
+			World, FVector(100.0f, 0.0f, 0.0f));
+		if (!Attacker || !Victim || !Victim->CombatComponent || !Victim->HitReactionComponent)
+		{
+			AddError(TEXT("Failed to create paired victim guard fixture"));
+			FCombatTestHelpers::DestroyTestWorld(World);
+			return false;
+		}
+
+		Victim->HitReactionComponent->EnterPairedAnimationState(
+			NewObject<UAnimMontage>(), EReactionOutcome::Ragdoll, 0.2f, false, Attacker);
+		TestTrue(TEXT("The victim is held by a paired animation"),
+			Victim->HitReactionComponent->IsInPairedAnimationState());
+		TestFalse(TEXT("A paired victim cannot begin blocking"),
+			Victim->CombatComponent->BeginBlock(Attacker));
+		TestFalse(TEXT("A refused block leaves the paired victim's guard down"),
+			Victim->CombatComponent->IsBlocking());
+
+		Victim->HitReactionComponent->ExitPairedAnimationState();
+		TestTrue(TEXT("The victim can block again once the paired animation releases it"),
+			Victim->CombatComponent->BeginBlock(Attacker));
+		FCombatTestHelpers::DestroyTestWorld(World);
+	}
+
+	// The character playing a paired animation cannot raise a guard.
+	{
+		UWorld* World = FCombatTestHelpers::CreateTestWorld();
+		UCombatComponent* Combat = nullptr;
+		APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, Combat);
+		UPairedAnimationComponent* Paired = Player ? Player->PairedAnimationComponent.Get() : nullptr;
+		if (!Player || !Combat || !Paired)
+		{
+			AddError(TEXT("Failed to create paired owner guard fixture"));
+			FCombatTestHelpers::DestroyTestWorld(World);
+			return false;
+		}
+
+		UPairedAnimationData* PairedData = NewObject<UPairedAnimationData>();
+		PairedData->bApplySlowMotion = false;
+		Paired->BeginPairedAnimation(PairedData, EPairedReactionType::Finisher, false);
+		TestTrue(TEXT("The paired animation is active"), Paired->IsPairedAnimationActive());
+		TestFalse(TEXT("The character playing a paired animation cannot begin blocking"),
+			Combat->BeginBlock());
+		TestFalse(TEXT("A refused block leaves the paired owner's guard down"), Combat->IsBlocking());
+
+		Paired->EndPairedAnimation();
+		TestTrue(TEXT("The character can block again once the paired animation ends"), Combat->BeginBlock());
+		FCombatTestHelpers::DestroyTestWorld(World);
+	}
+
+	// A defender inside a parry, counter or finisher sequence cannot raise a fresh guard, including during
+	// the parry bridge before any counter montage plays.
+	{
+		FDefenseChainFixture Fixture;
+		if (!Fixture.Initialize() || !Fixture.StartCommittedParry())
+		{
+			AddError(TEXT("Failed to create parry bridge guard fixture"));
+			Fixture.Destroy();
+			return false;
+		}
+
+		Fixture.DefenderCombat->EndBlock();
+		TestTrue(TEXT("The defender takes part in the defense sequence"),
+			Fixture.Paired->IsDefenseSequenceParticipant());
+		TestFalse(TEXT("A defender in the parry bridge cannot begin blocking"),
+			Fixture.DefenderCombat->BeginBlock(Fixture.SourceAttacker));
+		TestFalse(TEXT("A refused block leaves the defender's guard down"),
+			Fixture.DefenderCombat->IsBlocking());
+
+		Fixture.Paired->CancelPairedAnimation(0.0f);
+		TestEqual(TEXT("Cancelling ends the defense sequence"),
+			Fixture.Paired->GetChainState(), EChainCounterState::None);
+		TestTrue(TEXT("The defender can block again once the defense sequence ends"),
+			Fixture.DefenderCombat->BeginBlock(Fixture.SourceAttacker));
+		Fixture.Destroy();
+	}
+	return true;
+}

@@ -337,12 +337,12 @@ bool FSameTeamWeaponHitNoDamageTest::RunTest(const FString& Parameters)
 	UAttackData* AttackData = FCombatTestHelpers::CreateTestAttack(EAttackType::Light);
 	AttackData->BaseDamage = 40.0f;
 
-	FHitResult HitResult;
-	HitResult.ImpactPoint = Victim->GetActorLocation();
-	HitResult.ImpactNormal = -Attacker->GetActorForwardVector();
-
 	const float InitialHealth = Victim->CurrentHealth;
-	Attacker->WeaponComponent->OnWeaponHit.Broadcast(Victim, HitResult, AttackData);
+	FDefenseResolution Resolution;
+	TestTrue("Same-team weapon contact is resolved once",
+		FCombatTestHelpers::StrikeWithWeapon(Attacker, Victim, AttackData, Resolution));
+	TestEqual("Same-team weapon contact is ignored as friendly",
+		Resolution.Decision.Outcome, EDefenseOutcome::IgnoredFriendly);
 
 	TestEqual("Same-team weapon hit should not reduce health", Victim->CurrentHealth, InitialHealth);
 	TestFalse("Same-team weapon hit should not put victim in dying/dead state", Victim->IsDeadOrDying());

@@ -1152,157 +1152,62 @@ void UWeaponComponent::ResetHitActors()
 ## Damage Flow
 
 ### Complete Flow
+
+A weapon contact between two combat characters is resolved once, by the defense resolver, when the trace lands.
+`OnWeaponHit` is not broadcast for it and `IDamageableInterface::ApplyDamage` is not called.
+
 ```
 1. WeaponComponent detects hit (swept sphere trace)
     ↓
-2. OnWeaponHit event broadcast
+2. UWeaponComponent::ProcessHitWithAttackData builds a contact request
+   (FDefenseContactRequest: contact identity, FHitReactionInfo, trace, attack data)
     ↓
-3. Character receives event
+3. Victim: ABaseCombatCharacter::ResolveAndCommitCombatContact
+    - PopulateDefenseContactQuery reads the held guard (IsGuardHeldForDefense),
+      the attacker's bearing relative to the victim's facing, and the defense configuration
+    - FDefenseResolver::Resolve returns one outcome:
+      ├─ Unblockable-tagged attack        → UnblockableHit (damage)
+      ├─ Guard not held                   → Hit (damage)
+      ├─ Bearing > Normal Block Final Tolerance → Hit (damage)
+      ├─ Otherwise                        → NormalBlock (no damage)
+      └─ Consumed / friendly / invulnerable / paired → Ignored (no damage)
+    - CommitResolvedDefenseDamage commits health only for damaging outcomes
     ↓
-4. Construct FHitReactionInfo
-    - Attacker reference
-    - Hit direction
-    - Attack data
-    - Damage amount
-    - Stun duration
-    - Counter flag
+4. Attacker: FinalizeResolvedWeaponContact
+    ├─ Hit / UnblockableHit → PlayResolvedWeaponImpact (audio, VFX, hitstop)
+    └─ NormalBlock → defender block presentation + attacker response
+       (blocked audio, VFX and hitstop)
     ↓
-5. Call IDamageableInterface::ApplyDamage() on victim
-    ↓
-6. HitReactionComponent processes damage
-    - Check if blocking
-      ├─ YES → Apply posture damage, check guard break
-      └─ NO → Apply health damage, play hit reaction
-    - Apply damage modifiers
-    - Check counter window (multiply damage)
-    - Play appropriate hit reaction animation
-    - Apply hitstun
-    ↓
-7. Broadcast events (OnDamageReceived, etc.)
+5. FlushCommittedDefenseContact: hit reaction, OnDamageReceived, OnHealthChanged,
+   OnDefenseResolvedNative, then the attacker's OnAttackHit
 ```
 
-### Implementation
-```cpp
-// Character handles weapon hit
-void ASamuraiCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult& HitResult, UAttackData* AttackData)
-{
-    if (!HitActor || !AttackData)
-        return;
+The resolver's Normal Block Final Tolerance (`UDefenseConfiguration`) is the only block angle. Holding the guard
+(`UCombatComponent::IsBlocking`) blocks nothing by itself, and a perfect parry is decided earlier, at the Block
+press, so the parried attack's later contact resolves as consumed.
 
-    // Check if target is damageable
-    IDamageableInterface* Damageable = Cast<IDamageableInterface>(HitActor);
-    if (!Damageable)
-        return;
-
-    // Construct hit info. DirectionToAttacker points FROM the victim TOWARD the attacker;
-    // the victim classifies it against its facing (attacker in front = Forward).
-    FHitReactionInfo HitInfo;
-    HitInfo.Attacker = this;
-    HitInfo.DirectionToAttacker = CombatMath::DirectionToAttacker(HitActor->GetActorLocation(), GetActorLocation());
-    HitInfo.AttackData = AttackData;
-    HitInfo.Damage = AttackData->BaseDamage;
-    HitInfo.StunDuration = AttackData->HitStunDuration;
-    HitInfo.bWasCounter = PairedAnimComp ? PairedAnimComp->IsInCounterWindow() : false;
-    HitInfo.ImpactPoint = HitResult.ImpactPoint;
-
-    // Apply damage
-    Damageable->ApplyDamage(HitInfo);
-
-    // Broadcast attack hit event
-    if (CombatComponent)
-    {
-        CombatComponent->OnAttackHit.Broadcast(HitActor, AttackData->BaseDamage);
-    }
-}
-
-// HitReactionComponent processes damage
-void UHitReactionComponent::ApplyDamage(const FHitReactionInfo& HitInfo)
-{
-    if (!OwnerCharacter)
-        return;
-
-    // Check if blocking
-    if (CombatComponent && CombatComponent->IsBlocking())
-    {
-        // BLOCKING PATH
-
-        // Apply posture damage
-        float PostureDamage = HitInfo.AttackData ? HitInfo.AttackData->PostureDamage : 10.0f;
-        bool bGuardBroken = CombatComponent->ApplyPostureDamage(PostureDamage);
-
-        if (!bGuardBroken)
-        {
-            // Play block reaction
-            if (AnimInstance && BlockReactionMontage)
-            {
-                AnimInstance->Montage_Play(BlockReactionMontage);
-            }
-        }
-        // Guard broken state handled by CombatComponent
-    }
-    else
-    {
-        // HIT PATH
-
-        // Calculate final damage
-        float FinalDamage = HitInfo.Damage;
-
-        // Counter damage multiplier (queries PairedAnimationComponent)
-        if (PairedAnimComp && PairedAnimComp->IsInCounterWindow())
-        {
-            float Multiplier = 1.5f; // From CombatSettings
-            FinalDamage *= Multiplier;
-        }
-
-        // Apply damage modifiers (armor, resistance, etc.)
-        FinalDamage *= DamageResistance;
-
-        // Subtract from health
-        CurrentHealth = FMath::Max(0.0f, CurrentHealth - FinalDamage);
-
-        // Broadcast event
-        OnDamageReceived.Broadcast(FinalDamage, HitInfo.Attacker);
-
-        // Play hit reaction
-        PlayHitReaction(HitInfo);
-
-        // Apply hitstun
-        if (HitInfo.StunDuration > 0.0f && CombatComponent)
-        {
-            CombatComponent->SetCombatState(ECombatState::HitStunned);
-
-            GetWorld()->GetTimerManager().SetTimer(
-                HitStunRecoveryTimer,
-                this,
-                &UHitReactionComponent::RecoverFromHitStun,
-                HitInfo.StunDuration,
-                false
-            );
-        }
-
-        // Check death
-        if (CurrentHealth <= 0.0f)
-        {
-            Die();
-        }
-    }
-}
-```
+**Other damage paths:**
+- **Damageable actors that are not combat characters**: the weapon broadcasts `OnWeaponHit`, and
+  `ABaseCombatCharacter::OnWeaponHitTarget` builds `FHitReactionInfo`, calls `IDamageableInterface::ApplyDamage`
+  and plays the impact effects, using the target's own `IsBlocking()` for the blocked variants.
+- **Direct damage** (`IDamageableInterface::ApplyDamage`, including counter and finisher damage from
+  `UPairedAnimationComponent`): a combat character applies it as given. A held guard does not block it, and a
+  paired animation ends the victim's guard when it takes over.
 
 ### Impact Effects (Added in v3.5.0)
 
-After damage is applied in `OnWeaponHitTarget`, impact effects fire:
+After a weapon contact is resolved and committed, impact effects fire:
 
 ```
-5. Call IDamageableInterface::ApplyDamage() on victim
+4. Defense resolver commits the contact (or ApplyDamage for other damageable actors)
     ↓
-6. Apply Impact Effects (per-hit feedback)
+5. Apply Impact Effects (per-hit feedback; blocked variants for a normal block)
     ├─ Hitstop: Freeze attacker + victim (per-actor CustomTimeDilation)
     ├─ Audio: Play impact sound (4-tier resolution)
     ├─ VFX: Spawn Niagara at impact point (surface-aligned)
     └─ Camera Shake: Fire on player controller (if configured)
     ↓
-7. HitReactionComponent processes damage...
+6. Committed hit reaction and damage events...
 ```
 
 #### Resolution Chain (Audio & VFX)
@@ -1345,15 +1250,19 @@ TMap<EAttackType, FImpactFXPool> AttackTypePools;  // Light, Heavy, Special pool
 
 #### Hook Point
 
-Impact effects are triggered in `BaseCombatCharacter::OnWeaponHitTarget()`:
-```cpp
-// Apply damage first
-IDamageableInterface::Execute_ApplyDamage(Victim, HitInfo);
+For a weapon contact between combat characters, impact effects follow the resolved outcome:
+- **Hit / UnblockableHit**: `ABaseCombatCharacter::PlayResolvedWeaponImpact()` plays audio, VFX and hitstop with
+  `bWasBlocked` false.
+- **NormalBlock**: `UHitReactionComponent::PlayDefensePresentation()` plays the blocked audio, VFX and (when the
+  presentation enables it) hitstop with `bWasBlocked` true.
 
-// Then fire impact effects
-UCinematicEffectsUtilityLibrary::ApplyHitstop(this, Victim, AttackData->HitstopConfig, bWasBlocked);
-UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(...);
-UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(...);
+For other damageable actors, `ABaseCombatCharacter::OnWeaponHitTarget()` applies damage first, then fires the
+same effects with the target's own `IsBlocking()`:
+```cpp
+IDamageableInterface::Execute_ApplyDamage(HitActor, HitInfo);
+UCinematicEffectsUtilityLibrary::ResolveAndPlayImpactSound(..., bWasBlocked, ...);
+UCinematicEffectsUtilityLibrary::ResolveAndSpawnImpactVFX(..., bWasBlocked, ...);
+UCinematicEffectsUtilityLibrary::ApplyHitstop(this, HitActor, AttackData->HitstopConfig, bWasBlocked);
 ```
 
 ---

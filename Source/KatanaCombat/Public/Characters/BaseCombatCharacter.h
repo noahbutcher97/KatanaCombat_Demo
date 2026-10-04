@@ -370,8 +370,9 @@ protected:
     void HandleDeath(AActor* Killer);
 
     /**
-     * Called when weapon hits a target
-     * Handles damage application through IDamageableInterface
+     * Called when this character's weapon hits a damageable actor that is not a combat character.
+     * Applies damage through IDamageableInterface and plays the impact effects. Weapon contacts with combat
+     * characters never arrive here: the defense resolver resolves and commits them when the trace lands.
      * @param HitActor - Actor that was hit
      * @param HitResult - Hit trace result
      * @param AttackData - Attack data for damage calculation
