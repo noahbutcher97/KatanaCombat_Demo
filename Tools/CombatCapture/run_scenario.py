@@ -101,6 +101,14 @@ def scenario_outputs(text):
     return {re.sub(r"\s+\[log\]\s*$", "", value) for value in outputs}
 
 
+def rhi_identity(text):
+    """The RHI the editor actually used, read from its own log; --rhi is only a request."""
+    used = re.findall(r"LogRHI: Using (Default|Forced) RHI: (\S+)", text)
+    level = re.findall(r"LogRHI: Using Highest Feature Level of \S+: (\S+)", text)
+    return dict(rhi=used[-1][1] if used else None, selection=used[-1][0].lower() if used else None,
+                feature_level=level[-1] if level else None)
+
+
 def automation_succeeded(text, exit_code, scope):
     # ;Quit may exit before the command-line shutdown banner is flushed. The
     # exact requested result plus process exit and fresh artifact identity are
@@ -155,6 +163,7 @@ def run_one(args, batch_dir, source, map_key, variant, mode, iteration):
         exit_code = checked_process(command, run_dir / "stdout.log", args.timeout, env)
         result["process_exit_code"] = exit_code
         text = log.read_text(encoding="utf-8-sig", errors="replace")
+        result["rhi_used"] = rhi_identity(text)
         outputs = scenario_outputs(text)
         if len(outputs) != 1:
             raise CaptureError(f"Expected one fresh scenario artifact, got {len(outputs)}")

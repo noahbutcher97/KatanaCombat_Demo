@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 import capture_format
-from run_scenario import editor_binary_state, source_state
+from run_scenario import editor_binary_state, rhi_identity, source_state
 
 
 class CaptureProvenanceTests(unittest.TestCase):
@@ -68,6 +68,11 @@ class CaptureProvenanceTests(unittest.TestCase):
             before = capture_format.implementation_identity(entrypoint)
         with patch("capture_format.implementation_manifest", return_value={"metrics.py": "second"}):
             self.assertNotEqual(before, capture_format.implementation_identity(entrypoint))
+
+    def test_rhi_identity_is_read_from_the_editor_log(self):
+        log = "\n".join(["[0]LogRHI: Using Forced RHI: D3D12", "[0]LogRHI: Using Highest Feature Level of D3D12: SM6"])
+        self.assertEqual(rhi_identity(log), dict(rhi="D3D12", selection="forced", feature_level="SM6"))
+        self.assertEqual(rhi_identity("no renderer")["rhi"], None)
 
     def test_bundle_selection_excludes_derived_reports_but_includes_scenario_inputs(self):
         with tempfile.TemporaryDirectory() as directory:
