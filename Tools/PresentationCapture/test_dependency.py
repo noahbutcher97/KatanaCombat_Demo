@@ -139,6 +139,36 @@ class PresentationCaptureDependencyTests(unittest.TestCase):
             self.install(builder=FakeWorkerBuilder())
         self.assertEqual(path.read_text(), "// local edit\n")
 
+    def test_a_damaged_install_record_rebuilds_the_workers_after_a_missing_plugin_is_reinstalled(self):
+        builder = FakeWorkerBuilder()
+        self.install(builder=builder)
+        shutil.rmtree(self.plugin)
+        (self.project / SPEC.marker).write_text("{truncated")
+        self.assertEqual(self.install(builder=builder)["revision"], self.revision)
+        self.assertEqual(len(builder.calls), 2, "workers named by no readable record are rebuilt")
+        record = json.loads((self.project / SPEC.marker).read_text())
+        self.assertEqual(record["workers"], worker_hashes(self.plugin), "a valid record replaces the damaged one")
+        dependency_source_manifest(self.project)
+
+    def test_a_damaged_install_record_beside_an_unchanged_plugin_rebuilds_the_workers(self):
+        builder = FakeWorkerBuilder()
+        self.install(builder=builder)
+        for damaged in ("{truncated", "[]", "\udcff"):
+            with self.subTest(record=damaged):
+                (self.project / SPEC.marker).write_text(damaged, errors="surrogateescape")
+                self.install(builder=builder)
+                self.assertEqual(json.loads((self.project / SPEC.marker).read_text())["workers"], worker_hashes(self.plugin))
+        self.assertEqual(len(builder.calls), 4, "each unreadable record rebuilds rather than trusting unknown workers")
+
+    def test_a_damaged_install_record_still_refuses_a_modified_plugin(self):
+        self.install(builder=FakeWorkerBuilder())
+        path = self.plugin / "Source/PresentationCapture/Private/Recorder.cpp"
+        path.write_text("// local edit\n")
+        (self.project / SPEC.marker).write_text("{truncated")
+        with self.assertRaisesRegex(ValueError, "unowned or modified source"):
+            self.install(builder=FakeWorkerBuilder())
+        self.assertEqual(path.read_text(), "// local edit\n")
+
     def test_unowned_existing_copy_is_refused(self):
         stray = self.plugin / "PresentationCapture.uplugin"
         stray.parent.mkdir(parents=True)

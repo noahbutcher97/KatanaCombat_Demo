@@ -244,8 +244,17 @@ def install(spec, repository=None, project=None, finish=None):
     marker = cache / "plugin-install.json"
 
     def previous_record():
-        # Read only where a decision needs it, as the original AnimationAnalysis installer did.
-        return json.loads(marker.read_text()) if marker.is_file() else {}
+        """The last published record, or {} when there is none or it cannot be read (truncated, not JSON, not an
+        object). An empty record vouches for nothing: an existing plugin without a trusted ``files`` entry is
+        still refused as unowned, and ``finish`` rebuilds what the record would have named. Read errors from
+        the file system itself are not swallowed."""
+        if not marker.is_file():
+            return {}
+        try:
+            record = json.loads(marker.read_text(encoding="utf-8"))
+        except ValueError:  # JSONDecodeError and UnicodeDecodeError
+            return {}
+        return record if isinstance(record, dict) else {}
 
     if plugin.exists() and installed_plugin_files(spec, plugin) == expected:
         validate_plugin(spec, project, files)
