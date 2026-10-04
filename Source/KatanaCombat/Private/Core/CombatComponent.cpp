@@ -6924,6 +6924,16 @@ bool UCombatComponent::IsInputBlocked() const
 
 void UCombatComponent::PrepareForPairedTakeover()
 {
+	// The paired animation owns the body from here, on both sides: the victim (EnterPairedAnimationState) and the
+	// character who starts it (BeginPairedAnimation). The owner's own knockback push would otherwise carry on into
+	// the paired montage, or resume after an entry bridge that only suspended it.
+	if (ABaseCombatCharacter* Character = GetOwnerCharacter())
+	{
+		if (Character->HitReactionComponent)
+		{
+			Character->HitReactionComponent->ReleaseKnockback(TEXT("PairedTakeover"));
+		}
+	}
 	EndBlock();
 	SetPhase(EAttackPhase::None);
 	ClearQueue(false);

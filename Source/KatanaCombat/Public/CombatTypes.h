@@ -391,6 +391,8 @@ enum class EDefenseAlignmentPriority : uint8
 {
 	GuardFacing,
 	ActiveAttackWarp,
+	/** Hit knockback: overrides the victim's own attack warp, yields to defense and paired moves. */
+	HitKnockback,
 	BlockContact,
 	PairedOrParryBridge,
 	Terminal
@@ -402,7 +404,9 @@ enum class EAlignmentExecutor : uint8
 	None,
 	CharacterMovement,
 	MotionWarping,
-	BoundedMovement
+	BoundedMovement,
+	/** Fixed-curve displacement applied through a root-motion modifier or a character-movement root-motion source. */
+	ProceduralDisplacement
 };
 
 UENUM(BlueprintType)
@@ -414,6 +418,118 @@ enum class EAlignmentMotionOutcome : uint8
 	Exhausted,
 	Invalid,
 	Cancelled
+};
+
+/** How a procedural displacement's speed evolves over its duration. */
+UENUM(BlueprintType)
+enum class EDisplacementSpeedProfile : uint8
+{
+	Linear,
+	/** Quadratic ease-out: starts at twice the average speed and settles to zero. */
+	EaseOut
+};
+
+/** Which clock advances a procedural displacement. */
+UENUM(BlueprintType)
+enum class EDisplacementClock : uint8
+{
+	/** The owner's dilated time: frozen while hitstop freezes the owner. */
+	ActorTime,
+	/** Undilated world simulation time (reserved for the paired entry step). */
+	WorldTime
+};
+
+/** How a displacement combines with a playing root-motion animation. */
+UENUM(BlueprintType)
+enum class EDisplacementAnimationBlend : uint8
+{
+	AddToAnimation,
+	ReplaceAnimation
+};
+
+/** The channel currently applying a displacement (runtime state, not authored). */
+enum class EDisplacementChannel : uint8
+{
+	None,
+	Animation,
+	Movement
+};
+
+/** Direction policy for a knockback push. */
+UENUM(BlueprintType)
+enum class EKnockbackDirection : uint8
+{
+	/** Straight away from the attacker (horizontal). */
+	AwayFromAttacker,
+	/** Along the blade's horizontal velocity at contact, continuously: any part pointing back toward the attacker is replaced by the same length of AwayFromAttacker. Falls back to AwayFromAttacker when that velocity is mostly vertical. */
+	AlongSwing
+};
+
+/** Knockback values: the resolved result, and the per-attack-type defaults in UCombatSettings::DefaultKnockback. */
+USTRUCT(BlueprintType)
+struct FKnockbackConfig
+{
+	GENERATED_BODY()
+
+	/** Uncharged push distance in centimeters. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (ClampMin = "0.0", ClampMax = "500.0"))
+	float Distance = 0.0f;
+
+	/** Seconds over which the push happens (on the victim's own time). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float Duration = 0.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
+	EKnockbackDirection DirectionMode = EKnockbackDirection::AwayFromAttacker;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
+	EDisplacementSpeedProfile SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+
+	/** How the push combines with the reaction's own root motion (set per type from the Task 6 measurement). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback")
+	EDisplacementAnimationBlend AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
+};
+
+/**
+ * Knockback on an attack: each ticked field overrides the attacker's combat-settings default
+ * for the attack's type independently. A separate type so the defaults map shows plain values.
+ */
+USTRUCT(BlueprintType)
+struct FKnockbackOverride
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideDistance = false;
+
+	/** Uncharged push distance in centimeters. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideDistance", ClampMin = "0.0", ClampMax = "500.0"))
+	float Distance = 0.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideDuration = false;
+
+	/** Seconds over which the push happens (on the victim's own time). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideDuration", ClampMin = "0.05", ClampMax = "1.0"))
+	float Duration = 0.2f;
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideDirectionMode = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideDirectionMode"))
+	EKnockbackDirection DirectionMode = EKnockbackDirection::AwayFromAttacker;
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideSpeedProfile = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideSpeedProfile"))
+	EDisplacementSpeedProfile SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+
+	UPROPERTY(EditAnywhere, Category = "Knockback", meta = (InlineEditConditionToggle))
+	bool bOverrideAnimationBlend = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Knockback", meta = (EditCondition = "bOverrideAnimationBlend"))
+	EDisplacementAnimationBlend AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
 };
 
 /** Limits for swept preparation movement, in world simulation seconds and centimeters. */
@@ -449,8 +565,22 @@ struct FAlignmentMotionState
 {
 	EAlignmentMotionOutcome Outcome = EAlignmentMotionOutcome::Running;
 	double Elapsed = 0.0;
+	/**
+	 * Translation the request has measured. For ProceduralDisplacement: all forward movement along the push, measured at
+	 * each advance and at a release. It includes the animation root motion the animation channel keeps (AddToAnimation)
+	 * and the movement on steps that animation root motion overrode. It skips the step a channel delivered just before
+	 * the executor removed that channel (a channel switch, a suspension, an owner that can no longer move).
+	 */
 	double Travel = 0.0;
 	double Turn = 0.0;
+	/**
+	 * ProceduralDisplacement only: the movement the push itself delivered along its direction. It leaves out the kept
+	 * animation root motion and the movement on steps that animation root motion overrode, it counts no more than the
+	 * curve the push commanded over each measured step (so kept animation that collision clipped, or a shove, never
+	 * reads as push), and it includes the step a removed channel delivered. So it is not a share of Travel: it is lower
+	 * by what it leaves out, and it can exceed Travel by the removal steps Travel skips.
+	 */
+	double PushTravel = 0.0;
 };
 
 UENUM(BlueprintType)
@@ -734,6 +864,10 @@ struct FHitReactionInfo
     UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
     float HitConfidence = 1.0f;
 
+    /** Attacker's latched charge level (0..1) for this hit; scales knockback. No damage site writes it yet (it stays 0); the charge PR will. */
+    UPROPERTY(BlueprintReadWrite, Category = "Hit Reaction|Metadata")
+    float ChargeLevel = 0.0f;
+
     FHitReactionInfo()
         : Attacker(nullptr)
         , DirectionToAttacker(FVector::ForwardVector)
@@ -750,6 +884,7 @@ struct FHitReactionInfo
         , DistanceToTarget(0.0f)
         , SurfaceType(ECombatSurfaceType::Default)
         , HitConfidence(1.0f)
+        , ChargeLevel(0.0f)
     {
     }
 };
@@ -919,15 +1054,6 @@ struct FHitReactionEntry
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing",
         meta = (EditCondition = "bHasIFrames", ClampMin = "0.0"))
     float IFrameEnd = 0.5f;
-
-    // ========================================================================
-    // PHYSICS
-    // ========================================================================
-
-    /** [NOT WIRED] No knockback physics is currently applied; this value is never consumed (pending wire-or-delete, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Physics",
-        meta = (ClampMin = "0.0"))
-    float KnockbackForce = 200.0f;
 
     // ========================================================================
     // OUTCOME (what happens after animation completes)
@@ -2932,6 +3058,40 @@ private:
 	friend class UPairedAnimationComponent;
 };
 
+/** Fixed-curve horizontal displacement applied by EAlignmentExecutor::ProceduralDisplacement. */
+USTRUCT(BlueprintType)
+struct FProceduralDisplacement
+{
+	GENERATED_BODY()
+
+	/** Horizontal unit direction in world space. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FVector Direction = FVector::ZeroVector;
+
+	/** Total distance in centimeters. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float Distance = 0.0f;
+
+	/** Seconds on the request's clock. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	float Duration = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EDisplacementSpeedProfile SpeedProfile = EDisplacementSpeedProfile::Linear;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EDisplacementClock Clock = EDisplacementClock::ActorTime;
+
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	EDisplacementAnimationBlend AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
+
+	bool operator==(const FProceduralDisplacement& Other) const
+	{
+		return Direction.Equals(Other.Direction, 0.0) && Distance == Other.Distance && Duration == Other.Duration
+			&& SpeedProfile == Other.SpeedProfile && Clock == Other.Clock && AnimationBlend == Other.AnimationBlend;
+	}
+};
+
 USTRUCT(BlueprintType)
 struct FAlignmentRequestSpec
 {
@@ -2990,6 +3150,14 @@ struct FAlignmentRequestSpec
 	FTransform BoundedGoal = FTransform::Identity;
 	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
 	FAlignmentMotionLimits MotionLimits;
+
+	/** ProceduralDisplacement only. Immutable after acquisition. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	FProceduralDisplacement Displacement;
+
+	/** When set, the ProceduralDisplacement executor releases this request itself on any terminal outcome (the other executors ignore it). Immutable. */
+	UPROPERTY(BlueprintReadOnly, Category = "Alignment")
+	bool bReleaseWhenFinished = false;
 };
 
 USTRUCT(BlueprintType)

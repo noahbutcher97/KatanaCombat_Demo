@@ -26,6 +26,10 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Utilities/CombatMath.h"
+#include "Utilities/KnockbackResolution.h"
+#include "Debug/DebugConfig.h"
+#include "Debug/ActionReactionTelemetry.h"
+#include "DrawDebugHelpers.h"
 
 // Static snapshot name for death pose - use in AnimBP with "Pose Snapshot" node
 const FName UHitReactionComponent::DeathPoseSnapshotName = FName(TEXT("DeathPose"));
@@ -65,6 +69,7 @@ void UHitReactionComponent::BeginPlay()
 
 void UHitReactionComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	ReleaseKnockback(TEXT("EndPlay"));
 	ReleasePresentationAlignment(false);
 	ReleasePresentationAlignment(true);
 	if (AnimInstance)
@@ -483,6 +488,17 @@ void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
         {
             if (PlayReactionFromEntry(*ReactionEntry, RelativeDir, bIsHeavy, Intensity))
             {
+                KnockbackResolution::FEligibility Eligibility;
+                Eligibility.bReactionStarted = true;
+                Eligibility.bSuperArmor = bHasSuperArmor; // already gated upstream; kept so the decision owns the rule
+                Eligibility.bReactionsSuppressed = bReactionsSuppressed;
+                Eligibility.bAlive = true; // the alive check above already returned for dead owners
+                Eligibility.bSettingsPath = true;
+                if (KnockbackResolution::ShouldApply(Eligibility))
+                {
+                    StartKnockback(HitInfo);
+                }
+
                 // Apply stun from reaction entry
                 if (ReactionEntry->StunDuration > 0.0f)
                 {
@@ -493,7 +509,15 @@ void UHitReactionComponent::PlayHitReaction(const FHitReactionInfo& HitInfo)
         }
     }
 
-    // Fallback: Legacy approach using component properties
+    // Fallback: Legacy approach using component properties. It never pushes; say so once per component,
+    // so a missing settings entry is not mistaken for a knockback fault.
+    if (!bLoggedLegacyKnockbackSkip)
+    {
+        bLoggedLegacyKnockbackSkip = true;
+        UE_LOG(LogTemp, Warning,
+            TEXT("[KNOCKBACK] %s: knockback skipped: legacy reaction path (no settings-driven directional reaction played for this hit; logged once per component)"),
+            CharOwner ? *CharOwner->GetName() : TEXT("Unknown"));
+    }
     if (UAnimMontage* ReactionMontage = SelectHitReactionMontage(HitInfo))
     {
         AnimInstance->Montage_Play(ReactionMontage);
@@ -1459,6 +1483,7 @@ void UHitReactionComponent::EndStagger()
 
 void UHitReactionComponent::EnterPairedAnimationState(UAnimMontage* VictimMontage, EReactionOutcome DeathOutcome, float RagdollBlendTime, bool bIsLethal, AActor* Partner)
 {
+    ReleaseKnockback(TEXT("PairedEntry"));
     const FString OwnerName = OwnerCharacter ? OwnerCharacter->GetName() : TEXT("Unknown");
     const bool bWasInPairedAnimationState = IsInPairedAnimationState();
 
@@ -1633,4 +1658,127 @@ bool UHitReactionComponent::ApplyPendingDeathOutcome()
 	}
 
 	return true;
+}
+
+void UHitReactionComponent::ReleaseKnockback(const TCHAR* Reason)
+{
+	if (!KnockbackAlignmentHandle.IsValid())
+	{
+		return;
+	}
+	if (const ABaseCombatCharacter* Character = Cast<ABaseCombatCharacter>(GetOwnerCharacterCached()))
+	{
+		if (UTargetingComponent* Targeting = Character->GetTargetingComponent())
+		{
+			// A push still running ends Cancelled with this reason, or Reached if its last step was already applied; one
+			// that already finished reports nothing more.
+			Targeting->ReleaseAlignmentRequest(KnockbackAlignmentHandle, Reason);
+		}
+	}
+	KnockbackAlignmentHandle = {};
+}
+
+bool UHitReactionComponent::StartKnockback(const FHitReactionInfo& HitInfo)
+{
+	ReleaseKnockback(TEXT("Replaced"));
+
+	ABaseCombatCharacter* Victim = Cast<ABaseCombatCharacter>(GetOwnerCharacterCached());
+	UTargetingComponent* Targeting = Victim ? Victim->GetTargetingComponent() : nullptr;
+	if (!Targeting)
+	{
+		return false;
+	}
+
+	const ABaseCombatCharacter* AttackerCharacter = Cast<ABaseCombatCharacter>(HitInfo.Attacker);
+	const UCombatSettings* AttackerSettings = AttackerCharacter && AttackerCharacter->CombatSettings
+		? AttackerCharacter->CombatSettings.Get()
+		: Victim->CombatSettings.Get();
+	const FKnockbackConfig Config = KnockbackResolution::Resolve(HitInfo.AttackData, AttackerSettings);
+	const UHitReactionSettings* Settings = GetEffectiveSettings();
+	const float VictimScale = Settings ? Settings->KnockbackScale : 1.0f;
+	const float Distance = KnockbackResolution::PushDistance(
+		Config.Distance,
+		HitInfo.ChargeLevel,
+		HitInfo.AttackData ? HitInfo.AttackData->MaxChargeKnockbackMultiplier : 1.0f,
+		VictimScale);
+
+	// Every outcome below reaches the single exit, which writes the telemetry row (a rejected push names its
+	// cause in Detail) and the debug log; the push itself is only acquired when both the distance and the
+	// direction are usable.
+	const FVector VictimLocation = Victim->GetActorLocation();
+	FVector Direction = FVector::ZeroVector;
+	bool bStarted = false;
+	FString Outcome;
+	if (!KnockbackResolution::IsUsablePushDistance(Distance))
+	{
+		Outcome = FString::Printf(TEXT("no push distance: %s"),
+			*KnockbackResolution::NoPushDistanceCause(HitInfo.AttackData, AttackerSettings, VictimScale, Distance));
+	}
+	else
+	{
+		const FVector AttackerLocation = HitInfo.Attacker
+			? HitInfo.Attacker->GetActorLocation()
+			: VictimLocation + HitInfo.DirectionToAttacker * 100.0;
+		Direction = KnockbackResolution::ResolveDirection(
+			Config.DirectionMode, AttackerLocation, VictimLocation, HitInfo.DirectionToAttacker);
+		if (Direction.IsZero())
+		{
+			Outcome = TEXT("degenerate direction");
+		}
+		else
+		{
+			const int32 Generation = FMath::Max(1, NextKnockbackAlignmentGeneration);
+			NextKnockbackAlignmentGeneration = NextKnockbackAlignmentGeneration == MAX_int32 ? 1 : NextKnockbackAlignmentGeneration + 1;
+
+			FAlignmentRequestSpec Spec;
+			Spec.OwnerId = TEXT("HitKnockback");
+			Spec.OwnerGeneration = Generation;
+			Spec.Priority = EDefenseAlignmentPriority::HitKnockback;
+			Spec.Executor = EAlignmentExecutor::ProceduralDisplacement;
+			Spec.bReleaseWhenFinished = true;
+			Spec.Displacement.Direction = Direction;
+			Spec.Displacement.Distance = Distance;
+			Spec.Displacement.Duration = Config.Duration;
+			Spec.Displacement.SpeedProfile = Config.SpeedProfile;
+			Spec.Displacement.Clock = EDisplacementClock::ActorTime;
+			Spec.Displacement.AnimationBlend = Config.AnimationBlend;
+			KnockbackAlignmentHandle = Targeting->AcquireAlignmentRequest(Spec);
+
+			bStarted = KnockbackAlignmentHandle.IsValid();
+			Outcome = bStarted ? TEXT("started") : TEXT("acquire rejected");
+		}
+	}
+
+	if (UCombatComponent* Combat = Victim->GetCombatComponent())
+	{
+		FActionReactionTelemetryRecord Record;
+		Record.Event = EActionReactionTelemetryEvent::AlignmentChanged;
+		Record.Actor = Victim;
+		Record.Counterpart = HitInfo.Attacker.Get();
+		Record.AlignmentOwner = TEXT("HitKnockback");
+		Record.AlignmentDisposition = bStarted ? FName(TEXT("Started")) : FName(TEXT("Rejected"));
+		Record.MovementMagnitude = Distance;
+		Record.AttackDataPath = FSoftObjectPath(HitInfo.AttackData.Get());
+		if (!bStarted)
+		{
+			Record.Detail = Outcome;
+		}
+		Combat->AppendActionReactionTelemetry(MoveTemp(Record));
+	}
+	if (CombatDebug::IsKnockbackDebugEnabled())
+	{
+		UE_LOG(LogTemp, Log, TEXT("[KNOCKBACK] %s pushed %.1f cm over %.2f s (mode %s, charge %.2f, scale %.2f) -> %s"),
+			*Victim->GetName(), Distance, Config.Duration, *UEnum::GetValueAsString(Config.DirectionMode),
+			HitInfo.ChargeLevel, VictimScale, *Outcome);
+		if (bStarted)
+		{
+			// The commanded push, at the feet and on top of the mesh, long enough to compare with where it ended.
+			const UCapsuleComponent* Capsule = Victim->GetCapsuleComponent();
+			const FVector Foot = CombatDebug::GetKnockbackDebugFootLocation(
+				VictimLocation, Capsule ? Capsule->GetScaledCapsuleHalfHeight() : 0.0f);
+			DrawDebugDirectionalArrow(GetWorld(), Foot, Foot + Direction * Distance, 20.f,
+				FColor::Orange, false, CombatDebug::GetKnockbackDebugDrawDuration(), SDPG_Foreground, 2.f);
+		}
+	}
+	return bStarted;
 }

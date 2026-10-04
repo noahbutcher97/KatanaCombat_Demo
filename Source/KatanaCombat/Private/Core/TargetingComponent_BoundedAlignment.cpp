@@ -6,7 +6,8 @@
 bool UTargetingComponent::GetAlignmentMotionState(FAlignmentRequestHandle Handle, FAlignmentMotionState& OutState) const
 {
 	const FAlignmentRequestRecord* Record = AlignmentRequests.Find(Handle);
-	if (!Record || Record->Spec.Executor != EAlignmentExecutor::BoundedMovement)
+	if (!Record || (Record->Spec.Executor != EAlignmentExecutor::BoundedMovement
+		&& Record->Spec.Executor != EAlignmentExecutor::ProceduralDisplacement))
 	{
 		OutState = {}; OutState.Outcome = EAlignmentMotionOutcome::Invalid; return false;
 	}
