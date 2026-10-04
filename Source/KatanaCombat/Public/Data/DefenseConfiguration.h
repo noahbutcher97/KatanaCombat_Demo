@@ -303,8 +303,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Translation", meta = (ClampMin = "0.0", Units = "cm"))
 	float NormalBlockTranslationAllowance = 0.0f;
 
-	/** [EDITOR/PROOF ONLY] Not read at runtime; changing it has no effect in play. Asset validation and proof
-	 * authoring use it as the most horizontal root-motion travel, in cm, a block montage may have. */
+	/** [EDITOR ONLY] Not read at runtime; changing it has no effect in play. The defense asset validator uses it as the
+	 * most horizontal root-motion travel, in cm, a block montage may have. The editor command that generates the
+	 * defense test assets sets it back to 1. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Translation", meta = (ClampMin = "0.0", Units = "cm"))
 	float NormalBlockTranslationDriftTolerance = 1.0f;
 
