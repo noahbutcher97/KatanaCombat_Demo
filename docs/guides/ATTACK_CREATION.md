@@ -559,6 +559,13 @@ AnimNotify_HoldWindowStart @ 0.2s (early in Windup)
 InputType = HeavyAttack
 ```
 
+When the attack has a `ChargeLoopSection`, every `AnimNotify_HoldWindowStart` in its section, of any input,
+must come strictly before the section's first Active `AnimNotify_AttackPhaseTransition`. The hold jumps to the
+charge loop, so a hold at or after Active enters the loop already Active. Asset validation reports each late
+hold notify, and notify generation refuses a charged heavy whose `ManualTiming.HoldWindowStart` is not below
+`WindupDuration`. At runtime, phase and window notifies from the section a charge left are ignored while the
+hold lasts, because one slow animation tick can queue them behind the hold.
+
 **3. Configure Charge Sections** (optional, advanced):
 ```cpp
 ChargeLoopSection:            "ChargeLoop"     // Section that loops during hold (NAME_None = use default animation)

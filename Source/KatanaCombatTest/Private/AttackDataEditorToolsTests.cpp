@@ -480,4 +480,115 @@ bool FAttackDataNotifyAnalysisWarnsLethalCounterDataTest::RunTest(const FString&
 	return true;
 }
 
+namespace
+{
+	/** A charged heavy on Target that loops on Next. Generation timing is the fixture's own, per case. */
+	UAttackData* CreateChargedHeavyAttackData(UAnimMontage* Montage, const float WindupDuration, const float HoldWindowStart)
+	{
+		UAttackData* AttackData = NewObject<UAttackData>(GetTransientPackage());
+		AttackData->AttackMontage = Montage;
+		AttackData->MontageSection = TEXT("Target");
+		AttackData->AttackType = EAttackType::Heavy;
+		AttackData->ChargeLoopSection = TEXT("Next");
+		AttackData->ManualTiming.WindupDuration = WindupDuration;
+		AttackData->ManualTiming.ActiveDuration = 0.20f;
+		AttackData->ManualTiming.RecoveryDuration = 0.40f;
+		AttackData->ManualTiming.HoldWindowStart = HoldWindowStart;
+		return AttackData;
+	}
+
+	bool ContainsMessage(const TArray<FString>& Messages, const TCHAR* Needle)
+	{
+		return Messages.ContainsByPredicate([Needle](const FString& Message)
+		{
+			return Message.Contains(Needle);
+		});
+	}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FAttackDataGenerateRejectsChargedHoldAtOrAfterActiveTest,
+	"KatanaCombat.Editor.AttackDataTools.GenerateAllNotifies.RejectsChargedHoldAtOrAfterActive",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FAttackDataGenerateRejectsChargedHoldAtOrAfterActiveTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	struct FCase
+	{
+		const TCHAR* Name;
+		float WindupDuration;
+		float HoldWindowStart;
+	};
+	// Generation places Active at WindupDuration and the hold at HoldWindowStart, both section-relative.
+	const FCase Cases[] = {
+		{TEXT("Hold after Active"), 0.30f, 0.50f},
+		{TEXT("Hold at Active"), 0.30f, 0.30f},
+	};
+	for (const FCase& Case : Cases)
+	{
+		const auto ExpectUntouchedAndValid = [this, &Case](const UAttackData* AttackData, const TCHAR* Path)
+		{
+			TestEqual(FString::Printf(TEXT("%s, %s: refused generation leaves the montage untouched"), Case.Name, Path),
+				AttackData->AttackMontage->Notifies.Num(), 0);
+			TArray<FText> Errors;
+			AttackData->ValidateChargedHoldOrdering(Errors);
+			TestEqual(FString::Printf(TEXT("%s, %s: the tool leaves no hold at or after Active"), Case.Name, Path),
+				Errors.Num(), 0);
+		};
+
+		UAttackData* AllNotifies = CreateChargedHeavyAttackData(
+			CreateTransientMontageWithSections(), Case.WindupDuration, Case.HoldWindowStart);
+		TestFalse(FString::Printf(TEXT("%s: GenerateAllNotifies refuses a charged hold at or after Active"), Case.Name),
+			UAttackDataTools::GenerateAllNotifies(AllNotifies));
+		ExpectUntouchedAndValid(AllNotifies, TEXT("GenerateAllNotifies"));
+
+		UAttackData* PhaseNotifies = CreateChargedHeavyAttackData(
+			CreateTransientMontageWithSections(), Case.WindupDuration, Case.HoldWindowStart);
+		TestFalse(FString::Printf(TEXT("%s: GenerateAttackPhaseNotifies refuses it too"), Case.Name),
+			UAttackDataTools::GenerateAttackPhaseNotifies(PhaseNotifies));
+		ExpectUntouchedAndValid(PhaseNotifies, TEXT("GenerateAttackPhaseNotifies"));
+
+		UAttackData* Migration = CreateChargedHeavyAttackData(
+			CreateTransientMontageWithSections(), Case.WindupDuration, Case.HoldWindowStart);
+		const FAttackDataNotifyAnalysis Analysis = FAttackDataNotifyGenerationService::AnalyzeAttackDataNotifies(Migration);
+		TestFalse(FString::Printf(TEXT("%s: notify analysis marks the timing invalid"), Case.Name), Analysis.bValid);
+		TestTrue(FString::Printf(TEXT("%s: the analysis error explains the ordering"), Case.Name),
+			ContainsMessage(Analysis.Errors, TEXT("before the Active transition")));
+		TestTrue(FString::Printf(TEXT("%s: the analysis still classifies the section's notifies"), Case.Name),
+			ContainsMessage(Analysis.CanonicalNotifiesMissing, TEXT("AnimNotify_HoldWindowStart")));
+		const FAttackDataNotifyPlan Plan = FAttackDataNotifyGenerationService::BuildAttackDataNotifyPlan(Analysis, true);
+		TestFalse(FString::Printf(TEXT("%s: the migration plan is invalid"), Case.Name), Plan.bValid);
+		TestFalse(FString::Printf(TEXT("%s: applying the plan writes nothing"), Case.Name),
+			FAttackDataNotifyGenerationService::ApplyAttackDataNotifyPlan(Migration, Plan));
+		ExpectUntouchedAndValid(Migration, TEXT("migration service"));
+	}
+
+	UAttackData* HoldBeforeActive = CreateChargedHeavyAttackData(CreateTransientMontageWithSections(), 0.30f, 0.25f);
+	TestTrue(TEXT("A charged hold timed before Active generates"),
+		UAttackDataTools::GenerateAllNotifies(HoldBeforeActive));
+	float HoldTime = -1.0f;
+	float ActiveTime = -1.0f;
+	for (const FAnimNotifyEvent& NotifyEvent : HoldBeforeActive->AttackMontage->Notifies)
+	{
+		if (const UAnimNotify_HoldWindowStart* Hold = Cast<UAnimNotify_HoldWindowStart>(NotifyEvent.Notify))
+		{
+			HoldTime = NotifyEvent.GetTriggerTime();
+			TestEqual(TEXT("The generated charged hold checks the Heavy button"), Hold->InputType, EInputType::HeavyAttack);
+		}
+		else if (const UAnimNotify_AttackPhaseTransition* Transition =
+			Cast<UAnimNotify_AttackPhaseTransition>(NotifyEvent.Notify))
+		{
+			if (Transition->TransitionToPhase == EAttackPhase::Active)
+			{
+				ActiveTime = NotifyEvent.GetTriggerTime();
+			}
+		}
+	}
+	TestTrue(TEXT("The generated hold precedes the generated Active"), HoldTime >= 0.0f && HoldTime < ActiveTime);
+	TArray<FText> Errors;
+	HoldBeforeActive->ValidateChargedHoldOrdering(Errors);
+	TestEqual(TEXT("Generated output passes the charged-hold validator"), Errors.Num(), 0);
+	return true;
+}
+
 #endif // WITH_EDITOR
