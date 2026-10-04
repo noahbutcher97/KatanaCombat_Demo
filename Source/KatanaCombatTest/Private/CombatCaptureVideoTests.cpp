@@ -1,9 +1,16 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 #include "Misc/AutomationTest.h"
 #include "Analysis/CombatCaptureSession.h"
+#include "AI/EnemyCombatAIComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Characters/EnemyCharacter.h"
+#include "Characters/PlayerCharacter.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/StateTreeComponent.h"
 #include "Core/CombatComponent.h"
 #include "Dom/JsonObject.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
@@ -26,8 +33,9 @@ TSharedPtr<FJsonObject> ReadJsonFile(const FString& Path)
 
 /**
  * The human path: ordinary PIE in the level viewport, the ordinary console, and
- * `Combat.Capture.Start ... Video=1`. The same command must yield linked video and data, and
- * every video frame must join a motion sample by engine frame.
+ * `Combat.Capture.Start ... Video=1`. The same command must yield linked video and data, every
+ * video frame must join a motion sample by engine frame, and the landed character hits must be
+ * marked. As in the 2026-10-03 spike, one enemy becomes a training dummy in front of the player.
  */
 class FConsoleVideoCaptureCommand : public IAutomationLatentCommand
 {
@@ -63,9 +71,49 @@ private:
 		IConsoleManager::Get().ProcessUserConsoleInput(Command, *GLog, World);
 	}
 
+	/** Fixture setup before recording: stop every enemy's StateTree, put the first enemy 150 cm in
+	 * front of the player facing it, and move the others away. Returns the dummy's console role. */
+	bool PrepareTrainingDummy(UWorld* World)
+	{
+		APlayerController* PC = World->GetFirstPlayerController();
+		APlayerCharacter* Player = PC ? Cast<APlayerCharacter>(PC->GetPawn()) : nullptr;
+		TArray<AEnemyCharacter*> Enemies;
+		for (TActorIterator<AEnemyCharacter> It(World); It; ++It) { Enemies.Add(*It); }
+		Enemies.Sort([](const AEnemyCharacter& A, const AEnemyCharacter& B) { return A.GetPathName() < B.GetPathName(); });
+		if (!Player || Enemies.IsEmpty()) { return false; }
+		const FVector Base = Player->GetActorLocation();
+		Player->SetActorRotation(FRotator::ZeroRotator);
+		PC->SetControlRotation(FRotator(-10.0f, 0.0f, 0.0f));
+		for (int32 Index = 0; Index < Enemies.Num(); ++Index)
+		{
+			AEnemyCharacter* Enemy = Enemies[Index];
+			if (AController* Controller = Enemy->GetController())
+			{
+				if (UStateTreeComponent* Tree = Controller->FindComponentByClass<UStateTreeComponent>()) { Tree->StopLogic(TEXT("ConsoleVideoTrainingDummy")); }
+			}
+			Enemy->CombatAIComponent->AbortAttack();
+			Enemy->CombatComponent->ClearQueue(true);
+			if (UAnimInstance* Anim = Enemy->GetMesh()->GetAnimInstance()) { Anim->StopAllMontages(0.0f); }
+			const FVector Offset = Index == 0 ? FVector(150.0f, 0.0f, 0.0f) : FVector(-600.0f - 200.0f * Index, 1500.0f + 300.0f * Index, 0.0f);
+			Enemy->SetActorLocationAndRotation(Base + Offset, FRotator(0.0f, 180.0f, 0.0f), false, nullptr, ETeleportType::TeleportPhysics);
+		}
+		Dummy = Enemies[0];
+		for (const FCombatCaptureParticipant& Participant : FCombatCaptureSession::DiscoverParticipants(World))
+		{
+			if (Participant.Actor.Get() == Player) { PlayerRole = Participant.Role; }
+			if (Participant.Actor.Get() == Dummy.Get()) { DummyRole = Participant.Role; }
+		}
+		DummyHealth = Dummy->CurrentHealth;
+		return !PlayerRole.IsEmpty() && !DummyRole.IsEmpty();
+	}
+
 	bool Start(UWorld* World)
 	{
 		if (FCombatCaptureSession::DiscoverParticipants(World).IsEmpty()) { return false; }
+		if (FApp::CanEverRender() && !Test->TestTrue(TEXT("A training dummy stands in front of the player"), PrepareTrainingDummy(World)))
+		{
+			return true;
+		}
 		Console(World, TEXT("Combat.Capture.Start ConsoleVideo 20 0 60 Video=1 VideoFPS=60 VideoResolution=720"));
 		Capture = CombatCaptureCommands::GetSession();
 		if (!FApp::CanEverRender())
@@ -186,13 +234,33 @@ private:
 		FFileHelper::LoadFileToString(Markers, *(Bundle / TEXT("markers.jsonl")));
 		Test->TestTrue(TEXT("Video start is marked in the data session"), Markers.Contains(TEXT("\"marker\":\"video_started\"")));
 		Test->TestTrue(TEXT("Video stop is marked in the data session"), Markers.Contains(TEXT("\"marker\":\"video_stop_requested\"")));
+		TArray<FString> MarkerLines;
+		Markers.ParseIntoArrayLines(MarkerLines);
+		int32 HitMarkers = 0;
+		for (const FString& Line : MarkerLines)
+		{
+			TSharedPtr<FJsonObject> Row;
+			const TSharedPtr<FJsonObject>* Payload = nullptr;
+			if (FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Line), Row) && Row.IsValid()
+				&& Row->GetStringField(TEXT("marker")) == TEXT("contact") && Row->TryGetObjectField(TEXT("payload"), Payload)
+				&& (*Payload)->GetStringField(TEXT("outcome")) == TEXT("Hit")
+				&& (*Payload)->GetStringField(TEXT("attacker")) == PlayerRole && (*Payload)->GetStringField(TEXT("victim")) == DummyRole)
+			{
+				++HitMarkers;
+			}
+		}
+		Test->TestTrue(TEXT("The scripted attacks landed on the dummy"), Dummy.IsValid() && Dummy->CurrentHealth < DummyHealth);
+		Test->TestTrue(TEXT("Every landed character hit is a contact marker with its outcome"), HitMarkers > 0);
 		FFileHelper::SaveStringToFile(Bundle, *(FPaths::ProjectSavedDir() / TEXT("CombatCaptures") / TEXT("ConsoleVideo-latest.txt")));
-		Test->AddInfo(FString::Printf(TEXT("Console video capture %s: %d video frames, %d joined by engine frame, viewport %s"),
-			*Bundle, VideoFrames, Joined, *FString::Printf(TEXT("%dx%d"), static_cast<int32>(Seat->GetIntegerField(TEXT("viewportWidth"))), static_cast<int32>(Seat->GetIntegerField(TEXT("viewportHeight"))))));
+		Test->AddInfo(FString::Printf(TEXT("Console video capture %s: %d video frames, %d joined by engine frame, %d hit marker(s) %s->%s, viewport %s"),
+			*Bundle, VideoFrames, Joined, HitMarkers, *PlayerRole, *DummyRole, *FString::Printf(TEXT("%dx%d"), static_cast<int32>(Seat->GetIntegerField(TEXT("viewportWidth"))), static_cast<int32>(Seat->GetIntegerField(TEXT("viewportHeight"))))));
 	}
 
 	FAutomationTestBase* Test;
 	FCombatCaptureSession* Capture = nullptr;
+	TWeakObjectPtr<AEnemyCharacter> Dummy;
+	FString PlayerRole, DummyRole;
+	float DummyHealth = 0;
 	EStage Stage = EStage::Start;
 	double StartWall = 0, StartSimulation = 0, StopWall = 0;
 	int32 NextPress = 0;
