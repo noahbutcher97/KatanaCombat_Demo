@@ -56,6 +56,15 @@ struct KATANACOMBATEDITOR_API FCombatCaptureSettings
 	int32 VideoSeconds = 0;
 };
 
+/** How capture-link.json reports a clip that the recorder ended without a stop request. */
+struct KATANACOMBATEDITOR_API FCombatCaptureRecorderEnd
+{
+	/** `stopped_by_recorder_limit`, `stopped_by_recorder_error` or `stopped_by_recorder`. */
+	FString Status;
+	/** The link's video.stop_reason, prefixed `recorder_limit`, `recorder_error` or `recorder_stopped`. */
+	FString Reason;
+};
+
 /**
  * Observational, editor-only recorder shared by automation and ordinary PIE.
  * All methods run on the game thread. One active session is allowed because telemetry
@@ -97,13 +106,23 @@ public:
 	FString GetStopReason() const;
 	/** True once this session started a clip; stays true after Stop for inspection. */
 	bool HasVideo() const;
-	/** True while this session's clip is still recording or being finalized by its encoder.
-	 * Video stops asynchronously: wait for this to clear before reading the MP4. */
+	/** True while this session's clip is still recording or being finalized by its encoder, or while
+	 * capture-link.json still awaits the outcome of a clip the recorder ended on its own. Video stops
+	 * asynchronously: wait for this to clear before reading the MP4 or the final link. */
 	bool IsVideoFinalizing() const;
 	/** PresentationCapture's directory for this session's clip, or empty without video. */
 	FString GetVideoDirectory() const;
 	/** capture-link.json joining the clip to this bundle, or empty without video. */
 	FString GetLinkPath() const;
+
+	/** Classifies a clip the recorder ended without a stop request (its own bound, an encoder or write
+	 * failure, or another recorder client's Stop) from the clip's finalized video-manifest.json:
+	 * unreadable or incomplete is an error with the recorder's failure reason; complete and observed
+	 * stopped at or after the capture epoch plus the clip bound is the limit; complete and earlier
+	 * was stopped by another recorder client. An external stop within one engine tick of the bound
+	 * is indistinguishable from the limit. Public so the classification is testable headless. */
+	static FCombatCaptureRecorderEnd ClassifyRecorderEnd(bool bManifestRead, bool bComplete, const FString& FailureReason,
+		double CaptureEpochSeconds, double ClipSeconds, double ObservedStopSeconds);
 
 	static bool IsExpectedPIEViewportClient(const UWorld* World,
 		const FViewportClient* DrawnClient, const FViewportClient* ExpectedClient);

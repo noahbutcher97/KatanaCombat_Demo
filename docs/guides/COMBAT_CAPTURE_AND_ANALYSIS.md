@@ -214,12 +214,25 @@ with the capture: when PIE ends (link status `stopped_by_pie_end`), when the dat
 limit (`stopped_by_analysis_session`, with the session's stop reason) or when the session object is destroyed
 (`stopped_by_teardown`); `Stop` writes `stopped`. Each path releases the recorder channel that names the bundle.
 
+The recorder can also end the clip on its own while the data session keeps recording: at its `VideoSeconds`
+bound, when its encoder or a write fails, or when another recorder client (the toolbar) stops it. The session
+notices on its next core tick, marks `video_stopped_by_recorder` and writes the link `stopped_by_recorder` at
+once. When the recorder has finalized the clip, it rewrites the link from `video-manifest.json`:
+`stopped_by_recorder_error` with the recorder's `failureReason` for an incomplete clip,
+`stopped_by_recorder_limit` for a complete clip seen stopping at or after its capture epoch plus the bound,
+otherwise `stopped_by_recorder` (stopped before the bound, without an error). An external stop within one
+engine tick of the bound reads as the limit. `IsVideoFinalizing()` stays true until that rewrite. A later
+`Stop`, PIE end or teardown keeps the recorder's outcome and stop instant.
+
 **Link.** `capture-link.json` holds the clip's relative directory, capture, clock and world identities,
 and both start instants as engine frame, platform time and world time. AnimationAnalysis's
 `session.json` has no absolute start, so the link recovers it from the recorder's own status (platform
 time minus capture wall seconds, within a microsecond) instead of changing the plugin. It also records
-the PIE viewport widget and scene viewport sizes, and the stop instant. `video_started` and
-`video_stop_requested` markers carry `platform_seconds` and `game_frame` anchors, and the recorder's
+the PIE viewport widget and scene viewport sizes, and how the clip ended: `video.stopped_by` is `session`
+or `recorder`, `video.stop_reason` says why, and the instant is `stop_requested` for a session stop or
+`recorder_stop_observed` (the first core tick on which the recorder no longer reported the clip as capturing,
+within one engine tick of its own stop) for a recorder end. `video_started`, `video_stop_requested` and
+`video_stopped_by_recorder` markers carry `platform_seconds` and `game_frame` anchors, and the recorder's
 `manifest.json` names this bundle in `optionalChannels`.
 
 **Join.** A video frame's `drawGameFrame` and a sample's `engine_frame` are both `GFrameCounter` on the
@@ -266,8 +279,10 @@ excluded from the bundle identity, so a recorder still finalizing or review fram
 cannot change a run's identity or mechanical result.
 
 **Scenario runs.** `run_scenario.py --mode rendered --video` records the registered scenario with a clip
-(`--video-resolution`, `--video-fps`), sizes `-ResX`/`-ResY` to the box and writes `video_quality`, the
-reasons and the join into `run.json` beside the unchanged mechanical `status`. `--rhi dx12` or `--rhi d3d11`
+(`--video-resolution`, `--video-fps`, `--video-seconds` 1-30, default 30), sizes `-ResX`/`-ResY` to the box
+and writes `video_quality`, the reasons, the join and the link's status and stop reason into `run.json` beside
+the unchanged mechanical `status`. A `--video-seconds` shorter than the scenario lets the recorder end the clip
+first (`stopped_by_recorder_limit`); the clip then covers only the start of the run. `--rhi dx12` or `--rhi d3d11`
 forces an RHI for that launch; `run.json` records the RHI the editor log shows. A malformed or missing clip
 becomes `video_quality: invalid` with the error; it never fails the batch. Video runs restore the editor's
 "New Editor Window (PIE)" size and position settings, which the engine otherwise saves from the fitted window. Runner provenance includes

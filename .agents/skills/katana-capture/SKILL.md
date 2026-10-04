@@ -33,8 +33,9 @@ A capture is evidence for review, not a verdict. Report what the frames show, wi
    python "<worktree>/Tools/CombatCapture/run_scenario.py" --map ThirdPerson --variant Completed --mode rendered --video --skip-build
    ```
 
-   `--rhi dx12` forces D3D12 for that launch; D3D11 stays the default. `--video-resolution 360|720|1080`
-   and `--video-fps` set the clip; the PIE viewport is sized to the box so the clip is not scaled.
+   `--rhi dx12` forces D3D12 for that launch; D3D11 stays the default. `--video-resolution 360|720|1080`,
+   `--video-fps` and `--video-seconds` (1-30, default 30) set the clip; the PIE viewport is sized to the box so
+   the clip is not scaled.
    Registered scenarios: `finisher-recovery.json` (default) and `hold-release-recovery.json`
    (`--scenario Tools/CombatCapture/scenarios/hold-release-recovery.json`).
 
@@ -57,7 +58,9 @@ the level viewport scaled to the output box; scenario clips are native.
 
 1. Read `run.json`: `video_quality`, `video.resolution.native`, `video.join.exact_match_rate` (expect 1.0)
    and `video.contacts`.
-2. Read `capture-link.json` and `markers.jsonl`. `contact` markers carry `outcome` (`Hit`, `NormalBlock`,
+2. Read `capture-link.json` and `markers.jsonl`. The link's `status` and `video.stop_reason` say how the clip
+   ended. `stopped_by_recorder_limit` means the clip stopped at its own bound and covers only the start of the
+   run; `stopped_by_recorder_error` carries the recorder's failure. `contact` markers carry `outcome` (`Hit`, `NormalBlock`,
    `UnblockableHit`), `attacker`, `victim`, `hit` and `direction_cm`; `defense` marks an input-stage parry;
    `contact_ignored` marks a contact the defense resolver ignored; `paired_sync` contacts come from finishers.
 3. Map events to frames by engine frame, never by seconds. `video-analysis.json` lists every marker with the

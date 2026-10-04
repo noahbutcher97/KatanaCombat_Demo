@@ -335,6 +335,8 @@ def analyze(bundle, extract=True, picks=None, thresholds=QUALITY_THRESHOLDS):
     result = dict(
         schema_version=1, bundle=str(clip["bundle"]), video=str(mp4.relative_to(clip["bundle"]).as_posix()),
         capture_id=clip["link"]["video"].get("capture_id"), link_status=clip["link"].get("status"),
+        # Who ended the clip and why: the session's stop request, or the recorder's own bound or error.
+        link_stop=dict(stopped_by=clip["link"]["video"].get("stopped_by"), reason=clip["link"]["video"].get("stop_reason")),
         video_quality=quality["video_quality"], quality=quality, validation=validation,
         resolution=resolution_check(clip), join=summary, markers=mapped,
         recorder=dict(cadence=window.get("cadenceAssessment"), requests=window.get("requests"),

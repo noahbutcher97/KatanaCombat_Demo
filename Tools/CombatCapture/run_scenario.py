@@ -156,7 +156,7 @@ def run_one(args, batch_dir, source, map_key, variant, mode, iteration):
             command.append("-dx12" if args.rhi == "dx12" else "-d3d11")
         if args.video:
             command += ["-CombatCaptureVideo=1", f"-CombatCaptureVideoFPS={args.video_fps}",
-                        f"-CombatCaptureVideoResolution={args.video_resolution}"]
+                        f"-CombatCaptureVideoResolution={args.video_resolution}", f"-CombatCaptureVideoSeconds={args.video_seconds}"]
         env = dict(os.environ)
         env["UE-LocalDataCachePath"] = str(REPO / "Saved/CombatCaptureCache")
         atomic_json(run_dir / "command.json", command)
@@ -223,7 +223,8 @@ def video_report(capture):
 
 
 def video_summary(capture, video):
-    return dict(path=str(capture / video["video"]), reasons=video["quality"]["reasons"],
+    return dict(path=str(capture / video["video"]), link_status=video.get("link_status"), stop=video.get("link_stop"),
+                reasons=video["quality"]["reasons"],
                 measured=video["quality"].get("measured"), thresholds=video["quality"]["thresholds"],
                 validation_issues=video["validation"]["issues"], ffprobe=video["validation"]["ffprobe"],
                 max_pts_deviation_us=video["validation"]["max_pts_deviation_us"],
@@ -260,6 +261,9 @@ def main():
     parser.add_argument("--video-fps", type=int, default=60, help="Requested video rate, 1-120; the achieved cadence is graded, not promised")
     parser.add_argument("--video-resolution", type=int, choices=sorted(RESOLUTION_BOXES), default=720,
                         help="Video output box height; the PIE viewport is sized to match so the clip is not scaled")
+    parser.add_argument("--video-seconds", type=int, default=30,
+                        help="Clip bound, 1-30 s (the recorder's limit). A bound shorter than the scenario ends the clip "
+                             "first; capture-link.json then records stopped_by_recorder_limit")
     parser.add_argument("--rhi", choices=("default", "d3d11", "dx12"), default="default",
                         help="Rendered runs only: default keeps the project RHI (D3D11); dx12 or d3d11 forces one for this launch")
     args = parser.parse_args()
@@ -267,7 +271,9 @@ def main():
         parser.error("--video records only rendered runs; use --mode rendered")
     if not 1 <= args.video_fps <= 120:
         parser.error("--video-fps must be 1-120")
-    args.video_request = dict(fps=args.video_fps, resolution=args.video_resolution) if args.video else None
+    if not 1 <= args.video_seconds <= 30:
+        parser.error("--video-seconds must be 1-30")
+    args.video_request = dict(fps=args.video_fps, resolution=args.video_resolution, seconds=args.video_seconds) if args.video else None
     if not 1 <= args.repeat <= 20 or not 30 <= args.timeout <= 1800:
         parser.error("Repeat must be 1..20 and timeout 30..1800 seconds")
     if not math.isfinite(args.control_offset_cm) or abs(args.control_offset_cm) > 1000:

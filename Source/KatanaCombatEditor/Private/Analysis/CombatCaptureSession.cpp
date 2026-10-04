@@ -359,11 +359,16 @@ struct FCombatCaptureSession::FImpl
 	/** The optional clip recorded by PresentationCapture alongside this session. */
 	struct FVideo
 	{
+		/** bStopRequested is terminal: once set by a stop request or a recorder end, no path stops the clip
+		 * again or records a later stop instant. */
 		bool bStarted = false, bStopRequested = false;
+		/** The recorder ended the clip without a stop request; its outcome is final once the recorder has
+		 * written video-manifest.json and the link has been rewritten from it. */
+		bool bEndedByRecorder = false, bRecorderOutcomeFinal = false;
 		int32 FramesPerSecond = 0, Resolution = 0, Seconds = 0;
 		FString Directory, CaptureId, ClockId, WorldId, StateAtStop, StopReason, Error;
 		double TelemetryStartedSeconds = 0, StartCallBegin = 0, StartCallEnd = 0;
-		FCaptureAnchor Start, StopRequest;
+		FCaptureAnchor Start, StopRequest, RecorderStop;
 		FIntPoint SceneViewport = FIntPoint::ZeroValue, ViewportWidget = FIntPoint::ZeroValue;
 	} Video;
 	bool bChannelSet = false;
@@ -513,12 +518,15 @@ struct FCombatCaptureSession::FImpl
 	}
 
 	/** The clip and the data session can each end without Stop: PIE ending, the data session's own
-	 * limits, or the clip's own bound. Each path must stop the clip, finalize the link and release the
-	 * recorder channel so a later, unrelated recording never inherits this bundle's name. */
+	 * limits, or the recorder ending the clip itself (its bound, an encoder or write failure, or another
+	 * recorder client's Stop). Each path must stop or account for the clip, finalize the link and release
+	 * the recorder channel so a later, unrelated recording never inherits this bundle's name. */
 	void WatchVideo()
 	{
 		PIEEndedHandle = FEditorDelegates::PrePIEEnded.AddLambda([this](bool)
 			{
+				// No recorder check here: the recorder's own PrePIEEnded handler may already have stopped
+				// the clip in this broadcast, and that stop is the PIE end, not a recorder end.
 				if (Video.bStarted && !Video.bStopRequested)
 				{
 					StopVideo(TEXT("pie_ended"));
@@ -527,22 +535,103 @@ struct FCombatCaptureSession::FImpl
 			});
 		VideoTicker = FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda([this](float)
 			{
+				// The recorder first: a clip it already ended is never credited to the data session.
+				ObserveRecorderEnd();
 				if (Video.bStarted && !Video.bStopRequested && !Session.IsRecording())
 				{
 					StopVideo(TEXT("analysis_session_stopped:") + Session.GetStopReason());
 					WriteLink(TEXT("stopped_by_analysis_session"));
 				}
-				if (bChannelSet && !(PresentationRecording::IsBusy() && IsOwnClip()))
+				const bool bOwnClipBusy = PresentationRecording::IsBusy() && IsOwnClip();
+				if (Video.bEndedByRecorder && !Video.bRecorderOutcomeFinal && !bOwnClipBusy)
 				{
-					ClearChannel(); // The clip ended at its own bound; its manifest is already written.
+					FinalizeRecorderEnd(); // video-manifest.json is written before the recorder goes idle.
 				}
-				if (Video.bStopRequested && !bChannelSet)
+				if (bChannelSet && !bOwnClipBusy)
+				{
+					ClearChannel(); // The recorder finished this clip; its telemetry manifest recorded the channel.
+				}
+				if (Video.bStopRequested && !bChannelSet && (!Video.bEndedByRecorder || Video.bRecorderOutcomeFinal))
 				{
 					VideoTicker.Reset();
 					return false;
 				}
 				return true;
 			}));
+	}
+
+	bool IsOwnClipCapturing() const
+	{
+		return IsOwnClip() && PresentationRecording::GetState() == EPresentationCaptureState::Capturing;
+	}
+
+	/** Notes a clip the recorder stopped capturing without a stop request. Both run on the core ticker, so
+	 * the instant is within one engine tick of the recorder's own stop. */
+	void ObserveRecorderEnd()
+	{
+		if (Video.bStarted && !Video.bStopRequested && !IsOwnClipCapturing())
+		{
+			NoteRecorderEnded();
+		}
+	}
+
+	void NoteRecorderEnded()
+	{
+		Video.bStopRequested = true; // Terminal: no later Stop, PIE end or teardown records a later instant.
+		Video.bEndedByRecorder = true;
+		Video.RecorderStop = FCaptureAnchor::Now(World.Get());
+		Video.StateAtStop = RecorderStateName(PresentationRecording::GetState());
+		Video.StopReason = TEXT("recorder_stopped: finalizing; the outcome follows from video-manifest.json");
+		auto Payload = MakeShared<FJsonObject>();
+		Payload->SetStringField(TEXT("capture_id"), Video.CaptureId);
+		Payload->SetStringField(TEXT("recorder_state"), Video.StateAtStop);
+		Payload->SetNumberField(TEXT("game_frame"), static_cast<double>(Video.RecorderStop.EngineFrame));
+		Payload->SetNumberField(TEXT("platform_seconds"), Video.RecorderStop.PlatformSeconds);
+		if (Session.IsRecording()) { Session.Mark(TEXT("video_stopped_by_recorder"), Payload); }
+		if (PIEEndedHandle.IsValid())
+		{
+			FEditorDelegates::PrePIEEnded.Remove(PIEEndedHandle);
+			PIEEndedHandle.Reset();
+		}
+		// Written now, so a session destroyed before the recorder finalizes never leaves `recording` behind.
+		WriteLink(TEXT("stopped_by_recorder"));
+	}
+
+	/** After the recorder has finalized the clip: classify its end from video-manifest.json and rewrite the link. */
+	void FinalizeRecorderEnd()
+	{
+		Video.bRecorderOutcomeFinal = true;
+		FString Text, Failure;
+		TSharedPtr<FJsonObject> Manifest;
+		bool bComplete = false;
+		double Epoch = 0;
+		const bool bRead = FFileHelper::LoadFileToString(Text, *(Video.Directory / TEXT("video-manifest.json")))
+			&& FJsonSerializer::Deserialize(TJsonReaderFactory<>::Create(Text), Manifest) && Manifest.IsValid();
+		if (bRead)
+		{
+			Manifest->TryGetBoolField(TEXT("complete"), bComplete);
+			Manifest->TryGetStringField(TEXT("failureReason"), Failure);
+			Manifest->TryGetNumberField(TEXT("captureEpochPlatformSeconds"), Epoch);
+		}
+		const FCombatCaptureRecorderEnd Outcome = FCombatCaptureSession::ClassifyRecorderEnd(
+			bRead, bComplete, Failure, Epoch, Video.Seconds, Video.RecorderStop.PlatformSeconds);
+		Video.StopReason = Outcome.Reason;
+		WriteLink(Outcome.Status);
+	}
+
+	/** Before the ticker goes (destruction or the next Start): settle a recorder-ended clip's link as far as
+	 * the recorder allows. A clip still finalizing keeps `stopped_by_recorder` with a reason that says so. */
+	void SettleRecorderOutcome()
+	{
+		if (!Video.bEndedByRecorder || Video.bRecorderOutcomeFinal) { return; }
+		if (!(PresentationRecording::IsBusy() && IsOwnClip()))
+		{
+			FinalizeRecorderEnd();
+			return;
+		}
+		Video.bRecorderOutcomeFinal = true;
+		Video.StopReason = TEXT("recorder_stopped: the session ended before the recorder finalized; see video-manifest.json");
+		WriteLink(TEXT("stopped_by_recorder"));
 	}
 
 	void ReleaseVideoHooks()
@@ -652,7 +741,18 @@ struct FCombatCaptureSession::FImpl
 		VideoJson->SetArrayField(TEXT("viewport_widget_px"), SizeJson(Video.ViewportWidget));
 		if (Video.bStopRequested)
 		{
-			VideoJson->SetObjectField(TEXT("stop_requested"), Video.StopRequest.ToJson());
+			VideoJson->SetStringField(TEXT("stopped_by"), Video.bEndedByRecorder ? TEXT("recorder") : TEXT("session"));
+			if (Video.bEndedByRecorder)
+			{
+				// Nobody requested this stop: record when the session first saw the recorder no longer capturing.
+				VideoJson->SetObjectField(TEXT("recorder_stop_observed"), Video.RecorderStop.ToJson());
+				VideoJson->SetStringField(TEXT("recorder_stop_observed_source"),
+					TEXT("First core tick on which the recorder no longer reported this clip as capturing; within one engine tick of the recorder's own stop"));
+			}
+			else
+			{
+				VideoJson->SetObjectField(TEXT("stop_requested"), Video.StopRequest.ToJson());
+			}
 			VideoJson->SetStringField(TEXT("state_at_stop"), Video.StateAtStop);
 			VideoJson->SetStringField(TEXT("stop_reason"), Video.StopReason);
 		}
@@ -674,11 +774,13 @@ FCombatCaptureSession::FCombatCaptureSession() : Impl(MakeUnique<FImpl>())
 }
 FCombatCaptureSession::~FCombatCaptureSession()
 {
+	Impl->ObserveRecorderEnd();
 	if (Impl->Video.bStarted && !Impl->Video.bStopRequested)
 	{
 		Impl->StopVideo(TEXT("session_destroyed"));
 		Impl->WriteLink(TEXT("stopped_by_teardown"));
 	}
+	Impl->SettleRecorderOutcome();
 	Impl->ClearChannel();
 	Impl->ReleaseVideoHooks();
 	Impl->ReleaseObserver();
@@ -716,6 +818,7 @@ bool FCombatCaptureSession::Start(UWorld *World, const FCombatCaptureSettings &S
 	TArray<FAnimationCaptureSubject> Subjects;
 	Impl->CombatParticipants.Reset();
 	Impl->RetainedWeaponContacts = Impl->RetainedPairedContacts = Impl->RetainedCommittedContacts = 0;
+	Impl->SettleRecorderOutcome(); // The previous bundle's link, before its ticker goes.
 	Impl->ReleaseVideoHooks();
 	Impl->ClearChannel();
 	Impl->Video = FImpl::FVideo();
@@ -762,7 +865,9 @@ bool FCombatCaptureSession::Start(UWorld *World, const FCombatCaptureSettings &S
 bool FCombatCaptureSession::Stop(const FString &Reason, FString &Error)
 {
 	// Stop the clip first so its last frames still have samples; it finalizes asynchronously. This
-	// runs whether or not the data session already stopped itself.
+	// runs whether or not the data session already stopped itself. A clip the recorder already ended,
+	// even earlier in this frame, keeps the recorder's outcome and stop instant.
+	Impl->ObserveRecorderEnd();
 	const bool bVideoWasActive = Impl->Video.bStarted && !Impl->Video.bStopRequested;
 	Impl->StopVideo(Reason);
 	const bool bSaved = Impl->Session.Stop(Reason, Error);
@@ -856,7 +961,34 @@ bool FCombatCaptureSession::HasVideo() const
 }
 bool FCombatCaptureSession::IsVideoFinalizing() const
 {
-	return Impl->Video.bStarted && PresentationRecording::IsBusy() && Impl->IsOwnClip();
+	const bool bRecorderBusy = PresentationRecording::IsBusy() && Impl->IsOwnClip();
+	return Impl->Video.bStarted && (bRecorderBusy || (Impl->Video.bEndedByRecorder && !Impl->Video.bRecorderOutcomeFinal));
+}
+FCombatCaptureRecorderEnd FCombatCaptureSession::ClassifyRecorderEnd(bool bManifestRead, bool bComplete,
+	const FString &FailureReason, double CaptureEpochSeconds, double ClipSeconds, double ObservedStopSeconds)
+{
+	if (!bManifestRead)
+	{
+		return {TEXT("stopped_by_recorder_error"), TEXT("recorder_error: video-manifest.json is missing or unreadable")};
+	}
+	if (!bComplete)
+	{
+		return {TEXT("stopped_by_recorder_error"), TEXT("recorder_error: ")
+			+ (FailureReason.IsEmpty() ? FString(TEXT("the clip is incomplete; see video-manifest.json")) : FailureReason)};
+	}
+	if (CaptureEpochSeconds <= 0)
+	{
+		return {TEXT("stopped_by_recorder"), TEXT("recorder_stopped: video-manifest.json has no capture epoch to compare with the clip bound")};
+	}
+	// The recorder stops itself on its first tick at or after epoch + bound, so an end observed before that
+	// instant was another recorder client's Stop.
+	if (ObservedStopSeconds >= CaptureEpochSeconds + ClipSeconds)
+	{
+		return {TEXT("stopped_by_recorder_limit"), FString::Printf(TEXT("recorder_limit: the clip reached its %.0f s bound"), ClipSeconds)};
+	}
+	return {TEXT("stopped_by_recorder"), FString::Printf(
+		TEXT("recorder_stopped: complete %.3f s before its %.0f s bound with no error; another recorder client stopped it"),
+		CaptureEpochSeconds + ClipSeconds - ObservedStopSeconds, ClipSeconds)};
 }
 FString FCombatCaptureSession::GetVideoDirectory() const
 {

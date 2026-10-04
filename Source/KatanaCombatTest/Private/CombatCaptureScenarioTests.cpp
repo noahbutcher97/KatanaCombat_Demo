@@ -78,6 +78,9 @@ struct FScenarioVideoRequest
 	bool bEnabled = false;
 	int32 FramesPerSecond = 60;
 	int32 Resolution = 720;
+	/** Clip bound. The recorder's maximum keeps the clip running through the scenario; a shorter bound
+	 * (run_scenario.py --video-seconds) lets the recorder end the clip on its own first. */
+	int32 Seconds = 30;
 
 	/** The recorder's output box for the resolution; a viewport of exactly this size is recorded unscaled. */
 	FIntPoint Size() const
@@ -92,6 +95,7 @@ struct FScenarioVideoRequest
 		Request.bEnabled = Enabled == 1;
 		FParse::Value(FCommandLine::Get(), TEXT("CombatCaptureVideoFPS="), Request.FramesPerSecond);
 		FParse::Value(FCommandLine::Get(), TEXT("CombatCaptureVideoResolution="), Request.Resolution);
+		FParse::Value(FCommandLine::Get(), TEXT("CombatCaptureVideoSeconds="), Request.Seconds);
 		return Request;
 	}
 };
@@ -728,9 +732,10 @@ private:
 				Settings.bRecordVideo = true;
 				Settings.VideoFramesPerSecond = VideoRequest.FramesPerSecond;
 				Settings.VideoResolution = VideoRequest.Resolution;
-				Settings.VideoSeconds = 30;
+				Settings.VideoSeconds = VideoRequest.Seconds;
 				Settings.Metadata.Add(TEXT("video_fps"), FString::FromInt(VideoRequest.FramesPerSecond));
 				Settings.Metadata.Add(TEXT("video_resolution"), FString::FromInt(VideoRequest.Resolution));
+				Settings.Metadata.Add(TEXT("video_seconds"), FString::FromInt(VideoRequest.Seconds));
 			}
 			// Bind the bounded recorder metadata to a full sidecar, rather than
 			// making detailed authoring experiments depend on a string-size limit.
@@ -1079,6 +1084,7 @@ private:
 				auto VideoResult = MakeShared<FJsonObject>();
 				VideoResult->SetNumberField(TEXT("requested_fps"), VideoRequest.FramesPerSecond);
 				VideoResult->SetNumberField(TEXT("requested_resolution"), VideoRequest.Resolution);
+				VideoResult->SetNumberField(TEXT("requested_seconds"), VideoRequest.Seconds);
 				VideoResult->SetBoolField(TEXT("started"), Capture.HasVideo());
 				VideoResult->SetStringField(TEXT("directory"), Capture.GetVideoDirectory());
 				VideoResult->SetStringField(TEXT("link"), Capture.GetLinkPath());

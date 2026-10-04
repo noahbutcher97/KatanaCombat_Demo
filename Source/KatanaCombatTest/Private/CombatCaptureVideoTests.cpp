@@ -349,6 +349,7 @@ public:
 		const TSharedPtr<FJsonObject> Video = Link->GetObjectField(TEXT("video"));
 		Test->TestEqual(TEXT("The link records why the clip stopped"), Video->GetStringField(TEXT("stop_reason")), FString(Reason));
 		Test->TestTrue(TEXT("The link records the stop instant"), Video->HasField(TEXT("stop_requested")));
+		Test->TestEqual(TEXT("The session requested this stop"), Video->GetStringField(TEXT("stopped_by")), FString(TEXT("session")));
 		const TSharedPtr<FJsonObject> Manifest = ReadJsonFile(Capture->GetVideoDirectory() / TEXT("video-manifest.json"));
 		Test->TestTrue(TEXT("The recorder finalized a complete clip"), Manifest.IsValid() && Manifest->GetBoolField(TEXT("complete")));
 		Test->TestFalse(TEXT("The recorder channel no longer names this bundle"),
@@ -384,6 +385,102 @@ private:
 	FAutomationTestBase* Test;
 	double StartWall = 0;
 };
+
+/**
+ * The clip reaching its own VideoSeconds bound while the data session keeps recording. The link must be
+ * final as soon as the recorder has finalized the clip: the limit as the reason and the instant the recorder
+ * stopped as the anchor. A later Stop must neither rewrite the link nor record a later stop instant.
+ */
+class FRecorderLimitCommand : public IAutomationLatentCommand
+{
+public:
+	explicit FRecorderLimitCommand(FAutomationTestBase* InTest) : Test(InTest) {}
+
+	bool Update() override
+	{
+		const double Now = FPlatformTime::Seconds();
+		if (StartWall == 0) { StartWall = Now; }
+		UWorld* World = AutomationCommon::GetAnyGameWorld();
+		if (Now - StartWall > 90)
+		{
+			Test->AddError(TEXT("Recorder-limit capture exceeded its watchdog"));
+			if (World && Capture && Capture->IsRecording()) { IConsoleManager::Get().ProcessUserConsoleInput(TEXT("Combat.Capture.Stop"), *GLog, World); }
+			return true;
+		}
+		if (!Capture)
+		{
+			if (!World || World->WorldType != EWorldType::PIE || FCombatCaptureSession::DiscoverParticipants(World).IsEmpty()) { return false; }
+			// The clip's bound is far shorter than the data session's, so the recorder ends the clip on its own.
+			IConsoleManager::Get().ProcessUserConsoleInput(*FString::Printf(TEXT("Combat.Capture.Start VideoRecorderLimit %d 0 60 Video=1 VideoSeconds=%d"),
+				SessionSeconds, ClipSeconds), *GLog, World);
+			Capture = CombatCaptureCommands::GetSession();
+			if (!Test->TestTrue(TEXT("Console capture with video records"), Capture && Capture->IsRecording() && Capture->HasVideo())) { return true; }
+			return false;
+		}
+		if (Capture->IsVideoFinalizing()) { return false; }
+		VerifyBeforeStop(World);
+		return true;
+	}
+
+private:
+	static TSharedPtr<FJsonObject> VideoOf(const TSharedPtr<FJsonObject>& Link)
+	{
+		const TSharedPtr<FJsonObject>* Video = nullptr;
+		return Link.IsValid() && Link->TryGetObjectField(TEXT("video"), Video) ? *Video : nullptr;
+	}
+
+	void VerifyBeforeStop(UWorld* World)
+	{
+		Test->TestTrue(TEXT("The data session outlives the clip"), Capture->IsRecording());
+		const TSharedPtr<FJsonObject> Link = ReadJsonFile(Capture->GetLinkPath());
+		const TSharedPtr<FJsonObject> Video = VideoOf(Link);
+		if (!Test->TestTrue(TEXT("capture-link.json is written"), Video.IsValid())) { return; }
+		Test->TestEqual(TEXT("The link is final once the recorder has finalized its clip"),
+			Link->GetStringField(TEXT("status")), FString(TEXT("stopped_by_recorder_limit")));
+		Test->TestTrue(TEXT("The reason names the recorder's own bound"), Video->GetStringField(TEXT("stop_reason")).StartsWith(TEXT("recorder_limit")));
+		Test->TestEqual(TEXT("The link names who stopped the clip"), Video->GetStringField(TEXT("stopped_by")), FString(TEXT("recorder")));
+		Test->TestFalse(TEXT("Nobody requested this stop"), Video->HasField(TEXT("stop_requested")));
+		const TSharedPtr<FJsonObject>* Observed = nullptr;
+		if (!Test->TestTrue(TEXT("The link records when the recorder stopped"), Video->TryGetObjectField(TEXT("recorder_stop_observed"), Observed))) { return; }
+		const double ObservedFrame = (*Observed)->GetNumberField(TEXT("engine_frame"));
+		const double ObservedSeconds = (*Observed)->GetNumberField(TEXT("platform_seconds"));
+
+		const TSharedPtr<FJsonObject> Manifest = ReadJsonFile(Capture->GetVideoDirectory() / TEXT("video-manifest.json"));
+		if (!Test->TestTrue(TEXT("The recorder finalized a complete clip"), Manifest.IsValid() && Manifest->GetBoolField(TEXT("complete")))) { return; }
+		const double RequestedSeconds = Video->GetObjectField(TEXT("requested"))->GetNumberField(TEXT("seconds"));
+		Test->TestEqual(TEXT("The clip used the requested bound"), RequestedSeconds, static_cast<double>(ClipSeconds));
+		Test->TestTrue(TEXT("The stop was observed at or after the clip's bound"),
+			ObservedSeconds >= Manifest->GetNumberField(TEXT("captureEpochPlatformSeconds")) + RequestedSeconds);
+		Test->TestFalse(TEXT("The recorder channel no longer names this bundle"),
+			PresentationRecording::GetChannelStatus().Contains(TEXT("KatanaCombatCapture")));
+
+		const double StopFrame = static_cast<double>(GFrameCounter);
+		const double StopSeconds = FPlatformTime::Seconds();
+		IConsoleManager::Get().ProcessUserConsoleInput(TEXT("Combat.Capture.Stop"), *GLog, World);
+		Test->TestFalse(TEXT("Stop finalizes the data session"), Capture->IsRecording());
+		Test->TestTrue(TEXT("The recorder stop precedes the session stop"), ObservedFrame < StopFrame && ObservedSeconds < StopSeconds);
+		const TSharedPtr<FJsonObject> After = ReadJsonFile(Capture->GetLinkPath());
+		const TSharedPtr<FJsonObject> AfterVideo = VideoOf(After);
+		if (!Test->TestTrue(TEXT("capture-link.json survives Stop"), AfterVideo.IsValid())) { return; }
+		Test->TestEqual(TEXT("A later Stop keeps the recorder's outcome"), After->GetStringField(TEXT("status")), FString(TEXT("stopped_by_recorder_limit")));
+		Test->TestFalse(TEXT("A later Stop records no stop request"), AfterVideo->HasField(TEXT("stop_requested")));
+		const TSharedPtr<FJsonObject>* AfterObserved = nullptr;
+		Test->TestTrue(TEXT("A later Stop keeps the recorder's stop instant"),
+			AfterVideo->TryGetObjectField(TEXT("recorder_stop_observed"), AfterObserved)
+			&& (*AfterObserved)->GetNumberField(TEXT("engine_frame")) == ObservedFrame
+			&& (*AfterObserved)->GetNumberField(TEXT("platform_seconds")) == ObservedSeconds);
+		FString Markers;
+		FFileHelper::LoadFileToString(Markers, *(Capture->GetOutputDirectory() / TEXT("markers.jsonl")));
+		Test->TestTrue(TEXT("The data session marks the recorder's stop"), Markers.Contains(TEXT("\"marker\":\"video_stopped_by_recorder\"")));
+		Test->TestFalse(TEXT("The data session marks no later stop request"), Markers.Contains(TEXT("\"marker\":\"video_stop_requested\"")));
+	}
+
+	static constexpr int32 ClipSeconds = 2;
+	static constexpr int32 SessionSeconds = 30;
+	FAutomationTestBase* Test;
+	FCombatCaptureSession* Capture = nullptr;
+	double StartWall = 0;
+};
 } // namespace
 
 IMPLEMENT_COMPLEX_AUTOMATION_TEST(FCombatCaptureVideoTeardownTest,
@@ -393,6 +490,7 @@ void FCombatCaptureVideoTeardownTest::GetTests(TArray<FString>& Names, TArray<FS
 {
 	Names.Add(TEXT("PIEEnd")); Commands.Add(TEXT("PIEEnd"));
 	Names.Add(TEXT("SessionLimit")); Commands.Add(TEXT("SessionLimit"));
+	Names.Add(TEXT("RecorderLimit")); Commands.Add(TEXT("RecorderLimit"));
 }
 
 bool FCombatCaptureVideoTeardownTest::RunTest(const FString& Parameters)
@@ -406,9 +504,49 @@ bool FCombatCaptureVideoTeardownTest::RunTest(const FString& Parameters)
 	ADD_LATENT_AUTOMATION_COMMAND(FEditorLoadMap(TEXT("/Game/ProjectFiles/Levels/Lvl_ThirdPerson1")));
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitForShadersToFinishCompiling());
 	ADD_LATENT_AUTOMATION_COMMAND(FStartPIECommand(false));
-	ADD_LATENT_AUTOMATION_COMMAND(FVideoTeardownCommand(this, bPIEEnd));
+	if (Parameters == TEXT("RecorderLimit")) { ADD_LATENT_AUTOMATION_COMMAND(FRecorderLimitCommand(this)); }
+	else { ADD_LATENT_AUTOMATION_COMMAND(FVideoTeardownCommand(this, bPIEEnd)); }
 	ADD_LATENT_AUTOMATION_COMMAND(FEndPlayMapCommand());
 	ADD_LATENT_AUTOMATION_COMMAND(FWaitLatentCommand(0.5f));
 	if (bPIEEnd) { ADD_LATENT_AUTOMATION_COMMAND(FVerifyPIEEndTeardownCommand(this)); }
+	return true;
+}
+
+/**
+ * How the link reports a clip the recorder ended without a stop request, from its finalized manifest. The
+ * rendered RecorderLimit variant covers the bound end to end; an encoder failing mid-clip and another
+ * recorder client's Stop cannot be provoked reliably in a test editor, so their classification is checked here.
+ */
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCombatCaptureRecorderEndTest,
+	"KatanaCombat.Capture.Video.RecorderEndOutcome", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FCombatCaptureRecorderEndTest::RunTest(const FString&)
+{
+	// Fixture clock: the clip's epoch and bound are this test's own values.
+	const double Epoch = 1000.0, Bound = 2.0, Tick = 1.0 / 60.0;
+	const auto Classify = [&](bool bRead, bool bComplete, const TCHAR* Failure, double Observed)
+	{
+		return FCombatCaptureSession::ClassifyRecorderEnd(bRead, bComplete, Failure, Epoch, Bound, Observed);
+	};
+
+	const FCombatCaptureRecorderEnd Limit = Classify(true, true, TEXT(""), Epoch + Bound + Tick);
+	TestEqual(TEXT("A complete clip seen stopping after its bound reached its limit"), Limit.Status, FString(TEXT("stopped_by_recorder_limit")));
+	TestTrue(TEXT("The limit reason is named"), Limit.Reason.StartsWith(TEXT("recorder_limit")));
+	TestEqual(TEXT("Exactly at the bound is the limit"), Classify(true, true, TEXT(""), Epoch + Bound).Status, FString(TEXT("stopped_by_recorder_limit")));
+
+	const FCombatCaptureRecorderEnd Failed = Classify(true, false, TEXT("encoder failed (exit 3). Inspect the encoder log."), Epoch + 0.5 * Bound);
+	TestEqual(TEXT("An encoder failing mid-clip is a recorder error"), Failed.Status, FString(TEXT("stopped_by_recorder_error")));
+	TestTrue(TEXT("The error carries the recorder's failure reason"),
+		Failed.Reason.StartsWith(TEXT("recorder_error")) && Failed.Reason.Contains(TEXT("encoder failed (exit 3)")));
+	TestEqual(TEXT("An incomplete clip at its bound is still an error, not the limit"),
+		Classify(true, false, TEXT(""), Epoch + Bound + Tick).Status, FString(TEXT("stopped_by_recorder_error")));
+	TestEqual(TEXT("A missing or unreadable manifest is an error"),
+		Classify(false, false, TEXT(""), Epoch + Bound + Tick).Status, FString(TEXT("stopped_by_recorder_error")));
+
+	const FCombatCaptureRecorderEnd Early = Classify(true, true, TEXT(""), Epoch + 0.5 * Bound);
+	TestEqual(TEXT("A complete clip stopped before its bound was stopped by another recorder client"), Early.Status, FString(TEXT("stopped_by_recorder")));
+	TestTrue(TEXT("The early stop is named"), Early.Reason.StartsWith(TEXT("recorder_stopped")));
+	TestEqual(TEXT("Without a capture epoch the limit cannot be established"),
+		FCombatCaptureSession::ClassifyRecorderEnd(true, true, TEXT(""), 0.0, Bound, Epoch + Bound + Tick).Status, FString(TEXT("stopped_by_recorder")));
 	return true;
 }

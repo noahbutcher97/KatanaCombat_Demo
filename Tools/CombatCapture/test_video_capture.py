@@ -140,6 +140,14 @@ class VideoCaptureTests(unittest.TestCase):
         self.bundle.window["droppedFrames"] = 1
         self.assertEqual(self.run_analysis()["video_quality"], "degraded")
 
+    def test_a_clip_the_recorder_ended_reports_who_stopped_it_and_why(self):
+        self.bundle.link["status"] = "stopped_by_recorder_limit"
+        self.bundle.link["video"].update(stopped_by="recorder", stop_reason="recorder_limit: the clip reached its 2 s bound")
+        result = self.run_analysis()
+        self.assertEqual(result["link_status"], "stopped_by_recorder_limit")
+        self.assertEqual(result["link_stop"], dict(stopped_by="recorder", reason="recorder_limit: the clip reached its 2 s bound"))
+        self.assertEqual(result["video_quality"], "ok", "a clip that ended at its own bound is still a complete clip")
+
     def test_thresholds_are_named_and_recorded(self):
         result = self.run_analysis()
         self.assertEqual(set(result["quality"]["thresholds"]), {"max_dropped_frames", "max_pressure_skip_fraction", "max_frame_gap_s"})
