@@ -18,6 +18,11 @@ from pathlib import Path
 import subprocess
 import sys
 
+_shared = Path(__file__).resolve().parents[1] / "PluginDependencies"
+if str(_shared) not in sys.path:
+    sys.path.insert(0, str(_shared))
+from pinned_plugin import is_remote  # noqa: E402
+
 MARKER = Path("Saved/capture-worktree.json")
 ENGINE = Path("C:/Program Files/Epic Games/UE_5.6")
 
@@ -126,16 +131,33 @@ def run_logged(command, log, cwd):
         raise WorktreeError(f"{Path(command[1] if command[0] == sys.executable else command[0]).name} failed with exit {code}; see {log}")
 
 
-def main():
+def repository_argument(value):
+    """A clone URL or scp-style remote passes through unchanged (Path would turn its slashes into backslashes);
+    a local checkout becomes absolute, because setup runs with the capture worktree as its directory."""
+    return value if is_remote(value) else str(Path(value).resolve())
+
+
+def build_parser():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--ref", default="HEAD", help="Commit or branch to capture; resolved to a commit and checked out detached")
     parser.add_argument("--path", type=Path, help="Worktree directory; defaults to <main checkout>-capture-run beside it")
-    parser.add_argument("--analysis-repository", type=Path, help="AnimationAnalysis checkout containing the target's pin")
-    parser.add_argument("--recorder-repository", type=Path, help="PresentationCapture checkout containing the target's pin")
+    parser.add_argument("--analysis-repository", type=repository_argument,
+                        help="AnimationAnalysis checkout or clone URL containing the target's pin")
+    parser.add_argument("--recorder-repository", type=repository_argument,
+                        help="PresentationCapture checkout or clone URL containing the target's pin")
     parser.add_argument("--engine", type=Path, default=ENGINE)
     parser.add_argument("--max-parallel-actions", type=int, default=4, help="Build parallelism; lower it under memory pressure")
     parser.add_argument("--skip-setup", action="store_true")
     parser.add_argument("--skip-build", action="store_true")
+    return parser
+
+
+def parse_arguments(argv=None):
+    return build_parser().parse_args(argv)
+
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
     repo = Path(__file__).resolve().parents[2]
     try:

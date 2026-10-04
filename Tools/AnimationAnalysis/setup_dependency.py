@@ -13,7 +13,7 @@ def install(repository=None, project=PROJECT):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--repository", help="Override the lock's repository with a checkout or clone URL containing the pinned commit")
+    parser.add_argument("--repository", help="Override the lock's repository with a checkout or clone URL (https://, ssh:// or git@host:owner/repo.git) containing the pinned commit")
     args = parser.parse_args()
     try:
         print(json.dumps(install(args.repository), indent=2))

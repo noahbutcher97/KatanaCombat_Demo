@@ -6,7 +6,8 @@ import sys
 import tempfile
 import unittest
 
-from capture_worktree import MARKER, WorktreeError, build_command, default_path, ensure_worktree, git, setup_commands
+from capture_worktree import (MARKER, WorktreeError, build_command, default_path, ensure_worktree, git, parse_arguments,
+                              setup_commands)
 
 
 class CaptureWorktreeTests(unittest.TestCase):
@@ -109,6 +110,21 @@ class CaptureWorktreeTests(unittest.TestCase):
         self.assertEqual(commands[0][0], sys.executable)
         self.assertEqual(commands[0][-2:], ["--repository", str(local.parent)])
         self.assertTrue(commands[1][1].endswith("setup_dependency.py") and "PresentationCapture" in commands[1][1])
+
+    def test_repository_overrides_keep_clone_urls_intact_and_anchor_local_paths(self):
+        ensure_worktree(self.repo, self.first, self.target)
+        for name in ("AnimationAnalysis", "PresentationCapture"):
+            (self.target / "Tools" / name).mkdir(parents=True)
+            (self.target / "Tools" / name / "setup_dependency.py").write_text("")
+        for remote in ("https://github.com/owner/PresentationCapture.git", "git@github.com:owner/PresentationCapture.git",
+                       "ssh://git@github.com/owner/PresentationCapture.git", "file:///D:/repositories/PresentationCapture"):
+            args = parse_arguments(["--analysis-repository", remote, "--recorder-repository", remote])
+            commands = setup_commands(self.repo, self.target, args.analysis_repository, args.recorder_repository)
+            self.assertEqual([command[-2:] for command in commands], [["--repository", remote]] * 2,
+                             "a clone URL reaches setup byte for byte")
+        # Setup runs with the worktree as its directory, so a relative checkout is anchored where it was named.
+        local = parse_arguments(["--recorder-repository", "relative/PresentationCapture"]).recorder_repository
+        self.assertEqual(local, str(Path("relative/PresentationCapture").resolve()))
 
     def test_build_targets_the_worktree_project_and_waits_for_the_shared_mutex(self):
         command = build_command(self.target, parallel=2)

@@ -167,13 +167,27 @@ def dependency_source_manifest(spec, project):
             if Path(name).suffix in SOURCE_SUFFIXES}
 
 
-def _is_url(repository):
-    return re.match(r"^[A-Za-z][A-Za-z0-9+.-]+://", str(repository)) is not None
+def is_remote(repository):
+    """True when git clones ``repository`` over a transport; False when it names a path on this machine.
+
+    Follows git's own rule (``url_is_local_not_ssh`` in connect.c): a ``scheme://`` URL is remote, and so is
+    the scp-style ``[user@]host:path`` form, a colon with no directory separator before it. A drive prefix
+    (``C:\\x``, ``C:/x`` or drive-relative ``D:x``) is a local path, as in Git for Windows. A backslash before
+    the colon also keeps a value local: such a name is a Windows path, never a host.
+    """
+    text = str(repository)
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]+://", text):
+        return True
+    colon = text.find(":")
+    if colon < 0 or re.match(r"^[A-Za-z]:", text):
+        return False
+    return not any(separator in text[:colon] for separator in "/\\")
 
 
 def missing_local_source(spec, repository, revision):
     return ValueError(f"{spec.name} source {repository} does not exist on this machine. Point setup at a checkout or "
-                      f"clone URL containing {revision}: python {spec.setup_script} --repository <{spec.name}-checkout>")
+                      f"clone URL (https://, ssh:// or git@host:owner/repo.git) containing {revision}: "
+                      f"python {spec.setup_script} --repository <{spec.name}-checkout>")
 
 
 def fetch_error(spec, repository, revision, error):
@@ -206,7 +220,7 @@ def install(spec, repository=None, project=None, finish=None):
     if not target.exists():
         if not repository:
             raise ValueError("Supply --repository with a checkout or repository containing the pinned commit")
-        if not _is_url(repository) and not Path(repository).exists():
+        if not is_remote(repository) and not Path(repository).exists():
             raise missing_local_source(spec, repository, revision)
         with tempfile.TemporaryDirectory(prefix="dependency-stage-", dir=cache) as directory:
             scratch = Path(directory).resolve()

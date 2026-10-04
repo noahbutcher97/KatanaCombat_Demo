@@ -1,14 +1,28 @@
 """The PresentationCapture pin installs only the core plugin and owns the workers it builds."""
 import json
-from pathlib import Path
+import os
+from pathlib import Path, PureWindowsPath
+import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from presentation_capture_dependency import (SPEC, WORKERS, checkout, dependency_source_manifest, git, install,
                                              read_lock, worker_hashes)
+import pinned_plugin
 
 PLUGIN = "Plugin/PresentationCapture"
+
+# Stands in for ssh: git runs `<GIT_SSH_COMMAND> <host> "git-upload-pack '<path>'"` (GIT_SSH_VARIANT=simple).
+# It records what git asked for and serves the fixture repository, so an scp-style remote clones offline.
+FAKE_SSH = """import json, subprocess, sys
+repository, record, host, command = sys.argv[1], sys.argv[2], sys.argv[-2], sys.argv[-1]
+with open(record, "w") as stream:
+    json.dump([host, command], stream)
+raise SystemExit(subprocess.call(["git", command.split()[0].replace("git-", "", 1), repository]))
+"""
 
 
 class FakeWorkerBuilder:
@@ -166,6 +180,20 @@ class PresentationCaptureDependencyTests(unittest.TestCase):
             self.assertIn(expected, message)
         self.assertFalse((self.project / SPEC.cache / self.revision).exists())
 
+    def test_an_scp_style_remote_is_cloned_rather_than_rejected_as_a_missing_path(self):
+        transport, received = self.root / "fake_ssh.py", self.root / "ssh-request.json"
+        transport.write_text(FAKE_SSH)
+        remote = "git@fixture.invalid:owner/PresentationCapture.git"
+        self.assertFalse(Path(remote).exists(), "premise: the remote is not a path on this machine")
+        command = " ".join(f'"{Path(part).as_posix()}"' for part in (sys.executable, transport, self.upstream, received))
+        with patch.dict(os.environ, {"GIT_SSH_COMMAND": command, "GIT_SSH_VARIANT": "simple"}):
+            result = install(repository=remote, project=self.project, builder=FakeWorkerBuilder(), checker=lambda *_: {})
+        self.assertEqual(result["revision"], self.revision)
+        host, request = json.loads(received.read_text())
+        self.assertEqual(host, "git@fixture.invalid", "git parsed the scp form and connected over ssh")
+        self.assertIn("owner/PresentationCapture.git", request)
+        self.assertEqual((self.plugin / "Source/PresentationCapture/Private/Recorder.cpp").read_text(), "// recorder one\n")
+
     def test_the_lock_pins_the_remote_like_animation_analysis(self):
         lock = read_lock()  # The project's own lock, not the fixture's.
         self.assertTrue(lock["repository"].startswith("https://"), "the source of truth is a clone URL")
@@ -193,6 +221,23 @@ class PresentationCaptureDependencyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "compiler unavailable"):
             self.install(builder=failing)
         self.assertFalse((self.project / SPEC.marker).exists())
+
+
+class RepositoryFormTests(unittest.TestCase):
+    """Which --repository values git clones over a transport, and which name a path on this machine."""
+
+    def test_clone_urls_and_scp_style_remotes_are_remote(self):
+        for remote in ("git@github.com:owner/repo.git", "github.com:owner/repo.git", "ssh://git@github.com/owner/repo.git",
+                       "https://github.com/owner/repo.git", "file:///D:/repositories/repo", "git+ssh://host/owner/repo.git"):
+            self.assertTrue(pinned_plugin.is_remote(remote), remote)
+
+    def test_drive_unc_and_relative_paths_are_local(self):
+        # A drive letter, even drive-relative D:repo, is a path; so is anything with a separator before its
+        # first colon, which git itself treats as a path (spell ./foo:bar to keep such a name local).
+        for local in (r"C:\repositories\repo", "C:/repositories/repo", "D:repo", "./foo:bar", r".\foo:bar",
+                      "relative/checkout", "checkout", r"\\server\share\repo", "//server/share/repo",
+                      PureWindowsPath(r"C:\repositories\repo")):
+            self.assertFalse(pinned_plugin.is_remote(local), local)
 
 
 if __name__ == "__main__":
