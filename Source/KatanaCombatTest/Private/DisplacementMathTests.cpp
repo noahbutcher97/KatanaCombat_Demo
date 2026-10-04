@@ -57,12 +57,37 @@ bool FDisplacementMathPushStepTest::RunTest(const FString&)
 		TestTrue(FString::Printf(TEXT("%s (%f, expected %f)"), What, Actual, Expected),
 			FMath::IsFinite(Actual) && FMath::Abs(Actual - Expected) <= 1e-9);
 	};
-	Is(TEXT("Movement channel: the step is the push"), DisplacementMath::PushStep(4.0, 0.0), 4.0);
-	Is(TEXT("Animation channel: the kept animation travel is not push"), DisplacementMath::PushStep(10.0, 6.0), 4.0);
-	Is(TEXT("A reaction stepping back against the push still leaves the push"), DisplacementMath::PushStep(-2.0, -6.0), 4.0);
-	Is(TEXT("A wall the kept animation pressed into: no push"), DisplacementMath::PushStep(0.0, 3.0), 0.0);
-	Is(TEXT("A wall the kept animation stepped away from: no push"), DisplacementMath::PushStep(-3.0, -3.0), 0.0);
-	Is(TEXT("Backward movement is not push travel"), DisplacementMath::PushStep(-1.0, 0.0), 0.0);
+	// In every case the push commanded 4 cm over the step, so the cap (pinned below) never decides these.
+	const double Commanded = 4.0;
+	Is(TEXT("Movement channel: the step is the push"), DisplacementMath::PushStep(4.0, 0.0, Commanded), 4.0);
+	Is(TEXT("Animation channel: the kept animation travel is not push"), DisplacementMath::PushStep(10.0, 6.0, Commanded), 4.0);
+	Is(TEXT("A reaction stepping back against the push still leaves the push"), DisplacementMath::PushStep(-2.0, -6.0, Commanded), 4.0);
+	Is(TEXT("A wall the kept animation pressed into: no push"), DisplacementMath::PushStep(0.0, 3.0, Commanded), 0.0);
+	Is(TEXT("A wall the kept animation stepped away from: no push"), DisplacementMath::PushStep(-3.0, -3.0, Commanded), 0.0);
+	Is(TEXT("Backward movement is not push travel"), DisplacementMath::PushStep(-1.0, 0.0, Commanded), 0.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementMathPushStepCapTest, "KatanaCombat.Displacement.Math.PushStepCappedAtCommandedStep",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementMathPushStepCapTest::RunTest(const FString&)
+{
+	// Finite first: this build compares NaN as equal to anything.
+	const auto Is = [this](const TCHAR* What, const double Actual, const double Expected)
+	{
+		TestTrue(FString::Printf(TEXT("%s (%f, expected %f)"), What, Actual, Expected),
+			FMath::IsFinite(Actual) && FMath::Abs(Actual - Expected) <= 1e-9);
+	};
+	// Collision that clips the step: the animation's kept travel is -3 cm and the push commanded +1 cm, so the free step
+	// is -2 cm; a wall behind the character holds it at 0. Progress less kept travel reads 3 cm, but the push only
+	// commanded 1 cm.
+	Is(TEXT("A wall clipping a backward reaction: the push's own 1 cm, not the 3 cm the animation lost"),
+		DisplacementMath::PushStep(0.0, -3.0, 1.0), 1.0);
+	Is(TEXT("Any clipped backward reaction gives at most the commanded step"), DisplacementMath::PushStep(0.0, -10.0, 1.0), 1.0);
+	Is(TEXT("A step short of its commanded distance passes through"), DisplacementMath::PushStep(2.5, 0.0, 4.0), 2.5);
+	Is(TEXT("Movement with no push time behind it is not push"), DisplacementMath::PushStep(5.0, 0.0, 0.0), 0.0);
+	Is(TEXT("A negative commanded step counts as none"), DisplacementMath::PushStep(3.0, 0.0, -1.0), 0.0);
+	Is(TEXT("Still never negative under the cap"), DisplacementMath::PushStep(-2.0, 0.0, 4.0), 0.0);
 	return true;
 }
 

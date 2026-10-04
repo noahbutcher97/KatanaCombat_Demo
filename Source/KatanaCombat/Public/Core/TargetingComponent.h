@@ -408,6 +408,8 @@ private:
         /** Consecutive request time spent under the blocked-progress threshold. */
         double DisplacementBlockedSeconds = 0.0;
         FVector DisplacementLastLocation = FVector::ZeroVector;
+        /** The request clock when DisplacementLastLocation was measured: the push's commanded step runs from it to the clock now. */
+        double DisplacementLastMeasuredElapsed = 0.0;
         bool bDisplacementHasLastLocation = false;
         /** Owner-dilated time this running displacement has spent as a non-active request. */
         double DisplacementSuspendedSeconds = 0.0;
@@ -598,9 +600,10 @@ private:
     /**
      * The one place a displacement's travel is measured: every advance, every release and every channel removal goes
      * through it. Returns the movement along the push since the last measured location (zero when there is none) and
-     * records Location as the next one. The push's own step (less the KeptAnimationTravel the animation channel kept
-     * over it, and nothing on a movement step animation root motion overrode) is added to PushTravel; with
-     * bCountTravel, the forward movement is also added to Travel.
+     * records Location and the request clock as the next ones. The push's own step (less the KeptAnimationTravel the
+     * animation channel kept over it, at most the curve the push commanded since the last measured clock, and nothing
+     * on a movement step animation root motion overrode) is added to PushTravel; with bCountTravel, the forward
+     * movement is also added to Travel. Callers sync the request clock first.
      */
     double AccrueDisplacementTravel(FAlignmentRequestRecord& Record, const FVector& Location, double KeptAnimationTravel,
         bool bCountTravel);

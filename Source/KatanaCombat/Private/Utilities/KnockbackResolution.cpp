@@ -91,13 +91,11 @@ FVector ResolveDirection(const EKnockbackDirection Mode, const FVector& Attacker
 		return Away;
 	}
 	// Continuous in the swing: remove only the part of the flat swing that points toward the attacker, and replace
-	// it with the same length of Away. Straight away stays away, a tangential swing stays tangential and a pure
-	// back-swing becomes Away, with no jump between them.
+	// it with the same length of Away, which reflects that part. Straight away stays away, a tangential swing stays
+	// tangential, a 135 degree swing pushes at 45 degrees and a pure back-swing becomes Away, with no jump between them.
 	const FVector Along = FlatSwing.GetSafeNormal();
 	const double Radial = FVector::DotProduct(Along, Away);
-	const FVector Clipped = Along - FMath::Min(0.0, Radial) * Away;
-	const double Lost = 1.0 - Clipped.Size();
-	return (Clipped + Lost * Away).GetSafeNormal();
+	return (Along - 2.0 * FMath::Min(0.0, Radial) * Away).GetSafeNormal();
 }
 
 bool ShouldApply(const FEligibility& Eligibility)

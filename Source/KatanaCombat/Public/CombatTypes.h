@@ -575,9 +575,10 @@ struct FAlignmentMotionState
 	double Turn = 0.0;
 	/**
 	 * ProceduralDisplacement only: the movement the push itself delivered along its direction. It leaves out the kept
-	 * animation root motion and the movement on steps that animation root motion overrode, and it includes the step a
-	 * removed channel delivered. So it is not a share of Travel: it is lower by what it leaves out, and it can exceed
-	 * Travel by the removal steps Travel skips.
+	 * animation root motion and the movement on steps that animation root motion overrode, it counts no more than the
+	 * curve the push commanded over each measured step (so kept animation that collision clipped, or a shove, never
+	 * reads as push), and it includes the step a removed channel delivered. So it is not a share of Travel: it is lower
+	 * by what it leaves out, and it can exceed Travel by the removal steps Travel skips.
 	 */
 	double PushTravel = 0.0;
 };

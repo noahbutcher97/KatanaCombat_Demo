@@ -246,10 +246,11 @@ bool FKnockbackAlongSwingContinuityTest::RunTest(const FString&)
 	// slip through the comparison.
 	TestTrue(FString::Printf(TEXT("Swings 1 degree either side of tangential push within 5 degrees of each other (%.2f: %s vs %s)"),
 		Gap, *JustAway.ToString(), *JustToward.ToString()), !JustAway.ContainsNaN() && !JustToward.ContainsNaN() && Gap < 5.0);
-	// Only the toward-attacker part is replaced, by the same length of away: 135 degrees keeps its sideways part.
+	// Only the toward-attacker part is replaced, by the same length of away: 135 degrees keeps its sideways part and
+	// mirrors its backward part, so it pushes at 45 degrees.
 	const double Heading135 = FMath::RadiansToDegrees(FMath::Atan2(Along(135.0).Y, Along(135.0).X));
 	TestTrue(FString::Printf(TEXT("A partly backward swing pushes between away and sideways (%.2f degrees)"), Heading135),
-		FMath::IsNearlyEqual(Heading135, 67.5, 0.1));
+		FMath::IsFinite(Heading135) && FMath::IsNearlyEqual(Heading135, 45.0, 0.1));
 	TestTrue(TEXT("A swing straight away stays straight away"), Along(0.0).Equals(FVector(1, 0, 0), 1e-4));
 	TestTrue(TEXT("A tangential swing stays tangential"), Along(90.0).Equals(FVector(0, 1, 0), 1e-4));
 	TestTrue(TEXT("A swing straight back becomes away"), Along(180.0).Equals(FVector(1, 0, 0), 1e-4));

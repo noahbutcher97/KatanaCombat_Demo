@@ -323,7 +323,8 @@ bool FDisplacementPushTravelTest::RunTest(const FString&)
 	// The push's own travel (FAlignmentMotionState::PushTravel). Only the movement channel can be driven here: the
 	// animation channel needs a root-motion montage playing on an AnimInstance, which the test characters do not
 	// have. Its exclusion of kept animation travel is pinned by KatanaCombat.Displacement.Math.PushStepExcludesKeptAnimation,
-	// and the modifier's measurement of that travel by KatanaCombat.Displacement.Modifier.WorldDirectionOnCharacter.
+	// its cap at the commanded step by KatanaCombat.Displacement.Math.PushStepCappedAtCommandedStep, and the modifier's
+	// measurement of that travel by KatanaCombat.Displacement.Modifier.WorldDirectionOnCharacter.
 	FDisplacementFixture F;
 	const FVector Start = F.Character->GetActorLocation();
 	FAlignmentRequestSpec Spec = MakePush(60.f, 0.25f, EDisplacementSpeedProfile::EaseOut);
@@ -340,7 +341,8 @@ bool FDisplacementPushTravelTest::RunTest(const FString&)
 	TestTrue(FString::Printf(TEXT("The push's own travel is the requested 60 cm (%.3f; actor moved %.3f)"), State.PushTravel, Moved),
 		IsFiniteDisplacementNear(State.PushTravel, 60.0, 1.0));
 	// The movement channel keeps no animation root motion, so all travel along the push is the push's own.
-	TestTrue(FString::Printf(TEXT("On the movement channel the push's own travel is all the travel (%.4f, %.4f)"), State.PushTravel, State.Travel),
+	TestTrue(FString::Printf(TEXT("On the movement channel the push's own travel is all the travel (%.4f, %.4f; apart by %.2e)"),
+		State.PushTravel, State.Travel, State.Travel - State.PushTravel),
 		FMath::IsFinite(State.Travel) && IsFiniteDisplacementNear(State.PushTravel, State.Travel, 1e-6));
 	F.Targeting()->ReleaseAlignmentRequest(Handle);
 	return true;
@@ -663,6 +665,47 @@ bool FDisplacementUndeliverablePushTravelTest::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementPushTravelCapTest, "KatanaCombat.Displacement.Executor.PushTravelCappedAtCommandedPush",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementPushTravelCapTest::RunTest(const FString&)
+{
+	// The push's own travel never counts movement the push did not command. The case the cap is for, an animation-channel
+	// push whose backward kept root motion a wall clips, needs a root-motion montage playing on an AnimInstance, which the
+	// test characters do not have; KatanaCombat.Displacement.Math.PushStepCappedAtCommandedStep pins it. This case drives
+	// the same accounting path on the movement channel, with a shove along the push between two of its steps.
+	FDisplacementFixture F;
+	const FVector Start = F.Character->GetActorLocation();
+	FAlignmentRequestSpec Spec = MakePush(60.f, 0.25f);
+	Spec.bReleaseWhenFinished = false; // hold the outcome
+	const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+	const float Step = 1.f / 60;
+	for (int32 I = 0; I < 5; ++I) { F.Step(Step); } // installs, then 4 of the push's 15 steps
+	const double Shove = 10.0;
+	F.Character->SetActorLocation(F.Character->GetActorLocation() + FVector(Shove, 0.0, 0.0));
+	FAlignmentMotionState State;
+	for (int32 I = 0; I < 60 && F.Targeting()->GetAlignmentMotionState(Handle, State) && State.Outcome == EAlignmentMotionOutcome::Running; ++I)
+	{
+		F.Step(Step);
+	}
+	F.Targeting()->GetAlignmentMotionState(Handle, State);
+	TestEqual(TEXT("The shoved push reaches its end"), State.Outcome, EAlignmentMotionOutcome::Reached);
+	const double Distance = Spec.Displacement.Distance;
+	const double Moved = F.Character->GetActorLocation().X - Start.X;
+	// The premise: the character moved the push and the shove, and Travel measured both.
+	TestTrue(FString::Printf(TEXT("The character moved the push and the shove (%.3f cm)"), Moved),
+		IsFiniteDisplacementNear(Moved, Distance + Shove, 1.0));
+	TestTrue(FString::Printf(TEXT("Travel includes the shove (%.3f of %.3f cm)"), State.Travel, Moved),
+		IsFiniteDisplacementNear(State.Travel, Moved, 0.5));
+	// At most the push's distance: each measurement allows the curve over the clock tolerance either side, far under 0.01 cm.
+	TestTrue(FString::Printf(TEXT("The push's own travel is at most its distance (%.4f of %.0f cm)"), State.PushTravel, Distance),
+		FMath::IsFinite(State.PushTravel) && State.PushTravel <= Distance + 0.01);
+	TestTrue(FString::Printf(TEXT("The push's own travel still counts its own steps (%.4f of %.0f cm)"), State.PushTravel, Distance),
+		FMath::IsFinite(State.PushTravel) && State.PushTravel >= Distance - 1.0);
+	AddInfo(FString::Printf(TEXT("Shove %.1f cm; moved %.3f cm, Travel %.3f cm, PushTravel %.4f cm"), Shove, Moved, State.Travel, State.PushTravel));
+	F.Targeting()->ReleaseAlignmentRequest(Handle);
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementHitstopTest, "KatanaCombat.Displacement.Executor.PausesUnderHitstopDilation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FDisplacementHitstopTest::RunTest(const FString&)
@@ -768,6 +811,42 @@ bool FDisplacementIntermittentContactTest::RunTest(const FString&)
 	F.Targeting()->GetAlignmentMotionState(Handle, State);
 	TestEqual(TEXT("Brief contacts separated by free movement do not end the push"), State.Outcome, EAlignmentMotionOutcome::Reached);
 	F.Targeting()->ReleaseAlignmentRequest(Handle);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FDisplacementSmallPushBlockedTest, "KatanaCombat.Displacement.Executor.SmallPushBlockedAtAnyRate",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FDisplacementSmallPushBlockedTest::RunTest(const FString&)
+{
+	// A slow push (2 cm over 0.25 s, 8 cm/s) flush against a wall. Its expected step shrinks with the frame time (0.133 cm
+	// at 60 Hz, 0.033 cm at 240 Hz), so a minimum expected step length would judge it at 60 Hz alone and let it run out
+	// its duration as Reached at the higher rates. The minimum is a speed, so every rate ends it Blocked.
+	for (const int32 Hz : {60, 120, 240})
+	{
+		FDisplacementFixture F;
+		WallAhead(F, 0.1f);
+		const double StartX = F.Character->GetActorLocation().X;
+		FAlignmentRequestSpec Spec = MakePush(2.f, 0.25f);
+		Spec.bReleaseWhenFinished = false; // hold the outcome
+		const FAlignmentRequestHandle Handle = F.Targeting()->AcquireAlignmentRequest(Spec);
+		FAlignmentMotionState State;
+		for (int32 I = 0; I < 200 && F.Targeting()->GetAlignmentMotionState(Handle, State) && State.Outcome == EAlignmentMotionOutcome::Running; ++I)
+		{
+			F.Step(1.f / Hz);
+		}
+		F.Targeting()->GetAlignmentMotionState(Handle, State);
+		TestEqual(FString::Printf(TEXT("%d Hz: the wall blocks the push"), Hz), State.Outcome, EAlignmentMotionOutcome::Blocked);
+		// The premise: flush against the wall, the push stalled.
+		const double Moved = F.Character->GetActorLocation().X - StartX;
+		TestTrue(FString::Printf(TEXT("%d Hz: stalled at the wall (moved %.3f cm)"), Hz, Moved), FMath::IsFinite(Moved) && Moved < 0.5);
+		TestTrue(FString::Printf(TEXT("%d Hz: blocked after 0.05 s of request time (%.4f s)"), Hz, State.Elapsed),
+			FMath::IsFinite(State.Elapsed) && State.Elapsed >= 0.045);
+		TestTrue(FString::Printf(TEXT("%d Hz: blocked before the push's end (%.4f of %.3f s)"), Hz, State.Elapsed, Spec.Displacement.Duration),
+			FMath::IsFinite(State.Elapsed) && State.Elapsed < Spec.Displacement.Duration);
+		AddInfo(FString::Printf(TEXT("%d Hz: %s after %.4f s, moved %.3f cm"), Hz,
+			*StaticEnum<EAlignmentMotionOutcome>()->GetNameStringByValue(static_cast<int64>(State.Outcome)), State.Elapsed, Moved));
+		F.Targeting()->ReleaseAlignmentRequest(Handle);
+	}
 	return true;
 }
 

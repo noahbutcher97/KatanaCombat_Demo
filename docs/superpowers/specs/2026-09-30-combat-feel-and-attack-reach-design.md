@@ -178,7 +178,12 @@ slides).
 - **Blocked** when 0.05 s of request time in a row passes on steps whose actual movement
   along the push is below 10% of the expected progress (a head-on wall). It counts time, not
   ticks, so a graze ends a push the same way at any frame rate; 0.05 s is three 60 Hz ticks.
-  Steps whose expected progress is under 0.1 cm (hitstop) neither count nor reset it.
+  Steps whose expected progress is slower than 6 cm/s neither count nor reset it. That minimum
+  is a speed, not a step length, so it judges a push the same way at any frame rate: 6 cm/s is
+  the 0.1 cm per 60 Hz step the rule was tuned with, and a 2 cm push over 0.25 s into a wall,
+  which a 0.1 cm step minimum let reach at 120 and 240 Hz, ends `Blocked` at every rate.
+  Hitstop steps are judged the same way, but their request time is dilated almost to nothing,
+  so they add almost nothing to the blocked time.
 - **Invalid** when no channel can be installed (no motion warping component and no
   character movement, or movement mode `None`).
 - **Cancelled** when the request is removed while still running (release,
@@ -203,8 +208,13 @@ slides).
   2.98e-8 s short of a 0.2 s push and 7.45e-8 s short of a 0.25 s push after the step that
   delivers the rest of it. Without the tolerance that delivered push would run one more frame,
   where an overridden step would end it `Cancelled` (`AnimationOverride`) and a release would
-  report `Cancelled`. The tolerance is far below any frame, so it absorbs rounding, never a real
-  step.
+  report `Cancelled`. The commanded step that caps the push's own travel (under Observability)
+  takes the tolerance either side of its interval too. The movement source applies each step
+  from its unrounded clock but stores a float sum, so a delivered step runs a few nanoseconds
+  past the stored clock, and an exact cap would trim it (3.52e-6 cm off a 60 cm, 0.25 s `EaseOut`
+  push at 60 Hz, measured). With the tolerance the push's own travel can exceed the curve by
+  at most the curve's distance over 2e-6 s per measurement. The tolerance is far below any
+  frame, so it absorbs rounding, never a real step.
 - The request carries `bReleaseWhenFinished`: the targeting component releases it on any
   terminal outcome and removes the active modifier or source. Release, preemption,
   `ReleaseAllAlignmentRequests` and death remove whichever channel is active.
@@ -307,7 +317,12 @@ the no-montage parry bridge, and at each stage start), and `EndPlay` (`EndPlay`)
   delivered along its direction. It leaves out the reaction's kept root motion and the movement
   on steps that animation root motion overrode, and it keeps the step a channel delivered just
   before the executor removed it (a channel switch, a suspension, an owner that can no longer
-  move).
+  move). Each measured step counts at most the curve the push commanded between the two
+  measurements' clocks, widened by the clock tolerance (under Outcomes), so movement the push
+  did not command never reads as push: a reaction's backward root motion that a wall clips
+  (animation -3 cm, push +1 cm, net step 0 counts 1 cm, not 3), a shove, or the frame of
+  carry a zero-blend montage stop leaves (Channels): that PIE run reports `push 25.0 of 25.0 cm`,
+  where it reported 26.7 cm before the cap.
   The draws sit at the feet (capsule bottom plus 5 cm), on top of the mesh
   (`SDPG_Foreground`), and last at least 2 s (`CombatDebug::KnockbackDebugMinDrawDuration`;
   a longer `Combat.Debug.DrawDuration` wins), since a push lasts a fraction of a second and
@@ -632,10 +647,15 @@ The bounded executor and its tests remain as the kinematic reference until then.
   push lands on travel the animation already has. The measurement sets the default
   `AnimationBlend` per attack type; the distances are decided: Light 25 cm, Heavy 20 cm. A
   focused PIE test replaces the planned capture-harness scenario, because the harness is one
-  monolithic latent command. Flat ground, walls, ledges, hitstop, suspension, an animation
-  override, a release racing the last step, the clock tolerance (a fixed 240 Hz push and a
-  suspension as long as the push had left) and the push's own travel (overridden steps and
-  removal steps) are covered headless by the `KatanaCombat.Displacement.Executor.*` tests.
+  monolithic latent command. Flat ground, walls (including a slow push blocked at 60, 120 and
+  240 Hz), ledges, hitstop, suspension, an animation override, a release racing the last step,
+  the clock tolerance (a fixed 240 Hz push and a suspension as long as the push had left) and
+  the push's own travel (overridden steps, removal steps and the cap at the commanded step) are
+  covered headless by the `KatanaCombat.Displacement.Executor.*` tests. The cap's own case, a
+  wall clipping an animation-channel push's backward root motion, needs a root-motion montage
+  on an AnimInstance, which the headless characters lack, so
+  `KatanaCombat.Displacement.Math.PushStepCappedAtCommandedStep` pins it and the executor test
+  drives the same accounting with a shove on the movement channel.
   Slopes ride on character movement's floor handling and are checked by hand in PIE.
 - **Proofs the push can disturb**: `DefenseGateAPIEProofTests` (the parry bridge has a 75 cm
   per-role budget; its out-of-cone case lands a hit), `DefenseGateBSemanticPIEProofTests`

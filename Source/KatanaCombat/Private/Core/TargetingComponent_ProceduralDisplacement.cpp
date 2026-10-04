@@ -22,12 +22,19 @@ constexpr double DisplacementBlockedSecondsLimit = 0.05;
 // Float sums of frame times can land a hair under the limit (three 1/60 s steps); do not let that add a tick.
 constexpr double DisplacementBlockedSecondsTolerance = 1e-6;
 constexpr double DisplacementBlockedProgressFraction = 0.1;
-constexpr double DisplacementMinimumExpectedStep = 0.1;
+// Steps whose expected progress along the push is slower than this (cm/s) neither count toward Blocked nor reset it. A
+// speed, not a step length, so a push is judged the same at any frame rate: 6 cm/s is the 0.1 cm per 60 Hz step the
+// rule was tuned with, where a fixed 0.1 cm let a 2 cm, 0.25 s push into a wall block at 60 Hz and reach at 120 Hz.
+constexpr double DisplacementMinimumExpectedSpeed = 6.0;
 // Every comparison of the push clock against its Duration allows this much: Reached, the AnimationOverride bound and
 // the stale-suspension bound. Float sums of frame times land a hair either side of the exact value: at 60 Hz one
 // overridden step is 0.0166666675 s against 0.0166666657 s left on the last step, and at a fixed 240 Hz the source's
 // clock sits 7.45e-8 s short of a 0.25 s push (2.98e-8 s of a 0.2 s one) after the step that delivered the rest of it.
-// Far below any frame, so it absorbs rounding, never a real step.
+// The commanded step that caps PushTravel takes it either side of its interval too: the movement source applies each
+// step from its unrounded clock but stores a float sum, so a delivered step can run a few ns past the stored clock,
+// which an exact cap would trim (3.52e-6 cm off a 60 cm, 0.25 s EaseOut push at 60 Hz). That lets PushTravel exceed
+// the curve by at most its distance over 2e-6 s per measurement. Far below any frame, so it absorbs rounding, never a
+// real step.
 constexpr double DisplacementClockSecondsTolerance = 1e-6;
 const FName DisplacementSourceName(TEXT("KatanaProceduralDisplacement"));
 // The executor cancels a push for two causes of its own, so each terminal row names its cause.
@@ -172,10 +179,18 @@ double UTargetingComponent::AccrueDisplacementTravel(FAlignmentRequestRecord& Re
 		// measurements, as it does in play: character movement, then this component, once per frame.
 		if (Record.DisplacementOverriddenSeconds <= 0.0)
 		{
-			Record.MotionState.PushTravel += DisplacementMath::PushStep(Progress, KeptAnimationTravel);
+			// The push delivers at most what its curve commanded between the two measurements' clocks, so movement
+			// it did not command (kept animation that collision clipped, a shove) never reads as push. The interval
+			// takes the clock tolerance either side, because the clocks are float sums (see the tolerance).
+			const FProceduralDisplacement& Displacement = Record.Spec.Displacement;
+			const double CommandedStep = DisplacementMath::DistanceBetween(Displacement.SpeedProfile, Displacement.Distance,
+				Displacement.Duration, Record.DisplacementLastMeasuredElapsed - DisplacementClockSecondsTolerance,
+				Record.DisplacementElapsed + DisplacementClockSecondsTolerance);
+			Record.MotionState.PushTravel += DisplacementMath::PushStep(Progress, KeptAnimationTravel, CommandedStep);
 		}
 	}
 	Record.DisplacementLastLocation = Location;
+	Record.DisplacementLastMeasuredElapsed = Record.DisplacementElapsed;
 	Record.bDisplacementHasLastLocation = true;
 	return Progress;
 }
@@ -427,14 +442,18 @@ void UTargetingComponent::AdvanceProceduralDisplacement(const float DeltaTime)
 	const double Actual = AccrueDisplacementTravel(*Record, Location, AnimationTravel, /*bCountTravel=*/ true);
 	if (bMeasured)
 	{
+		const double StepSeconds = Record->DisplacementElapsed - PreviousElapsed;
 		const double Expected = AnimationTravel + DisplacementMath::DistanceBetween(
 			Displacement.SpeedProfile, Displacement.Distance, Displacement.Duration, PreviousElapsed, Record->DisplacementElapsed);
-		// Blocked time is request time, so the rule ends a push after the same contact at any frame rate.
-		if (Expected > DisplacementMinimumExpectedStep && Actual < DisplacementBlockedProgressFraction * Expected)
+		// Judged by speed (expected progress over the step's request time), and blocked time is request time, so the
+		// rule ends a push after the same contact at any frame rate. A hitstop step is judged the same way, but its
+		// request time is dilated almost to nothing, so it adds almost nothing.
+		const bool bExpectsProgress = Expected > DisplacementMinimumExpectedSpeed * StepSeconds;
+		if (bExpectsProgress && Actual < DisplacementBlockedProgressFraction * Expected)
 		{
-			Record->DisplacementBlockedSeconds += Record->DisplacementElapsed - PreviousElapsed;
+			Record->DisplacementBlockedSeconds += StepSeconds;
 		}
-		else if (Expected > DisplacementMinimumExpectedStep)
+		else if (bExpectsProgress)
 		{
 			Record->DisplacementBlockedSeconds = 0.0;
 		}
