@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
   "name": "PresentationCapture",
-  "repository": "D:/UnrealProjects/Plugins/PresentationCapture",
+  "repository": "https://github.com/noahbutcher97/PresentationCapture.git",
   "revision": "d7b8651e0baac29ff43ea4002edde76a3f2acef1"
 }

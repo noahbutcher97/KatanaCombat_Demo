@@ -37,8 +37,7 @@ SPEC = pinned_plugin.PinnedPlugin(
     required=frozenset({f"{PLUGIN_ROOT}/PresentationCapture.uplugin", f"{PLUGIN_ROOT}/{WORKER_SCRIPT}"}),
     missing_required_message="Dependency revision is missing the PresentationCapture plugin or its worker build script",
     shadow_directories=(f"{PLUGIN_ROOT}/Source",),
-    local_source_note=("PresentationCapture has no remote: its source of truth is the owner's local repository on the "
-                       "build machine, which the self-hosted CI runner shares."),
+    long_paths=True,
 )
 
 

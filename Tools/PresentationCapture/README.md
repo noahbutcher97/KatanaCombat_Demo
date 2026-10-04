@@ -6,19 +6,25 @@ PresentationCapture repository; this directory holds only Katana's revision lock
 `FCombatCaptureSession` uses it for opt-in video; see the
 [capture guide](../../docs/guides/COMBAT_CAPTURE_AND_ANALYSIS.md#video-capture).
 
-The repository has no remote, by the owner's decision. Its source of truth is the owner's local repository
-`D:/UnrealProjects/Plugins/PresentationCapture` on the build machine. [dependency.json](dependency.json) pins
-that path and an exact commit, the way AnimationAnalysis setup runs with `--repository`:
+[dependency.json](dependency.json) pins the private repository
+`https://github.com/noahbutcher97/PresentationCapture.git` and an exact commit, exactly as AnimationAnalysis
+pins its public one. Cloning needs GitHub credentials with read access to that repository. For local plugin
+work, `--repository` points setup at a checkout instead, such as the owner's development repository
+`D:/UnrealProjects/Plugins/PresentationCapture`:
 
 ```powershell
 python Tools/PresentationCapture/setup_dependency.py
-python Tools/PresentationCapture/setup_dependency.py --repository <checkout-containing-the-pin>
+python Tools/PresentationCapture/setup_dependency.py --repository <checkout-or-URL-containing-the-pin>
 ```
 
-The first form works only where that path exists. Elsewhere setup stops before cloning and names the
-missing path; pass `--repository` with a checkout that contains the pinned commit. CI installs the recorder
-in the self-hosted job (`.github/workflows/ue5-ci.yml`, "Install pinned PresentationCapture recorder"); that
-runner runs on the same machine as the owner's repository. GitHub-hosted validation does not build the editor.
+CI installs the recorder the same way, in the self-hosted job (`.github/workflows/ue5-ci.yml`, "Install pinned
+PresentationCapture recorder"), with the runner machine's Git credentials. GitHub-hosted validation does not
+build the editor. A failed fetch reports Git's own error; a missing `--repository` path is named.
+
+The repository's deepest paths (its analysis bridge, which is not installed) exceed Windows' 260 characters
+under a project's `Saved/` cache, so setup checks out with `core.longpaths`; Windows' long-path policy must also
+be enabled for the verification reads. A fresh install from the remote at a project root as long as the CI
+runner's (`D:/actions-runner/_work/KatanaCombat/KatanaCombat`) failed without it and succeeds with it.
 
 Setup clones the pinned commit into ignored `Saved/PresentationCaptureDependencies/<revision>`,
 verifies committed bytes, and copies only the core plugin directory (`Plugin/PresentationCapture`) into

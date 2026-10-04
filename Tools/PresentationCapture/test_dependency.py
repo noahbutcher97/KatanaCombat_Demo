@@ -156,17 +156,20 @@ class PresentationCaptureDependencyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Tools/PresentationCapture/setup_dependency.py"):
             checkout(self.project)
 
-    def test_a_missing_local_source_names_the_path_and_the_owner_repository(self):
+    def test_a_missing_repository_override_names_the_path_and_the_fix(self):
         missing = self.root / "not-on-this-machine"
-        self.lock.write_text(json.dumps(dict(schema_version=1, name="PresentationCapture", repository=str(missing),
-                                             revision=self.revision)))
         with self.assertRaises(ValueError) as raised:
-            self.install(builder=FakeWorkerBuilder())
+            install(repository=missing, project=self.project, builder=FakeWorkerBuilder(), checker=lambda *_: {})
         message = str(raised.exception)
-        for expected in (str(missing), "does not exist on this machine", "owner's local repository",
+        for expected in (str(missing), "does not exist on this machine",
                          "Tools/PresentationCapture/setup_dependency.py --repository"):
             self.assertIn(expected, message)
         self.assertFalse((self.project / SPEC.cache / self.revision).exists())
+
+    def test_the_lock_pins_the_remote_like_animation_analysis(self):
+        lock = read_lock()  # The project's own lock, not the fixture's.
+        self.assertTrue(lock["repository"].startswith("https://"), "the source of truth is a clone URL")
+        self.assertEqual(lock["revision"], "d7b8651e0baac29ff43ea4002edde76a3f2acef1")
 
     def test_a_repository_without_the_pin_reports_git_and_the_fix(self):
         self.write_lock("f" * 40)

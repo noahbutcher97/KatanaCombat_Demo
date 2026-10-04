@@ -222,10 +222,10 @@ jobs:
         shell: pwsh
         run: python Tools/AnimationAnalysis/setup_dependency.py
 
-      # PresentationCapture has no remote. Its source of truth is the owner's local repository, named in
-      # Tools/PresentationCapture/dependency.json, and this self-hosted runner runs on that machine. Setup clones
-      # the pinned commit from it, builds the two worker executables (Visual Studio C++ x64 tools and a Windows
-      # SDK) and runs the encoder self-check. The editor build guard fails without it.
+      # Same model as AnimationAnalysis: Tools/PresentationCapture/dependency.json pins the (private) GitHub
+      # repository and commit; the runner's Git credentials need read access. Setup also builds the two worker
+      # executables (Visual Studio C++ x64 tools and a Windows SDK) and runs the encoder self-check. The editor
+      # build guard fails without it.
       - name: Install pinned PresentationCapture recorder
         shell: pwsh
         run: python Tools/PresentationCapture/setup_dependency.py

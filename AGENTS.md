@@ -26,9 +26,9 @@ that message rather than setting `KATANA_ALLOW_PLUGIN_DRIFT`, which is only for
 deliberate local plugin edits. The standard baseline runs setup automatically.
 See [dependency setup](Tools/AnimationAnalysis/README.md); the generated plugin is
 ignored, and shared implementation edits belong in its separate repository.
-The PresentationCapture video recorder follows the same contract:
-`python Tools/PresentationCapture/setup_dependency.py` installs its pin and builds its
-workers, and builds stop with `[PresentationCapture pin mismatch]` until it does. See
+The PresentationCapture video recorder follows the same contract, from its private
+GitHub repository: `python Tools/PresentationCapture/setup_dependency.py` installs its pin
+and builds its workers, and builds stop with `[PresentationCapture pin mismatch]` until it does. See
 [its setup](Tools/PresentationCapture/README.md). Changes a player sees or feels need a
 rendered capture with video; see `.agents/skills/katana-capture/SKILL.md`.
 

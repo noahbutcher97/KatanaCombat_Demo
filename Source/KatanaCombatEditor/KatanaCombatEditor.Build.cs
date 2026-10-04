@@ -117,22 +117,13 @@ public class KatanaCombatEditor : ModuleRules
         }
 
         string SetupScript = Path.Combine(ProjectRoot, "Tools", Name, "setup_dependency.py");
-        string FixLines = "  Fix: python \"" + SetupScript + "\"";
-        string LocalSource = ReadLocalRepository(LockPath);
-        if (LocalSource != null)
-        {
-            // A lock without a remote can only be installed where its local repository exists.
-            FixLines += Environment.NewLine + "    - Its source is the local repository " + LocalSource + " named in the lock (" + Name + " has no remote)."
-                + Environment.NewLine + "      Run the fix on the machine that has it, or elsewhere: python \"" + SetupScript
-                + "\" --repository <a " + Name + " checkout containing " + PinnedRevision + ">";
-        }
         string Message = string.Join(Environment.NewLine,
             bRevisionMatches
                 ? "[" + Name + " pin mismatch] Plugins/" + Name + " is at the pinned revision but is missing setup outputs: " + MissingOutputs + "."
                 : "[" + Name + " pin mismatch] Plugins/" + Name + " does not match the pinned revision.",
             "  Pinned    (Tools/" + Name + "/dependency.json): " + PinnedRevision,
             "  Installed (Saved/" + CacheDirectory + "/plugin-install.json): " + (InstalledRevision ?? "<none - setup has not run>"),
-            FixLines,
+            "  Fix: python \"" + SetupScript + "\"",
             "    - If it fails with a file-in-use error, close the Unreal Editor (or stop UnrealEditor*.exe) and retry.",
             "    - If it refuses because the plugin has unowned or modified source, those are local plugin edits:",
             "      preserve them (they belong in the " + Name + " repository) before re-running. Do not delete them.",
@@ -165,19 +156,6 @@ public class KatanaCombatEditor : ModuleRules
         }
 
         return Revision;
-    }
-
-    /// <summary>The lock's repository when it is a local path rather than a clone URL; otherwise null.</summary>
-    private static string ReadLocalRepository(string LockPath)
-    {
-        if (!JsonObject.TryRead(new FileReference(LockPath), out JsonObject Lock)
-            || !Lock.TryGetStringField("repository", out string Repository)
-            || Repository.Contains("://"))
-        {
-            return null;
-        }
-
-        return Repository;
     }
 
     private static string ReadRevision(string JsonPath)

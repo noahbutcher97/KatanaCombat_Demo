@@ -51,8 +51,9 @@ class PinnedPlugin:
     missing_required_message: str = "Dependency revision is missing its plugin"
     shadow_directories: tuple = ()
     """Repository-relative directories where ignored source files must not hide behind tracked ones."""
-    local_source_note: str = ""
-    """Explains a lock whose repository is a local path, for the message when that path is missing."""
+    long_paths: bool = False
+    """Check out with core.longpaths: the repository's deepest paths exceed Windows' 260 characters under
+    a project's Saved/ cache (Windows must also allow long paths for the verification reads)."""
 
     @property
     def plugin(self):
@@ -171,17 +172,18 @@ def _is_url(repository):
 
 
 def missing_local_source(spec, repository, revision):
-    note = f" {spec.local_source_note}" if spec.local_source_note else ""
-    return ValueError(f"{spec.name} source {repository} (the repository named in {spec.lock}) does not exist on this machine."
-                      f"{note} Run setup on the machine that has it, or point setup at a checkout containing {revision}: "
-                      f"python {spec.setup_script} --repository <{spec.name}-checkout>")
+    return ValueError(f"{spec.name} source {repository} does not exist on this machine. Point setup at a checkout or "
+                      f"clone URL containing {revision}: python {spec.setup_script} --repository <{spec.name}-checkout>")
 
 
 def fetch_error(spec, repository, revision, error):
     """An actionable message, with git's own error, for a pinned source that cannot be cloned or checked out."""
     detail = error.stderr.decode(errors="replace") if isinstance(error.stderr, bytes) else (error.stderr or "")
     hint = ""
-    if "checkout" in error.cmd:
+    if "Filename too long" in detail:
+        hint = (" The checkout path is too long for Windows: enable long paths (the LongPathsEnabled policy and "
+                "git's core.longpaths) or move the project to a shorter path.")
+    elif any(sign in detail for sign in ("reference is not a tree", "did not match any", "unable to read tree", "not a commit")):
         hint = (f" The repository does not contain {revision}; run python {spec.setup_script} "
                 f"--repository <a {spec.name} checkout containing it>.")
     return ValueError(f"Could not fetch {spec.name} {revision} from {repository}: "
@@ -211,9 +213,12 @@ def install(spec, repository=None, project=None, finish=None):
             assert scratch.parent == cache and scratch.name.startswith("dependency-stage-")
             staged = scratch / "checkout"
             try:
-                subprocess.run(["git", "-c", "core.autocrlf=false", "clone", "--no-hardlinks", "--no-checkout",
+                options = ["-c", "core.longpaths=true"] if spec.long_paths else []
+                subprocess.run(["git", "-c", "core.autocrlf=false", *options, "clone", "--no-hardlinks", "--no-checkout",
                                 "--", str(repository), str(staged)], check=True, capture_output=True)
                 git(staged, "config", "core.autocrlf", "false")
+                if spec.long_paths:
+                    git(staged, "config", "core.longpaths", "true")
                 git(staged, "checkout", "--detach", revision)
             except subprocess.CalledProcessError as error:
                 raise fetch_error(spec, repository, revision, error) from error
