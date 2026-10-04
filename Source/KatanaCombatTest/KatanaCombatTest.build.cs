@@ -33,7 +33,9 @@ public class KatanaCombatTest : ModuleRules
 				"MotionWarping",    // For alignment warp-target ownership tests
 				"Niagara",          // For defense presentation effect fixtures
 				"StateTreeModule",  // Enemy AI proof asset validation
-				"GameplayStateTreeModule"
+				"GameplayStateTreeModule",
+				"Slate",            // Scenario video: size the PIE window's viewport widget
+				"SlateCore"
 			});
 		}
 
