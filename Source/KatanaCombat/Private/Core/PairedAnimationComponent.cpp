@@ -283,6 +283,72 @@ void AppendDefenseSequenceTelemetry(
 	}
 	Sink->AppendDefenseTelemetry(MoveTemp(Record));
 }
+
+/**
+ * Keep a retained-pose stage montage playing until its response window resolves.
+ *
+ * The engine stops an instance whose current section has no successor as soon as the remaining play time
+ * falls inside the montage's blend-out, and a stopping instance is no longer reachable through the
+ * active-instance section API. A bridge whose window marker lies inside that tail (Gate A: blend-out from
+ * 0.45 s, marker at 0.65 s) therefore lost its ready pose before the marker could ask for it. Linking the
+ * played chain's terminal section into the ready section, and looping the ready section, leaves no
+ * terminal section to trigger the blend-out: the bridge plays to its end, then holds the ready pose until
+ * a successor stage or terminal cleanup stops it. Idempotent. Returns whether the instance reaches the hold.
+ *
+ * When the played chain can never reach the ready section (an authored cycle), the hold is entered by a
+ * jump only if bJumpWhenUnreachable: the stage start must not skip its bridge, the opened window may.
+ */
+bool RetainReadySectionHold(
+	UAnimInstance* AnimInstance,
+	const UAnimMontage* Montage,
+	const FName ReadySection,
+	const bool bJumpWhenUnreachable)
+{
+	FAnimMontageInstance* Instance = AnimInstance && Montage && !ReadySection.IsNone()
+		? AnimInstance->GetActiveInstanceForMontage(Montage)
+		: nullptr;
+	const int32 ReadyIndex = Instance ? Montage->GetSectionIndex(ReadySection) : INDEX_NONE;
+	if (ReadyIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	bool bReachesReady = false;
+	int32 SectionIndex = Montage->GetSectionIndex(Instance->GetCurrentSection());
+	TSet<int32, DefaultKeyFuncs<int32>, TInlineSetAllocator<8>> Visited;
+	while (SectionIndex != INDEX_NONE && !Visited.Contains(SectionIndex))
+	{
+		if (SectionIndex == ReadyIndex)
+		{
+			bReachesReady = true;
+			break;
+		}
+		Visited.Add(SectionIndex);
+		const int32 NextIndex = Instance->GetNextSectionID(SectionIndex);
+		if (NextIndex == INDEX_NONE)
+		{
+			bReachesReady = Instance->SetNextSectionID(SectionIndex, ReadyIndex);
+			break;
+		}
+		SectionIndex = NextIndex;
+	}
+	if (!Instance->SetNextSectionID(ReadyIndex, ReadyIndex))
+	{
+		return false;
+	}
+	if (!bReachesReady && bJumpWhenUnreachable)
+	{
+		bReachesReady = Instance->JumpToSectionName(ReadySection);
+	}
+	return bReachesReady;
+}
+
+FName ResolveChainResponseExpiryReason(const EChainCounterState ResponseState)
+{
+	return ResponseState == EChainCounterState::FinisherReady
+		? FName(TEXT("FinisherReadyExpired"))
+		: FName(TEXT("CounterWindowExpired"));
+}
 }
 
 // ============================================================================
@@ -1175,7 +1241,11 @@ bool UPairedAnimationComponent::HandleChainResponseDeadline(
 		CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("DeadlineParticipantUnavailable"));
 		return false;
 	}
-	CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("ResponseTimeout"));
+	// The response deadline is the only normal end of a waiting window; name it by the window it closed.
+	CleanupDefenseSequence(
+		ExpectedStageGeneration,
+		0.1f,
+		ResolveChainResponseExpiryReason(ExpectedState));
 	return false;
 }
 
@@ -1610,6 +1680,8 @@ void UPairedAnimationComponent::CleanupDefenseSequence(
 
 	if (DefenderCombat)
 	{
+		// A response buffered for a window this sequence never opened must not reach a later sequence.
+		DefenderCombat->DiscardBufferedChainResponse();
 		DefenderCombat->SetPhase(EAttackPhase::None);
 		DefenderCombat->ClearQueue(false);
 		DefenderCombat->RefreshGuardThreat(EThreatRefreshReason::ManualRevalidation);
@@ -2316,33 +2388,20 @@ bool UPairedAnimationComponent::EnterDefenseCounterWindow(
 		EChainCounterState::CounterWindow);
 	if (UPairedAnimationData* StageData = ActiveDefenseSequence.ActivePairedData.Get())
 	{
+		// The stage start already linked each role into its ready loop; reassert it. A role that can reach
+		// its hold plays its remaining bridge frames into it rather than skipping them; only a role whose
+		// authored sections can never reach the hold jumps to it.
 		const FPairedChainTransitionPolicy& Policy = StageData->ChainTransitionPolicy;
-		if (!Policy.AttackerReadySection.IsNone())
-		{
-			if (UAnimInstance* Anim = Defender->GetMesh()
-				? Defender->GetMesh()->GetAnimInstance()
-				: nullptr)
-			{
-				Anim->Montage_JumpToSection(Policy.AttackerReadySection, StageData->AttackerMontage);
-				Anim->Montage_SetNextSection(
-					Policy.AttackerReadySection,
-					Policy.AttackerReadySection,
-					StageData->AttackerMontage);
-			}
-		}
-		if (!Policy.VictimReadySection.IsNone())
-		{
-			if (UAnimInstance* Anim = SourceAttacker->GetMesh()
-				? SourceAttacker->GetMesh()->GetAnimInstance()
-				: nullptr)
-			{
-				Anim->Montage_JumpToSection(Policy.VictimReadySection, StageData->VictimMontage);
-				Anim->Montage_SetNextSection(
-					Policy.VictimReadySection,
-					Policy.VictimReadySection,
-					StageData->VictimMontage);
-			}
-		}
+		RetainReadySectionHold(
+			Defender->GetMesh() ? Defender->GetMesh()->GetAnimInstance() : nullptr,
+			StageData->AttackerMontage,
+			Policy.AttackerReadySection,
+			true);
+		RetainReadySectionHold(
+			SourceAttacker->GetMesh() ? SourceAttacker->GetMesh()->GetAnimInstance() : nullptr,
+			StageData->VictimMontage,
+			Policy.VictimReadySection,
+			true);
 	}
 
 	UCombatComponent* DefenderCombat = CachedCombatComponent
@@ -2370,6 +2429,13 @@ bool UPairedAnimationComponent::EnterDefenseCounterWindow(
 		EChainCounterState::CounterWindow,
 		WindowDuration,
 		ExpectedStageGeneration);
+
+	// A response pressed during the bridge executes now that the window and its deadline exist, so a
+	// failed counter start rolls back into this same window rather than an unscheduled one.
+	if (DefenderCombat)
+	{
+		DefenderCombat->ReleaseBufferedChainResponse(ActiveDefenseSequence.OriginatingInteraction);
+	}
 	return true;
 }
 
@@ -2438,7 +2504,11 @@ bool UPairedAnimationComponent::HandleDefenseAutoContinueMarker(
 		ActiveDefenseSequence,
 		EDefenseTelemetryEvent::StageTransition,
 		EChainCounterState::FinisherReady);
-	UCombatComponent* DefenderCombat = CachedCombatComponent.Get();
+	// Resolve the defender's configuration as CounterWindow does, so the window's length never depends on
+	// whether the component cache has been populated.
+	UCombatComponent* DefenderCombat = CachedCombatComponent
+		? CachedCombatComponent.Get()
+		: Defender->CombatComponent.Get();
 	const UDefenseConfiguration* Configuration = DefenderCombat
 		? DefenderCombat->GetEffectiveDefenseConfiguration()
 		: GetDefault<UDefenseConfiguration>();
@@ -2587,8 +2657,11 @@ bool UPairedAnimationComponent::HandleOwnerPairedMontageEnded(
 			EChainCounterState::FinisherReady);
 		ActiveDefenseSequence.AttackerMontageInstanceId = INDEX_NONE;
 		ActiveDefenseSequence.VictimMontageInstanceId = INDEX_NONE;
-		const UDefenseConfiguration* Configuration = CachedCombatComponent
-			? CachedCombatComponent->GetEffectiveDefenseConfiguration()
+		const UCombatComponent* DefenderCombat = CachedCombatComponent
+			? CachedCombatComponent.Get()
+			: Defender->CombatComponent.Get();
+		const UDefenseConfiguration* Configuration = DefenderCombat
+			? DefenderCombat->GetEffectiveDefenseConfiguration()
 			: GetDefault<UDefenseConfiguration>();
 		const float ConfiguredDuration = Configuration
 			? Configuration->FinisherReadySeconds
@@ -2601,7 +2674,25 @@ bool UPairedAnimationComponent::HandleOwnerPairedMontageEnded(
 			Generation);
 		return true;
 	}
+	if (IsChainWaitingForResponse())
+	{
+		// An open response window is owned by its deadline, not by the stage montage that opened it. A
+		// stage montage that finishes while the window waits (a terminal-pose bridge, or the counter
+		// behind a retryable FinisherReady) only hands the pose back to the AnimBP.
+		AppendPairedStageActionReactionTelemetry(
+			CachedCombatComponent.Get(),
+			ActiveDefenseSequence,
+			EActionReactionTelemetryEvent::MontageCallbackAccepted,
+			EActionReactionTelemetryReason::MontageCompleted,
+			ActiveDefenseSequence.ActivePairedData.Get(),
+			GetOwner(),
+			ActiveDefenseSequence.AttackerMontageInstanceId,
+			nullptr,
+			TEXT("stage montage completed while the response window stays open until its deadline"));
+		return true;
+	}
 
+	// Only a bridge that ends before its marker opened CounterWindow lands here.
 	CleanupDefenseSequence(Generation, 0.0f, TEXT("BridgeEndedBeforeCounter"));
 	return true;
 }
@@ -2650,8 +2741,10 @@ bool UPairedAnimationComponent::HandleSourcePairedMontageEnded(
 			0.0f,
 			TEXT("SourceMontageInterrupted"));
 	}
-	else
+	else if (!IsChainWaitingForResponse())
 	{
+		// As for the owner role, an open response window ends only at its deadline or on response input,
+		// so only a stage that is still playing verifies a natural source-role end.
 		ScheduleSourceMontageEndVerification(
 			Montage,
 			ChainState,
@@ -3839,12 +3932,80 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 		}
 	}
 
+	if (ReactionType == EPairedReactionType::Parry && !bUsedPlaybackOverride)
+	{
+		ArmBridgeReadyPoseHold(PairedAnimData, DefenderAnim, SourceAnim, SuccessorGeneration);
+	}
 	if (CachedCombatComponent && ReactionType != EPairedReactionType::Parry)
 	{
 		CachedCombatComponent->SetPhase(EAttackPhase::Active);
 	}
 	OnPairedAnimationStarted.Broadcast(ReactionType, true);
 	return true;
+}
+
+void UPairedAnimationComponent::ArmBridgeReadyPoseHold(
+	const UPairedAnimationData* BridgeData,
+	UAnimInstance* DefenderAnim,
+	UAnimInstance* SourceAnim,
+	const int32 StageGeneration)
+{
+	if (!BridgeData)
+	{
+		return;
+	}
+	const FPairedChainTransitionPolicy& Policy = BridgeData->ChainTransitionPolicy;
+	const bool bDefenderHolds = RetainReadySectionHold(
+		DefenderAnim,
+		BridgeData->AttackerMontage,
+		Policy.AttackerReadySection,
+		false);
+	const bool bSourceHolds = RetainReadySectionHold(
+		SourceAnim,
+		BridgeData->VictimMontage,
+		Policy.VictimReadySection,
+		false);
+
+	// Holding the ready pose removes the driver's natural end, which was the only signal that its marker
+	// never opened CounterWindow. Watch the driver's entry into its hold instead: reaching it while still
+	// ParryActive means the bridge played out without opening the window. The engine dispatches notifies
+	// before montage section events, so a marker and the hold entry inside one long frame still open the
+	// window first and the watch then ignores the entry.
+	const bool bDriverIsDefender = Policy.DriverRole == EPairedAnimationRole::Attacker;
+	if (!(bDriverIsDefender ? bDefenderHolds : bSourceHolds))
+	{
+		return;
+	}
+	UAnimInstance* DriverAnim = bDriverIsDefender ? DefenderAnim : SourceAnim;
+	UAnimMontage* DriverMontage = bDriverIsDefender
+		? BridgeData->AttackerMontage.Get()
+		: BridgeData->VictimMontage.Get();
+	FOnMontageSectionChanged HoldEntered = FOnMontageSectionChanged::CreateUObject(
+		this,
+		&UPairedAnimationComponent::HandleBridgeReadyPoseEntered,
+		StageGeneration,
+		bDriverIsDefender ? Policy.AttackerReadySection : Policy.VictimReadySection);
+	DriverAnim->Montage_SetSectionChangedDelegate(HoldEntered, DriverMontage);
+}
+
+void UPairedAnimationComponent::HandleBridgeReadyPoseEntered(
+	UAnimMontage* Montage,
+	const FName SectionName,
+	const bool bLooped,
+	const int32 ExpectedStageGeneration,
+	const FName ReadySection)
+{
+	(void)Montage;
+	(void)bLooped;
+	if (SectionName != ReadySection
+		|| ChainState != EChainCounterState::ParryActive
+		|| ActiveDefenseSequence.ChainState != EChainCounterState::ParryActive
+		|| ActiveDefenseSequence.StageGeneration != ExpectedStageGeneration
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		return;
+	}
+	CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("BridgeEndedBeforeCounter"));
 }
 
 bool UPairedAnimationComponent::TryStartPairedAnimationWithTarget(AActor* TargetActor, UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType)

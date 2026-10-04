@@ -504,6 +504,15 @@ public:
 	void ClearQueue(bool bCancelCurrent = false);
 
 	/**
+	 * Execute the Light/Heavy response buffered during this interaction's parry bridge, now that its
+	 * CounterWindow is open. A response buffered for another interaction expires instead.
+	 */
+	void ReleaseBufferedChainResponse(FDefenseInteractionId OpenedInteraction);
+
+	/** Expire any buffered Chain response; its sequence ended before opening a response window. */
+	void DiscardBufferedChainResponse();
+
+	/**
 	 * Cancel actions based on priority
 	 * Used for hit interrupts (severity determines priority)
 	 */
@@ -1049,6 +1058,24 @@ protected:
 	/** Process-monotonic identity for the next captured input edge. */
 	uint64 NextCombatInputSerial = 1;
 	uint64 NextActionQueueEntryId = 1;
+
+	/**
+	 * One newest-wins ChainOnly slot for Light/Heavy pressed during a parry bridge, released when that
+	 * interaction's CounterWindow opens and expired if the sequence ends first. It never feeds ActionQueue.
+	 */
+	struct FBufferedChainResponse
+	{
+		EInputType InputType = EInputType::None;
+		uint64 InputSerial = 0;
+		FDefenseInteractionId Interaction;
+	};
+	TOptional<FBufferedChainResponse> BufferedChainResponse;
+
+	/** Capture a bridge-time Light/Heavy press into the newest-wins Chain response slot. */
+	void BufferChainResponse(
+		EInputType InputType,
+		uint64 InputSerial,
+		const FDefenseInteractionId& Interaction);
 
 	/** Current attack phase (tracked independently) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")

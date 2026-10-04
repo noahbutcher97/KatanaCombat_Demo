@@ -205,6 +205,16 @@ public:
 			|| ChainState == EChainCounterState::FinisherReady;
 	}
 
+	/**
+	 * True while this component owns a parry bridge that has not yet opened CounterWindow. Light/Heavy
+	 * pressed now is captured as a ChainOnly response and executes when the window opens.
+	 */
+	bool IsChainAwaitingResponseWindow() const
+	{
+		return ChainState == EChainCounterState::ParryActive
+			&& ActiveDefenseSequence.OriginatingInteraction.IsValid();
+	}
+
 	/** True while Chain mode has a retained parried target for follow-up counter/finisher steps. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	bool HasActiveChainTarget() const { return ActiveChainTarget.IsValid(); }
@@ -519,6 +529,21 @@ protected:
 
 	/** Open CounterWindow only for the currently owned defense-stage generation. */
 	bool EnterDefenseCounterWindow(int32 ExpectedStageGeneration);
+
+	/** Keep a started bridge's roles in their ready sections and watch the driver for a missed marker. */
+	void ArmBridgeReadyPoseHold(
+		const UPairedAnimationData* BridgeData,
+		UAnimInstance* DefenderAnim,
+		UAnimInstance* SourceAnim,
+		int32 StageGeneration);
+
+	/** The bridge driver reached its ready pose; clean up if that generation never opened CounterWindow. */
+	void HandleBridgeReadyPoseEntered(
+		UAnimMontage* Montage,
+		FName SectionName,
+		bool bLooped,
+		int32 ExpectedStageGeneration,
+		FName ReadySection);
 
 	/** Schedule and receive the no-montage parry bridge. */
 	bool ScheduleNoMontageDefenseBridge(int32 ExpectedStageGeneration);
