@@ -73,8 +73,10 @@ def ensure_worktree(repo, ref, path):
         record = json.loads(marker.read_text(encoding="utf-8"))
         previous = git(path, "rev-parse", "HEAD")
         recorded = record.get("history", [{}])[-1].get("commit")
-        if previous != recorded and previous != commit and not git(path, "for-each-ref", "--contains", previous, "--format=%(refname)"):
-            # Moving would leave commits made in this detached worktree reachable only from the reflog.
+        if previous != recorded and not git(path, "for-each-ref", "--contains", previous, "--format=%(refname)"):
+            # A HEAD this script did not check out may hold commits made in this detached worktree. Moving away
+            # would leave them reachable only from the reflog, and so would recording one as the baseline even when
+            # it is the requested target: a later update trusts the recorded commit and detaches from it unchecked.
             raise WorktreeError(f"{path} is at {previous}, not the {recorded} this script last checked out, and no branch or "
                                 "tag contains it; push or branch those commits before updating")
         if previous != commit:

@@ -77,6 +77,34 @@ class CaptureWorktreeTests(unittest.TestCase):
         self.assertEqual(ensure_worktree(self.repo, self.second, self.target)["action"], "updated",
                          "once a branch holds the commit, moving away loses nothing")
 
+    def history(self):
+        return json.loads((self.target / MARKER).read_text(encoding="utf-8"))["history"]
+
+    def test_refuses_to_adopt_an_unreferenced_commit_named_as_the_target(self):
+        ensure_worktree(self.repo, self.first, self.target)
+        (self.target / "Source.cpp").write_text("// quick fix during a capture\n")
+        git(self.target, "add", "--", "Source.cpp")
+        git(self.target, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-m", "Local")
+        local = git(self.target, "rev-parse", "HEAD")
+        self.assertEqual(git(self.repo, "for-each-ref", "--contains", local), "", "premise: no branch or tag holds the commit")
+        before = self.history()
+        # Rerunning from the main checkout with the new commit's SHA must not record it as the baseline:
+        # a later update would then detach away from it and leave it only in the reflog.
+        with self.assertRaisesRegex(WorktreeError, "no branch or tag contains it"):
+            ensure_worktree(self.repo, local, self.target)
+        self.assertEqual(git(self.target, "rev-parse", "HEAD"), local)
+        self.assertEqual(self.history(), before, "a refused run records nothing")
+        # The capture worktree's own copy of the script, run with --ref HEAD and the default path,
+        # targets itself; the working-checkout guard refuses that before any history is read.
+        with self.assertRaisesRegex(WorktreeError, "working checkout"):
+            ensure_worktree(self.target, "HEAD", default_path(self.target))
+        self.assertEqual(self.history(), before)
+        git(self.repo, "branch", "kept-capture-fix", local)
+        self.assertEqual(ensure_worktree(self.repo, local, self.target)["action"], "unchanged",
+                         "once a branch holds the commit it may become the recorded baseline")
+        self.assertEqual(self.history()[-1]["commit"], local)
+        self.assertEqual(ensure_worktree(self.repo, self.second, self.target)["action"], "updated")
+
     def test_refuses_a_worktree_it_did_not_create(self):
         git(self.repo, "worktree", "add", "--detach", str(self.target), self.first)
         with self.assertRaisesRegex(WorktreeError, "not created by capture_worktree.py"):
