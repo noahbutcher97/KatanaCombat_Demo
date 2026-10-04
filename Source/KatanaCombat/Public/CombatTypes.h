@@ -2685,19 +2685,26 @@ struct FDefensePresentationPayload
 {
 	GENERATED_BODY()
 
-	/** Montage played when this row is chosen, on the montage's own slot. If empty, nothing plays and nothing is
-	 * logged; on attacker-response rows the generic row is tried instead. Dropped when the parry bridge starts. */
+	/** Montage played when this row is chosen, on the montage's own slot. If it is empty or its section is missing, a
+	 * defender row plays nothing (no log). An attacker-response row then tries the generic row for its response; if
+	 * that has no usable montage either, Recoil stops the attacker's current attack (see Blend Out Seconds) and Parry
+	 * Stagger plays the default stagger reaction. Both characters' row montages are dropped when a parry bridge
+	 * starts. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	TObjectPtr<UAnimMontage> Montage = nullptr;
 
-	/** Section to jump to once the montage starts; None plays it from the start. Section must exist in the montage
-	 * or nothing plays (no log). */
+	/** Section to jump to once the montage starts; None plays it from the start. If the section is not in the
+	 * montage, this row's montage does not play (no log); the row is then handled as if it had no montage (see
+	 * Montage). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FName MontageSection = NAME_None;
 
-	/** Paired two-character parry animation to try on a perfect parry. If its checks fail (distance, room, turn or
-	 * slide limits, marker), the generic Perfect Parry row's bridge is tried, then the solo row montages play instead.
-	 * Only used on Perfect Parry defender rows; ignored on block rows and attacker-response rows. */
+	/** Paired two-character parry animation to try when this Perfect Parry defender row is chosen. If this row has
+	 * none, or its checks fail (distance, room, turn or slide limits, marker), the generic Perfect Parry row's bridge
+	 * is tried. If no bridge starts, the chosen row's Montage and the attacker's response montage play instead; if one
+	 * does, those two montages are dropped but the chosen row's sound, effect and hitstop still play. Only Perfect
+	 * Parry defender rows play a bridge. Setting it never changes which row is chosen, on any row type: block and
+	 * attacker-response rows are always matched as if a bridge were usable. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	TObjectPtr<UPairedAnimationData> PairedBridgeData = nullptr;
 
@@ -2713,7 +2720,9 @@ struct FDefensePresentationPayload
 
 	/** Turns the character to face its partner while this row's montage plays. The montage needs a motion-warping
 	 * window named DefenseContactTarget (defender rows) or AttackerResponseTarget (attacker rows), or nothing turns.
-	 * Has no effect on Perfect Parry defender rows. */
+	 * Works on Normal Block defender rows and on attacker-response rows. On a Perfect Parry defender row the montage
+	 * still plays when no parry bridge starts, but this turn never happens: a perfect parry gives the defender no
+	 * turn target or turn budget for it. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	bool bEnableRotationWarp = false;
 
@@ -2756,8 +2765,8 @@ struct FDefensePresentationPayload
 	FHitstopConfig Hitstop;
 
 	/** Name of the Chain Stage Transition (Open Counter Window) marker in the bridge montage. It must match the
-	 * bridge's Required Marker and appear exactly once in the played section, or the bridge is skipped and the parry
-	 * plays its solo montages. Only used with Paired Bridge Data on Perfect Parry defender rows. */
+	 * bridge's Required Marker and appear exactly once in the played section, or this row's bridge is skipped (see
+	 * Paired Bridge Data for what plays instead). Only used with Paired Bridge Data on Perfect Parry defender rows. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FName ReviewedDeflectionMarker = NAME_None;
 
@@ -2771,9 +2780,11 @@ struct FDefensePresentationPayload
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FName TargetBoneOverride = NAME_None;
 
-	/** Marks the row as needing the paired parry bridge. Rows with Paired Bridge Data already count as marked, so this
-	 * only matters on a row without one: that row is then never picked as the no-bridge fallback after a parry bridge
-	 * fails. Ignored on block rows and attacker-response rows. */
+	/** Marks the row as needing the paired parry bridge; a row with Paired Bridge Data already counts as marked. It
+	 * currently changes nothing in play, on any row type. Row matching always reads it, but it can only exclude a row
+	 * in one place, a generic Perfect Parry re-pick made when no bridge can be used, and that re-pick does not change
+	 * what plays: the originally chosen row's montage and effects are used. Block and attacker-response rows are
+	 * always matched as if a bridge were usable, so it never excludes them. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	bool bRequiresBridgePreflight = false;
 

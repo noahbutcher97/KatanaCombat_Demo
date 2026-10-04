@@ -167,8 +167,9 @@ struct KATANACOMBAT_API FAttackerResponsePresentationRow
 	int32 Priority = 0;
 
 	/** What the attacker plays. Only the montage, section, blend-in, rotation warp and (for Recoil) blend-out are
-	 * used; sound, effect, hitstop, translation and parry-bridge settings are ignored on attacker-response rows.
-	 * Ignored for Continue rows. */
+	 * used. Sound, effect, hitstop, translation and parry-bridge settings are ignored on attacker-response rows, both
+	 * for what plays and for which row is chosen: these rows are always matched as if a bridge were usable. Continue
+	 * rows play nothing. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense")
 	FDefensePresentationPayload Payload;
 
@@ -297,7 +298,8 @@ public:
 	float TimeDilationLeaseWatchdogSeconds = 10.0f;
 
 	/** How far, in cm, the block's turn-to-face warp may also move the defender; 0 means no movement. It only has an
-	 * effect if the block montage's motion-warping window allows translation. */
+	 * effect when the chosen Normal Block row has Enable Rotation Warp on and its montage's motion-warping window
+	 * allows translation. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Translation", meta = (ClampMin = "0.0", Units = "cm"))
 	float NormalBlockTranslationAllowance = 0.0f;
 
@@ -308,7 +310,8 @@ public:
 
 	/** How far, in cm, each character may slide into position for the paired parry bridge; the defender's value
 	 * applies to both characters, and the bridge asset's own warp limits also apply (smallest wins). If either
-	 * would have to move farther, the bridge is skipped and the parry plays its solo montages instead. */
+	 * would have to move farther, that bridge is skipped (see Paired Bridge Data on the presentation row for what
+	 * plays instead). */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Defense|Translation", meta = (ClampMin = "0.0", Units = "cm"))
 	float PerfectParryTranslationAllowancePerRole = 75.0f;
 
