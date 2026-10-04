@@ -171,23 +171,27 @@ def grade(clip, validation, thresholds=QUALITY_THRESHOLDS):
     window = clip["window"]
     if not validation["valid"]:
         return dict(video_quality="invalid", reasons=validation["issues"], thresholds=dict(thresholds))
+    # Thresholds are compared with the raw values; only the serialized `measured` fields are rounded, so
+    # a value just above a threshold can never round down to it and pass.
+    dropped = window.get("droppedFrames", 0)
     skips = window.get("pressureSkippedDraws", 0)
     due = skips + window.get("requests", window.get("encodedFrames", 0))
-    measured = dict(dropped_frames=window.get("droppedFrames", 0),
+    skip_fraction = skips / due if due else 0.0
+    gap = window.get("maxAcquisitionGapSeconds", 0)
+    measured = dict(dropped_frames=dropped,
                     pressure_skipped_draws=skips,
-                    pressure_skip_fraction=round(skips / due, 4) if due else 0.0,
-                    max_frame_gap_s=round(window.get("maxAcquisitionGapSeconds", 0), 4),
+                    pressure_skip_fraction=round(skip_fraction, 6),
+                    max_frame_gap_s=round(gap, 6),
                     achieved_fps=round(window.get("achievedAcquisitionFPS", 0), 2),
                     requested_fps=clip["manifest"].get("requestedFPS"))
     reasons = []
-    if measured["dropped_frames"] > thresholds["max_dropped_frames"]:
-        reasons.append(f"{measured['dropped_frames']} dropped frame(s) > max_dropped_frames {thresholds['max_dropped_frames']}")
-    if measured["pressure_skip_fraction"] > thresholds["max_pressure_skip_fraction"]:
-        reasons.append(f"pressure skips {measured['pressure_skip_fraction']:.2%} of due draws > max_pressure_skip_fraction "
-                       f"{thresholds['max_pressure_skip_fraction']:.2%}")
-    if measured["max_frame_gap_s"] > thresholds["max_frame_gap_s"]:
-        reasons.append(f"largest frame gap {measured['max_frame_gap_s'] * 1e3:.0f} ms > max_frame_gap_s "
-                       f"{thresholds['max_frame_gap_s'] * 1e3:.0f} ms")
+    if dropped > thresholds["max_dropped_frames"]:
+        reasons.append(f"{dropped} dropped frame(s) > max_dropped_frames {thresholds['max_dropped_frames']}")
+    if skip_fraction > thresholds["max_pressure_skip_fraction"]:
+        reasons.append(f"pressure skips {skips} of {due} due draws ({skip_fraction:.4%}) > max_pressure_skip_fraction "
+                       f"{thresholds['max_pressure_skip_fraction']:.4%}")
+    if gap > thresholds["max_frame_gap_s"]:
+        reasons.append(f"largest frame gap {gap * 1e3:.3f} ms > max_frame_gap_s {thresholds['max_frame_gap_s'] * 1e3:.3f} ms")
     return dict(video_quality="degraded" if reasons else "ok", reasons=reasons, measured=measured, thresholds=dict(thresholds))
 
 

@@ -71,10 +71,10 @@ class VideoCaptureTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.bundle = VideoBundle(self.temporary.name)
 
-    def run_analysis(self, pts=None):
+    def run_analysis(self, pts=None, thresholds=QUALITY_THRESHOLDS):
         self.bundle.write()
         with patch("video_capture.probe", return_value=self.bundle.probe(pts)):
-            return analyze(self.bundle.root, extract=False)
+            return analyze(self.bundle.root, extract=False, thresholds=thresholds)
 
     def test_clean_clip_is_ok_native_and_joins_every_frame(self):
         result = self.run_analysis()
@@ -105,6 +105,36 @@ class VideoCaptureTests(unittest.TestCase):
         result = self.run_analysis()
         self.assertEqual(result["video_quality"], "degraded")
         self.assertTrue(any("max_frame_gap_s" in reason for reason in result["quality"]["reasons"]))
+
+    def test_a_gap_just_above_the_threshold_degrades_although_it_rounds_to_it(self):
+        thresholds = dict(QUALITY_THRESHOLDS, max_frame_gap_s=0.1)  # The fixture owns its threshold.
+        gap = 0.10004
+        self.assertGreater(gap, thresholds["max_frame_gap_s"])
+        self.assertLessEqual(round(gap, 4), thresholds["max_frame_gap_s"], "premise: four-decimal rounding hides the excess")
+        self.bundle.window["maxAcquisitionGapSeconds"] = gap
+        result = self.run_analysis(thresholds=thresholds)
+        self.assertEqual(result["video_quality"], "degraded", result["quality"])
+        reason = next(reason for reason in result["quality"]["reasons"] if "max_frame_gap_s" in reason)
+        self.assertIn("100.040 ms", reason, "the reason shows the excess, not two equal numbers")
+        self.assertGreater(result["quality"]["measured"]["max_frame_gap_s"], thresholds["max_frame_gap_s"])
+
+    def test_a_skip_fraction_just_above_the_threshold_degrades_although_it_rounds_to_it(self):
+        thresholds = dict(QUALITY_THRESHOLDS, max_pressure_skip_fraction=0.01)
+        skips, admitted = 3, 296  # 3 of 299 due draws, 1.0033%
+        fraction = skips / (skips + admitted)
+        self.assertGreater(fraction, thresholds["max_pressure_skip_fraction"])
+        self.assertLessEqual(round(fraction, 4), thresholds["max_pressure_skip_fraction"], "premise: four-decimal rounding hides the excess")
+        self.bundle.window.update(pressureSkippedDraws=skips, requests=admitted)
+        result = self.run_analysis(thresholds=thresholds)
+        self.assertEqual(result["video_quality"], "degraded", result["quality"])
+        reason = next(reason for reason in result["quality"]["reasons"] if "max_pressure_skip_fraction" in reason)
+        self.assertIn(f"{skips} of {skips + admitted}", reason)
+        self.assertGreater(result["quality"]["measured"]["pressure_skip_fraction"], thresholds["max_pressure_skip_fraction"])
+
+    def test_values_at_a_threshold_stay_within_it(self):
+        thresholds = dict(QUALITY_THRESHOLDS, max_frame_gap_s=0.1, max_pressure_skip_fraction=0.01)
+        self.bundle.window.update(maxAcquisitionGapSeconds=0.1, pressureSkippedDraws=1, requests=99)
+        self.assertEqual(self.run_analysis(thresholds=thresholds)["video_quality"], "ok", "only a value above a threshold degrades")
 
     def test_dropped_frames_degrade_even_a_complete_clip(self):
         self.bundle.window["droppedFrames"] = 1
