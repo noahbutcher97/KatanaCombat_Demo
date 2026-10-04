@@ -6,6 +6,7 @@
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_AttackPhaseTransition.h"
 #include "Animation/AnimNotify_HoldWindowStart.h"
+#include "Animation/AnimNotifyState_ParryWindow.h"
 #include "Animation/AnimSequenceBase.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Core/CombatComponent.h"
@@ -28,6 +29,9 @@ struct FChargedHeavyLayout
 	float ReleaseRecovery = 0.0f;
 	float TailStart = 0.0f;
 	float BlendOut = 0.0f;
+	/** Optional attacker parry window in the attack section; negative leaves it out. */
+	float AttackParryStart = -1.0f;
+	float AttackParryEnd = -1.0f;
 };
 
 void AddMontageSection(UAnimMontage* Montage, const FName Name, const float StartTime)
@@ -56,6 +60,17 @@ void AddHoldWindowStart(UAnimMontage* Montage, const EInputType InputType, const
 	FAnimNotifyEvent Event;
 	Event.Notify = Notify;
 	Event.Link(Montage, Time);
+	Montage->Notifies.Add(Event);
+}
+
+void AddParryWindow(UAnimMontage* Montage, const float StartTime, const float EndTime)
+{
+	UAnimNotifyState_ParryWindow* State = NewObject<UAnimNotifyState_ParryWindow>(Montage);
+	FAnimNotifyEvent Event;
+	Event.NotifyStateClass = State;
+	Event.Link(Montage, StartTime);
+	Event.SetDuration(EndTime - StartTime);
+	Event.EndLink.Link(Montage, EndTime);
 	Montage->Notifies.Add(Event);
 }
 
@@ -133,6 +148,10 @@ struct FChargedHeavyFixture
 		AddPhaseTransition(HeavyMontage, EAttackPhase::Recovery, Layout.AttackRecovery);
 		AddPhaseTransition(HeavyMontage, EAttackPhase::Active, Layout.ReleaseActive);
 		AddPhaseTransition(HeavyMontage, EAttackPhase::Recovery, Layout.ReleaseRecovery);
+		if (Layout.AttackParryStart >= 0.0f)
+		{
+			AddParryWindow(HeavyMontage, Layout.AttackParryStart, Layout.AttackParryEnd);
+		}
 		HeavyMontage->RefreshCacheData();
 		AddMontageSection(LightMontage, TEXT("Attack"), 0.0f);
 		LightMontage->RefreshCacheData();
@@ -178,6 +197,75 @@ struct FChargedHeavyFixture
 		}
 	}
 
+	float MontagePosition() const
+	{
+		UAnimInstance* AnimInstance = Player->GetMesh()->GetAnimInstance();
+		return AnimInstance && Heavy ? AnimInstance->Montage_GetPosition(Heavy->AttackMontage) : 0.0f;
+	}
+
+	/** Advance at Step until the heavy montage reaches MontageTime. */
+	void AdvanceTo(const float MontageTime, const float Step) const
+	{
+		Advance(MontageTime - MontagePosition(), Step);
+	}
+
+	/** The attack notifies the last animation tick queued, in queue order (for example "Hold,Active"). */
+	FString DescribeQueuedNotifies() const
+	{
+		TArray<FString> Names;
+		UAnimInstance* AnimInstance = Player->GetMesh()->GetAnimInstance();
+		if (!AnimInstance)
+		{
+			return FString();
+		}
+		for (const FAnimNotifyEventReference& Reference : AnimInstance->NotifyQueue.AnimNotifies)
+		{
+			const FAnimNotifyEvent* Event = Reference.GetNotify();
+			if (!Event)
+			{
+				continue;
+			}
+			if (Cast<UAnimNotify_HoldWindowStart>(Event->Notify))
+			{
+				Names.Add(TEXT("Hold"));
+			}
+			else if (const UAnimNotify_AttackPhaseTransition* Transition =
+				Cast<UAnimNotify_AttackPhaseTransition>(Event->Notify))
+			{
+				Names.Add(Transition->TransitionToPhase == EAttackPhase::Active
+					? TEXT("Active")
+					: (Transition->TransitionToPhase == EAttackPhase::Recovery ? TEXT("Recovery") : TEXT("Phase")));
+			}
+			else if (Cast<UAnimNotifyState_ParryWindow>(Event->NotifyStateClass))
+			{
+				Names.Add(TEXT("ParryWindow"));
+			}
+		}
+		return FString::Join(Names, TEXT(","));
+	}
+
+	/**
+	 * One animation tick from the current position to MontageTime, as a slow frame or a hitch delivers it:
+	 * every notify crossed is queued before any is dispatched. Returns what that tick queued.
+	 */
+	FString TickOnceTo(const float MontageTime, float& OutTickSeconds) const
+	{
+		USkeletalMeshComponent* Mesh = Player->GetMesh();
+		OutTickSeconds = MontageTime - MontagePosition();
+		Mesh->TickAnimation(OutTickSeconds, false);
+		const FString Queued = DescribeQueuedNotifies();
+		if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+		{
+			AnimInstance->DispatchQueuedAnimEvents();
+		}
+		return Queued;
+	}
+
+	bool HasPublishedWindow(const EAttackWindowKind Kind) const
+	{
+		return Combat->GetActiveAttackWindow(Kind).IsValid();
+	}
+
 	FName CurrentSection() const
 	{
 		UAnimInstance* AnimInstance = Player->GetMesh()->GetAnimInstance();
@@ -197,14 +285,30 @@ struct FChargedHeavyFixture
 	}
 };
 
+/** How the attack section's notifies reach the component before the charge loop. */
+struct FChargedHeavyDelivery
+{
+	/**
+	 * When positive, advance at 60 Hz to OneTickFrom, then carry the montage to OneTickThrough in a single
+	 * animation tick, so every attack-section notify between them is queued before any is dispatched.
+	 */
+	float OneTickFrom = 0.0f;
+	float OneTickThrough = 0.0f;
+	/** What that single tick must queue, in queue order; proves the events share one dispatch. */
+	const TCHAR* ExpectedOneTickQueue = TEXT("");
+	/** Press and release Light during Windup, so a Recovery would run it, instead of pressing it mid-charge. */
+	bool bQueueLightInWindup = false;
+};
+
 /**
- * Press and hold Heavy through its hold window, queue a Light during the charge loop, release, and play
- * the release section to its Recovery. Returns false only when the fixture could not run.
+ * Press and hold Heavy through its hold window, queue a Light, release, and play the release section to its
+ * Recovery. Returns false only when the fixture could not run.
  */
 bool RunChargedHeavy(
 	FAutomationTestBase& Test,
 	const FChargedHeavyLayout& Layout,
-	const TCHAR* Context)
+	const TCHAR* Context,
+	const FChargedHeavyDelivery& Delivery = {})
 {
 	constexpr float FrameSeconds = 1.0f / 60.0f;
 	FChargedHeavyFixture Fixture;
@@ -218,7 +322,40 @@ bool RunChargedHeavy(
 	Fixture.Combat->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Press);
 	Test.TestEqual(FString::Printf(TEXT("%s: the held Heavy starts the charged attack"), Context),
 		Fixture.Combat->GetCurrentAttack(), Fixture.Heavy);
-	Fixture.Advance(FMath::Max(Layout.AttackActive, Layout.AttackHold) + 0.05f, FrameSeconds);
+	if (Delivery.bQueueLightInWindup)
+	{
+		Fixture.Combat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
+		Fixture.Combat->OnInputEvent(EInputType::LightAttack, EInputEventType::Release);
+		Test.TestEqual(FString::Printf(TEXT("%s: a Light tapped in Windup waits in the queue"), Context),
+			Fixture.Combat->GetPendingActionCount(), 1);
+	}
+
+	if (Delivery.OneTickThrough > 0.0f)
+	{
+		Fixture.AdvanceTo(Delivery.OneTickFrom, FrameSeconds);
+		Test.TestEqual(FString::Printf(TEXT("%s: the attack is still in Windup before the slow tick"), Context),
+			Fixture.Combat->GetCurrentPhase(), EAttackPhase::Windup);
+		float TickSeconds = 0.0f;
+		const FString Queued = Fixture.TickOnceTo(Delivery.OneTickThrough, TickSeconds);
+		Test.AddInfo(FString::Printf(TEXT("%s: one %.1f ms animation tick queued [%s]"),
+			Context, TickSeconds * 1000.0f, *Queued));
+		Test.TestEqual(FString::Printf(TEXT("%s: one animation tick queues these notifies together"), Context),
+			Queued, FString(Delivery.ExpectedOneTickQueue));
+		Test.TestEqual(FString::Printf(TEXT("%s: the charge loop is not an Active phase right after that tick"), Context),
+			Fixture.Combat->GetCurrentPhase(), EAttackPhase::Windup);
+		Test.TestFalse(FString::Printf(TEXT("%s: weapon hit detection is off right after that tick"), Context),
+			Fixture.IsHitDetectionEnabled());
+		Test.TestFalse(FString::Printf(TEXT("%s: no hit window is published for the section the charge left"), Context),
+			Fixture.HasPublishedWindow(EAttackWindowKind::Hit));
+		Test.TestFalse(FString::Printf(TEXT("%s: no parry window is published for the section the charge left"), Context),
+			Fixture.HasPublishedWindow(EAttackWindowKind::Parry));
+		Test.TestEqual(FString::Printf(TEXT("%s: the charge keeps the Heavy as the current attack"), Context),
+			Fixture.Combat->GetCurrentAttack(), Fixture.Heavy);
+	}
+	else
+	{
+		Fixture.Advance(FMath::Max(Layout.AttackActive, Layout.AttackHold) + 0.05f, FrameSeconds);
+	}
 	Test.TestEqual(FString::Printf(TEXT("%s: the held button enters the charge loop"), Context),
 		Fixture.CurrentSection(), FName(TEXT("Loop")));
 	Fixture.Advance(0.2f, FrameSeconds);
@@ -226,9 +363,14 @@ bool RunChargedHeavy(
 		Fixture.Combat->GetCurrentPhase(), EAttackPhase::Windup);
 	Test.TestFalse(FString::Printf(TEXT("%s: weapon hit detection is off through the charge loop"), Context),
 		Fixture.IsHitDetectionEnabled());
+	Test.TestEqual(FString::Printf(TEXT("%s: the charge loop keeps playing"), Context),
+		Fixture.CurrentSection(), FName(TEXT("Loop")));
 
-	Fixture.Combat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
-	Test.TestEqual(FString::Printf(TEXT("%s: a Light pressed while charging is queued"), Context),
+	if (!Delivery.bQueueLightInWindup)
+	{
+		Fixture.Combat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
+	}
+	Test.TestEqual(FString::Printf(TEXT("%s: one Light waits in the queue while charging"), Context),
 		Fixture.Combat->GetPendingActionCount(), 1);
 	Fixture.Combat->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Release);
 	Test.TestEqual(FString::Printf(TEXT("%s: release plays the release section"), Context),
@@ -296,4 +438,133 @@ bool FChargedHeavyHoldBeforeActiveTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("The fixture's hold window starts before its Active transition"),
 		Layout.AttackHold < Layout.AttackActive);
 	return RunChargedHeavy(*this, Layout, TEXT("Hold before Active"));
+}
+
+namespace
+{
+/** A charged heavy whose release section strikes on its own Active and Recovery; attack timings vary per test. */
+FChargedHeavyLayout MakeOneTickLayout(const float AttackHold, const float AttackActive, const float AttackRecovery)
+{
+	FChargedHeavyLayout Layout;
+	Layout.AttackHold = AttackHold;
+	Layout.AttackActive = AttackActive;
+	Layout.AttackRecovery = AttackRecovery;
+	Layout.LoopStart = 1.20f;
+	Layout.ReleaseStart = 1.60f;
+	Layout.ReleaseActive = 1.70f;
+	Layout.ReleaseRecovery = 2.20f;
+	Layout.TailStart = 2.60f;
+	Layout.BlendOut = 0.25f;
+	return Layout;
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChargedHeavyHoldThenActiveInOneTickTest,
+	"KatanaCombat.CombatInput.ChargedHeavy.HoldThenActiveInOneTickStaysOutOfActive",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChargedHeavyHoldThenActiveInOneTickTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	// The hold leads Active by less than one 30 FPS frame, and a parry window opens between them, so a single
+	// slow tick queues all three before the hold's jump to the charge loop is dispatched.
+	FChargedHeavyLayout Layout = MakeOneTickLayout(0.28f, 0.30f, 0.90f);
+	Layout.AttackParryStart = 0.29f;
+	Layout.AttackParryEnd = 0.60f;
+	FChargedHeavyDelivery Delivery;
+	Delivery.OneTickFrom = 0.275f;
+	Delivery.OneTickThrough = 0.305f;
+	Delivery.ExpectedOneTickQueue = TEXT("Hold,ParryWindow,Active");
+	TestTrue(TEXT("The slow tick is no longer than one 30 FPS frame"),
+		Delivery.OneTickThrough - Delivery.OneTickFrom <= 1.0f / 30.0f);
+	TestTrue(TEXT("The fixture's hold leads Active by less than that tick"),
+		Layout.AttackHold < Layout.AttackActive
+		&& Layout.AttackHold > Delivery.OneTickFrom
+		&& Layout.AttackActive < Delivery.OneTickThrough);
+	return RunChargedHeavy(*this, Layout, TEXT("Hold then Active in one tick"), Delivery);
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChargedHeavyActiveThenHoldInOneTickTest,
+	"KatanaCombat.CombatInput.ChargedHeavy.ActiveThenHoldInOneTickStaysOutOfActive",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChargedHeavyActiveThenHoldInOneTickTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	const FChargedHeavyLayout Layout = MakeOneTickLayout(0.30f, 0.28f, 0.90f);
+	FChargedHeavyDelivery Delivery;
+	Delivery.OneTickFrom = 0.275f;
+	Delivery.OneTickThrough = 0.305f;
+	Delivery.ExpectedOneTickQueue = TEXT("Active,Hold");
+	TestTrue(TEXT("The slow tick is no longer than one 30 FPS frame"),
+		Delivery.OneTickThrough - Delivery.OneTickFrom <= 1.0f / 30.0f);
+	return RunChargedHeavy(*this, Layout, TEXT("Active then hold in one tick"), Delivery);
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChargedHeavyHitchAcrossAttackSectionTest,
+	"KatanaCombat.CombatInput.ChargedHeavy.HitchAcrossHoldActiveRecoveryKeepsQueuedAction",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChargedHeavyHitchAcrossAttackSectionTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	// A hitch carries the attack section through its hold, Active and Recovery in one tick, with a Light already
+	// queued for the next Recovery. That Light belongs to the release's Recovery, not the abandoned section's.
+	const FChargedHeavyLayout Layout = MakeOneTickLayout(0.28f, 0.30f, 0.32f);
+	FChargedHeavyDelivery Delivery;
+	Delivery.OneTickFrom = 0.275f;
+	Delivery.OneTickThrough = 0.325f;
+	Delivery.ExpectedOneTickQueue = TEXT("Hold,Active,Recovery");
+	Delivery.bQueueLightInWindup = true;
+	return RunChargedHeavy(*this, Layout, TEXT("Hitch across hold, Active and Recovery"), Delivery);
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FChargedHeavyReleaseIntoAbandonedSectionTest,
+	"KatanaCombat.CombatInput.ChargedHeavy.ReleaseIntoAbandonedSectionPlaysItsPhases",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FChargedHeavyReleaseIntoAbandonedSectionTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	// The charge ignores the abandoned section only while its hold lasts. A release that replays that same
+	// section must get its Active and Recovery back.
+	constexpr float FrameSeconds = 1.0f / 60.0f;
+	const FChargedHeavyLayout Layout = MakeOneTickLayout(0.28f, 0.30f, 0.90f);
+	FChargedHeavyFixture Fixture;
+	if (!Fixture.Initialize(Layout))
+	{
+		AddError(TEXT("Charged-heavy fixture could not be created"));
+		Fixture.Destroy();
+		return false;
+	}
+	Fixture.Heavy->ChargeReleaseSection = TEXT("Attack");
+
+	Fixture.Combat->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Press);
+	Fixture.AdvanceTo(0.275f, FrameSeconds);
+	float TickSeconds = 0.0f;
+	TestEqual(TEXT("One tick queues the hold and Active together"),
+		Fixture.TickOnceTo(0.305f, TickSeconds), FString(TEXT("Hold,Active")));
+	TestEqual(TEXT("The held button enters the charge loop"), Fixture.CurrentSection(), FName(TEXT("Loop")));
+	TestEqual(TEXT("The stale Active is ignored while charging"),
+		Fixture.Combat->GetCurrentPhase(), EAttackPhase::Windup);
+	Fixture.Advance(0.2f, FrameSeconds);
+
+	Fixture.Combat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
+	Fixture.Combat->OnInputEvent(EInputType::HeavyAttack, EInputEventType::Release);
+	TestEqual(TEXT("Release replays the section the charge left"), Fixture.CurrentSection(), FName(TEXT("Attack")));
+	Fixture.AdvanceTo(Layout.AttackActive + 0.05f, FrameSeconds);
+	TestEqual(TEXT("The replayed section's Active is accepted after the hold ends"),
+		Fixture.Combat->GetCurrentPhase(), EAttackPhase::Active);
+	TestTrue(TEXT("The replayed strike detects hits"), Fixture.IsHitDetectionEnabled());
+	Fixture.AdvanceTo(Layout.AttackRecovery + 0.05f, FrameSeconds);
+	TestEqual(TEXT("The replayed section's Recovery runs the queued Light"),
+		Fixture.Combat->GetCurrentAttack(), Fixture.Light);
+	TestFalse(TEXT("The replayed strike's hit detection ended at Recovery"), Fixture.IsHitDetectionEnabled());
+
+	Fixture.Destroy();
+	return true;
 }

@@ -114,6 +114,23 @@ bool IsAttackTaggedUnblockable(const UAttackData* AttackData)
 	return UnblockableTag.IsValid() && AttackData->AttackTags.HasTag(UnblockableTag);
 }
 
+/**
+ * Section of Montage that holds a notify, read from the notify's own trigger time; INDEX_NONE when the notify
+ * is not one of Montage's. The montage position cannot answer this during dispatch: a section jump made by an
+ * earlier notify in the same dispatch has already moved it.
+ */
+int32 ResolveNotifySectionIndex(const UAnimMontage* Montage, const FAnimNotifyRuntimeSourceId& NotifySource)
+{
+	if (!Montage
+		|| !NotifySource.IsValid()
+		|| NotifySource.SourceAnimation != FSoftObjectPath(Montage)
+		|| !Montage->Notifies.IsValidIndex(NotifySource.NotifyEventIndex))
+	{
+		return INDEX_NONE;
+	}
+	return Montage->GetSectionIndexFromPosition(Montage->Notifies[NotifySource.NotifyEventIndex].GetTriggerTime());
+}
+
 void RequestDefenderThreatRefresh(AActor* Defender, EThreatRefreshReason Reason)
 {
 	if (UCombatComponent* DefenderCombat = Defender
@@ -1744,6 +1761,19 @@ FAttackWindowInstanceId UCombatComponent::OpenAttackWindow(
 		|| !CurrentAttackData
 		|| CurrentPhase == EAttackPhase::None)
 	{
+		return Result;
+	}
+
+	// Parry and counter window states that begin in the same dispatch as a charged hold's jump are dispatched
+	// after it (notify states begin after point notifies); the section they describe is no longer playing.
+	if (IsNotifyFromSectionAbandonedByCharge(NotifySource, MontageInstanceId))
+	{
+		if (CombatDebug::IsPhaseDebugEnabled())
+		{
+			UE_LOG(LogCombat, Log,
+				TEXT("[PHASE] Ignored %s window queued behind a charged hold; its section no longer owns playback"),
+				*UEnum::GetValueAsString(Kind));
+		}
 		return Result;
 	}
 
@@ -4759,6 +4789,14 @@ bool UCombatComponent::OnHoldWindowStartWithContext(
 				if (bActivated)
 				{
 					HoldState.MarkHoldCompleted();
+					// The jump leaves the hold notify's section. Notifies from it that this animation tick already
+					// queued behind the hold (a slow frame or hitch can span the hold and Active) no longer
+					// describe playback; IsNotifyFromSectionAbandonedByCharge rejects them while the hold lasts.
+					const int32 AbandonedSection = ResolveNotifySectionIndex(ActiveMontage, NotifySource);
+					HoldState.CurrentHold.ChargeAbandonedSectionIndex =
+						AbandonedSection != ActiveMontage->GetSectionIndex(CurrentAttackData->ChargeLoopSection)
+							? AbandonedSection
+							: INDEX_NONE;
 					if (CurrentPhase == EAttackPhase::Active)
 					{
 						ReturnActivePhaseToChargeWindup(MontageInstanceId);
@@ -5362,6 +5400,17 @@ bool UCombatComponent::OnPhaseTransitionWithContext(
 		return false;
 	}
 
+	if (IsNotifyFromSectionAbandonedByCharge(NotifySource, MontageInstanceId))
+	{
+		if (CombatDebug::IsPhaseDebugEnabled())
+		{
+			UE_LOG(LogCombat, Log,
+				TEXT("[PHASE] Ignored %s transition queued behind a charged hold; its section no longer owns playback"),
+				*UEnum::GetValueAsString(NewPhase));
+		}
+		return false;
+	}
+
 	if (NewPhase == EAttackPhase::Active)
 	{
 		FAttackInstanceId CurrentAttack;
@@ -5463,6 +5512,26 @@ void UCombatComponent::ReturnActivePhaseToChargeWindup(const int32 MontageInstan
 		RequestDefenderThreatRefresh(AttackIntentTarget.Get(), EThreatRefreshReason::WindowChanged);
 	}
 	SetPhase(EAttackPhase::Windup);
+}
+
+bool UCombatComponent::IsNotifyFromSectionAbandonedByCharge(
+	const FAnimNotifyRuntimeSourceId& NotifySource,
+	const int32 MontageInstanceId) const
+{
+	// Scoped to the live charged hold: release terminates the hold before the release section plays, so a
+	// release section that reuses the abandoned one is accepted again. Light holds never set the section.
+	const FHoldEvent& Hold = HoldState.CurrentHold;
+	if (!HoldState.IsHolding()
+		|| Hold.ChargeAbandonedSectionIndex == INDEX_NONE
+		|| Hold.MontageInstanceId != MontageInstanceId
+		|| Hold.SourceAttackInstance.Attacker.Get() != GetOwner()
+		|| Hold.SourceAttackInstance.AttackGeneration != AttackStateMachine.AttackGeneration
+		|| Hold.NotifySource.SourceAnimation != NotifySource.SourceAnimation)
+	{
+		return false;
+	}
+	return ResolveNotifySectionIndex(AttackStateMachine.GetActiveMontage(), NotifySource)
+		== Hold.ChargeAbandonedSectionIndex;
 }
 
 void UCombatComponent::ClearPublishedAttackWindowsForAttack(const FAttackInstanceId& AttackInstance)
