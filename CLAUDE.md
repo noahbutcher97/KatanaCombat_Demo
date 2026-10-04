@@ -291,6 +291,11 @@ This applies to ALL `BlueprintNativeEvent` interface methods:
 - Convert `FLinearColor` to `FColor` directly (use `.ToFColor(true)`)
 - Use component tick without explicit permission
 - **Make internal state variables `BlueprintReadOnly`**: If a parameter isn't meaningful to view/edit at runtime in the editor, don't expose it to Blueprint. This adds visual load and confusion. Reserve Blueprint visibility for intentional public API, not internal implementation details.
+- **Use internal planning labels in the product**: no gate, slice, step, plan-phase, round, task or finding codes, and no decision IDs or names of investigation runs.
+  - Examples: `Gate A`, `slice 1`, `step 3a`, `Phase 5c`, `PT-13`, `INPUT-1`, `BUG-2`, `F1-3`, a reviewer's `P1`, "the spike".
+  - Where: names of assets, folders, files, classes and tests; code comments, tooltips and log text; commit messages, branch names and PR titles.
+  - Describe the thing instead, so a reader without our planning docs understands it: "the rendered parry, counter and finisher test", not "the Gate A proof". See `AGENTS.md` → Coding Style & Naming Conventions.
+  - Gameplay vocabulary (Windup/Active/Recovery phases, combo steps, chain stages) is fine.
 
 ## Editor Tool Architecture Patterns
 
@@ -420,6 +425,7 @@ bool IsWithinConstraint(float TestYaw) const { ... }
 ## Git Conventions
 
 - **Clean commit messages**: No trailers, sign-offs, or co-author tags - just the message and content
+- **Plain-language history**: commit messages, branch names and PR titles describe the change itself. They carry no planning labels (gate, slice, step, round, task or finding codes); see the DON'T list under Coding Guidelines
 - Include rollback checkpoint (previous commit hash) in significant commits
 - Use descriptive commit messages with bullet points for changes
 - Bypass pre-commit hooks with `--no-verify` if they have errors (hooks in `.claude/hooks/` may have issues)
