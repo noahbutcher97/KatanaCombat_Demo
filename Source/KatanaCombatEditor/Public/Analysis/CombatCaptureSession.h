@@ -85,17 +85,19 @@ public:
 	void Mark(const FString& Label);
 	/** Marker with a bounded JSON payload the recorder stores verbatim (native 0.4.0). */
 	void Mark(const FString& Label, const TSharedPtr<FJsonObject>& Payload);
-	/** Writes `contact` markers with the reaction-review payload when the attacker's weapon
-	 * trace hits a non-character victim, when a committed defense contact from the attacker
-	 * lands on the victim (character hits, blocks and parries, with their outcome), or when the
-	 * attacker's paired animation reaches a sync point. Requires a recording session; the
+	/** Writes `contact` markers with the reaction-review payload when a committed defense contact
+	 * from the attacker lands on the victim (hits, blocks and parries, with their outcome) or when
+	 * the attacker's paired animation reaches a sync point. Both are combat characters. The weapon
+	 * sends OnWeaponHit only for targets that are not combat characters, so its listener here never
+	 * fires for this victim and the weapon count stays zero. Requires a recording session; the
 	 * observer is released by Stop. */
 	bool ObserveContacts(ABaseCombatCharacter* Attacker, const FString& AttackerRole,
 		ABaseCombatCharacter* Victim, const FString& VictimRole, FString& OutError);
 	/** Marks committed defense contacts between any two recorded combat participants, in
 	 * either direction, with their roles and outcome. The console recorder uses it. */
 	bool ObserveParticipantContacts(FString& OutError);
-	/** Weapon-trace and paired-sync contact markers written so far by ObserveContacts. */
+	/** Weapon-trace and paired-sync contact markers written so far by ObserveContacts. The weapon
+	 * count is zero for a combat-character victim; see ObserveContacts. */
 	void GetContactCounts(int32& OutWeapon, int32& OutPaired) const;
 	/** Committed defense-contact markers (hits, blocks, parries) written so far. */
 	int32 GetCommittedContactCount() const;

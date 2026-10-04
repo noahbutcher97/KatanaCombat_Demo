@@ -140,25 +140,28 @@ The scenario forces pose evaluation for its two required participants and restor
 
 ## Contact markers and reaction review
 
-`FCombatCaptureSession::ObserveContacts(Attacker, "Attacker", Victim, "Victim", Error)` writes a
-`contact` marker each time the attacker strikes the victim: a committed defense contact on the victim
-(`UCombatComponent::OnDefenseResolvedNative`), a weapon-trace hit on a non-character victim
-(`UWeaponComponent::OnWeaponHit`), or a paired-animation sync point
-(`UPairedAnimationComponent::OnPairedAnimationSyncPoint`). `ObserveParticipantContacts(Error)` marks
-committed contacts between any two recorded combat characters, in either direction; the console
-recorder uses it. Call either after `Start`; `Stop` releases the observer. The marker row carries a
-`payload` the AnimationAnalysis recorder (native 0.4.0) stores verbatim:
+`FCombatCaptureSession::ObserveContacts(Attacker, "Attacker", Victim, "Victim", Error)` takes two combat
+characters and writes a `contact` marker each time the attacker strikes the victim, from two sources: a
+committed defense contact on the victim (`UCombatComponent::OnDefenseResolvedNative`: hits, blocks and
+parries, with their outcome) and the attacker's paired-animation sync points
+(`UPairedAnimationComponent::OnPairedAnimationSyncPoint`). The observer also listens to
+`UWeaponComponent::OnWeaponHit`, but the weapon sends that event only for targets that are not combat
+characters, so with this API's victim it never fires: `GetContactCounts` reports zero weapon contacts, as
+`KatanaCombat.Capture.CommittedContactMarkers` asserts. Weapon hits on other actors are not observed.
+`ObserveParticipantContacts(Error)` marks committed contacts between any two recorded combat characters,
+in either direction; the console recorder uses it. Call either after `Start`; `Stop` releases the
+observer. The marker row carries a `payload` the AnimationAnalysis recorder (native 0.4.0) stores verbatim:
 
-| Key | Committed contact | Weapon trace | Paired sync point |
-|---|---|---|---|
-| `stage` | `contact` | `contact` | `contact` |
-| `hit` | `committed-<n>` | `weapon-<n>` | `paired-<n>` |
-| `attacker`, `victim` | the recorded roles | the roles given to `ObserveContacts` | same |
-| `source` | `committed_contact` | `weapon_trace` | `paired_sync` |
-| `outcome` | `Hit`, `UnblockableHit`, `NormalBlock` (`EDefenseOutcome`) | absent | absent |
-| `region` | resolved target bone | hit bone name | empty |
-| `direction_cm` | strike travel (unit); `direction_source` names the source | negated impact normal (unit) | victim minus attacker position (unit) |
-| `impact_cm` / `sync_point` | impact point | impact point | sync point name |
+| Key | Committed contact | Paired sync point |
+|---|---|---|
+| `stage` | `contact` | `contact` |
+| `hit` | `committed-<n>` | `paired-<n>` |
+| `attacker`, `victim` | the recorded roles | the roles given to `ObserveContacts` |
+| `source` | `committed_contact` | `paired_sync` |
+| `outcome` | `Hit`, `UnblockableHit`, `NormalBlock` (`EDefenseOutcome`) | absent |
+| `region` | resolved target bone | empty |
+| `direction_cm` | strike travel (unit); `direction_source` names the source | victim minus attacker position (unit) |
+| `impact_cm` / `sync_point` | impact point | sync point name |
 
 Committed contacts also record `query_stage`, `attacker_response` and `damage_disposition`. Character
 targets take the weapon's defense-contact path, which never reaches `OnWeaponHit`; until 2026-10 those

@@ -17,11 +17,13 @@ struct FDefenseResolution;
 
 /**
  * Editor-only listener that turns gameplay contact observations into `contact` markers on a
- * capture session: the attacker's weapon trace hitting a non-character victim, committed
- * defense contacts on the victim (character hits, blocks and parries, with their outcome),
- * and the attacker's paired-animation sync points. Each marker payload states which source
- * observed it; the recorder stores the payload verbatim and the reaction review reads it as
- * marker evidence. Owned by the session; it never keeps the session alive and unbinds when told to.
+ * capture session: committed defense contacts on the victim (hits, blocks and parries, with
+ * their outcome) and the attacker's paired-animation sync points. It also listens to the
+ * attacker's OnWeaponHit, but the weapon sends that only for targets that are not combat
+ * characters, and both bound roles are combat characters, so that listener writes no markers.
+ * Each marker payload states which source observed it; the recorder stores the payload verbatim
+ * and the reaction review reads it as marker evidence. Owned by the session; it never keeps the
+ * session alive and unbinds when told to.
  */
 UCLASS()
 class KATANACOMBATEDITOR_API UCombatCaptureContactObserver : public UObject
@@ -29,8 +31,8 @@ class KATANACOMBATEDITOR_API UCombatCaptureContactObserver : public UObject
 	GENERATED_BODY()
 
 public:
-	/** One attacker and one victim: weapon trace and paired sync on the attacker, plus committed
-	 * defense contacts from the attacker on the victim. */
+	/** One attacker and one victim: committed defense contacts from the attacker on the victim and
+	 * paired sync on the attacker. The weapon-trace listener cannot fire for a combat-character victim. */
 	void Bind(FCombatCaptureSession* InSession, ABaseCombatCharacter* Attacker, const FString& AttackerRole,
 		ABaseCombatCharacter* Victim, const FString& VictimRole);
 	/** Committed defense contacts between any two of these participants, in either direction. */
