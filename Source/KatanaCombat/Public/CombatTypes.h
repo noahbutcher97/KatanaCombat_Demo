@@ -1326,31 +1326,34 @@ struct FHitstopConfig
 {
 	GENERATED_BODY()
 
-	/** Enable hitstop on hit */
+	/** Turns hitstop on. Hitstop only plays when this is on and Duration is above 0. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop")
 	bool bEnabled = true;
 
-	/** Duration of hitstop freeze in seconds (real wall-clock time, unaffected by time dilation) */
+	/** How long both characters freeze, in real seconds (unaffected by slow motion). A blocked hit uses this times
+	 * Blocked Duration Multiplier. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop",
-		meta = (EditCondition = "bEnabled", ClampMin = "0.0", ClampMax = "0.3", UIMin = "0.0", UIMax = "0.2"))
+		meta = (EditCondition = "bEnabled", ClampMin = "0.0", ClampMax = "0.3", UIMin = "0.0", UIMax = "0.2", Units = "s"))
 	float Duration = 0.05f;
 
-	/** Camera shake to play on the player during hitstop (nullptr = no shake) */
+	/** Camera shake played when the hitstop starts, on whichever of the two characters is the local player. Empty
+	 * means no shake. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop",
 		meta = (EditCondition = "bEnabled"))
 	TSubclassOf<UCameraShakeBase> CameraShake;
 
-	/** Camera shake intensity scale (1.0 = full intensity) */
+	/** Strength of the camera shake (1.0 = full intensity). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop",
 		meta = (EditCondition = "bEnabled", ClampMin = "0.0", ClampMax = "3.0"))
 	float CameraShakeScale = 1.0f;
 
-	/** Whether to apply hitstop when the attack is blocked (reduced duration) */
+	/** Whether hitstop also plays when the hit is blocked (shortened by Blocked Duration Multiplier). Off means no
+	 * hitstop at all on a blocked hit. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop|Block",
 		meta = (EditCondition = "bEnabled"))
 	bool bApplyOnBlock = true;
 
-	/** Duration multiplier when attack is blocked (0.5 = half the normal hitstop) */
+	/** Duration scale for a blocked hit (0.5 = half of Duration). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hitstop|Block",
 		meta = (EditCondition = "bEnabled && bApplyOnBlock", ClampMin = "0.0", ClampMax = "1.0"))
 	float BlockedDurationMultiplier = 0.5f;
@@ -1394,7 +1397,7 @@ struct FHitstopConfig
  * Per-attack impact audio configuration.
  * Supports primary sound with optional weapon fallback, pitch variation.
  *
- * Resolution order: ImpactSound → WeaponData::HitSound → nothing.
+ * Resolution order: ImpactSound → weapon CombatFXData pool → WeaponData::HitSound → nothing.
  * Pitch variation prevents repetition (industry standard: ±5%).
  */
 USTRUCT(BlueprintType)
@@ -1402,26 +1405,31 @@ struct FImpactAudioConfig
 {
 	GENERATED_BODY()
 
-	/** Primary impact sound (plays at hit location via spatial audio) */
+	/** Sound played at the impact point. If empty, the attacking weapon's FX pool is tried, then its Hit Sound
+	 * if Use Weapon Fallback is on. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
 	TObjectPtr<USoundBase> ImpactSound = nullptr;
 
-	/** Volume multiplier for impact sound */
+	/** Volume scale for Impact Sound and for the weapon Hit Sound fallback. Sounds picked from the FX pool use their
+	 * own volume instead. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
 		meta = (ClampMin = "0.0", ClampMax = "3.0"))
 	float VolumeMultiplier = 1.0f;
 
-	/** Base pitch multiplier for impact sound */
+	/** Base pitch for Impact Sound and for the weapon Hit Sound fallback (1.0 = unchanged). Sounds picked from the FX
+	 * pool use their own pitch instead. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
 		meta = (ClampMin = "0.5", ClampMax = "2.0"))
 	float PitchMultiplier = 1.0f;
 
-	/** Random pitch variation (±range from base pitch, prevents repetition) */
+	/** Random pitch change, plus or minus this amount around Pitch Multiplier, applied each time so repeats sound
+	 * different. Sounds picked from the FX pool use the pool's own variation instead. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio",
 		meta = (ClampMin = "0.0", ClampMax = "0.5"))
 	float PitchVariation = 0.05f;
 
-	/** If true and ImpactSound is null, use WeaponData::HitSound as fallback */
+	/** If Impact Sound is empty and the weapon's FX pool supplies no sound, play the attacking weapon's Hit Sound.
+	 * Off means silence in that case. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Audio")
 	bool bUseWeaponFallback = true;
 
@@ -1449,20 +1457,24 @@ struct FImpactVFXConfig
 {
 	GENERATED_BODY()
 
-	/** Niagara system to spawn at impact point */
+	/** Niagara effect spawned at the impact point. If empty, the attacking weapon's FX pool is tried, then its Hit VFX
+	 * if Use Weapon Fallback is on. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
 	TObjectPtr<UNiagaraSystem> ImpactVFX = nullptr;
 
-	/** Scale multiplier for spawned VFX */
+	/** Uniform scale for Impact VFX and for the weapon Hit VFX fallback. Effects picked from the FX pool use their own
+	 * scale instead. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX",
 		meta = (ClampMin = "0.1", ClampMax = "5.0"))
 	float ScaleMultiplier = 1.0f;
 
-	/** Align VFX rotation to impact surface normal (vs. always world up) */
+	/** On: the effect is rotated to point along the impact normal. Off: it spawns unrotated (world-aligned). Effects
+	 * picked from the FX pool use the pool's own setting instead. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
 	bool bAlignToSurface = true;
 
-	/** If true and ImpactVFX is null, use WeaponData::HitVFX as fallback */
+	/** If Impact VFX is empty and the weapon's FX pool supplies no effect, spawn the attacking weapon's Hit VFX. Off
+	 * means no effect in that case. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VFX")
 	bool bUseWeaponFallback = true;
 
@@ -2799,56 +2811,106 @@ struct FDefensePresentationPayload
 {
 	GENERATED_BODY()
 
+	/** Montage played when this row is chosen, on the montage's own slot. If it is empty or its section is missing, a
+	 * defender row plays nothing (no log). An attacker-response row then tries the generic row for its response; if
+	 * that has no usable montage either, Recoil stops the attacker's current attack (see Blend Out Seconds) and Parry
+	 * Stagger plays the default stagger reaction. Both characters' row montages are dropped when a parry bridge
+	 * starts. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	TObjectPtr<UAnimMontage> Montage = nullptr;
 
+	/** Section to jump to once the montage starts; None plays it from the start. If the section is not in the
+	 * montage, this row's montage does not play (no log); the row is then handled as if it had no montage (see
+	 * Montage). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FName MontageSection = NAME_None;
 
+	/** Paired two-character parry animation to try when this Perfect Parry defender row is chosen. If this row has
+	 * none, or its checks fail (distance, room, turn or slide limits, marker), the generic Perfect Parry row's bridge
+	 * is tried. If no bridge starts, the chosen row's Montage and the attacker's response montage play instead; if one
+	 * does, those two montages are dropped but the chosen row's sound, effect and hitstop still play. Only Perfect
+	 * Parry defender rows play a bridge. Setting it never changes which row is chosen, on any row type: block and
+	 * attacker-response rows are always matched as if a bridge were usable. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	TObjectPtr<UPairedAnimationData> PairedBridgeData = nullptr;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	/** Blend-in time, in seconds, when this row's montage starts. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense", meta = (Units = "s"))
 	float BlendInSeconds = 0.10f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	/** Only used on Recoil attacker rows with no usable montage: the attacker's current attack animation is stopped
+	 * with this blend-out, in seconds. Defender rows ignore this (the montage's own blend-out is used), as does any
+	 * montage this row plays. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense", meta = (Units = "s"))
 	float BlendOutSeconds = 0.10f;
 
+	/** Turns the character to face its partner while this row's montage plays. The montage needs a motion-warping
+	 * window named DefenseContactTarget (defender rows) or AttackerResponseTarget (attacker rows), or nothing turns.
+	 * Works on Normal Block defender rows and on attacker-response rows. On a Perfect Parry defender row the montage
+	 * still plays when no parry bridge starts, but this turn never happens: a perfect parry gives the defender no
+	 * turn target or turn budget for it. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	bool bEnableRotationWarp = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
+	/** Extra limit, in cm, on how far each character may slide into the parry bridge; 0 means no extra cap. Only used
+	 * on Perfect Parry defender rows with Paired Bridge Data; block rows use Normal Block Translation Allowance, and
+	 * attacker-response rows never slide. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense", meta = (Units = "cm"))
 	float MaximumTranslation = 0.0f;
 
+	/** Use this row's Impact Audio. On a block it needs a sound set, and a generic row still yields to the attack's
+	 * Blocked Impact Audio; on a perfect parry this flag alone replaces Default Parry Impact Audio, even with no sound
+	 * set. Ignored on attacker-response rows. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	bool bOverrideImpactAudio = false;
 
+	/** Sound for this row's block or parry impact, used when Override Impact Audio applies. Ignored on
+	 * attacker-response rows. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FImpactAudioConfig ImpactAudio;
 
+	/** Use this row's Impact VFX. On a block it needs an effect set, and a generic row still yields to the attack's
+	 * Blocked Impact VFX; on a perfect parry this flag alone replaces Default Parry Impact VFX, even with no effect
+	 * set. Ignored on attacker-response rows. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	bool bOverrideImpactVFX = false;
 
+	/** Effect for this row's block or parry impact, used when Override Impact VFX applies. Ignored on
+	 * attacker-response rows. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FImpactVFXConfig ImpactVFX;
 
+	/** Use this row's Hitstop instead of the attack's Hitstop Config. If this row's Hitstop is off or has 0 duration,
+	 * this block or parry gets no hitstop. Ignored on attacker-response rows. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	bool bOverrideHitstop = false;
 
+	/** Hitstop used when Override Hitstop is on. Blocks and perfect parries both count as blocked hits, so Apply On
+	 * Block and Blocked Duration Multiplier apply to both. Ignored on attacker-response rows. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FHitstopConfig Hitstop;
 
+	/** Name of the Chain Stage Transition (Open Counter Window) marker in the bridge montage. It must match the
+	 * bridge's Required Marker and appear exactly once in the played section, or this row's bridge is skipped (see
+	 * Paired Bridge Data for what plays instead). Only used with Paired Bridge Data on Perfect Parry defender rows. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FName ReviewedDeflectionMarker = NAME_None;
 
-	/** [NOT WIRED] Runtime contact socket comes from FDefenseDecision::SourceSocket; this override is not read (pending wire-or-delete, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
+	/** [NOT WIRED] Not read at runtime; changing it has no effect. The contact socket comes from the weapon trace, the
+	 * attack prediction or the attack's Defense Profile. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FName SourceSocketOverride = NAME_None;
 
-	/** [NOT WIRED] Runtime target bone comes from FDefenseDecision::TargetBone; this override is not read (pending wire-or-delete, see docs/audits/DATA_ASSET_AUDIT_2026-07-21.md). */
+	/** [NOT WIRED] Not read at runtime; changing it has no effect. The target bone comes from the hit itself, the
+	 * attack prediction or the attack's Defense Profile. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	FName TargetBoneOverride = NAME_None;
 
+	/** Marks the row as needing the paired parry bridge; a row with Paired Bridge Data already counts as marked. It
+	 * currently changes nothing in play, on any row type. Row matching always reads it, but it can only exclude a row
+	 * in one place, a generic Perfect Parry re-pick made when no bridge can be used, and that re-pick does not change
+	 * what plays: the originally chosen row's montage and effects are used. Block and attacker-response rows are
+	 * always matched as if a bridge were usable, so it never excludes them. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Defense")
 	bool bRequiresBridgePreflight = false;
 
