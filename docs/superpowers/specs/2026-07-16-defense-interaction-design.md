@@ -446,7 +446,7 @@ A window that waits with the defender released keeps a single owner. Moving, gua
 
 While the counter plays, a Light/Heavy press meant for the finisher is captured `ChainOnly` in the same newest-wins slot, keyed to the interaction, when the counter can reach `FinisherReady` (finisher data present, and the counter either waits for input or has a retryable automatic finisher). It executes when `FinisherReady` opens, expires when an automatic finisher starts without it, and is discarded at cleanup. During a counter with no finisher to reach, presses stay rejected.
 
-A parry bridge whose defender montage disables auto blend-out is rejected at stage preflight: that montage never ends, so it would never release the defender or catch a missed marker.
+A parry bridge whose defender montage disables auto blend-out is rejected by bridge preflight and by stage preflight: that montage never ends, so it would never release the defender or catch a missed marker. A perfect parry that selects such a bridge falls back to the no-montage bridge.
 
 Counter completion that should auto-continue updates the retained stage, paired data, and warp targets in place. It must not call global paired teardown, clear the action queue, expose `ChainState::None`, or restore collision/input between counter and finisher. Terminal cleanup occurs only after final completion, cancel, timeout, owner death, partner death, invalid target, or unrecoverable start failure.
 

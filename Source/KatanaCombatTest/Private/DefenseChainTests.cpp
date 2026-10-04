@@ -4708,33 +4708,52 @@ bool FDefenseChainBridgeDefenderMontageMustEndTest::RunTest(const FString& Param
 		{TEXT("Defender-driven bridge"), CreateTerminalPoseBridgeData()},
 		{TEXT("Source-driven bridge"), CreateSourceDrivenTerminalPoseBridgeData()},
 	};
+	// Both the bridge preflight (which accepts a bridge for a perfect parry) and the stage preflight (which
+	// starts it) apply the rule. Neither role needs translation here, so geometry cannot be the reason.
+	auto Preflight = [&Fixture](
+		UPairedAnimationData* Bridge,
+		const bool bBridgePreflight,
+		FString& OutReason)
+	{
+		OutReason.Reset();
+		return bBridgePreflight
+			? Fixture.PreflightBridge(Bridge, Bridge->ChainTransitionPolicy.RequiredMarker, OutReason)
+			: Fixture.PreflightStage(Bridge, EPairedReactionType::Parry, OutReason);
+	};
 	for (const FBridgeCase& Case : Cases)
 	{
-		FString Reason;
-		const bool bAcceptedWithBlendOut =
-			Fixture.PreflightStage(Case.Bridge, EPairedReactionType::Parry, Reason);
-		TestTrue(FString::Printf(TEXT("%s: a defender montage that blends out on its own passes preflight (%s)"),
-				Case.Name, *Reason),
-			bAcceptedWithBlendOut);
+		Case.Bridge->AttackerWarpConfig.bWarpTranslation = false;
+		Case.Bridge->VictimWarpConfig.bWarpTranslation = false;
+		for (const bool bBridgePreflight : {true, false})
+		{
+			const FString Context = FString::Printf(TEXT("%s, %s preflight"),
+				Case.Name, bBridgePreflight ? TEXT("bridge") : TEXT("stage"));
+			FString Reason;
+			Case.Bridge->AttackerMontage->bEnableAutoBlendOut = true;
+			Case.Bridge->VictimMontage->bEnableAutoBlendOut = true;
+			const bool bAcceptedWithBlendOut = Preflight(Case.Bridge, bBridgePreflight, Reason);
+			TestTrue(FString::Printf(TEXT("%s: a defender montage that blends out on its own is accepted (%s)"),
+					*Context, *Reason),
+				bAcceptedWithBlendOut);
 
-		// Without auto blend-out the defender's bridge holds its last frame and never ends, so the defender is
-		// never freed and a missed marker is never caught.
-		Case.Bridge->AttackerMontage->bEnableAutoBlendOut = false;
-		const bool bAcceptedWithoutBlendOut =
-			Fixture.PreflightStage(Case.Bridge, EPairedReactionType::Parry, Reason);
-		TestFalse(FString::Printf(TEXT("%s: a defender montage that never ends is rejected"), Case.Name),
-			bAcceptedWithoutBlendOut);
-		TestTrue(FString::Printf(TEXT("%s: the rejection names the disabled auto blend-out (%s)"), Case.Name, *Reason),
-			Reason.Contains(TEXT("auto blend-out")));
+			// Without auto blend-out the defender's bridge holds its last frame and never ends, so the defender
+			// is never freed and a missed marker is never caught.
+			Case.Bridge->AttackerMontage->bEnableAutoBlendOut = false;
+			const bool bAcceptedWithoutBlendOut = Preflight(Case.Bridge, bBridgePreflight, Reason);
+			TestFalse(FString::Printf(TEXT("%s: a defender montage that never ends is rejected"), *Context),
+				bAcceptedWithoutBlendOut);
+			TestTrue(FString::Printf(TEXT("%s: the rejection names the disabled auto blend-out (%s)"),
+					*Context, *Reason),
+				Reason.Contains(TEXT("auto blend-out")));
 
-		// The source attacker's montage is held in its ready pose until the window resolves, so it may hold.
-		Case.Bridge->AttackerMontage->bEnableAutoBlendOut = true;
-		Case.Bridge->VictimMontage->bEnableAutoBlendOut = false;
-		const bool bAcceptedHeldSource =
-			Fixture.PreflightStage(Case.Bridge, EPairedReactionType::Parry, Reason);
-		TestTrue(FString::Printf(TEXT("%s: the source attacker's montage may disable auto blend-out (%s)"),
-				Case.Name, *Reason),
-			bAcceptedHeldSource);
+			// The source attacker's montage is held in its ready pose until the window resolves, so it may hold.
+			Case.Bridge->AttackerMontage->bEnableAutoBlendOut = true;
+			Case.Bridge->VictimMontage->bEnableAutoBlendOut = false;
+			const bool bAcceptedHeldSource = Preflight(Case.Bridge, bBridgePreflight, Reason);
+			TestTrue(FString::Printf(TEXT("%s: the source attacker's montage may disable auto blend-out (%s)"),
+					*Context, *Reason),
+				bAcceptedHeldSource);
+		}
 	}
 	Fixture.Destroy();
 	return true;
@@ -5037,6 +5056,75 @@ bool FDefenseChainSourceDrivenRealBridgeTest::RunTest(const FString& Parameters)
 		TestFalse(TEXT("The missed-marker cleanup releases the defender's input"), Fixture.Paired->IsInputBlocked());
 		TestFalse(TEXT("The missed-marker cleanup releases the source attacker"),
 			Fixture.SourceAttacker->HitReactionComponent->IsInPairedAnimationState());
+		Fixture.Destroy();
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseChainParryFallsBackFromEndlessBridgeTest,
+	"KatanaCombat.Defense.Chain.ParryFallsBackFromBridgeThatNeverEnds",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseChainParryFallsBackFromEndlessBridgeTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	// A perfect parry whose presentation row carries Bridge, committed by a real Block press.
+	auto CommitParryWithBridge = [](
+		FDefenseChainFixture& Fixture,
+		const bool bDefenderMontageBlendsOut,
+		UPairedAnimationData*& OutBridge)
+	{
+		if (!Fixture.Initialize())
+		{
+			return false;
+		}
+		Fixture.SetPlaybackOverride(MakeStagePlaybackOverride(2800));
+		OutBridge = CreateTerminalPoseBridgeData();
+		// Neither role needs translation, so the bridge's geometry is always acceptable here.
+		OutBridge->AttackerWarpConfig.bWarpTranslation = false;
+		OutBridge->VictimWarpConfig.bWarpTranslation = false;
+		OutBridge->AttackerMontage->bEnableAutoBlendOut = bDefenderMontageBlendsOut;
+		FDefensePresentationRow BridgeRow;
+		BridgeRow.RowName = TEXT("ParryBridge");
+		BridgeRow.Outcome = EDefenseOutcome::PerfectParry;
+		BridgeRow.Payload.PairedBridgeData = OutBridge;
+		BridgeRow.Payload.ReviewedDeflectionMarker = OutBridge->ChainTransitionPolicy.RequiredMarker;
+		BridgeRow.Payload.bRequiresBridgePreflight = true;
+		Fixture.DefenseConfig->DefenderPresentationRows.Add(BridgeRow);
+		return Fixture.StartCommittedParry();
+	};
+
+	{
+		FDefenseChainFixture Fixture;
+		UPairedAnimationData* Bridge = nullptr;
+		if (!CommitParryWithBridge(Fixture, true, Bridge))
+		{
+			AddError(TEXT("Failed to commit a perfect parry with a bridge that ends on its own"));
+			Fixture.Destroy();
+			return false;
+		}
+		TestTrue(TEXT("A perfect parry plays a bridge whose defender montage ends on its own"),
+			Fixture.Paired->GetActiveDefenseSequenceContext().ActivePairedData == Bridge);
+		Fixture.Destroy();
+	}
+
+	{
+		FDefenseChainFixture Fixture;
+		UPairedAnimationData* Bridge = nullptr;
+		if (!CommitParryWithBridge(Fixture, false, Bridge))
+		{
+			AddError(TEXT("A perfect parry with a bridge that never ends did not keep its committed sequence"));
+			Fixture.Destroy();
+			return false;
+		}
+		const FDefenseSequenceContext& Sequence = Fixture.Paired->GetActiveDefenseSequenceContext();
+		TestNull(TEXT("A bridge whose defender montage never ends is not played"),
+			Sequence.ActivePairedData.Get());
+		TestNull(TEXT("The unusable bridge is removed from the sequence's presentation"),
+			Sequence.ActivePresentation.PairedBridgeData.Get());
+		TestTrue(TEXT("The parry falls back to the no-montage bridge"), Sequence.BridgeFallbackHandle.IsValid());
+		TestTrue(TEXT("The fallback still opens CounterWindow"), Fixture.OpenCounterWindow());
 		Fixture.Destroy();
 	}
 	return true;

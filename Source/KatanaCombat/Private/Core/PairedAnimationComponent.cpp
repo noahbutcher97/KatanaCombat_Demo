@@ -350,6 +350,19 @@ bool LinkStageIntoReadySection(
 	return bReachesReady;
 }
 
+/**
+ * A parry bridge's defender montage must end on its own, whichever role drives the bridge: its end releases the
+ * defender into the response window and, for a defender-driven bridge, catches a marker that never opened it. A
+ * montage without auto blend-out holds its last frame and never ends.
+ */
+bool DoesBridgeDefenderMontageEndOnItsOwn(const UPairedAnimationData& BridgeData)
+{
+	return BridgeData.AttackerMontage && BridgeData.AttackerMontage->bEnableAutoBlendOut;
+}
+
+const TCHAR* const BridgeDefenderMontageNeverEndsReason =
+	TEXT("parry bridge defender montage has auto blend-out disabled, so it would never end and never release the defender");
+
 FName ResolveChainResponseExpiryReason(const EChainCounterState ResponseState)
 {
 	return ResponseState == EChainCounterState::FinisherReady
@@ -2169,6 +2182,13 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 		OutFailureReason = TEXT("bridge montage, section, or reaction role is invalid");
 		return false;
 	}
+	// Checked here as well as at stage start, so a perfect parry falls back to the no-montage bridge instead of
+	// committing a bridge that its stage start would refuse.
+	if (!DoesBridgeDefenderMontageEndOnItsOwn(*BridgeData))
+	{
+		OutFailureReason = BridgeDefenderMontageNeverEndsReason;
+		return false;
+	}
 	if (RetiredOwnerMontageCallbacks.Contains(BridgeData->AttackerMontage)
 		|| SourcePaired->RetiredOwnerMontageCallbacks.Contains(BridgeData->VictimMontage))
 	{
@@ -3587,13 +3607,10 @@ bool UPairedAnimationComponent::PreflightDefenseChainStage(
 		OutFailureReason = TEXT("parry bridge lacks an unambiguous retained-pose marker policy");
 		return false;
 	}
-	// The defender's bridge montage must end on its own, whichever role drives the bridge: its end releases the
-	// defender into the response window and, for a defender-driven bridge, catches a marker that never opened
-	// it. A montage without auto blend-out holds its last frame and never ends.
 	if (ReactionType == EPairedReactionType::Parry
-		&& !PairedAnimData->AttackerMontage->bEnableAutoBlendOut)
+		&& !DoesBridgeDefenderMontageEndOnItsOwn(*PairedAnimData))
 	{
-		OutFailureReason = TEXT("parry bridge defender montage has auto blend-out disabled, so it would never end and never release the defender");
+		OutFailureReason = BridgeDefenderMontageNeverEndsReason;
 		return false;
 	}
 	if (ReactionType == EPairedReactionType::Counter && Policy.bAutoContinue)
