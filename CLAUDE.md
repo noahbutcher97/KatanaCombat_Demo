@@ -53,6 +53,7 @@ Combat.Debug.Phase 1            // Attack phase indicators
 Combat.Debug.Environment 1      // Terrain/slope visualization
 Combat.Debug.Queue 1            // Action queue state
 Combat.Debug.Hold 1             // Hold state visualization
+Combat.Debug.Knockback 1         // Knockback push direction, displacement channel, outcome
 Combat.Debug.DrawDuration 2.0   // Debug shape persistence (seconds)
 
 // Bounded runtime telemetry (dump before stopping PIE)
@@ -113,6 +114,8 @@ Source/KatanaCombat/Public/
 │   ├── AnimNotifyState_HoldWindow.h           ← Legacy; do not seed by default
 │   ├── AnimNotifyState_ComboWindow.h          ← Legacy/manual override; do not seed by default
 │   ├── AnimNotifyState_PairedAnimationSync.h  ← Sync point effects trigger
+│   ├── RootMotionModifier_ProceduralDisplacement.h ← Motion Warping channel for the displacement executor
+│   ├── RootMotionSource_ProceduralDisplacement.h ← Character-movement channel for the displacement executor
 │   └── AnimNotifyState_PairedAnimationCollision.h ← Partner collision management
 ├── Characters/
 │   ├── BaseCombatCharacter.h  ← Base class with 5 combat components
@@ -126,6 +129,8 @@ Source/KatanaCombat/Public/
     ├── CombatMath.h                      ← Authoritative direction math (angles, cones, classification, DirectionToAttacker)
     ├── CombatTargetQuery.h               ← Shared target gathering (dedup, alive/hostile filters)
     ├── AlignmentMotionLibrary.h          ← Bounded turn/translation stepping
+    ├── DisplacementMath.h                ← Fixed-curve displacement profiles (travel at a given clock time)
+    ├── KnockbackResolution.h             ← Knockback config resolution, push distance, push direction
     ├── MontageUtilityLibrary.h           ← 27 montage utility functions
     ├── PairedAnimationUtilityLibrary.h   ← 15 functions (validation, contact points)
     └── CinematicEffectsUtilityLibrary.h  ← Time dilation, hitstop, camera shake
@@ -142,6 +147,8 @@ Source/KatanaCombat/Public/
 | LightBaseDamage | 25.0f | |
 | HeavyBaseDamage | 50.0f | |
 | CounterDamageMultiplier | 1.5x | |
+| Knockback (Light) | 25 cm / 0.2 s | `UCombatSettings::DefaultKnockback`, EaseOut, AwayFromAttacker, AddToAnimation |
+| Knockback (Heavy) | 20 cm / 0.25 s | `UCombatSettings::DefaultKnockback` default; per-attack overrides in `UAttackData::Knockback`. The Heavy reactions are authored knockback animations travelling about 89 cm, so the push adds 20 cm. |
 
 ## Documentation
 

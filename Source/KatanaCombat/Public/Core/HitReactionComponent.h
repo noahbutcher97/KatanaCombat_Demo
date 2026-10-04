@@ -46,6 +46,17 @@ class KATANACOMBAT_API UHitReactionComponent : public UActorComponent
     GENERATED_BODY()
 
 	friend class FPairedVictimOutcomeRequiresCommittedDeathTest;
+	friend class FKnockbackStartRequestTest;
+	friend class FKnockbackStartChargeTest;
+	friend class FKnockbackReplaceTest;
+	friend class FKnockbackDeathTest;
+	friend class FKnockbackTelemetryTest;
+	friend class FKnockbackRejectionCauseTest;
+	friend class FKnockbackInitiatorPairedReleaseTest;
+	friend class FKnockbackPairedEntryReleaseTest;
+	friend class FKnockbackEndPlayReleaseTest;
+	friend class FDefenseChainStageStartReleasesDefenderPushTest;
+	friend class FDefenseChainSequenceBeginReleasesDefenderPushTest;
 
 public:
     UHitReactionComponent();
@@ -69,6 +80,12 @@ public:
      */
     UFUNCTION(BlueprintPure, Category = "Settings")
     UHitReactionSettings* GetEffectiveSettings() const;
+
+    /**
+     * Release the running knockback push, if any. Reason names the cause in the push's Cancelled
+     * telemetry row and debug line (Replaced, PairedEntry, PairedTakeover, ChainStart, EndPlay).
+     */
+    void ReleaseKnockback(const TCHAR* Reason);
 
     // ============================================================================
     // ACTIVE REACTION STATE (for i-frame tracking)
@@ -186,6 +203,11 @@ public:
 	int32 GetAttackerResponseAttemptCountForTesting() const
 	{
 		return AttackerResponseAttemptCountForTesting;
+	}
+	/** The current push's alignment request on the owner's targeting component; invalid when no push was acquired. */
+	FAlignmentRequestHandle GetKnockbackAlignmentHandleForTesting() const
+	{
+		return KnockbackAlignmentHandle;
 	}
 #endif
 
@@ -539,6 +561,14 @@ private:
     /** Owner's anim instance (for playing reactions) */
     UPROPERTY()
     TObjectPtr<UAnimInstance> AnimInstance;
+
+	/** Push the victim for a started directional reaction. Returns true when a push was acquired. */
+	bool StartKnockback(const FHitReactionInfo& HitInfo);
+
+	FAlignmentRequestHandle KnockbackAlignmentHandle;
+	int32 NextKnockbackAlignmentGeneration = 1;
+	/** The legacy reaction path never pushes; it says so once per component. */
+	bool bLoggedLegacyKnockbackSkip = false;
 
 	FAlignmentRequestHandle DefensePresentationAlignmentHandle;
 	FAlignmentRequestHandle AttackerResponseAlignmentHandle;

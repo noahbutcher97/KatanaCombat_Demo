@@ -14,6 +14,7 @@ class AActor;
 class UMotionWarpingComponent;
 class URootMotionModifier;
 class URootMotionModifier_Warp;
+class URootMotionModifier_ProceduralDisplacement;
 class UCombatSettings;
 class UTargetingSettings;
 
@@ -293,7 +294,11 @@ public:
 
     FAlignmentRequestHandle AcquireAlignmentRequest(const FAlignmentRequestSpec& Spec);
     bool UpdateAlignmentRequest(FAlignmentRequestHandle Handle, const FAlignmentRequestSpec& Spec);
-    void ReleaseAlignmentRequest(FAlignmentRequestHandle Handle);
+    /**
+     * A displacement still running when released reports Cancelled, with CancelReason as its telemetry Detail, unless
+     * its channel had already applied the push's last step: then it reports Reached (DurationReached).
+     */
+    void ReleaseAlignmentRequest(FAlignmentRequestHandle Handle, const TCHAR* CancelReason = TEXT("Released"));
     void ReleaseAllAlignmentRequests(EAlignmentReleaseReason Reason);
     bool GetAlignmentRequestSpec(FAlignmentRequestHandle Handle, FAlignmentRequestSpec& OutSpec) const;
     bool GetAlignmentMotionState(FAlignmentRequestHandle Handle, FAlignmentMotionState& OutState) const;
@@ -393,6 +398,29 @@ private:
         FAlignmentRequestSpec Spec;
         FAlignmentMotionState MotionState;
         uint64 AcquisitionOrder = 0;
+
+        // ProceduralDisplacement runtime state
+        double DisplacementElapsed = 0.0;
+        double DisplacementChannelStartElapsed = 0.0;
+        EDisplacementChannel DisplacementChannel = EDisplacementChannel::None;
+        TWeakObjectPtr<URootMotionModifier_ProceduralDisplacement> DisplacementModifier;
+        uint16 DisplacementSourceId = 0;
+        /** Consecutive request time spent under the blocked-progress threshold. */
+        double DisplacementBlockedSeconds = 0.0;
+        FVector DisplacementLastLocation = FVector::ZeroVector;
+        /** The request clock when DisplacementLastLocation was measured: the push's commanded step runs from it to the clock now. */
+        double DisplacementLastMeasuredElapsed = 0.0;
+        bool bDisplacementHasLastLocation = false;
+        /** Owner-dilated time this running displacement has spent as a non-active request. */
+        double DisplacementSuspendedSeconds = 0.0;
+        /** Set when a reevaluation dropped its channel (a Suspended row); a resume then writes a Resumed row. */
+        bool bDisplacementSuspended = false;
+        /**
+         * The installed movement source's OverriddenTime: dilated time animation root motion has overridden the
+         * push since its clock last advanced. Zero with no movement channel, so handoffs and suspensions never count.
+         * Non-zero also marks the last movement step as the animation's, so its movement is not PushTravel.
+         */
+        double DisplacementOverriddenSeconds = 0.0;
     };
 
     struct FCapturedRotationSettings
@@ -565,6 +593,36 @@ private:
     bool EnsureAlignmentDependencies();
     bool ValidateAlignmentSpec(const FAlignmentRequestSpec& Spec) const;
     void AdvanceBoundedAlignment(float DeltaTime);
+    void AdvanceProceduralDisplacement(float DeltaTime);
+    bool CanDeliverDisplacement() const;
+    bool InstallDisplacementChannel(FAlignmentRequestRecord& Record);
+    void SyncDisplacementElapsed(FAlignmentRequestRecord& Record);
+    /**
+     * The one place a displacement's travel is measured: every advance, every release and every channel removal goes
+     * through it. Returns the movement along the push since the last measured location (zero when there is none) and
+     * records Location and the request clock as the next ones. The push's own step (less the KeptAnimationTravel the
+     * animation channel kept over it, at most the curve the push commanded since the last measured clock, and nothing
+     * on a movement step animation root motion overrode) is added to PushTravel; with bCountTravel, the forward
+     * movement is also added to Travel. Callers sync the request clock first.
+     */
+    double AccrueDisplacementTravel(FAlignmentRequestRecord& Record, const FVector& Location, double KeptAnimationTravel,
+        bool bCountTravel);
+    void AppendDisplacementTelemetry(const FAlignmentRequestRecord& Record, FName Disposition, const FString& Detail) const;
+    void ReportDisplacementOutcome(const FAlignmentRequestRecord& Record, EAlignmentMotionOutcome Outcome, const TCHAR* Reason) const;
+    /**
+     * A still-running displacement removed by anything but its own outcome ends Cancelled with Reason, or Reached if
+     * its channel had already applied the push's last step.
+     */
+    void CancelRunningDisplacement(FAlignmentRequestRecord& Record, const TCHAR* Reason);
+    void AccumulateDisplacementSuspension(float DeltaTime);
+    /**
+     * Removes the displacement's channel and clears its measured location. The step the channel delivered since the
+     * last measurement is counted toward PushTravel first (not Travel); KeptAnimationTravel is the animation channel's
+     * kept travel the caller already took from the modifier this tick.
+     */
+    void RemoveDisplacementChannel(FAlignmentRequestRecord& Record, double KeptAnimationTravel = 0.0);
+    static bool RequestCanRotate(const FAlignmentRequestSpec& Spec);
+    bool HasRotatingAlignmentRequest() const;
     bool CaptureAlignmentRotationSettings();
     void RestoreAlignmentRotationSettings();
     FAlignmentRequestHandle ChooseActiveAlignmentRequest() const;
@@ -595,6 +653,7 @@ private:
 	friend class FTargetingBlockedRootMotionTelemetryTest;
 	friend class FCombatWarp_MovingTargetRefreshAcrossAttackReplacement;
 	friend class FCombatWarp_ExactOppositeTargetChoosesDeterministicTurn;
+	friend class FDisplacementSuspensionTieTest;
 
     UFUNCTION()
     void OnAlignmentModifierUpdated(

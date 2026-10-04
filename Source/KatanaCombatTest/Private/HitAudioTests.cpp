@@ -161,6 +161,9 @@ bool FHitAudioPlaybackInvocationTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("A concrete impact sound should reach the engine playback call"), bPlayed);
 	TestTrue(TEXT("The playback-site observer should receive the resolved sound"), bInvoked);
+	// The played sound stays active on the audio device and holds the wave, whose outer is the transient world.
+	// DestroyTestWorld flushes the world's audio synchronously before it destroys the world, so the next test
+	// that loads a map does not trip the old-world GC leak check.
 	FCombatTestHelpers::DestroyTestWorld(World);
 	return true;
 }

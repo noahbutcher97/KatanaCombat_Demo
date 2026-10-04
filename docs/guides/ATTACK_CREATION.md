@@ -288,6 +288,19 @@ MotionWarpingConfig:
 - AOE attacks
 - Finishers (camera control instead)
 
+### Knockback
+
+A landed hit that starts an interrupting directional hit reaction also pushes the victim with a short procedural displacement. Values resolve field by field:
+
+1. `UAttackData::Knockback` (an `FKnockbackOverride`) holds `Distance` (cm), `Duration` (s), `DirectionMode` (`AwayFromAttacker` or `AlongSwing`), `SpeedProfile` (`Linear` or `EaseOut`) and `AnimationBlend` (`AddToAnimation` or `ReplaceAnimation`). Each field has its own inline override toggle (`bOverrideDistance`, `bOverrideDuration`, `bOverrideDirectionMode`, `bOverrideSpeedProfile`, `bOverrideAnimationBlend`); an untoggled field uses the default below.
+2. `UCombatSettings::DefaultKnockback` (a `TMap<EAttackType, FKnockbackConfig>`) supplies the per-type defaults, read from the attacker's combat settings: Light 25 cm / 0.2 s, Heavy 20 cm / 0.25 s, both EaseOut, AwayFromAttacker, AddToAnimation. An attack type missing from the map does not push unless the attack overrides `Distance`. The defaults are decided from the PIE measurement (`KatanaCombat.Knockback.PIE.ReactionMeasurement`, `Saved/Logs/KnockbackMeasurement.json`): the Light reaction's own travel peaks at 18.5 cm, and the Heavy reactions are authored knockback animations that travel about 89 cm on their own, so the Heavy push adds only 20 cm.
+3. `UAttackData::MaxChargeKnockbackMultiplier` (Heavy attacks, default 1.0, clamped to 1-5 in the editor and at runtime) scales distance up to that multiple at full charge. It has no effect until the charge PR passes a charge level into hits; a non-finite charge level counts as uncharged.
+4. `UHitReactionSettings::KnockbackScale` on the victim scales distance (1 = normal, 0 = immune). Duration is never scaled.
+
+`AlongSwing` follows the blade's horizontal velocity at contact. Any part of that velocity pointing back toward the attacker is replaced by the same amount of push away from the attacker, so the direction changes smoothly with the swing; a mostly vertical chop pushes straight away.
+
+Only interrupting directional reactions push. Blocked hits, parried hits, super-armor victims, victims with reactions suppressed (including paired-animation suppression) and dead victims never push. A victim whose reaction plays through the legacy path (no `UHitReactionSettings` entry for the hit) is not pushed, and logs that once. Debug with `Combat.Debug.Knockback 1`: a hit that does not push names its cause (for example `no push distance: missing type default (Special)` or `degenerate direction`) in the log line and in the `Rejected` telemetry row's `Detail`.
+
 ### Combo Blending (Added 2025-11-11)
 
 ```

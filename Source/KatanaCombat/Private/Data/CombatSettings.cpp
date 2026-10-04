@@ -6,7 +6,19 @@
 
 UCombatSettings::UCombatSettings()
 {
-	// Default values are set in header file
+	FKnockbackConfig Light;
+	Light.Distance = 25.0f;
+	Light.Duration = 0.2f;
+	Light.DirectionMode = EKnockbackDirection::AwayFromAttacker;
+	Light.SpeedProfile = EDisplacementSpeedProfile::EaseOut;
+	Light.AnimationBlend = EDisplacementAnimationBlend::AddToAnimation;
+	DefaultKnockback.Add(EAttackType::Light, Light);
+
+	// The Heavy reactions are authored knockback animations that travel about 89 cm on their own, so the push adds 20.
+	FKnockbackConfig Heavy = Light;
+	Heavy.Distance = 20.0f;
+	Heavy.Duration = 0.25f;
+	DefaultKnockback.Add(EAttackType::Heavy, Heavy);
 }
 
 UAttackConfiguration* UCombatSettings::GetAttackConfiguration() const

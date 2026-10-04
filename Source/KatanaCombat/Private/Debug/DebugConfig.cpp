@@ -75,12 +75,25 @@ namespace CombatDebug
         TEXT("  1: Enabled"),
         ECVF_Default);
 
+    TAutoConsoleVariable<int32> CVarDebugKnockback(
+        TEXT("Combat.Debug.Knockback"),
+        0,
+        TEXT("Enable knockback debug visualization\n")
+        TEXT("Shows, at the feet, on top of the mesh, for at least 2 s: the commanded push (arrow),\n")
+        TEXT("       the push's trail by live channel (cyan animation, orange movement) and where it ended\n")
+        TEXT("       (outcome and the push's own travel; green Reached, red Blocked, yellow Cancelled, magenta Invalid).\n")
+        TEXT("Logs: resolved config, charge and scale, and each push row with its own and total travel\n")
+        TEXT("  0: Disabled (default)\n")
+        TEXT("  1: Enabled"),
+        ECVF_Default);
+
     TAutoConsoleVariable<float> CVarDebugDrawDuration(
         TEXT("Combat.Debug.DrawDuration"),
         0.0f,
         TEXT("Debug shape persistence duration in seconds\n")
         TEXT("  0.0: Single frame (updated each tick, default)\n")
-        TEXT("  >0: Shapes persist for this duration"),
+        TEXT("  >0: Shapes persist for this duration\n")
+        TEXT("  Knockback draws last at least 2 s (CombatDebug::KnockbackDebugMinDrawDuration)"),
         ECVF_Default);
 
     TAutoConsoleVariable<int32> CVarDebugLogVerbose(
