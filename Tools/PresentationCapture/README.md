@@ -19,7 +19,9 @@ python Tools/PresentationCapture/setup_dependency.py --repository <checkout-or-U
 
 CI installs the recorder the same way, in the self-hosted job (`.github/workflows/ue5-ci.yml`, "Install pinned
 PresentationCapture recorder"), with the runner machine's Git credentials. GitHub-hosted validation does not
-build the editor. A failed fetch reports Git's own error; a missing `--repository` path is named.
+build the editor. A failed fetch reports Git's own error; a missing `--repository` path is named. Over SSH,
+`--repository` takes `ssh://git@github.com/noahbutcher97/PresentationCapture.git` or the scp-style
+`git@github.com:noahbutcher97/PresentationCapture.git`; a drive path such as `D:/...` is always a local path.
 
 The repository's deepest paths (its analysis bridge, which is not installed) exceed Windows' 260 characters
 under a project's `Saved/` cache, so setup checks out with `core.longpaths`; Windows' long-path policy must also

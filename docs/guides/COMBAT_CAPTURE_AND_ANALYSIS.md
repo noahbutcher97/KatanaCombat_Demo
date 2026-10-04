@@ -298,7 +298,9 @@ plugin setups present at that revision (reusing this checkout's AnimationAnalysi
 `-WaitMutex` and prints the `run_scenario.py` command, with `--skip-build`. Captures then measure a
 committed revision, unaffected by edits in progress elsewhere. It refuses a target with tracked or
 untracked changes, an ordinary directory, a worktree it did not create, the main checkout, and a worktree
-whose HEAD holds commits no branch or tag contains (they would be left to the reflog). It never
+whose HEAD differs from the commit it last checked out and holds commits no branch or tag contains (they
+would be left to the reflog), even when that HEAD is the requested commit. `--analysis-repository` and
+`--recorder-repository` take a checkout or a clone URL (`https://`, `ssh://` or `git@host:owner/repo.git`). It never
 deletes, cleans, resets or force-checks-out; ownership and history live in the ignored
 `Saved/capture-worktree.json`. A fresh worktree checks out its LFS content and builds from scratch, and the
 runner's isolated `Saved/CombatCaptureCache` derived-data cache starts cold.
