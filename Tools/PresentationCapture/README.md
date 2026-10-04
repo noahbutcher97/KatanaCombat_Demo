@@ -59,4 +59,4 @@ python -m unittest discover -s Tools/AnimationAnalysis -p "test_*.py"
 Recording constraints that come from the plugin: editor and PIE only, a rendering RHI
 (`-RenderOffScreen` works, `-NullRHI` is refused), `framegrabber.framelatency 0`, clips of 1 to 30 s
 and fewer than 3,600 frames per seat, output boxes 640x360, 1280x720 or 1920x1080. Its own release
-lane qualifies D3D12; Katana's spike recorded complete clips on both D3D11 and D3D12.
+lane qualifies D3D12; Katana's test captures on 2026-10-03 recorded complete clips on both D3D11 and D3D12.

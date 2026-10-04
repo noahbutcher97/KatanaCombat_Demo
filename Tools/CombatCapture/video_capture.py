@@ -12,8 +12,8 @@ holds ``capture-link.json`` and ``video/<captureId>/``: PresentationCapture's ``
 - grades the clip ``ok``, ``degraded`` or ``invalid`` against the named ``QUALITY_THRESHOLDS``.
 
 The grade is evidence about the clip, not about combat: it never changes a scenario evaluation.
-ffprobe and ffmpeg come from PATH; contact sheets need Pillow. Ported from the 2026-10-03 spike's
-``spike_video.py`` and ``analyze_spike.py`` (video validation, clock join, contact sheet).
+ffprobe and ffmpeg come from PATH; contact sheets need Pillow. Ported from the scripts that validated the
+test captures recorded on 2026-10-03, joined their clocks and built their contact sheets.
 """
 from __future__ import annotations
 
@@ -33,12 +33,12 @@ QUALITY_THRESHOLDS = {
     # Admitted frames lost after acquisition. The recorder already marks such a clip incomplete.
     "max_dropped_frames": 0,
     # Share of due acquisition opportunities the recorder skipped under encoder pressure. Each skip
-    # is a missing frame. The spike's clean runs skipped 0-1 of ~270 (<0.4%); CPU-contended runs
+    # is a missing frame. Clean D3D11 test recordings on 2026-10-03 skipped 0-1 of ~270 (<0.4%); CPU-contended runs
     # skipped 45-59% and showed 0.5-1.8 s holes.
     "max_pressure_skip_fraction": 0.01,
     # Largest interval between acquired frames. Above six 60 FPS frames a stall reads as a hitch on
-    # playback and can be mistaken for hitstop (authored hitstops are 0.04-0.1 s). The spike's clean
-    # D3D11 runs peaked at 71-72 ms; its D3D12 runs at 117-537 ms.
+    # playback and can be mistaken for hitstop (authored hitstops are 0.04-0.1 s). Those clean
+    # D3D11 recordings peaked at 71-72 ms; that day's D3D12 recordings at 117-537 ms.
     "max_frame_gap_s": 0.1,
 }
 PTS_TOLERANCE_S = 2e-6  # PresentationCapture's own viewer accepts decoded PTS within 2 us of the CSV.

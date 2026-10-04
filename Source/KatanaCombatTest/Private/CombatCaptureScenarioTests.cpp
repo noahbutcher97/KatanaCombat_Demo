@@ -159,7 +159,7 @@ private:
  * Starts PIE in its own window whose client area is exactly the requested size. The recorder
  * reads the viewport widget's area of the window backbuffer, so the widget must match the output
  * box to record without scaling. In the level editor viewport the widget size comes from the
- * editor layout instead: 759x378 under -RenderOffScreen in the 2026-10-03 spike, whatever -ResX/-ResY say.
+ * editor layout instead: 759x378 under -RenderOffScreen in test captures recorded on 2026-10-03, whatever -ResX/-ResY say.
  */
 class FStartPIEInWindowCommand : public IAutomationLatentCommand
 {

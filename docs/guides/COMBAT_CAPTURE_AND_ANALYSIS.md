@@ -241,7 +241,8 @@ within one engine tick of its own stop) for a recorder end. `video_started`, `vi
 **Join.** A video frame's `drawGameFrame` and a sample's `engine_frame` are both `GFrameCounter` on the
 game thread, so frame k shows the world state of the sample with the same engine frame. This is a
 game-frame to game-frame match, not the render-frame equality the recorder's schema warns against. The
-spike and the acceptance runs joined 100% of frames. Exact joins need the game frame rate at or below
+test recordings made on 2026-10-03 and the rendered scenario runs that verified this integration joined
+100% of frames. Exact joins need the game frame rate at or below
 `SampleHz` in dilated world time; otherwise the analysis reports the nearest earlier sample and its lag.
 Map events to frames by engine frame, never by seconds: a frame's PTS is its backbuffer acquisition,
 8-37 ms after its game frame. Telemetry `unscaled_timestamp` values are platform seconds.
@@ -267,8 +268,8 @@ clip is incomplete or inconsistent. The thresholds are evidence settings in `QUA
 | Threshold | Value | Why |
 |---|---|---|
 | `max_dropped_frames` | 0 | An admitted frame lost after acquisition; the recorder also marks the clip incomplete |
-| `max_pressure_skip_fraction` | 0.01 | Due acquisitions skipped under encoder pressure are missing frames. Clean spike runs skipped 0-1 of about 270 (under 0.4%); CPU-contended runs skipped 45-59% |
-| `max_frame_gap_s` | 0.1 | Above six 60 FPS frames a stall reads as a hitch and can pass for hitstop (authored hitstops are 0.04-0.1 s). Clean D3D11 spike runs peaked at 71-72 ms, D3D12 runs at 117-537 ms |
+| `max_pressure_skip_fraction` | 0.01 | Due acquisitions skipped under encoder pressure are missing frames. Clean D3D11 test recordings on 2026-10-03 skipped 0-1 of about 270 (under 0.4%); CPU-contended runs skipped 45-59% |
+| `max_frame_gap_s` | 0.1 | Above six 60 FPS frames a stall reads as a hitch and can pass for hitstop (authored hitstops are 0.04-0.1 s). Clean D3D11 test recordings that day peaked at 71-72 ms, D3D12 runs at 117-537 ms |
 
 The gate grades the recording, never the combat: it does not change the mechanical evaluation. A gap below
 0.1 s can still hide the shortest hitstop, so check `local_max_gap_ms` on the markers around an event.

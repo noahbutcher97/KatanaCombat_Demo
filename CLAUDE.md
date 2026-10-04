@@ -617,11 +617,11 @@ Player Input → CombatComponent::ExecuteAction()
 ## Environment Notes
 
 **RHI (RTX 5090 Laptop GPU, UE 5.6)**: D3D11 stays the default (`Config/DefaultEngine.ini:47`). The workaround was
-for D3D12 crashes on driver 581.57. A 2026-10-03 spike on driver 617.14 did not reproduce a crash in 11 offscreen
+for D3D12 crashes on driver 581.57. Test runs on 2026-10-03 with driver 617.14 did not reproduce a crash in 11 offscreen
 `-dx12` PIE launches. That is "not reproduced in 11 offscreen PIE launches", not "fixed": the original note
-concerned batch operations and animation previews in the on-screen editor, which the spike did not exercise.
-D3D12 was slower and hitchier in the spike runs: 44-49 against 57-59 FPS, a comparison that excludes the two runs
-with detected CPU contention (35 and 38.6 FPS); every D3D12 spike run had 2-9 frames over 60 ms (per-run maxima
+concerned batch operations and animation previews in the on-screen editor, which those launches did not exercise.
+D3D12 was slower and hitchier in that day's clip-recording runs: 44-49 against 57-59 FPS, a comparison that excludes the two runs
+with detected CPU contention (35 and 38.6 FPS); every D3D12 clip-recording run had 2-9 frames over 60 ms (per-run maxima
 93-219 ms) against peaks of 63-68 ms on unloaded D3D11. The cause of the gap is unverified (hypotheses: runtime
 PSO creation, SM6 render cost, CPU contention). AnimationAnalysis async, surface and GPU-mesh capture are
 D3D11-only. Use `-dx12` per launch (`run_scenario.py --rhi dx12`) when D3D12 is wanted.

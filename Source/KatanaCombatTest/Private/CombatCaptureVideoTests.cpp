@@ -45,7 +45,7 @@ TSharedPtr<FJsonObject> ReadJsonFile(const FString& Path)
  * The human path: ordinary PIE in the level viewport, the ordinary console, and
  * `Combat.Capture.Start ... Video=1`. The same command must yield linked video and data, every
  * video frame must join a motion sample by engine frame, and the landed character hits must be
- * marked. As in the 2026-10-03 spike, one enemy becomes a training dummy in front of the player.
+ * marked. As in the test captures recorded on 2026-10-03, one enemy becomes a training dummy in front of the player.
  */
 class FConsoleVideoCaptureCommand : public IAutomationLatentCommand
 {
