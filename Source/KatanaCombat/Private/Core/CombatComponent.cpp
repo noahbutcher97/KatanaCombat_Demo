@@ -3154,6 +3154,24 @@ bool UCombatComponent::TryCommitPerfectParry(
 		LastInputDefenseResolution.Decision.bChainEligible = false;
 	}
 
+	// A defender released into its own open response window guards normally, but a Block press cannot
+	// commit a second perfect parry: the open window keeps a single owner until it resolves.
+	const UPairedAnimationComponent* PairedAnimComp = CachedPairedAnimComp
+		? CachedPairedAnimComp.Get()
+		: GetOwner()
+		? GetOwner()->FindComponentByClass<UPairedAnimationComponent>()
+		: nullptr;
+	if (LastInputDefenseResolution.Decision.Outcome == EDefenseOutcome::PerfectParry
+		&& PairedAnimComp
+		&& PairedAnimComp->GetChainState() != EChainCounterState::None)
+	{
+		LastInputDefenseResolution.Decision.Outcome = EDefenseOutcome::GuardEntered;
+		LastInputDefenseResolution.Decision.Reason = EDefenseReason::InvalidParticipant;
+		LastInputDefenseResolution.Decision.AttackerResponse = EAttackerResponse::None;
+		LastInputDefenseResolution.Decision.AlignmentPolicy = EDefenseAlignmentPolicy::GuardFacing;
+		LastInputDefenseResolution.Decision.bChainEligible = false;
+	}
+
 	if (LastInputDefenseResolution.Decision.Outcome != EDefenseOutcome::PerfectParry)
 	{
 		return false;

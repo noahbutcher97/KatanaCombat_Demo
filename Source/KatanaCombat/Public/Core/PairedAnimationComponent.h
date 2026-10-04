@@ -339,7 +339,11 @@ public:
 	/** True only when this component owns the active sequence whose authored victim is Actor. */
 	bool IsPairedSequenceOwnerFor(const AActor* Actor) const;
 
-	/** True for either retained role in an active defense sequence, with or without montages. */
+	/**
+	 * True for a role an active defense sequence currently holds, with or without montages. The source
+	 * attacker is held for the whole sequence; the defender is not held while a response window waits
+	 * after its stage montage has ended.
+	 */
 	bool IsDefenseSequenceParticipant() const;
 
 	/** True when this owner's death was committed by its retained lethal paired sequence.
@@ -607,6 +611,20 @@ protected:
 	void HandleDefenseOwnerDestroyed(AActor* DestroyedActor);
 	UFUNCTION()
 	void HandleDefenseSourceDestroyed(AActor* DestroyedActor);
+	/** The defender reacted to a hit (reaction, stun or stagger): the sequence it owns ends. */
+	UFUNCTION()
+	void HandleDefenderHitReactionStarted(EAttackDirection Direction, bool bIsHeavyHit);
+	UFUNCTION()
+	void HandleDefenderStunBegin(float Duration);
+	UFUNCTION()
+	void HandleDefenderStaggered(AActor* StaggeredActor, float Duration);
+	void CleanupDefenseSequenceForDefenderReaction();
+	/**
+	 * A response window is waiting and the defender has no stage montage left: release the defender's
+	 * input, movement, collision, alignment, stage slow motion and paired status. The source attacker
+	 * stays held.
+	 */
+	void ReleaseDefenderForResponseWindow();
 	void CleanupDefenseSequence(int32 ExpectedStageGeneration, float BlendOutTime, FName Reason);
 	void ScheduleChainResponseDeadline(
 		EChainCounterState ResponseState,

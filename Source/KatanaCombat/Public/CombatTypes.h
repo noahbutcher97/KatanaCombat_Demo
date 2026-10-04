@@ -3174,6 +3174,14 @@ struct FDefenseSequenceContext
 	/** Exact stage whose owner montage-end callback has already been processed. */
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	int32 LastOwnerMontageEndHandledStageGeneration = 0;
+
+	/**
+	 * True while a response window waits with no stage montage left on the defender. The defender's input,
+	 * movement, collision, alignment, stage slow motion and paired status are released; the source attacker
+	 * stays held. The next stage's start commits the defender again.
+	 */
+	UPROPERTY()
+	bool bDefenderReleased = false;
 };
 
 USTRUCT(BlueprintType)
