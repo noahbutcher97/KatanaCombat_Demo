@@ -532,7 +532,10 @@ protected:
 	/** Open CounterWindow only for the currently owned defense-stage generation. */
 	bool EnterDefenseCounterWindow(int32 ExpectedStageGeneration);
 
-	/** Keep a started bridge's roles in their ready sections and watch the driver for a missed marker. */
+	/**
+	 * Keep a started bridge's roles in their ready sections, or the source attacker on its reviewed terminal
+	 * pose when it authors no ready section, and watch the driver for a missed marker.
+	 */
 	void ArmBridgeReadyPoseHold(
 		const UPairedAnimationData* BridgeData,
 		UAnimInstance* DefenderAnim,
@@ -546,6 +549,22 @@ protected:
 		bool bLooped,
 		int32 ExpectedStageGeneration,
 		FName ReadySection);
+
+	/**
+	 * Watch a source-driven bridge whose attacker holds its terminal pose: that montage never ends on its own,
+	 * so resting on its last frame while still ParryActive is the sign that its marker never opened CounterWindow.
+	 */
+	void ScheduleBridgeTerminalPoseWatch(
+		UAnimInstance* SourceAnim,
+		UAnimMontage* Montage,
+		int32 ExpectedStageGeneration);
+	bool HandleBridgeTerminalPoseWatch(
+		FDefenseInteractionId Interaction,
+		TWeakObjectPtr<UAnimInstance> SourceAnim,
+		TWeakObjectPtr<UAnimMontage> Montage,
+		int32 ExpectedStageGeneration,
+		FDefenseAsyncHandle AsyncHandle,
+		float DeltaTime);
 
 	/** Schedule and receive the no-montage parry bridge. */
 	bool ScheduleNoMontageDefenseBridge(int32 ExpectedStageGeneration);

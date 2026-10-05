@@ -596,11 +596,14 @@ struct FBridgeMontageTimings
 /**
  * Build a playable bridge role montage: section Bridge [0, BridgeEnd) with no authored successor and a
  * CounterReady section [BridgeEnd, ReadyEnd), auto blend-out enabled, and optionally the driver marker.
+ * Without a ready section the montage is the single section Bridge [0, ReadyEnd), so it blends out on its
+ * own once the clip ends: the montage of a role that relies on its terminal pose instead of a hold section.
  */
 UAnimMontage* CreateBridgeRoleMontage(
 	UAnimSequenceBase* Clip,
 	const FBridgeMontageTimings& Timings,
-	const bool bDriverMarker)
+	const bool bDriverMarker,
+	const bool bReadySection = true)
 {
 	UAnimMontage* Montage = Clip
 		? UAnimMontage::CreateSlotAnimationAsDynamicMontage(
@@ -630,11 +633,14 @@ UAnimMontage* CreateBridgeRoleMontage(
 	BridgeSection.Link(Montage, 0.0f);
 	BridgeSection.NextSectionName = NAME_None;
 	Montage->CompositeSections.Add(BridgeSection);
-	FCompositeSection ReadySection;
-	ReadySection.SectionName = TEXT("CounterReady");
-	ReadySection.Link(Montage, Timings.BridgeEnd);
-	ReadySection.NextSectionName = NAME_None;
-	Montage->CompositeSections.Add(ReadySection);
+	if (bReadySection)
+	{
+		FCompositeSection ReadySection;
+		ReadySection.SectionName = TEXT("CounterReady");
+		ReadySection.Link(Montage, Timings.BridgeEnd);
+		ReadySection.NextSectionName = NAME_None;
+		Montage->CompositeSections.Add(ReadySection);
+	}
 
 	if (bDriverMarker)
 	{
@@ -683,6 +689,42 @@ UPairedAnimationData* CreateHeldBridgeData(
 	Bridge->ChainTransitionPolicy.RequiredMarker = TEXT("CounterReady");
 	Bridge->ChainTransitionPolicy.AttackerReadySection = TEXT("CounterReady");
 	Bridge->ChainTransitionPolicy.VictimReadySection = TEXT("CounterReady");
+	return Bridge;
+}
+
+/**
+ * A bridge whose defender authors a CounterReady ready section while the parried attacker authors none: its
+ * single-section montage blends out on its own, and the policy attests its terminal pose instead. The window
+ * marker is on DriverRole's montage.
+ */
+UPairedAnimationData* CreateTerminalPoseHeldBridgeData(
+	const FBridgeMontageTimings& Timings,
+	const EPairedAnimationRole DriverRole = EPairedAnimationRole::Attacker)
+{
+	UAnimSequenceBase* DefenderClip = LoadObject<UAnimSequenceBase>(nullptr,
+		TEXT("/Game/Assets/Animations/DynamicKatana/AS_Parry_R_Seq.AS_Parry_R_Seq"));
+	UAnimSequenceBase* SourceClip = LoadObject<UAnimSequenceBase>(nullptr,
+		TEXT("/Game/Assets/Animations/DynamicKatana/AS_Block_Hit_Break_Seq.AS_Block_Hit_Break_Seq"));
+	const bool bDefenderDrives = DriverRole == EPairedAnimationRole::Attacker;
+	UAnimMontage* DefenderMontage = CreateBridgeRoleMontage(DefenderClip, Timings, bDefenderDrives);
+	UAnimMontage* SourceMontage = CreateBridgeRoleMontage(SourceClip, Timings, !bDefenderDrives, false);
+	if (!DefenderMontage || !SourceMontage)
+	{
+		return nullptr;
+	}
+	UPairedAnimationData* Bridge = NewObject<UPairedAnimationData>();
+	Bridge->ChainTransitionPolicy.DriverRole = DriverRole;
+	Bridge->ReactionType = EPairedReactionType::Parry;
+	Bridge->AttackerMontage = DefenderMontage;
+	Bridge->AttackerMontageSection = TEXT("Bridge");
+	Bridge->VictimMontage = SourceMontage;
+	Bridge->VictimMontageSection = TEXT("Bridge");
+	Bridge->bIsLethal = false;
+	Bridge->BaseDamage = 0.0f;
+	Bridge->ChainTransitionPolicy.RequiredMarker = TEXT("CounterReady");
+	Bridge->ChainTransitionPolicy.AttackerReadySection = TEXT("CounterReady");
+	Bridge->ChainTransitionPolicy.VictimReadySection = NAME_None;
+	Bridge->ChainTransitionPolicy.bVictimTerminalPoseCompatible = true;
 	return Bridge;
 }
 
@@ -5125,6 +5167,201 @@ bool FDefenseChainParryFallsBackFromEndlessBridgeTest::RunTest(const FString& Pa
 			Sequence.ActivePresentation.PairedBridgeData.Get());
 		TestTrue(TEXT("The parry falls back to the no-montage bridge"), Sequence.BridgeFallbackHandle.IsValid());
 		TestTrue(TEXT("The fallback still opens CounterWindow"), Fixture.OpenCounterWindow());
+		Fixture.Destroy();
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseChainBridgeHoldsTerminalPoseTest,
+	"KatanaCombat.Defense.Chain.BridgeHoldsAttackerTerminalPose",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseChainBridgeHoldsTerminalPoseTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	FBridgeMontageTimings Timings;
+	Timings.BridgeEnd = 0.70f;
+	Timings.ReadyEnd = 0.80f;
+	Timings.BlendOut = 0.25f;
+	Timings.MarkerTime = 0.65f;
+	constexpr float CounterWindowSeconds = 2.0f;
+	constexpr float CounterLength = 0.80f;
+	constexpr float FrameSeconds = 1.0f / 60.0f;
+	// The parried attacker's single-section montage would begin its automatic blend-out before the marker, so
+	// a hold armed only when the window opens would be too late; the hold has to be in place from stage start.
+	TestTrue(TEXT("The fixture marker lies inside the attacker montage's auto blend-out tail"),
+		Timings.MarkerTime > Timings.ReadyEnd - Timings.BlendOut);
+
+	auto StartTerminalPoseBridge = [&Timings](
+		FDefenseChainFixture& Fixture,
+		const EPairedAnimationRole DriverRole,
+		UPairedAnimationData*& OutBridge)
+	{
+		OutBridge = nullptr;
+		if (!Fixture.Initialize() || !Fixture.ConfigureProductionMeshes())
+		{
+			return false;
+		}
+		Fixture.DefenseConfig->CounterWindowSeconds = CounterWindowSeconds;
+		Fixture.EnableDefaultMovement();
+		OutBridge = CreateTerminalPoseHeldBridgeData(Timings, DriverRole);
+		return OutBridge && Fixture.StartCommittedParry() && Fixture.StartBridgeStage(OutBridge);
+	};
+	// The attacker is held for the whole window: still a locked paired victim, and still showing its bridge
+	// montage's last frame rather than its AnimBP. A montage that reached its end and stays on the mesh is
+	// no longer advancing, so Montage_IsPlaying is false for it; the active instance is the evidence.
+	auto ExpectAttackerHeldOnTerminalPose = [this, &Timings](
+		const FDefenseChainFixture& Fixture,
+		const UPairedAnimationData* Bridge,
+		const TCHAR* Context)
+	{
+		UAnimInstance* SourceAnim = Fixture.SourceAttacker->GetMesh()->GetAnimInstance();
+		TestEqual(FString::Printf(TEXT("%s: CounterWindow is still open"), Context),
+			Fixture.GetChainState(), EChainCounterState::CounterWindow);
+		TestTrue(FString::Printf(TEXT("%s: the sequence still holds the source attacker"), Context),
+			Fixture.SourcePaired->IsDefenseSequenceParticipant());
+		TestTrue(FString::Printf(TEXT("%s: the source stays in the paired victim state"), Context),
+			Fixture.SourceAttacker->HitReactionComponent->IsInPairedAnimationState());
+		TestTrue(FString::Printf(TEXT("%s: the source's movement stays locked"), Context),
+			Fixture.SourceAttacker->GetCharacterMovement()->MovementMode == MOVE_None);
+		const FAnimMontageInstance* Held = SourceAnim->GetActiveInstanceForMontage(Bridge->VictimMontage);
+		if (!TestNotNull(*FString::Printf(
+				TEXT("%s: the locked source attacker still shows its bridge montage, not its AnimBP"), Context),
+			Held))
+		{
+			return;
+		}
+		TestFalse(FString::Printf(TEXT("%s: the held bridge montage is not blending out"), Context),
+			Held->IsStopped());
+		TestTrue(FString::Printf(TEXT("%s: the held bridge montage keeps full weight (%.3f)"), Context,
+				Held->GetWeight()),
+			Held->GetWeight() > 0.99f);
+		TestTrue(FString::Printf(TEXT("%s: the held bridge montage rests on its last frame (%.3f of %.3f)"),
+				Context, Held->GetPosition(), Timings.ReadyEnd),
+			Held->GetPosition() >= Timings.ReadyEnd - 0.01f);
+	};
+
+	{
+		FDefenseChainFixture Fixture;
+		UPairedAnimationData* Bridge = nullptr;
+		if (!StartTerminalPoseBridge(Fixture, EPairedAnimationRole::Attacker, Bridge))
+		{
+			AddError(TEXT("Failed to start a real defender-driven bridge whose attacker relies on its terminal pose"));
+			Fixture.Destroy();
+			return false;
+		}
+		Fixture.RouteStageMontageEnds(Bridge);
+		Fixture.AdvanceMontages(Timings.MarkerTime + 0.01f, FrameSeconds);
+		TestEqual(TEXT("The defender's real marker opens CounterWindow"),
+			Fixture.GetChainState(), EChainCounterState::CounterWindow);
+		// Well past the attacker montage's end and blend-out, and past the defender's bridge end.
+		Fixture.AdvanceMontages(1.0f, FrameSeconds);
+		FTSTicker::GetCoreTicker().Tick(FrameSeconds);
+		TestFalse(TEXT("The defender is free once its bridge has ended"), Fixture.Paired->IsInputBlocked());
+		ExpectAttackerHeldOnTerminalPose(Fixture, Bridge, TEXT("Defender-driven, window open"));
+
+		FTSTicker::GetCoreTicker().Tick(CounterWindowSeconds);
+		TestEqual(TEXT("The window still resolves at its deadline"),
+			Fixture.GetChainState(), EChainCounterState::None);
+		TestFalse(TEXT("The deadline releases the held source attacker"),
+			Fixture.SourceAttacker->HitReactionComponent->IsInPairedAnimationState());
+		TestNull(TEXT("The deadline stops the source attacker's held terminal pose"),
+			Fixture.SourceAttacker->GetMesh()->GetAnimInstance()->GetActiveInstanceForMontage(Bridge->VictimMontage));
+		Fixture.Destroy();
+	}
+
+	{
+		FDefenseChainFixture Fixture;
+		if (!Fixture.Initialize() || !Fixture.ConfigureProductionMeshes())
+		{
+			AddError(TEXT("Failed to create the cross-group counter fixture"));
+			Fixture.Destroy();
+			return false;
+		}
+		const USkeletalMesh* DefenderMesh = Fixture.Defender->GetMesh()->GetSkeletalMeshAsset();
+		const FName AlternateSlot = FindAlternateGroupSlot(DefenderMesh ? DefenderMesh->GetSkeleton() : nullptr);
+		if (AlternateSlot.IsNone())
+		{
+			AddError(TEXT("The production skeleton has no slot outside the default group, so the cross-group counter cannot run"));
+			Fixture.Destroy();
+			return false;
+		}
+		Fixture.DefenseConfig->CounterWindowSeconds = CounterWindowSeconds;
+		Fixture.EnableDefaultMovement();
+		UPairedAnimationData* Bridge = CreateTerminalPoseHeldBridgeData(Timings);
+		UPairedAnimationData* Counter = CreatePlayableCounterData(AlternateSlot, CounterLength);
+		if (!Bridge || !Counter)
+		{
+			AddError(TEXT("Failed to build the terminal-pose bridge and its cross-group counter"));
+			Fixture.Destroy();
+			return false;
+		}
+		Fixture.CounterAttack->CounterData = Counter;
+		if (!Fixture.StartCommittedParry() || !Fixture.StartBridgeStage(Bridge))
+		{
+			AddError(TEXT("Failed to start the terminal-pose bridge ahead of a cross-group counter"));
+			Fixture.Destroy();
+			return false;
+		}
+		Fixture.RouteStageMontageEnds(Bridge);
+		TestTrue(TEXT("The counter plays in a different montage group from the bridge"),
+			Counter->VictimMontage->GetGroupName() != Bridge->VictimMontage->GetGroupName());
+		Fixture.AdvanceMontages(Timings.MarkerTime + 0.01f, FrameSeconds);
+		Fixture.AdvanceMontages(1.0f, FrameSeconds);
+		ExpectAttackerHeldOnTerminalPose(Fixture, Bridge, TEXT("Before the counter"));
+
+		// A counter started in another montage group does not stop the held pose through its own play call;
+		// the stage start has to stop it, as it stops a held ready loop.
+		UAnimInstance* SourceAnim = Fixture.SourceAttacker->GetMesh()->GetAnimInstance();
+		Fixture.DefenderCombat->OnInputEvent(EInputType::LightAttack, EInputEventType::Press);
+		TestEqual(TEXT("A Light press in the open window starts the counter"),
+			Fixture.GetChainState(), EChainCounterState::CounterActive);
+		TestTrue(TEXT("The source plays its counter reaction"),
+			SourceAnim->Montage_IsPlaying(Counter->VictimMontage));
+		TestNull(TEXT("The counter stops the source's held terminal pose in the other montage group"),
+			SourceAnim->GetActiveInstanceForMontage(Bridge->VictimMontage));
+		Fixture.AdvanceMontages(0.3f, FrameSeconds);
+		TestTrue(TEXT("The stopped bridge roles' retired callbacks are consumed"),
+			Fixture.HasNoPendingRoleMontageCallbacks());
+		TestEqual(TEXT("The stopped bridge callbacks leave the counter running"),
+			Fixture.GetChainState(), EChainCounterState::CounterActive);
+		Fixture.Destroy();
+	}
+
+	{
+		// With the marker on the held attacker's montage, nothing ends on its own once the window is missed: the
+		// attacker reaching its last frame while still ParryActive is the failure fallback, as reaching its hold
+		// section is for a bridge that authors one.
+		FScopedIntConsoleVariableOverride DefenseTelemetry(TEXT("Combat.Defense.Debug"), 1);
+		FDefenseChainFixture Fixture;
+		UPairedAnimationData* Bridge = nullptr;
+		if (!StartTerminalPoseBridge(Fixture, EPairedAnimationRole::Victim, Bridge))
+		{
+			AddError(TEXT("Failed to start a real source-driven bridge whose attacker relies on its terminal pose"));
+			Fixture.Destroy();
+			return false;
+		}
+		Fixture.RouteAllMontageEndsThroughCombat();
+		Fixture.InvalidateSourceBridgeMarkerIdentity();
+		Fixture.DefenderCombat->ClearDefenseTelemetry();
+		Fixture.AdvanceMontages(Timings.ReadyEnd - 0.03f, FrameSeconds);
+		FTSTicker::GetCoreTicker().Tick(FrameSeconds);
+		TestEqual(TEXT("Before the source attacker reaches its last frame the bridge is still ParryActive"),
+			Fixture.GetChainState(), EChainCounterState::ParryActive);
+		Fixture.AdvanceMontages(0.1f, FrameSeconds);
+		FTSTicker::GetCoreTicker().Tick(FrameSeconds);
+		TestEqual(TEXT("A source attacker that reaches its last frame without opening CounterWindow ends the sequence"),
+			Fixture.GetChainState(), EChainCounterState::None);
+		TestEqual(TEXT("The missed marker is reported as a bridge ending before its window"),
+			CountDefenseCleanups(
+				Fixture.DefenderCombat,
+				TEXT("ParryActive"),
+				TEXT("BridgeEndedBeforeCounter")),
+			1);
+		TestFalse(TEXT("The missed-marker cleanup releases the defender's input"), Fixture.Paired->IsInputBlocked());
+		TestFalse(TEXT("The missed-marker cleanup releases the source attacker"),
+			Fixture.SourceAttacker->HitReactionComponent->IsInPairedAnimationState());
 		Fixture.Destroy();
 	}
 	return true;
