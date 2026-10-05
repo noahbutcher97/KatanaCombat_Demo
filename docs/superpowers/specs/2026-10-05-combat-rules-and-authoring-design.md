@@ -191,7 +191,7 @@ additions**, so that the product uses one word for each.
 | **Deflect** | The defender's part of a parry that meets the incoming blade. |
 | **Turn-deflect** | An authored 90° turn (for the sides) or 180° turn (for behind) that flows into a front counter pair. Motion warping hides the leftover angle [D-20261004-30]. |
 | **Counter pool** | The combo set's directional counters, keyed by the attacker's direction and the parried attack's swing [D-20261005-24]. |
-| **Counter entry** | One item in the counter pool: one deflect shared by a non-lethal counter and a paired finisher [D-20261005-38]. |
+| **Counter entry** | One item in the counter pool: one deflect shared by a non-lethal counter and a paired finisher. The paired finisher is the counter's own sequence, never a separate clip chained on [D-20261005-38]. |
 | **Non-lethal counter** | What a parry plays when the counter's damage is not lethal: a paired non-lethal animation, or the single-character strike when none fits. It leaves the enemy Staggered [D-20261005-23, D-20261005-24]. |
 | **Single-character strike** | A strong cinematic strike played by the defender alone, together with the enemy's stagger reaction. It is the last fallback when no paired animation fits [D-20261005-23, D-20261005-30]. |
 | **Finisher pool** | The paired finishers to choose from, by direction and body type. Where it lives is open (Q19). |
@@ -535,7 +535,8 @@ Others hold throughout press 1's sequence [D-20261005-21].
 
 **Content this needs:**
 - **Counter entries.** For each direction (front, left, right, behind) and swing, one entry: one deflect shared by a
-  paired non-lethal counter and a paired finisher [D-20261005-38].
+  paired non-lethal counter and a paired finisher [D-20261005-38]. The paired finisher is part of the counter's own
+  sequence, chosen at the parry press. It is not a separate finisher clip chained on after a non-lethal counter.
 - **Turn-deflects.** 90° left and right, and 180° behind, each flowing into a front pair [D-20261004-30]. The decision
   says the 90° turns are mirrorable, but mirroring is not possible in the project today: there is no mirror data table
   and no Mirror node **[reported, from the turn speed sweep]**.
