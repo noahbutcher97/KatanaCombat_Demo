@@ -147,7 +147,7 @@ Source/KatanaCombat/Public/
 | Parameter | Value | Notes |
 |-----------|-------|-------|
 | ComboInputWindow | 0.6s | |
-| ParryWindow | 0.3s | |
+| ParryWindow | Authored per attack | No code default: the window lasts as long as the attacker's `AnimNotifyState_ParryWindow`. The only one shipped is 0.10 s, at 0.20-0.30 s in the first section of `AM_Light_Combo_1`. |
 | ComboBlendOut/In | 0.1s | Per-attack tunable |
 | MaxPosture | 100.0f | DEPRECATED - use contextual stagger |
 | LightBaseDamage | 25.0f | |
@@ -173,6 +173,9 @@ Source/KatanaCombat/Public/
 | Implementation plans | `docs/plans/` (active and archived feature plans) |
 | Audit findings | `docs/audits/AUDIT_SYNTHESIS_2026-02-03.md` (unified audit synthesis) |
 | Data asset audit | `docs/audits/DATA_ASSET_AUDIT_2026-07-21.md` (per-parameter wiring audit, dead code, improvement strategy) |
+| Defense and feel findings | `docs/audits/2026-10-defense-and-feel-findings.md` (October 2026 findings re-checked on `main`, with file and line references) |
+| Design pillars | `docs/reference/DESIGN_PILLARS.md` (the owner's design pillars and the defense decisions that follow from them) |
+| Decision log | `docs/reference/DECISIONS.md` (the owner's active decisions, dated, with reasons and status) |
 
 ### AI Infrastructure Docs (`.claude/`)
 
@@ -430,6 +433,14 @@ bool IsWithinConstraint(float TestYaw) const { ... }
 - **Blueprint exposure only for intentional public API** - not internal state
 - **Null checks on all weak references** and component accesses
 
+### Decisions Waiting on the Owner
+- **Ask as a multiple-choice form**: pose every decision or open question that waits on the owner as a form, using the AskUserQuestion tool where available
+- **Describe, then offer A-D**: start with a short plain-language description of what the question refers to, then give options A to D, with the recommended option first and marked "(Recommended)"
+- **State consequences**: each option's description says what choosing it leads to
+- **No internal labels** in questions or options; describe the thing instead
+- **Check facts yourself**: anything an agent can verify in the code, assets, logs or tools is checked, not asked
+- **Record answers** in `docs/reference/DECISIONS.md` when they change the design
+
 ### Documentation Updates
 - **Update CLAUDE.md** when design decisions or architecture changes
 - **Update specs** when implementation deviates significantly from spec
@@ -518,6 +529,11 @@ weighted center of mass now lives in `UPairedAnimationAnalysisLibrary`.
 | Post-Process Effects | PairedAnimationData.h | `SlowMoPostProcessMaterial`, `ScreenBloodMaterial` | No post-process application |
 | Blood Decals | PairedAnimationData.h | `bSpawnBloodDecals` | No decal spawning |
 | Selective Hitstop | CinematicEffectsUtilityLibrary.h | `FreezeActors()`, `RestoreActors()` functions | Not called in finisher flow - uses world slow-mo instead |
+| Finisher Triggers | PairedAnimationTypes.h | `FFinisherTriggerConfig` | No member of this type exists; the low-health finisher threshold is hard-coded at 25% (`HitReactionComponent.cpp:1423`) |
+| Guard Enter/Exit | DefenseConfiguration.h | `GuardEnterMontage`, `GuardExitMontage` | No runtime read; only editor tools touch them |
+| Contact Overrides | CombatTypes.h | `SourceSocketOverride`, `TargetBoneOverride` on defense presentation rows | Only checked for being empty |
+| Evade | CombatComponent.cpp | Evade input binding and `EInputType::Evade` | `ExecuteAction` has an empty `// Handle evade` case (`CombatComponent.cpp:4147-4149`) |
+| Counter Indicator | CounterIndicatorComponent.h/.cpp | `UCounterIndicatorComponent` | Its tick starts disabled and is only enabled from inside that tick, so it never shows; no asset uses it |
 
 #### Scaffolded (Code Complete, Needs Animations)
 | Component | Files | Status |
@@ -532,12 +548,14 @@ weighted center of mass now lives in `UPairedAnimationAnalysisLibrary`.
 | Area | Status | Requirement |
 |------|--------|-------------|
 | Defense interaction | Gate A and Gate B accepted for scoped single-player behavior | Gate A proves held guard, normal block, perfect parry, bounded alignment, and adjacent-frame counter-to-finisher continuity. Gate B proves the nine-cell matrix, recoil/continue responses, two-active-threat arbitration, physical unblockable contact, and the perfect-parry regression. See `docs/handoffs/2026-07-16-defense-gate-b-acceptance.md`. |
-| Counter Chain Mode | Source and Gate A content proof accepted | Public Block/attack input, retained context, generation-safe handoff, `FinisherActive`, retry/cancel/death paths, and scoped ownership have automation and rendered Gate A evidence. Catalog-wide animation quality remains tuning work. |
-| SpecificCounterData Wiring | Implemented with explicit fallback gate | Resolve selected `UAttackData::CounterData` first, attacker notify `SpecificCounterData` only when `bAllowNotifyCounterDataFallback` is enabled, then non-paired fallback. |
+| Counter Chain Mode | Automated and rendered tests exist; known defects on `main` | Block and attack input, retained context, generation-safe handoff, `FinisherActive`, the retry, cancel and death paths, and scoped ownership have automated tests and a rendered parry, counter and finisher test. On `main`, if the parry animation ends before a counter starts, the whole sequence is cleaned up (`BridgeEndedBeforeCounter`, `PairedAnimationComponent.cpp:2612`). A code reading estimated this leaves about 50 ms to press; that figure was derived, never measured. PR #137 (open) keeps the window open and frees the player. A Heavy press can't counter, because no shipped Heavy attack has `CounterData`. Catalog-wide animation quality remains tuning work. See `docs/audits/2026-10-defense-and-feel-findings.md`. |
+| SpecificCounterData Wiring | The "notify fallback" never reads the notify | The counter uses `CounterData` from the defender's own attack for the pressed button (`GetAttackForInput`, `CombatComponent.cpp:1476`; `PairedAnimationComponent.cpp:4301`). With `bAllowNotifyCounterDataFallback` set (default off), it falls back to the parried attack's own `UAttackData::CounterData` (`:1815`, `:4302-4305`), not the notify. `AnimNotifyState_CounterWindow`'s `CounterData` is stored in `CounterWindowData` and never read by the chain. With no paired counter data the press fails; there is no non-paired counter. |
+| Block and parry rules | Two block angles on `main`; block and parry identical at contact | Weapon contacts are decided only by the defense resolver's `NormalBlockFinalTolerance` (35° by default; the shipped configuration doesn't override it). The older 70° cone (`BlockFacingConeHalfAngle`, `CanBlockHit`, `CanBlockAttackFrom`) still decides direct `ApplyDamage` calls, including paired counter and finisher damage and Blueprint callers, and answers the two BlueprintPure queries. PR #136 (open) removes it; once it merges, the resolver's tolerance is the only block angle. At contact a normal block and a perfect parry share `PlayDefensePresentation`, which passes the blocked flag for sound, VFX and hitstop (`HitReactionComponent.cpp:285-385`), and the shipped defaults use the same cue and Niagara system. A perfect parry is refused while the defender is attacking. |
 
 #### Current Follow-On Work
 | Component | Priority | Blocker |
 |-----------|----------|---------|
+| Defense data redesign | Next | Approved 4 October 2026: each attack's impact feedback and parried stagger resolve from per-type defaults with per-attack overrides; each character has a reaction profile that starts from a base profile; global rules go in `UCombatSettings`; `UDefenseConfiguration` is removed. The owner wants exact rules for guard breaks, finishers, parries and counters written before code. See `docs/reference/DECISIONS.md` and `docs/reference/DESIGN_PILLARS.md`. |
 | Defense catalog and animation tuning | P2 | Expand beyond the reviewed Gate A sequence and Gate B proof assets without weakening manifest, timing, trajectory, or continuity gates. |
 | Production Enemy AI | P2 | Minimal StateTree + `UCombatTokenSubsystem` combat proof is wired; perception, patrol, tactics, and production tuning remain future work. |
 
