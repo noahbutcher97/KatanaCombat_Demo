@@ -169,6 +169,29 @@ namespace
 		const UAnimNotify_HoldWindowStart* Hold = Cast<UAnimNotify_HoldWindowStart>(Event.Notify);
 		return Hold && Hold->InputType == InputType;
 	}
+
+	// Undo-history checks compare transaction identities, not queue lengths: earlier tests can leave redo entries,
+	// which the next transaction discards, and the buffer drops its oldest entries once it reaches its memory cap.
+
+	/** The transaction an undo would revert now, or an invalid id when there is none. */
+	FGuid NewestUndoId()
+	{
+		return GEditor->Trans->GetUndoContext(false).TransactionId;
+	}
+
+	/** Whether the newest undo entry is a new transaction titled Title, recorded directly after PreviousId. */
+	bool RecordedOneTransactionAfter(const FGuid& PreviousId, const TCHAR* Title)
+	{
+		const FTransactionContext Newest = GEditor->Trans->GetUndoContext(false);
+		if (!Newest.TransactionId.IsValid() || Newest.TransactionId == PreviousId || Newest.Title.ToString() != Title)
+		{
+			return false;
+		}
+		const int32 PreviousIndex = PreviousId.IsValid() ? GEditor->Trans->FindTransactionIndex(PreviousId) : INDEX_NONE;
+		const int32 NewestIndex = GEditor->Trans->FindTransactionIndex(Newest.TransactionId);
+		// With no earlier entry left to compare against, the new entry must be the oldest one.
+		return PreviousIndex == INDEX_NONE ? NewestIndex == 0 : NewestIndex == PreviousIndex + 1;
+	}
 }
 
 // ============================================================================
@@ -612,7 +635,7 @@ bool FAttackTimingDerivationServiceRoundTripTest::RunTest(const FString& Paramet
 		FAttackDataNotifyGenerationService::AnalyzeAttackDataNotifies(Attack).bValid);
 	Package->SetDirtyFlag(false);
 
-	const int32 QueueBefore = GEditor->Trans->GetQueueLength();
+	const FGuid UndoBefore = NewestUndoId();
 	const FAttackTimingApplyResult Applied = FAttackTimingDerivationService::ApplyTimingFromMontage(Attack);
 	TestEqual(FString::Printf(TEXT("The derived timing is written (%s)"), *DescribeErrors(Applied.Derivation)),
 		Applied.Outcome, EAttackTimingApplyOutcome::Applied);
@@ -626,7 +649,8 @@ bool FAttackTimingDerivationServiceRoundTripTest::RunTest(const FString& Paramet
 	TestTrue(TEXT("The result reports the values replaced"),
 		UAttackTimingDerivationLibrary::IsSameTiming(Applied.PreviousTiming, Defaults));
 	TestTrue(TEXT("The asset is marked dirty"), Package->IsDirty());
-	TestEqual(TEXT("The write is one undoable transaction"), GEditor->Trans->GetQueueLength(), QueueBefore + 1);
+	TestTrue(TEXT("The write is one undoable transaction"),
+		RecordedOneTransactionAfter(UndoBefore, TEXT("Derive Attack Timing From Montage")));
 	TestTrue(TEXT("The montage is not touched"), Montage->Notifies.Num() == AuthoredNotifies.Num());
 
 	TArray<FText> OrderingErrors;
@@ -640,10 +664,10 @@ bool FAttackTimingDerivationServiceRoundTripTest::RunTest(const FString& Paramet
 	TestFalse(TEXT("After: an add-missing migration plan has nothing to do"),
 		FAttackDataNotifyGenerationService::BuildAttackDataNotifyPlan(Analysis, false).HasChanges());
 
-	const int32 QueueAfterApply = GEditor->Trans->GetQueueLength();
+	const FGuid UndoAfterApply = NewestUndoId();
 	const FAttackTimingApplyResult Again = FAttackTimingDerivationService::ApplyTimingFromMontage(Attack);
 	TestEqual(TEXT("Running it again finds nothing to change"), Again.Outcome, EAttackTimingApplyOutcome::Unchanged);
-	TestEqual(TEXT("An unchanged run records no transaction"), GEditor->Trans->GetQueueLength(), QueueAfterApply);
+	TestEqual(TEXT("An unchanged run records no transaction"), NewestUndoId(), UndoAfterApply);
 
 	const FText UndoTitle = GEditor->Trans->GetUndoContext(false).Title;
 	if (TestTrue(TEXT("The newest undo entry is the derivation"),
@@ -713,7 +737,7 @@ bool FAttackTimingDerivationServiceRefusalTest::RunTest(const FString& Parameter
 		UAttackData* Attack = CreateChargedHeavy(Package, Montage, TEXT("RefusedChargedHeavy"));
 		const FAttackPhaseTimingOverride Before = Attack->ManualTiming;
 		Package->SetDirtyFlag(false);
-		const int32 QueueBefore = GEditor->Trans->GetQueueLength();
+		const FGuid UndoBefore = NewestUndoId();
 
 		FAttackTimingApplyResult Result;
 		TestFalse(FString::Printf(TEXT("%s: the tool entry point reports failure"), Case.Name),
@@ -723,8 +747,7 @@ bool FAttackTimingDerivationServiceRefusalTest::RunTest(const FString& Parameter
 		TestTrue(FString::Printf(TEXT("%s: the timing is untouched"), Case.Name),
 			UAttackTimingDerivationLibrary::IsSameTiming(Attack->ManualTiming, Before));
 		TestFalse(FString::Printf(TEXT("%s: the asset is not dirtied"), Case.Name), Package->IsDirty());
-		TestEqual(FString::Printf(TEXT("%s: no transaction is recorded"), Case.Name),
-			GEditor->Trans->GetQueueLength(), QueueBefore);
+		TestEqual(FString::Printf(TEXT("%s: no transaction is recorded"), Case.Name), NewestUndoId(), UndoBefore);
 		TestTrue(FString::Printf(TEXT("%s: the description gives the reason"), Case.Name),
 			FAttackTimingDerivationService::DescribeResult(Result).Contains(Result.Derivation.Errors[0].Message));
 		DiscardScratchPackage(Package);
@@ -758,7 +781,7 @@ bool FAttackTimingDerivationBatchTest::RunTest(const FString& Parameters)
 	UAttackData* Refused = CreateChargedHeavy(Package, Late, TEXT("BatchRefused"));
 	const FAttackPhaseTimingOverride Defaults = First->ManualTiming;
 
-	const int32 QueueBefore = GEditor->Trans->GetQueueLength();
+	const FGuid UndoBefore = NewestUndoId();
 	TArray<FAttackTimingApplyResult> Results;
 	int32 AppliedCount = 0;
 	int32 UnchangedCount = 0;
@@ -771,7 +794,8 @@ bool FAttackTimingDerivationBatchTest::RunTest(const FString& Parameters)
 	TestEqual(TEXT("One asset is refused"), RefusedCount, 1);
 	TestTrue(TEXT("The refused asset keeps its timing"),
 		UAttackTimingDerivationLibrary::IsSameTiming(Refused->ManualTiming, Defaults));
-	TestEqual(TEXT("The batch is one undoable transaction"), GEditor->Trans->GetQueueLength(), QueueBefore + 1);
+	TestTrue(TEXT("The batch is one undoable transaction"),
+		RecordedOneTransactionAfter(UndoBefore, TEXT("Derive Attack Timing From Montage (Selected Assets)")));
 	TestTrue(TEXT("The summary counts every outcome"),
 		FAttackTimingDerivationService::DescribeResults(Results).StartsWith(TEXT("2 written, 0 already matching, 1 not changed.")));
 
@@ -785,11 +809,10 @@ bool FAttackTimingDerivationBatchTest::RunTest(const FString& Parameters)
 			UAttackTimingDerivationLibrary::IsSameTiming(Second->ManualTiming, Defaults));
 	}
 
-	const int32 QueueBeforeRefusedBatch = GEditor->Trans->GetQueueLength();
+	const FGuid UndoBeforeRefusedBatch = NewestUndoId();
 	TArray<FAttackTimingApplyResult> RefusedOnly;
 	UAttackDataTools::BatchDeriveTimingFromMontage({Refused}, RefusedOnly, AppliedCount, UnchangedCount, RefusedCount);
-	TestEqual(TEXT("A batch that writes nothing leaves no undo entry"),
-		GEditor->Trans->GetQueueLength(), QueueBeforeRefusedBatch);
+	TestEqual(TEXT("A batch that writes nothing leaves no undo entry"), NewestUndoId(), UndoBeforeRefusedBatch);
 
 	DiscardScratchPackage(Package);
 	return true;
@@ -844,6 +867,20 @@ bool FAttackTimingDerivationShippedChargedHeaviesTest::RunTest(const FString& Pa
 			AddError(FString::Printf(TEXT("%s: the derived hold start does not precede the end of Windup"),
 				*Asset.GetObjectPathString()));
 		}
+
+		// Asset validation reads the montage, combo graph and tags, never ManualTiming, so the action cannot change
+		// its result; it is logged for review, not asserted here.
+		FDataValidationContext ValidationContext;
+		const EDataValidationResult Validation = Attack->IsDataValid(ValidationContext);
+		TArray<FString> ValidationIssues;
+		for (const FDataValidationContext::FIssue& Issue : ValidationContext.GetIssues())
+		{
+			ValidationIssues.Add(Issue.Message.ToString());
+		}
+		AddInfo(FString::Printf(TEXT("%s asset validation: %s%s%s"), *AssetName,
+			Validation == EDataValidationResult::Valid ? TEXT("Valid")
+				: Validation == EDataValidationResult::Invalid ? TEXT("Invalid") : TEXT("NotValidated"),
+			ValidationIssues.IsEmpty() ? TEXT("") : TEXT("; "), *FString::Join(ValidationIssues, TEXT(" | "))));
 
 		const FAttackDataNotifyAnalysis StoredAnalysis = FAttackDataNotifyGenerationService::AnalyzeAttackDataNotifies(Attack);
 		AddInfo(FString::Printf(TEXT("%s with its stored timing: notify generation %s%s"), *AssetName,
