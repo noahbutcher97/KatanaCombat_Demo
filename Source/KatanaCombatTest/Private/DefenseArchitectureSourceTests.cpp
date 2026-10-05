@@ -195,7 +195,8 @@ bool FDefenseRichContactAuthoritySourceTest::RunTest(const FString& Parameters)
 
 	TestFalse(TEXT("Rich target path does not recurse through legacy ApplyDamage"), Body.Contains(TEXT("ApplyDamage")));
 	TestFalse(TEXT("Rich target path does not re-read legacy IsBlocking"), Body.Contains(TEXT("IsBlocking")));
-	TestFalse(TEXT("Rich target path does not call legacy CanBlockHit"), Body.Contains(TEXT("CanBlockHit")));
+	TestFalse(TEXT("Rich target path reads the guard only through the resolver query"),
+		Body.Contains(TEXT("IsGuardHeldForDefense")));
 
 	FString CommitBody;
 	if (!TestTrue(TEXT("Silent rich damage helper has an extractable body"), ExtractFunctionBody(
@@ -209,8 +210,8 @@ bool FDefenseRichContactAuthoritySourceTest::RunTest(const FString& Parameters)
 		CommitBody.Contains(TEXT("ModifyHealth")));
 	TestFalse(TEXT("Silent rich damage helper does not call observable HandleDeath"),
 		CommitBody.Contains(TEXT("HandleDeath")));
-	TestFalse(TEXT("Silent rich damage helper does not reclassify CanBlockHit"),
-		CommitBody.Contains(TEXT("CanBlockHit")));
+	TestFalse(TEXT("Silent rich damage helper does not reclassify the contact from the held guard"),
+		CommitBody.Contains(TEXT("IsGuardHeldForDefense")) || CommitBody.Contains(TEXT("IsBlocking")));
 	return true;
 }
 

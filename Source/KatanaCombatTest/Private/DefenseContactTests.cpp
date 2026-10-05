@@ -123,14 +123,7 @@ ABaseCombatCharacter* CreateDefenseTestCharacter(
 
 FHitResult MakeWeaponContactHit(AActor* Target, const FVector& SourceLocation)
 {
-	FHitResult Hit;
-	Hit.HitObjectHandle = FActorInstanceHandle(Target);
-	Hit.TraceStart = SourceLocation;
-	Hit.TraceEnd = Target ? Target->GetActorLocation() : SourceLocation + FVector::ForwardVector;
-	Hit.ImpactPoint = Hit.TraceEnd;
-	Hit.ImpactNormal = FVector::BackwardVector;
-	Hit.BoneName = TEXT("spine_03");
-	return Hit;
+	return FCombatTestHelpers::CreateWeaponContactHit(Target, SourceLocation);
 }
 
 void BindRecorder(
@@ -1463,6 +1456,188 @@ bool FDefenseContactExpiredFallbackSuppressionTest::RunTest(const FString& Param
 	FTSTicker::GetCoreTicker().Tick(0.0f);
 	TestEqual(TEXT("Expired fallback does not emit damage"), Recorder->DamageReceivedCount, 0);
 	TestEqual(TEXT("Expired fallback does not emit health"), Recorder->HealthChangedCount, 0);
+
+	World->DestroyActor(Source);
+	World->DestroyActor(Target);
+	FCombatTestHelpers::DestroyTestWorld(World);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseContactGuardedDamageFollowsResolvedOutcomeTest,
+	"KatanaCombat.Defense.Contact.GuardedContactDamageFollowsResolvedOutcome",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseContactGuardedDamageFollowsResolvedOutcomeTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+
+	// Fixture values, chosen apart from the shipped defaults so a fallback to those defaults cannot pass
+	// by coincidence. The 50-degree contact is struck twice: with a block tolerance narrower than its yaw
+	// it must land as a full hit, and with a wider one it must be blocked, so the resolver's tolerance is the
+	// only thing deciding whether a guarded contact is blocked.
+	constexpr float NarrowBlockTolerance = 30.0f;
+	constexpr float WideBlockTolerance = 60.0f;
+	constexpr float AttackDamage = 30.0f;
+	constexpr float AttackerDistance = 150.0f;
+
+	struct FGuardedContactCase
+	{
+		float AttackerYaw;
+		float BlockTolerance;
+		bool bExpectBlock;
+	};
+	const FGuardedContactCase Cases[] = {
+		{20.0f, NarrowBlockTolerance, true},
+		{50.0f, NarrowBlockTolerance, false},
+		{50.0f, WideBlockTolerance, true},
+		{100.0f, NarrowBlockTolerance, false},
+	};
+
+	for (const FGuardedContactCase& Case : Cases)
+	{
+		const FString Label = FString::Printf(TEXT("[attacker %.0f deg off facing, block tolerance %.0f deg]"),
+			Case.AttackerYaw, Case.BlockTolerance);
+		UWorld* World = FCombatTestHelpers::CreateTestWorld();
+		APlayerCharacter* Target = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+		const float YawRadians = FMath::DegreesToRadians(Case.AttackerYaw);
+		AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(
+			World,
+			FVector(FMath::Cos(YawRadians), FMath::Sin(YawRadians), 0.0f) * AttackerDistance);
+		if (!Target || !Source || !Target->CombatComponent || !Target->HitReactionComponent
+			|| !Source->WeaponComponent)
+		{
+			AddError(FString::Printf(TEXT("%s Failed to create guarded contact fixture"), *Label));
+			FCombatTestHelpers::DestroyTestWorld(World);
+			return false;
+		}
+
+		Target->SetActorRotation(FRotator::ZeroRotator);
+		Source->SetActorRotation((Target->GetActorLocation() - Source->GetActorLocation()).Rotation());
+		UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>();
+		Configuration->NormalBlockFinalTolerance = Case.BlockTolerance;
+		Target->CombatComponent->DefenseConfigurationOverride = Configuration;
+		Target->HitReactionComponent->DamageResistance = 1.0f;
+		Target->HitReactionComponent->bHasSuperArmor = false;
+		UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+		Attack->BaseDamage = AttackDamage;
+		Attack->AttackTags.Reset();
+		const float ExpectedHitDamage = AttackDamage * Source->WeaponComponent->GetDamageMultiplier();
+
+		UCombatEventRecorder* Recorder = NewObject<UCombatEventRecorder>();
+		BindRecorder(Source, Target, Recorder);
+		int32 ResolutionCount = 0;
+		FDefenseResolution Resolution;
+		Target->CombatComponent->OnDefenseResolvedNative.AddLambda(
+			[&ResolutionCount, &Resolution](const FDefenseResolution& Resolved)
+			{
+				++ResolutionCount;
+				Resolution = Resolved;
+			});
+
+		TestTrue(*FString::Printf(TEXT("%s Defender enters held guard"), *Label),
+			Target->CombatComponent->BeginBlock(Source));
+		TestTrue(*FString::Printf(TEXT("%s Defender is still guarding at contact"), *Label),
+			Target->CombatComponent->IsBlocking());
+		TestTrue(*FString::Printf(TEXT("%s Defender still faces its fixture yaw at contact"), *Label),
+			FMath::IsNearlyZero(Target->GetActorRotation().Yaw, 0.01f));
+
+		const float InitialHealth = Target->CurrentHealth;
+		Source->WeaponComponent->ProcessHitForTesting(
+			MakeWeaponContactHit(Target, Source->GetActorLocation()), Attack);
+		FTSTicker::GetCoreTicker().Tick(0.0f);
+
+		const EDefenseOutcome ExpectedOutcome = Case.bExpectBlock
+			? EDefenseOutcome::NormalBlock
+			: EDefenseOutcome::Hit;
+		const float ExpectedDamage = Case.bExpectBlock ? 0.0f : ExpectedHitDamage;
+		const int32 ExpectedDamageEvents = Case.bExpectBlock ? 0 : 1;
+
+		TestEqual(*FString::Printf(TEXT("%s Contact resolves exactly once"), *Label), ResolutionCount, 1);
+		TestEqual(*FString::Printf(TEXT("%s Resolver outcome"), *Label),
+			Resolution.Decision.Outcome, ExpectedOutcome);
+		if (!Case.bExpectBlock)
+		{
+			TestEqual(*FString::Printf(TEXT("%s A guarded hit is outside the block tolerance, not unguarded"), *Label),
+				Resolution.Decision.Reason, EDefenseReason::OutsideBlockTolerance);
+		}
+		TestEqual(*FString::Printf(TEXT("%s Resolver used the fixture block tolerance"), *Label),
+			Resolution.Decision.RequiredFinalTolerance, Case.BlockTolerance);
+		TestTrue(*FString::Printf(TEXT("%s Resolver measured a finite contact yaw"), *Label),
+			FMath::IsFinite(Resolution.Decision.MeasuredYawDegrees));
+		TestTrue(*FString::Printf(TEXT("%s Resolver measured the fixture yaw (got %.2f)"),
+				*Label, Resolution.Decision.MeasuredYawDegrees),
+			FMath::IsNearlyEqual(FMath::Abs(Resolution.Decision.MeasuredYawDegrees), Case.AttackerYaw, 0.5f));
+
+		const float HealthLost = InitialHealth - Target->CurrentHealth;
+		TestTrue(*FString::Printf(TEXT("%s Health stays finite"), *Label), FMath::IsFinite(HealthLost));
+		TestEqual(*FString::Printf(TEXT("%s Health lost matches the resolved outcome"), *Label),
+			HealthLost, ExpectedDamage);
+		TestEqual(*FString::Printf(TEXT("%s Damage events match the resolved outcome"), *Label),
+			Recorder->DamageReceivedCount, ExpectedDamageEvents);
+		TestEqual(*FString::Printf(TEXT("%s Health events match the resolved outcome"), *Label),
+			Recorder->HealthChangedCount, ExpectedDamageEvents);
+		TestEqual(*FString::Printf(TEXT("%s Block presentation plays only for a resolved block"), *Label),
+			Target->HitReactionComponent->GetDefensePresentationAttemptCountForTesting(),
+			Case.bExpectBlock ? 1 : 0);
+		TestEqual(*FString::Printf(TEXT("%s Weapon impact presentation runs once"), *Label),
+			Source->GetResolvedWeaponImpactAttemptCountForTesting(), 1);
+		TestEqual(*FString::Printf(TEXT("%s Attacker reports one accepted hit"), *Label),
+			Recorder->AttackHitCount, 1);
+
+		World->DestroyActor(Source);
+		World->DestroyActor(Target);
+		FCombatTestHelpers::DestroyTestWorld(World);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FDefenseContactDirectDamageIgnoresHeldGuardTest,
+	"KatanaCombat.Defense.Contact.DirectDamageIgnoresHeldGuard",
+	EAutomationTestFlags_ApplicationContextMask | EAutomationTestFlags::EngineFilter)
+
+bool FDefenseContactDirectDamageIgnoresHeldGuardTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+
+	// Whether a contact is blocked is decided only by the defense resolver at weapon contact. Damage applied
+	// directly through IDamageableInterface::ApplyDamage is not a contact, so a held guard must not
+	// reclassify it, even from an attacker straight ahead and well inside the block tolerance.
+	constexpr float BlockTolerance = 45.0f;
+	constexpr float DirectDamage = 25.0f;
+
+	UWorld* World = FCombatTestHelpers::CreateTestWorld();
+	APlayerCharacter* Target = FCombatTestHelpers::CreateTestPlayerCharacter(World);
+	AEnemyCharacter* Source = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
+	if (!Target || !Source || !Target->CombatComponent || !Target->HitReactionComponent)
+	{
+		AddError(TEXT("Failed to create direct damage fixture"));
+		FCombatTestHelpers::DestroyTestWorld(World);
+		return false;
+	}
+
+	Target->SetActorRotation(FRotator::ZeroRotator);
+	UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>();
+	Configuration->NormalBlockFinalTolerance = BlockTolerance;
+	Target->CombatComponent->DefenseConfigurationOverride = Configuration;
+	Target->HitReactionComponent->DamageResistance = 1.0f;
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	Attack->AttackTags.Reset();
+
+	TestTrue(TEXT("Defender enters held guard"), Target->CombatComponent->BeginBlock(Source));
+	const float InitialHealth = Target->CurrentHealth;
+	const FHitReactionInfo HitInfo = FCombatTestHelpers::CreateTestHitInfo(
+		Source,
+		DirectDamage,
+		(Source->GetActorLocation() - Target->GetActorLocation()).GetSafeNormal(),
+		Attack);
+	const float DamageDealt = IDamageableInterface::Execute_ApplyDamage(Target, HitInfo);
+
+	TestTrue(TEXT("Reported damage is finite"), FMath::IsFinite(DamageDealt));
+	TestEqual(TEXT("Direct damage on a guarding defender is applied in full"), DamageDealt, DirectDamage);
+	TestEqual(TEXT("Direct damage on a guarding defender removes health"),
+		Target->CurrentHealth, InitialHealth - DirectDamage);
 
 	World->DestroyActor(Source);
 	World->DestroyActor(Target);

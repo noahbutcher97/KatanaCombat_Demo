@@ -354,7 +354,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Input")
 	bool CanProcessInput(EInputType InputType) const;
 
-	/** Begin sustained normal blocking when Block is held and no counter/parry consumed the input. */
+	/**
+	 * Begin sustained normal blocking when Block is held and no counter/parry consumed the input.
+	 * Refused while the character is dead or dying, mid-attack, or held by a paired animation: the victim or
+	 * owner of a counter or finisher, or either side of a parry, counter or finisher sequence.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Block")
 	bool BeginBlock(AActor* ThreatActor = nullptr);
 
@@ -362,17 +366,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Block")
 	void EndBlock();
 
-	/** Is the owning character currently holding a normal block? */
+	/**
+	 * Is the owning character currently holding its guard? Holding the guard does not by itself block anything:
+	 * the defense resolver decides at weapon contact whether that contact is blocked, using the defense
+	 * configuration's Normal Block Final Tolerance.
+	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Block")
 	bool IsBlocking() const { return bIsBlocking; }
-
-	/** True when the held block should mitigate an incoming attack from this attacker. */
-	UFUNCTION(BlueprintPure, Category = "Combat|Block")
-	bool CanBlockAttackFrom(AActor* Attacker) const;
-
-	/** True when the held block should mitigate this concrete incoming hit. */
-	UFUNCTION(BlueprintPure, Category = "Combat|Block")
-	bool CanBlockHit(const FHitReactionInfo& HitInfo) const;
 
 	/** Native guard snapshot used by the rich defense resolver. */
 	bool IsGuardHeldForDefense() const { return bIsBlocking; }
@@ -1169,10 +1169,6 @@ protected:
 	/** True while the Block input is held and not consumed by a parry/counter. */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	bool bIsBlocking = false;
-
-	/** Half-angle of the normal block defensive cone. */
-	UPROPERTY(EditAnywhere, Category = "Combat|Block", meta = (ClampMin = "0.0", ClampMax = "180.0"))
-	float BlockFacingConeHalfAngle = 70.0f;
 
 	UPROPERTY(Transient)
 	TMap<FDefenseInteractionKey, FDefenseInteractionCacheRecord> DefenseInteractionCache;

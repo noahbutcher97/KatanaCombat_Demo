@@ -29,13 +29,6 @@ namespace
 		return FMath::IsNearlyEqual(ActualTime, ExpectedTime, NotifyTimeToleranceSeconds);
 	}
 
-	EInputType GetExpectedHoldInputType(const UAttackData* AttackData)
-	{
-		return AttackData && AttackData->AttackType == EAttackType::Heavy
-			? EInputType::HeavyAttack
-			: EInputType::LightAttack;
-	}
-
 	void AddPointNotify(UAnimMontage* Montage, UAnimNotify* Notify, float Time)
 	{
 		FAnimNotifyEvent Event;
@@ -101,6 +94,13 @@ bool FAttackDataNotifyGenerationService::ShouldGenerateHoldWindowStart(const UAt
 		return AttackData->ChargeLoopSection != NAME_None;
 	}
 	return false;
+}
+
+EInputType FAttackDataNotifyGenerationService::GetGeneratedHoldInputType(const UAttackData* AttackData)
+{
+	return AttackData && AttackData->AttackType == EAttackType::Heavy
+		? EInputType::HeavyAttack
+		: EInputType::LightAttack;
 }
 
 bool FAttackDataNotifyGenerationService::ValidateChargedHoldTiming(const UAttackData* AttackData, FString& OutError)
@@ -189,7 +189,7 @@ FAttackDataNotifyAnalysis FAttackDataNotifyGenerationService::AnalyzeAttackDataN
 	Analysis.ActiveTransitionTime = Analysis.SectionStart + Timing.WindupDuration;
 	Analysis.RecoveryTransitionTime = Analysis.ActiveTransitionTime + Timing.ActiveDuration;
 	Analysis.HoldStartTime = Analysis.SectionStart + Timing.HoldWindowStart;
-	const EInputType ExpectedHoldInputType = GetExpectedHoldInputType(AttackData);
+	const EInputType ExpectedHoldInputType = GetGeneratedHoldInputType(AttackData);
 
 	for (int32 Index = 0; Index < Analysis.Montage->Notifies.Num(); ++Index)
 	{
@@ -356,7 +356,7 @@ FAttackDataNotifyPlan FAttackDataNotifyGenerationService::BuildAttackDataNotifyP
 	Plan.bAddHoldStart = Analysis.bShouldHaveHoldStart && (bRegenerateCanonicalNotifies || !Analysis.bHasHoldStart);
 	if (Analysis.AttackData)
 	{
-		Plan.HoldInputType = GetExpectedHoldInputType(Analysis.AttackData);
+		Plan.HoldInputType = GetGeneratedHoldInputType(Analysis.AttackData);
 	}
 
 	if (Plan.bAddActiveTransition)

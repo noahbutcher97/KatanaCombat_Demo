@@ -125,4 +125,6 @@ Prefer these skills over copying `.claude/commands` or `.gemini/agents` behavior
 
 The current workspace may contain substantial user WIP, especially under `Content/`. Before edits, inspect `git status --short` and keep changes scoped to the requested files. Never revert, delete, rename, resave, or mass-add Unreal assets unless explicitly asked.
 
+Pose every decision or open question that waits on the owner as a multiple-choice form, using the AskUserQuestion tool where available. Start with a short plain-language description of what the question refers to, then give options A to D, with the recommended option first and marked "(Recommended)". Each option's description states its consequence. Use no internal planning labels in questions or options. Check facts you can verify yourself in the code, assets, logs or tools instead of asking. Record answers that change the design in `docs/reference/DECISIONS.md`.
+
 Do not run broad destructive commands such as `git reset --hard`, `git clean`, recursive deletes, or blanket asset moves. Do not use `git add .`; stage intentional files by path. When updating agentic workflow files, keep the change limited to `AGENTS.md`, `.codex/`, `.agents/skills/`, and matching docs unless the user authorizes more.

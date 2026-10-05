@@ -103,15 +103,36 @@ bool IsAttackStartupContextValid(
 		&& AttackData->AttackMontage.Get() == AttackMontage;
 }
 
-bool IsAttackTaggedUnblockable(const UAttackData* AttackData)
+/**
+ * Why a paired animation that holds Character refuses a new guard, or null when none holds it. A paired
+ * animation owns the body of both sides: the victim and owner of a counter or finisher, and both sides of a
+ * parry, counter or finisher sequence, including the parry bridge before any counter montage plays.
+ */
+const TCHAR* FindPairedAnimationBlockRefusal(const ABaseCombatCharacter& Character)
 {
-	if (!AttackData)
+	if (Character.HitReactionComponent && Character.HitReactionComponent->IsInPairedAnimationState())
 	{
-		return false;
+		return TEXT("held as the victim of a paired animation");
 	}
 
-	const FGameplayTag UnblockableTag = KatanaCombatGameplayTags::AttackPropertyUnblockable();
-	return UnblockableTag.IsValid() && AttackData->AttackTags.HasTag(UnblockableTag);
+	const UPairedAnimationComponent* Paired = Character.PairedAnimationComponent.Get();
+	if (!Paired)
+	{
+		return nullptr;
+	}
+	if (Paired->IsPreparingPairedEntry())
+	{
+		return TEXT("entering a paired animation");
+	}
+	if (Paired->IsPairedAnimationActive())
+	{
+		return TEXT("playing a paired animation");
+	}
+	if (Paired->IsDefenseSequenceParticipant())
+	{
+		return TEXT("inside a parry, counter or finisher sequence");
+	}
+	return nullptr;
 }
 
 /**
@@ -3441,6 +3462,16 @@ bool UCombatComponent::BeginBlock(AActor* ThreatActor)
 		return false;
 	}
 
+	// The paired animation owns the body until it releases it; a guard raised now would outlive the takeover
+	// that ended the previous one.
+	if (const TCHAR* PairedRefusal = FindPairedAnimationBlockRefusal(*Character))
+	{
+		UE_LOG(LogCombat, Verbose, TEXT("[BLOCK] %s cannot begin blocking: %s"),
+			*Character->GetName(),
+			PairedRefusal);
+		return false;
+	}
+
 	// Do not turn normal block into a free interrupt for active attacks.
 	if (CurrentAttackData || CurrentPhase != EAttackPhase::None)
 	{
@@ -3481,50 +3512,6 @@ void UCombatComponent::EndBlock()
 		UE_LOG(LogCombat, Log, TEXT("[BLOCK] %s ended blocking"),
 			GetOwner() ? *GetOwner()->GetName() : TEXT("Unknown"));
 	}
-}
-
-bool UCombatComponent::CanBlockAttackFrom(AActor* Attacker) const
-{
-	if (!bIsBlocking || !Attacker)
-	{
-		return false;
-	}
-
-	const ABaseCombatCharacter* Character = OwnerCharacter.Get();
-	if (!Character)
-	{
-		Character = Cast<ABaseCombatCharacter>(GetOwner());
-	}
-	if (!Character)
-	{
-		return false;
-	}
-
-	FVector ToAttacker = Attacker->GetActorLocation() - Character->GetActorLocation();
-	ToAttacker.Z = 0.0f;
-	if (ToAttacker.IsNearlyZero())
-	{
-		return true;
-	}
-
-	const float Dot = FVector::DotProduct(Character->GetActorForwardVector().GetSafeNormal2D(), ToAttacker.GetSafeNormal());
-	const float AngleDegrees = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(Dot, -1.0f, 1.0f)));
-	return AngleDegrees <= BlockFacingConeHalfAngle;
-}
-
-bool UCombatComponent::CanBlockHit(const FHitReactionInfo& HitInfo) const
-{
-	if (!CanBlockAttackFrom(HitInfo.Attacker))
-	{
-		return false;
-	}
-
-	if (IsAttackTaggedUnblockable(HitInfo.AttackData))
-	{
-		return false;
-	}
-
-	return true;
 }
 
 void UCombatComponent::AddActiveContextTag(FGameplayTag ContextTag)

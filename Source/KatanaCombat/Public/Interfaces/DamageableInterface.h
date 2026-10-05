@@ -27,6 +27,8 @@ class KATANACOMBAT_API IDamageableInterface
 public:
     /**
      * Apply damage to this actor
+     * Combat characters apply this damage as given: a held guard does not block it. Whether a weapon contact
+     * is blocked is decided by the defense resolver at contact, which commits its own damage.
      * @param HitInfo - Complete information about the hit
      * @return Actual damage dealt (after resistances, etc.)
      */
@@ -51,6 +53,8 @@ public:
 
     /**
      * Check if this actor is currently blocking
+     * For a combat character this reports a held guard only; the defense resolver decides at contact whether
+     * a particular weapon contact is blocked.
      * @return True if actively blocking
      */
     UFUNCTION(BlueprintNativeEvent, BlueprintCallable, Category = "Combat")

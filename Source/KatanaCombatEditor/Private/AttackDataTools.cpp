@@ -2,6 +2,7 @@
 
 #include "AttackDataTools.h"
 #include "AttackDataNotifyGenerationService.h"
+#include "AttackTimingDerivationService.h"
 #include "Data/AttackData.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimNotify_AttackPhaseTransition.h"
@@ -180,6 +181,18 @@ bool UAttackDataTools::GetTimingPercentages(UAttackData* AttackData, float& OutW
     return true;
 }
 
+bool UAttackDataTools::DeriveTimingFromMontage(UAttackData* AttackData, FAttackTimingApplyResult& OutResult)
+{
+    OutResult = FAttackTimingDerivationService::ApplyTimingFromMontage(AttackData);
+    if (OutResult.Outcome == EAttackTimingApplyOutcome::Refused)
+    {
+        LogToolMessage(FString::Printf(TEXT("DeriveTimingFromMontage: %s"),
+            *FAttackTimingDerivationService::DescribeResult(OutResult)), true);
+        return false;
+    }
+    return true;
+}
+
 // ============================================================================
 // ANIMNOTIFY GENERATION
 // ============================================================================
@@ -343,9 +356,7 @@ bool UAttackDataTools::GenerateHoldWindowStartNotify(UAttackData* AttackData)
     AttackData->GetSectionTimeRange(SectionStart, SectionEnd);
 
     UAnimNotify_HoldWindowStart* HoldStartNotify = NewObject<UAnimNotify_HoldWindowStart>(Montage);
-    HoldStartNotify->InputType = AttackData->AttackType == EAttackType::Heavy
-        ? EInputType::HeavyAttack
-        : EInputType::LightAttack;
+    HoldStartNotify->InputType = FAttackDataNotifyGenerationService::GetGeneratedHoldInputType(AttackData);
 
     return AddNotifyToMontage(
         Montage,
@@ -881,6 +892,34 @@ bool UAttackDataTools::BatchGenerateNotifies(const TArray<UAttackData*>& AttackD
     }
 
     return OutSuccessCount > 0;
+}
+
+bool UAttackDataTools::BatchDeriveTimingFromMontage(const TArray<UAttackData*>& AttackDataArray, TArray<FAttackTimingApplyResult>& OutResults,
+    int32& OutAppliedCount, int32& OutUnchangedCount, int32& OutRefusedCount)
+{
+    OutResults = FAttackTimingDerivationService::BatchApplyTimingFromMontage(AttackDataArray);
+    OutAppliedCount = 0;
+    OutUnchangedCount = 0;
+    OutRefusedCount = 0;
+    for (const FAttackTimingApplyResult& Result : OutResults)
+    {
+        switch (Result.Outcome)
+        {
+            case EAttackTimingApplyOutcome::Applied:
+                ++OutAppliedCount;
+                break;
+            case EAttackTimingApplyOutcome::Unchanged:
+                ++OutUnchangedCount;
+                break;
+            case EAttackTimingApplyOutcome::Refused:
+                ++OutRefusedCount;
+                LogToolMessage(FString::Printf(TEXT("BatchDeriveTimingFromMontage: %s"),
+                    *FAttackTimingDerivationService::DescribeResult(Result)), true);
+                break;
+        }
+    }
+
+    return AttackDataArray.Num() > 0 && OutRefusedCount == 0;
 }
 
 void UAttackDataTools::BatchValidate(const TArray<UAttackData*>& AttackDataArray, TArray<UAttackData*>& OutValidAssets, TArray<UAttackData*>& OutInvalidAssets)

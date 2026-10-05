@@ -254,6 +254,8 @@ bool IsBlocking() const;
 ```
 **Returns**: True if in blocking state
 
+Holding the guard does not by itself block anything. The defense resolver decides at weapon contact whether that contact is blocked, using the defense configuration's Normal Block Final Tolerance. `BeginBlock` is refused while a paired animation holds the character: the victim or owner of a counter or finisher, or either side of a parry, counter or finisher sequence.
+
 #### CanBlock
 ```cpp
 UFUNCTION(BlueprintPure, Category = "Combat|Defense")
@@ -818,7 +820,7 @@ FOnWeaponHit OnWeaponHit;
 - `HitResult` - Full hit result from trace
 - `AttackData` - Current attack data
 
-Event broadcast when weapon hits something. Listeners can process hit, apply damage, spawn VFX, etc.
+Event broadcast when the weapon hits an actor that is not a combat character. Listeners can process hit, apply damage, spawn VFX, etc. Weapon contacts between combat characters never broadcast this event: the defense resolver resolves each one when the trace lands (`ABaseCombatCharacter::ResolveAndCommitCombatContact`) and commits its damage, block and impact effects.
 
 **Example Usage**:
 ```cpp
@@ -1556,7 +1558,7 @@ float ApplyDamage(const FHitReactionInfo& HitInfo);
 
 **Returns**: Actual damage dealt (after resistances, etc.)
 
-Apply damage to this actor.
+Apply damage to this actor. Combat characters apply it as given: a held guard does not block direct damage. Weapon contacts between combat characters do not come through `ApplyDamage`; the defense resolver resolves each one at contact (`ABaseCombatCharacter::ResolveAndCommitCombatContact`) and commits its damage, so its Normal Block Final Tolerance is the only block angle.
 
 #### ApplyPostureDamage
 ```cpp
@@ -1587,7 +1589,7 @@ bool IsBlocking() const;
 ```
 **Returns**: True if actively blocking
 
-Check if this actor is currently blocking.
+Check if this actor is currently blocking. For a combat character this reports a held guard only; whether a given weapon contact is blocked is decided by the defense resolver at contact.
 
 #### IsGuardBroken
 ```cpp
@@ -2354,7 +2356,7 @@ static bool ApplyHitstop(
 
 **Returns**: True if hitstop was applied
 
-**Hook Point**: Called from `BaseCombatCharacter::OnWeaponHitTarget()` after `Execute_ApplyDamage()`.
+**Hook Point**: For a weapon contact between combat characters, called after the defense resolver commits the contact: from `ABaseCombatCharacter::PlayResolvedWeaponImpact()` for a hit (`bWasBlocked` false) and from `UHitReactionComponent::PlayDefensePresentation()` for a normal block or perfect parry (`bWasBlocked` true). For other damageable actors, called from `ABaseCombatCharacter::OnWeaponHitTarget()` after `Execute_ApplyDamage()`, with the target's own `IsBlocking()`.
 
 ### Impact Audio
 
@@ -2389,7 +2391,7 @@ static bool ResolveAndPlayImpactSound(
 3. `WeaponFallbackSound` (simple weapon fallback)
 4. silent
 
-**Hook Point**: Called from `BaseCombatCharacter::OnWeaponHitTarget()` and `PairedAnimationComponent::TriggerSyncPointEffects()`.
+**Hook Point**: Called from `ABaseCombatCharacter::PlayResolvedWeaponImpact()` and `UHitReactionComponent::PlayDefensePresentation()` after the defense resolver commits a weapon contact between combat characters, from `ABaseCombatCharacter::OnWeaponHitTarget()` for other damageable actors, and from `PairedAnimationComponent::TriggerSyncPointEffects()`.
 
 ### Impact VFX
 
