@@ -2,8 +2,9 @@
 
 The owner's active decisions about KatanaCombat, from 29 September to 4 October 2026, in plain language.
 
-- **Source.** Each entry was checked against the raw session transcript. Quoted words are the owner's own, copied as typed.
-  Where an answer was a pick from a multiple-choice form, the entry says which option was picked.
+- **Source.** Each entry was checked against the raw session transcript, except one marked as coming from a session
+  summary. Quoted words are the owner's own, copied as typed. Where an answer was a pick from a multiple-choice form, the
+  entry says which option was picked.
 - **IDs.** The `D-…` IDs refer to the project's local session notes. They are kept here only so entries can be traced.
 - **Dates** are the day the owner decided, in US Eastern time.
 - **Status** says whether the decision is built, and where.
@@ -26,7 +27,7 @@ The owner's active decisions about KatanaCombat, from 29 September to 4 October 
 
 | Date | Decision | Why | Status | ID |
 |---|---|---|---|---|
-| 2026-09-29 | Remove the instant counter-kill mode. The parry, counter and finisher chain becomes the only counter model. | Part of a dead-code review. | Done (PR #130) | D-20260929-05 |
+| 2026-09-29 | Remove the instant counter-kill mode. The parry, counter and finisher chain becomes the only counter model. | Picked "Delete it" in a dead-code review: the mode was off by default and nothing turned it on. | Done (PR #130) | D-20260929-05 |
 | 2026-10-02 | Check critically whether the defense setup is friendly to designers, and run a usability pass. | "make sure you are critically thinking about whether the implementation of the defense stuff is the most usable designer friendly approach" | Done. It led to the field traces, the tooltips and the defense data redesign. | D-20261002-12 |
 | 2026-10-03 | Defense data should not be a separate asset that duplicates other configs. It should fold into existing assets "or just be a basic block and parry animation selector". | "the overall defense configuration itself is poorly made and diverges and duplicates alot of the logic from the other config files" | Active. Carried out by the defense data model decision (D-20261004-20). | D-20261003-05 |
 | 2026-10-03 | New features: strafing while blocking, with the camera deciding the target; a target lock for duels; and an engagement mode. | Asked for by the owner. | Queued behind the defense data redesign | D-20261003-09 |
@@ -71,7 +72,7 @@ The owner's active decisions about KatanaCombat, from 29 September to 4 October 
 
 | Date | Decision | Why | Status | ID |
 |---|---|---|---|---|
-| 2026-09-29 | Hit direction always points from the victim to the attacker. The field is renamed `DirectionToAttacker`, with a redirect. | — | Done (PR #129) | D-20260929-09 |
+| 2026-09-29 | Hit direction always points from the victim to the attacker. The field is renamed `DirectionToAttacker`, with a redirect (`Config/DefaultEngine.ini:173`). | Picked "Victim → attacker" and the rename. | Done (PR #129) | D-20260929-09 |
 | 2026-09-30 | The victim-side knockback multiplier is called `KnockbackScale`. | "knockback resistance would be the wrong name for something that scales knockback by multiplying it since it would really be knockback scale" | Done (PR #131) | D-20260930-01 |
 | 2026-09-30 | Knockback distance and duration are both configurable per attack. | "shouldnt knockback duration and knockback distance both be configurable per attack?" | Done (PR #131) | D-20260930-02 |
 | 2026-09-30 | Four answers on the knockback and charge design. The per-attack settings include the charge curve, knockback ease-out, knockback direction mode, and charge scaling the knockback. The charge clock uses world time, so it stops when the game pauses. Soft-aim scoring uses the attack's acquisition range. Editor operations that create assets or touch maps can't be cleanly undone, so they are offered in the editor with a warning. | Picks from a form. The owner chose world time after asking about the trade-offs. | Active | D-20260930-03 |
@@ -107,7 +108,7 @@ The owner's active decisions about KatanaCombat, from 29 September to 4 October 
 
 | Date | Decision | Status | ID |
 |---|---|---|---|
-| 2026-09-29 | Work in this order: shared math, then deletions, then knockback, charge scaling and reach, then the finisher config, guard montages and contact overrides, then finisher authoring. One PR each, each with a green baseline. | Active as a principle. The order was revised by the entries below. | D-20260929-10 |
+| 2026-09-29 | Work in this order: shared math, then deletions, then knockback, charge scaling and reach, then the finisher config, guard montages and contact overrides, then finisher authoring. One PR each, each with a green baseline. **Source: a session summary; not found in the raw transcript.** | Active as a principle. The order was revised by the entries below. | D-20260929-10 |
 | 2026-09-30 | Paired-entry migration becomes its own piece of work, after knockback, charge scaling and reach. | Not started | D-20260930-07 |
 | 2026-09-30 | Knockback, charge scaling, the editor-operation workflow and reach baking are separate PRs. | Knockback merged (PR #131). The rest are not started. | D-20260930-10 |
 | 2026-10-02 | The hit-reaction work moves ahead of charge scaling and reach baking. | Active. It now waits on the defense data redesign. | D-20261002-08 |

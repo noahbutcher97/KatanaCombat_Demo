@@ -3,7 +3,7 @@
 Findings from the week of 29 September to 4 October 2026 that still matter for the defense redesign and for combat feel.
 
 - **What was re-checked.** Every finding was re-checked for this document against `main` at `a7693bb4`, including the
-  shipped assets in that commit. Line references point at that commit. A few asset values were read by parsing the
+  shipped assets in that commit, except where a finding is marked as not re-verified, not re-run or not re-counted. Line references point at that commit. A few asset values were read by parsing the
   `.uasset` property data; those are marked.
 - **Two kinds of claim.** Each finding separates what the source shows from what was only derived or reported. A figure
   that was derived by reading code, and never measured or play-tested, says so.
@@ -31,8 +31,8 @@ Findings from the week of 29 September to 4 October 2026 that still matter for t
 - Between 35° and 70° the two rules disagree: the Blueprint queries say "blocked" for a hit the resolver lets through.
 
 **Status.** PR #136, which is open, removes the 70° cone. After it merges, the resolver's tolerance is the only block
-angle. That PR's new test shows weapon contacts already followed the resolver before the change. Its author mutated the
-old cone into the damage path to check that the test fails.
+angle. According to the PR's description, its new test shows weapon contacts already followed the resolver before the
+change, and fails only when the old cone is deliberately mutated into the damage path. That test was not re-run here.
 
 ## 2. A block and a perfect parry feel the same at contact
 

@@ -74,8 +74,9 @@ The free-player behaviour is under review in PR #137. The aim rule is not built 
   real threat.
 - **Block and parry data are keyed by direction from the start.** Upgrading later to full-circle directional blocks, in
   the Arkham style, is then new content plus one setting, not a data change.
-- **One rule decides whether a guard blocks.** That rule is the defense resolver's tolerance (35° by default). An older,
-  separate 70° check is being retired in PR #136.
+- **One rule will decide whether a guard blocks:** the defense resolver's tolerance (35° by default). It already decides
+  every weapon contact. An older, separate 70° check still applies to damage dealt directly, such as counter and finisher
+  damage, and to two Blueprint queries. PR #136 retires it; once that merges, the resolver's tolerance is the only rule.
 
 ## Parry-counters from the side or behind
 
