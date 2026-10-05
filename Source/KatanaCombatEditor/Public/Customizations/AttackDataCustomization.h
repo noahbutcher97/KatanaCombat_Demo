@@ -19,6 +19,7 @@ class SWidget;
  * - Section selector dropdown (auto-populated from montage)
  * - Section info display (time range, duration)
  * - Auto-calculate timing button
+ * - Derive timing from montage button (writes ManualTiming from the section's notifies)
  * - Generate AnimNotifies button
  * - Validate montage section button
  * - Timing preview text
@@ -88,6 +89,9 @@ private:
 
     /** Called when "Generate Notifies" button is pressed */
     FReply OnGenerateNotifiesClicked();
+
+    /** Called when "Derive Timing From Montage" button is pressed */
+    FReply OnDeriveTimingClicked();
 
     /** Called when "Validate Section" button is pressed */
     FReply OnValidateSectionClicked();
