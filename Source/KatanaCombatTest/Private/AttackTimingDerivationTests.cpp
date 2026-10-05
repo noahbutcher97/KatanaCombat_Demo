@@ -831,19 +831,22 @@ bool FAttackTimingDerivationShippedChargedHeaviesTest::RunTest(const FString& Pa
 	(void)Parameters;
 	// Invariant over shipped content: every charged heavy's montage describes timing the action can write, with
 	// the hold before Windup ends, and notify generation accepts that timing. Shipped assets are only read; the
-	// action runs on a transient copy that still plays the shipped montage. Values are logged, never asserted.
+	// action runs on a transient copy that still plays the shipped montage. Derived values are logged, never
+	// pinned; the only count asserted is that discovery found something, since the loop checks nothing otherwise.
 	IAssetRegistry& AssetRegistry =
 		FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
 	AssetRegistry.WaitForCompletion();
 	TArray<FAssetData> Assets;
 	AssetRegistry.GetAssetsByClass(UAttackData::StaticClass()->GetClassPathName(), Assets, true);
-	int32 ChargedHeavies = 0;
+	int32 ShippedAttacks = 0;
+	TArray<FString> ChargedHeavyNames;
 	for (const FAssetData& Asset : Assets)
 	{
 		if (!Asset.PackageName.ToString().StartsWith(TEXT("/Game/")))
 		{
 			continue;
 		}
+		++ShippedAttacks;
 		const UAttackData* Attack = Cast<UAttackData>(Asset.GetAsset());
 		if (!Attack
 			|| Attack->AttackType != EAttackType::Heavy
@@ -853,8 +856,8 @@ bool FAttackTimingDerivationShippedChargedHeaviesTest::RunTest(const FString& Pa
 			continue;
 		}
 
-		++ChargedHeavies;
 		const FString AssetName = Asset.AssetName.ToString();
+		ChargedHeavyNames.Add(AssetName);
 		const FAttackTimingDerivation Derivation = FAttackTimingDerivationService::DeriveTimingFromMontage(Attack);
 		if (!Derivation.IsValid())
 		{
@@ -911,7 +914,14 @@ bool FAttackTimingDerivationShippedChargedHeaviesTest::RunTest(const FString& Pa
 			AddInfo(Line);
 		}
 	}
-	AddInfo(FString::Printf(TEXT("Derived timing for %d shipped charged heavy attacks"), ChargedHeavies));
+	// An empty discovery set must fail: after an asset rename, class change or registry regression the loop
+	// above runs no assertions, and logging a zero would let the invariant pass while covering nothing.
+	AddInfo(FString::Printf(TEXT("Derived timing for %d shipped charged heavy attacks: %s"),
+		ChargedHeavyNames.Num(), *FString::Join(ChargedHeavyNames, TEXT(", "))));
+	TestTrue(FString::Printf(TEXT("Discovery finds at least one shipped charged heavy attack (a Heavy UAttackData under /Game/ with a ")
+			TEXT("ChargeLoopSection and an AttackMontage); the asset registry listed %d attack data assets, %d of them shipped"),
+			Assets.Num(), ShippedAttacks),
+		!ChargedHeavyNames.IsEmpty());
 	return true;
 }
 
