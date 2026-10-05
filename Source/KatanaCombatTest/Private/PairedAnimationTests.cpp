@@ -1455,8 +1455,8 @@ bool FLegacyFinisherSyncExpectedDeathTest::RunTest(const FString& Parameters)
 		Victim->CombatComponent->BeginBlock(Attacker));
 	Victim->HitReactionComponent->EnterPairedAnimationState(
 		VictimMontage, EReactionOutcome::Ragdoll, 0.2f, true, Attacker);
-	TestFalse(TEXT("Paired takeover ends guard so committed finisher damage cannot be blocked"),
-		Victim->CombatComponent->CanBlockAttackFrom(Attacker));
+	TestFalse(TEXT("Paired takeover releases the guard the defense resolver reads"),
+		Victim->CombatComponent->IsGuardHeldForDefense());
 	Paired->AddPairedPartner(Victim);
 	Victim->PairedAnimationComponent->AddPairedPartner(Attacker);
 	Paired->CurrentFinisherVictim = Victim;

@@ -8,6 +8,7 @@
 #include "Core/PairedAnimationComponent.h"
 #include "Core/HitReactionComponent.h"
 #include "Data/AttackData.h"
+#include "Data/DefenseConfiguration.h"
 #include "Data/PairedAnimationData.h"
 #include "Characters/BaseCombatCharacter.h"
 #include "Characters/EnemyCharacter.h"
@@ -51,6 +52,22 @@ bool FCounter_ChainCounterDamagePolicyNonLethalByDefault::RunTest(const FString&
 // ============================================================================
 // TEST: Block input falls back to normal sustained blocking when no parry target exists
 // ============================================================================
+namespace
+{
+/**
+ * Give the defender a block tolerance owned by the test, so no shipped tuning value is assumed. The defense
+ * resolver's normal-block tolerance is the only angle that decides whether a guarded contact is blocked.
+ */
+void ApplyFixtureBlockTolerance(ABaseCombatCharacter* Defender, const float BlockTolerance)
+{
+	UDefenseConfiguration* Configuration = NewObject<UDefenseConfiguration>();
+	Configuration->NormalBlockFinalTolerance = BlockTolerance;
+	Defender->CombatComponent->DefenseConfigurationOverride = Configuration;
+	Defender->SetActorRotation(FRotator::ZeroRotator);
+	Defender->HitReactionComponent->DamageResistance = 1.0f;
+}
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FCounter_BlockInputStartsNormalBlockWhenNoParryTarget,
 	"KatanaCombat.CounterSystem.Input.BlockStartsNormalBlockWhenNoParryTarget",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -63,12 +80,17 @@ bool FCounter_BlockInputStartsNormalBlockWhenNoParryTarget::RunTest(const FStrin
 	AEnemyCharacter* FrontEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
 	AEnemyCharacter* RearEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(-150.0f, 0.0f, 0.0f));
 
-	if (!Player || !PlayerCombat || !FrontEnemy || !RearEnemy)
+	if (!Player || !PlayerCombat || !Player->HitReactionComponent || !FrontEnemy || !RearEnemy)
 	{
 		AddError(TEXT("Failed to create normal block input test actor"));
 		FCombatTestHelpers::DestroyTestWorld(World);
 		return false;
 	}
+
+	ApplyFixtureBlockTolerance(Player, 40.0f);
+	UAttackData* Attack = FCombatTestHelpers::CreateTestAttack();
+	Attack->BaseDamage = 25.0f;
+	Attack->AttackTags.Reset();
 
 	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
 
@@ -80,23 +102,28 @@ bool FCounter_BlockInputStartsNormalBlockWhenNoParryTarget::RunTest(const FStrin
 	TestEqual(TEXT("Normal block should not queue a phantom action"),
 		PlayerCombat->GetPendingActionCount(),
 		0);
-	TestTrue(TEXT("Normal block should classify a front attacker as blockable"),
-		PlayerCombat->CanBlockAttackFrom(FrontEnemy));
-	TestFalse(TEXT("Normal block should not classify a rear attacker as blockable"),
-		PlayerCombat->CanBlockAttackFrom(RearEnemy));
 
 	const float HealthBeforeBlockedHit = Player->CurrentHealth;
-	FHitReactionInfo BlockedHit = FCombatTestHelpers::CreateTestHitInfo(FrontEnemy, 25.0f);
-	IDamageableInterface::Execute_ApplyDamage(Player, BlockedHit);
+	FDefenseResolution FrontResolution;
+	TestTrue(TEXT("A front weapon contact is resolved once"),
+		FCombatTestHelpers::StrikeWithWeapon(FrontEnemy, Player, Attack, FrontResolution));
+	TestEqual(TEXT("Held block resolves a front weapon contact as a normal block"),
+		FrontResolution.Decision.Outcome, EDefenseOutcome::NormalBlock);
 	TestEqual(TEXT("Normal block should prevent health damage from an incoming hit"),
 		Player->CurrentHealth,
 		HealthBeforeBlockedHit);
 
-	FHitReactionInfo RearHit = FCombatTestHelpers::CreateTestHitInfo(RearEnemy, 25.0f);
-	IDamageableInterface::Execute_ApplyDamage(Player, RearHit);
+	TestTrue(TEXT("Guard is still held for the rear contact"), PlayerCombat->IsBlocking());
+	FDefenseResolution RearResolution;
+	TestTrue(TEXT("A rear weapon contact is resolved once"),
+		FCombatTestHelpers::StrikeWithWeapon(RearEnemy, Player, Attack, RearResolution));
+	TestEqual(TEXT("Held block lets a rear weapon contact land as a hit"),
+		RearResolution.Decision.Outcome, EDefenseOutcome::Hit);
+	TestEqual(TEXT("The rear contact is outside the block tolerance while guarding"),
+		RearResolution.Decision.Reason, EDefenseReason::OutsideBlockTolerance);
 	TestEqual(TEXT("Normal block should not prevent rear-angle health damage"),
 		Player->CurrentHealth,
-		HealthBeforeBlockedHit - 25.0f);
+		HealthBeforeBlockedHit - Attack->BaseDamage * RearEnemy->WeaponComponent->GetDamageMultiplier());
 
 	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Release);
 
@@ -121,26 +148,32 @@ bool FCounter_NullAttackDataPreservesNormalBlock::RunTest(const FString& Paramet
 	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
 	AEnemyCharacter* FrontEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
 
-	if (!Player || !PlayerCombat || !FrontEnemy)
+	if (!Player || !PlayerCombat || !Player->HitReactionComponent || !FrontEnemy || !FrontEnemy->WeaponComponent)
 	{
 		AddError(TEXT("Failed to create null attack data block test actors"));
 		FCombatTestHelpers::DestroyTestWorld(World);
 		return false;
 	}
 
+	ApplyFixtureBlockTolerance(Player, 40.0f);
 	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
 
-	const float HealthBeforeHit = Player->CurrentHealth;
-	FHitReactionInfo LegacyHit = FCombatTestHelpers::CreateTestHitInfo(
-		FrontEnemy,
-		25.0f,
-		FVector::ForwardVector,
+	// A weapon contact without attack data, built by the weapon as a live trace would, still requesting damage.
+	FrontEnemy->WeaponComponent->SetCompatibilityTraceGenerationForTesting(1);
+	FDefenseContactRequest Request = FrontEnemy->WeaponComponent->BuildDefenseContactRequestForTesting(
+		FCombatTestHelpers::CreateWeaponContactHit(Player, FrontEnemy->GetActorLocation()),
 		nullptr);
+	Request.HitInfo.Damage = 25.0f;
 
-	TestTrue(TEXT("Null AttackData should preserve normal block behavior"),
-		PlayerCombat->CanBlockHit(LegacyHit));
+	const float HealthBeforeHit = Player->CurrentHealth;
+	const FDefenseContactReceipt Receipt = FrontEnemy->ResolveWeaponContactCandidate(Player, Request);
+	FrontEnemy->FinalizeResolvedWeaponContact(Player, Receipt);
 
-	IDamageableInterface::Execute_ApplyDamage(Player, LegacyHit);
+	TestTrue(TEXT("The resolved contact carries no attack data"),
+		Receipt.Resolution.ActualContact.HitInfo.AttackData == nullptr);
+	TestEqual(TEXT("Null AttackData should preserve normal block behavior"),
+		Receipt.Resolution.Decision.Outcome, EDefenseOutcome::NormalBlock);
+	TestEqual(TEXT("Null AttackData blocked contact reports no applied damage"), Receipt.AppliedDamage, 0.0f);
 	TestEqual(TEXT("Null AttackData blocked hit should not damage"),
 		Player->CurrentHealth,
 		HealthBeforeHit);
@@ -160,35 +193,41 @@ bool FCounter_UnblockableTagBypassesNormalBlock::RunTest(const FString& Paramete
 	UCombatComponent* PlayerCombat = nullptr;
 	APlayerCharacter* Player = FCombatTestHelpers::CreateTestCharacterWithCombat(World, PlayerCombat);
 	AEnemyCharacter* FrontEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(150.0f, 0.0f, 0.0f));
+	AEnemyCharacter* ControlEnemy = FCombatTestHelpers::CreateTestEnemyCharacter(World, FVector(220.0f, 0.0f, 0.0f));
 
-	if (!Player || !PlayerCombat || !FrontEnemy)
+	if (!Player || !PlayerCombat || !Player->HitReactionComponent || !FrontEnemy || !ControlEnemy)
 	{
 		AddError(TEXT("Failed to create unblockable block test actors"));
 		FCombatTestHelpers::DestroyTestWorld(World);
 		return false;
 	}
 
+	ApplyFixtureBlockTolerance(Player, 40.0f);
 	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Press);
-	TestTrue(TEXT("Front enemy should be blockable before attack tags are considered"),
-		PlayerCombat->CanBlockAttackFrom(FrontEnemy));
+
+	UAttackData* BlockableAttack = FCombatTestHelpers::CreateTestAttack(EAttackType::Heavy);
+	BlockableAttack->AttackTags.Reset();
+	FDefenseResolution ControlResolution;
+	TestTrue(TEXT("The control contact is resolved once"),
+		FCombatTestHelpers::StrikeWithWeapon(ControlEnemy, Player, BlockableAttack, ControlResolution));
+	TestEqual(TEXT("An untagged attack from the same front bearing is blocked"),
+		ControlResolution.Decision.Outcome, EDefenseOutcome::NormalBlock);
 
 	UAttackData* UnblockableAttack = FCombatTestHelpers::CreateTestAttack(EAttackType::Heavy);
+	UnblockableAttack->AttackTags.Reset();
 	UnblockableAttack->AttackTags.AddTag(KatanaCombatGameplayTags::AttackPropertyUnblockable());
+	UnblockableAttack->BaseDamage = 25.0f;
 
+	TestTrue(TEXT("Guard is still held for the unblockable contact"), PlayerCombat->IsBlocking());
 	const float HealthBeforeHit = Player->CurrentHealth;
-	FHitReactionInfo Hit = FCombatTestHelpers::CreateTestHitInfo(
-		FrontEnemy,
-		25.0f,
-		FVector::ForwardVector,
-		UnblockableAttack);
-
-	TestFalse(TEXT("CanBlockHit should reject attacks tagged unblockable"),
-		PlayerCombat->CanBlockHit(Hit));
-
-	IDamageableInterface::Execute_ApplyDamage(Player, Hit);
+	FDefenseResolution UnblockableResolution;
+	TestTrue(TEXT("The unblockable contact is resolved once"),
+		FCombatTestHelpers::StrikeWithWeapon(FrontEnemy, Player, UnblockableAttack, UnblockableResolution));
+	TestEqual(TEXT("The defense resolver rejects the block for attacks tagged unblockable"),
+		UnblockableResolution.Decision.Outcome, EDefenseOutcome::UnblockableHit);
 	TestEqual(TEXT("Unblockable tagged hit should damage through normal block"),
 		Player->CurrentHealth,
-		HealthBeforeHit - 25.0f);
+		HealthBeforeHit - UnblockableAttack->BaseDamage * FrontEnemy->WeaponComponent->GetDamageMultiplier());
 
 	PlayerCombat->OnInputEvent(EInputType::Block, EInputEventType::Release);
 	FCombatTestHelpers::DestroyTestWorld(World);
