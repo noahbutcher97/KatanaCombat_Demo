@@ -79,6 +79,9 @@ public:
 	static bool ApplyAttackDataNotifyPlan(UAttackData* AttackData, const FAttackDataNotifyPlan& Plan);
 	static bool ShouldGenerateHoldWindowStart(const UAttackData* AttackData);
 
+	/** The input a generated hold notify checks for this attack: HeavyAttack for a heavy, LightAttack otherwise. */
+	static EInputType GetGeneratedHoldInputType(const UAttackData* AttackData);
+
 	/**
 	 * A charged heavy's generated hold must come strictly before its generated Active transition
 	 * (ManualTiming.HoldWindowStart < WindupDuration): the hold jumps to the charge loop, so a hold at or after

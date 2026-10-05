@@ -2,6 +2,7 @@
 
 #include "Customizations/AttackDataCustomization.h"
 #include "AttackDataTools.h"
+#include "AttackTimingDerivationService.h"
 #include "Data/AttackData.h"
 #include "DetailLayoutBuilder.h"
 #include "DetailCategoryBuilder.h"
@@ -502,6 +503,20 @@ TSharedRef<SWidget> FAttackDataCustomization::CreateActionButtons()
         .Padding(2.0f)
         [
             SNew(SButton)
+            .Text(LOCTEXT("DeriveTiming", "Derive Timing From Montage"))
+            .ToolTipText(LOCTEXT("DeriveTimingTooltip",
+                "Write Manual Timing from the notifies the montage section plays: Windup, Active and Recovery from its "
+                "phase transitions, and the hold start from its Hold Window Start when the attack uses a hold. "
+                "Undoable. Writes nothing, and says why, when a notify is missing or ambiguous."))
+            .OnClicked(this, &FAttackDataCustomization::OnDeriveTimingClicked)
+            .IsEnabled_Lambda([this]() { return CachedAttackData.IsValid() && CachedAttackData->AttackMontage != nullptr; })
+        ]
+
+        + SHorizontalBox::Slot()
+        .AutoWidth()
+        .Padding(2.0f)
+        [
+            SNew(SButton)
             .Text(LOCTEXT("GenerateNotifies", "Generate AnimNotifies"))
             .ToolTipText(LOCTEXT("GenerateNotifiesTooltip", 
                 "Generate required phase transition notifies and optional hold-start notify in the montage section"))
@@ -572,6 +587,20 @@ FReply FAttackDataCustomization::OnGenerateNotifiesClicked()
                 "Failed to generate notifies. Check that the montage and section are valid."));
     }
     
+    RefreshDetails();
+    return FReply::Handled();
+}
+
+FReply FAttackDataCustomization::OnDeriveTimingClicked()
+{
+    if (!CachedAttackData.IsValid())
+        return FReply::Handled();
+
+    FAttackTimingApplyResult Result;
+    UAttackDataTools::DeriveTimingFromMontage(CachedAttackData.Get(), Result);
+    FMessageDialog::Open(EAppMsgType::Ok, FText::FromString(FAttackTimingDerivationService::DescribeResult(Result)),
+        LOCTEXT("DeriveTimingTitle", "Derive Timing From Montage"));
+
     RefreshDetails();
     return FReply::Handled();
 }

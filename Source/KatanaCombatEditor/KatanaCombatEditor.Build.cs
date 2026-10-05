@@ -43,6 +43,7 @@ public class KatanaCombatEditor : ModuleRules
             "PropertyEditor",       // Details panel customization
             "AssetRegistry",        // Finding assets
             "ContentBrowser",       // Asset browser integration
+            "ToolMenus",            // AttackData actions in the Content Browser context menu
             "InputCore",            // Input handling
             "EnhancedInput",        // Proof input action/context wiring
             "Niagara",              // Defense impact dependency inventory
