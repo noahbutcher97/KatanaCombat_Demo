@@ -1019,7 +1019,7 @@ at once with a fresh press, since a success starts no lockout [D-20261005-72], o
   duration, and the victim's scale;
 - D-20261005-58: no push on a hit that does not interrupt;
 - D-20261005-59: a block shove on a blocked hit, and the full push on the hit that breaks a guard;
-- D-20261005-60: normal pushes on Staggered or hit-stunned victims, and none during paired sequences.
+- D-20261005-60: normal pushes on victims that are Staggered or in hit-stun, and none during paired sequences.
 
 **Push by outcome:**
 
@@ -1029,7 +1029,7 @@ at once with a fresh press, since a success starts no lockout [D-20261005-72], o
 | Flinch (a hit that does not interrupt) | None. | D-20261005-58 |
 | Blocked hit | The **block shove**: a short push with a per-type default, in the attack's push direction. | D-20261005-59 |
 | The hit that breaks a guard | The attack's full knockback, together with Staggered (3.5). | D-20261005-59 |
-| A hit on a Staggered or hit-stunned victim | As the hit's outcome above: the full push if it interrupts. Being Staggered or in hit-stun changes nothing. | D-20261005-60 |
+| A hit on a victim that is Staggered or in hit-stun | As the hit's outcome above: the full push if it interrupts. Being Staggered or in hit-stun changes nothing. | D-20261005-60 |
 | Any contact during a paired sequence (a counter or a paired finisher) | None. The sequence's authored motion replaces it. | D-20261005-60 |
 | Unblockable hit through guard | As an interrupting hit, if it interrupts (3.11). | today |
 
@@ -1963,7 +1963,7 @@ In each test, the fixture sets the values named, never the shipped ones.
 | Guard break | `…GuardBreak.GuardBreakerBreaksAtOnce`; `…GuardBreak.PressureCountBreaksWithinWindow` (the fixture sets N and W); `…GuardBreak.CountingToggleOffNeverCounts`; `…GuardBreak.PlayerOnlyBreaksToGuardBreakers`; `…GuardBreak.BreakingHitDealsNoDamage`. | The guard-break reaction reads clearly. |
 | Interruption | `…Interrupt.OnlyWhenPressureExceedsArmor`, using strict inequality; `…Interrupt.ArmorIsMaxOfBaseAndWindow`; `…Interrupt.FlinchKeepsCurrentAction`. | A flinch and an interrupt are told apart at a glance. |
 | Hit-stun | `…HitStun.NeverBelowFloor`; `…HitStun.ActionsWaitGuardAllowed`; `…HitStun.InputBufferedFiresAfter`; `…HitStun.EnemyAIHoldsThenResumes`. | Hit-stun lengths read well. |
-| Knockback by outcome | `…Knockback.FlinchDoesNotPush`; `…Knockback.BlockedHitUsesBlockShove`; `…Knockback.GuardBreakUsesFullPush`; `…Knockback.StaggeredAndHitStunnedVictimsPushNormally`; `…Knockback.NoneDuringPairedSequence`. | The block shove and the break push read as different weights. |
+| Knockback by outcome | `…Knockback.FlinchDoesNotPush`; `…Knockback.BlockedHitUsesBlockShove`; `…Knockback.GuardBreakUsesFullPush`; `…Knockback.StaggeredOrInHitStunVictimsPushNormally`; `…Knockback.NoneDuringPairedSequence`. | The block shove and the break push read as different weights. |
 | Paired finishers | `…Finisher.OnlyWhenLethal`; `…Finisher.AnyLethalAimedStrikeQualifies`; `…Finisher.NoHealthPercentRoute`; `…Finisher.StaggeredAloneDoesNotFinish`; `…Finisher.KeyedByDirectionOnly`; `…Finisher.NoClipForDirectionPlaysNormalDeath`; `…Finisher.AimConeAndRange`; `…Finisher.EnemyOnlyWhenMarked`; `…Finisher.NeverBecauseOfGuardBreak` (Q13). | Alignment from up to 350 cm. |
 | Several attackers | `…Attackers.AtMostConfiguredCount`; `…Attackers.CooldownPerEnemy`; `…Attackers.OthersHoldDuringParryAndPairedFinisher`; `…Attackers.InProgressSwingsFinish`. | A one-against-four crowd fight. |
 | Precedence | `…Data.SlotOverrideWins`; `…Data.AttackOverrideBeatsSetDefault`; `…Data.SetDefaultBeatsSettings`; `…Data.ResolvedSpecUnchangedByMidAttackEdit`. | — |
@@ -2391,7 +2391,7 @@ per-character values, which this data model already provides, without a second r
 | D-20261005-57 | The paired set: a third weapon asset holding the counters and finishers by direction and role | 2.1, 4.1, 4.3, 4.7, 5.9, 7 |
 | D-20261005-58 | No push on a hit that does not interrupt | 3.6, 3.10 |
 | D-20261005-59 | The block shove on a blocked hit; the full push on the hit that breaks a guard | 3.5, 3.10, 4.9 |
-| D-20261005-60 | Normal pushes on Staggered or hit-stunned victims; none during paired sequences | 3.10 |
+| D-20261005-60 | Normal pushes on victims that are Staggered or in hit-stun; none during paired sequences | 3.10 |
 | D-20261005-61 | Four precedence layers; the combo set's is the per-weapon layer | 1.3, 4.2 |
 | D-20261005-62 | The player is fully free after a non-lethal counter; aiming elsewhere ends the opening | 3.3, 3.4 |
 | D-20261005-63 | Enemies pick slots of their combo set by per-slot weight and range; AI attack lists retired | 4.4, 6.4, 7.2 |
@@ -2444,8 +2444,8 @@ Each item is either an open question, or a reading this spec chose that the owne
   normal death [D-20261005-54];
 - the Staggered reaction and recoil on the profile, guard enter and exit on the defense set [D-20261005-55];
 - the finisher pool's home: the weapon's paired set, referenced by the combo set [D-20261005-57];
-- knockback by outcome: none on a flinch, a block shove on a block, the full push on a guard break, normal on Staggered
-  or hit-stunned victims, none in paired sequences [D-20261005-58, D-20261005-59, D-20261005-60];
+- knockback by outcome: none on a flinch, a block shove on a block, the full push on a guard break, normal on victims
+  that are Staggered or in hit-stun, none in paired sequences [D-20261005-58, D-20261005-59, D-20261005-60];
 - the four precedence layers, with the combo set's as the per-weapon layer [D-20261005-61];
 - the player's freedom after a non-lethal counter, and the aimed-elsewhere press ending the opening [D-20261005-62];
 - enemies choosing among their combo set's slots [D-20261005-63];
