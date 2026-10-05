@@ -3404,6 +3404,14 @@ struct FDefenseSequenceContext
 	/** Exact stage whose owner montage-end callback has already been processed. */
 	UPROPERTY(BlueprintReadOnly, Category = "Defense")
 	int32 LastOwnerMontageEndHandledStageGeneration = 0;
+
+	/**
+	 * True while a response window waits with no stage montage left on the defender. The defender's input,
+	 * movement, collision, alignment, stage slow motion and paired status are released; the source attacker
+	 * stays held. The next stage's start commits the defender again.
+	 */
+	UPROPERTY()
+	bool bDefenderReleased = false;
 };
 
 USTRUCT(BlueprintType)
@@ -3499,6 +3507,11 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFinisherAvailable, AActor*, Targe
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnAttackConsumed, const FAttackConsumedEvent&, Event);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnAttackConsumedNative, const FAttackConsumedEvent&);
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnDefenseResolvedNative, const FDefenseResolution&);
+
+// Hit reaction events: UHitReactionComponent broadcasts them, and UPairedAnimationComponent also binds them so a
+// defender's hit reaction or stun ends its defense sequence.
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHitReactionStarted, EAttackDirection, Direction, bool, bIsHeavyHit);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnStunBegin, float, Duration);
 
 // ============================================================================
 // HELPER FUNCTIONS

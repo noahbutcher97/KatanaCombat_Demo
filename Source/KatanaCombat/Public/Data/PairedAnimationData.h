@@ -39,7 +39,11 @@ struct KATANACOMBAT_API FPairedChainTransitionPolicy
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
     bool bAttackerTerminalPoseCompatible = false;
 
-    /** The victim montage terminal pose was reviewed as safe to retain. */
+    /**
+     * The victim montage terminal pose was reviewed as safe to retain. Without a VictimReadySection the
+     * parried attacker holds this montage's last frame for the whole response window, whether or not the
+     * montage asset blends out on its own.
+     */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chain")
     bool bVictimTerminalPoseCompatible = false;
 

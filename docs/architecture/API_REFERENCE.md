@@ -1001,7 +1001,7 @@ FOnHitReactionStarted OnHitReactionStarted;
 - `Direction` - Hit direction (Front, Back, Left, Right)
 - `bIsHeavyHit` - True if heavy hit reaction
 
-Event called when hit reaction starts playing.
+Event called when hit reaction starts playing. The `FOnHitReactionStarted` type is declared in `CombatTypes.h` because `UPairedAnimationComponent` also binds it: a defender reaction ends its defense sequence.
 
 #### OnStunBegin
 ```cpp
@@ -1012,7 +1012,7 @@ FOnStunBegin OnStunBegin;
 **Parameters**:
 - `Duration` - Stun duration in seconds
 
-Event called when stun begins.
+Event called when stun begins. The `FOnStunBegin` type is declared in `CombatTypes.h` because `UPairedAnimationComponent` also binds it: a defender stun ends its defense sequence.
 
 #### OnStunEnd
 ```cpp

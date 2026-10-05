@@ -41,7 +41,7 @@ Block press (no locked parry threat) → `TryCounter()` (CombatComponent.cpp:143
 ## 5. Alignment & Positioning Facts
 
 - **No pre-start snap exists for counters or finishers** — zero `SetActorLocation`/`TeleportTo` in the component (grep-verified). Chain relies on preflight *rejection* + arbiter-registered MotionWarping; AC3 relies on blind warp registration.
-- **Out-of-position counter-victim: Chain rejects** (preflight fails → stage doesn't start → window stays open → eventually `ResponseTimeout`); **AC3 plays misaligned** (no budgets).
+- **Out-of-position counter-victim: Chain rejects** (preflight fails → stage doesn't start → window stays open → eventually `ResponseTimeout`); **AC3 plays misaligned** (no budgets). *(Note, 2026-10-04: that cleanup reason is now `CounterWindowExpired` or `FinisherReadyExpired`, named by the window that closed.)*
 - Destination math is the same partner-local form as finishers: `TargetLocation + TargetRotation ⋅ RelativeOffset` (comp:2971, 3251-3254).
 - **Content status (verified)**: `AM_Counter_Attacker`/`AM_Counter_Defender` carry stock MotionWarping notifies with `SkewWarp("PairedTarget")`, and their DynamicKatana source sequences have **`bEnableRootMotion = true`** — unlike the finisher sequences (false). This is why Gate A counters can visibly align while standalone finishers cannot: same plumbing, one asset flag different. Note the counter attacker montage is composited from repurposed hit/block sequences (`AS_Block_Hit_Break_Seq` at 0.13× + `AS_Hit_Large_F_Seq`) — placeholder-quality, but mechanically live.
 
@@ -53,7 +53,7 @@ Block press (no locked parry threat) → `TryCounter()` (CombatComponent.cpp:143
 ## 7. Failure / Retry / Silence
 
 - Counter stage start fails → state restored to CounterWindow, deadline preserved — retry by pressing again (comp:3572-3583, 4408-4412).
-- Window expiry → `CleanupDefenseSequence("ResponseTimeout")` (comp:1139-1176) tears down leases/warps.
+- Window expiry → `CleanupDefenseSequence("ResponseTimeout")` (comp:1139-1176) tears down leases/warps. *(Note, 2026-10-04: the reason is now `CounterWindowExpired` for `CounterWindow` and `FinisherReadyExpired` for `FinisherReady`.)*
 - Parry with no CounterData → counter press silently fails (comp:4384-4389); window runs out. **No player-facing feedback for any of the silent-rejection cases.**
 
 ## 8. Ranked Failure/Misalignment Vectors

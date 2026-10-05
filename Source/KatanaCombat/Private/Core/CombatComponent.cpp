@@ -1437,8 +1437,27 @@ void UCombatComponent::OnInputEventInternal(
 		return;
 	}
 
+	UPairedAnimationComponent* PairedAnimComp = CachedPairedAnimComp;
+	if (!PairedAnimComp)
+	{
+		PairedAnimComp = GetOwner() ? GetOwner()->FindComponentByClass<UPairedAnimationComponent>() : nullptr;
+	}
+
+	// Input is always captured: a Light/Heavy press while this owner's committed stage has not yet opened its
+	// response window (the parry bridge before CounterWindow, the counter before FinisherReady) is buffered for
+	// that window instead of being rejected by the sequence's input lock.
+	const bool bIsChainResponsePress = PairedAnimComp
+		&& EventType == EInputEventType::Press
+		&& (InputType == EInputType::LightAttack || InputType == EInputType::HeavyAttack);
+	const ABaseCombatCharacter* InputOwner = GetOwnerCharacter();
+	const bool bBuffersChainResponse = bIsChainResponsePress
+		&& PairedAnimComp->IsChainAwaitingResponseWindow()
+		&& !(InputOwner
+			&& InputOwner->HitReactionComponent
+			&& InputOwner->HitReactionComponent->IsInPairedAnimationState());
+
 	// Check if input can be processed (gate stunned/dead/guard broken states)
-	if (!CanProcessInput(InputType))
+	if (!bBuffersChainResponse && !CanProcessInput(InputType))
 	{
 		if (EventType == EInputEventType::Release)
 		{
@@ -1462,12 +1481,6 @@ void UCombatComponent::OnInputEventInternal(
 		return;
 	}
 
-	UPairedAnimationComponent* PairedAnimComp = CachedPairedAnimComp;
-	if (!PairedAnimComp)
-	{
-		PairedAnimComp = GetOwner() ? GetOwner()->FindComponentByClass<UPairedAnimationComponent>() : nullptr;
-	}
-
 	if (InputType == EInputType::Block)
 	{
 		const bool bBlockStarted = BeginBlock();
@@ -1489,10 +1502,7 @@ void UCombatComponent::OnInputEventInternal(
 		return;
 	}
 
-	if (PairedAnimComp &&
-		EventType == EInputEventType::Press &&
-		(InputType == EInputType::LightAttack || InputType == EInputType::HeavyAttack) &&
-		PairedAnimComp->IsChainWaitingForResponse())
+	if (bIsChainResponsePress && PairedAnimComp->IsChainWaitingForResponse())
 	{
 		UAttackData* ChainAttackData = GetAttackForInput(InputType);
 		const bool bAdvanced = PairedAnimComp->TryAdvanceChainCounter(ChainAttackData);
@@ -1503,6 +1513,15 @@ void UCombatComponent::OnInputEventInternal(
 			bAdvanced
 				? EActionReactionTelemetryReason::ChainAdvanced
 				: EActionReactionTelemetryReason::ChainExpired);
+		return;
+	}
+	if (bBuffersChainResponse)
+	{
+		// ChainOnly: a press made before its response window opened never falls through to the normal queue.
+		BufferChainResponse(
+			InputType,
+			InputSerial,
+			PairedAnimComp->GetActiveDefenseSequenceContext().OriginatingInteraction);
 		return;
 	}
 
@@ -1729,6 +1748,87 @@ void UCombatComponent::FinalizeCombatInput(
 		Telemetry.Detail = TEXT("InputHistoryRecordEvicted");
 	}
 	AppendActionReactionTelemetry(MoveTemp(Telemetry));
+}
+
+void UCombatComponent::BufferChainResponse(
+	const EInputType InputType,
+	const uint64 InputSerial,
+	const FDefenseInteractionId& Interaction)
+{
+	// Same newest-wins rule as the normal Light/Heavy pending slot: the newer press replaces the older.
+	if (BufferedChainResponse.IsSet())
+	{
+		FinalizeCombatInput(
+			BufferedChainResponse->InputSerial,
+			ECombatInputRoute::ChainOnly,
+			ECombatInputDisposition::Replaced,
+			EActionReactionTelemetryReason::PendingInputReplaced);
+	}
+	FBufferedChainResponse Buffered;
+	Buffered.InputType = InputType;
+	Buffered.InputSerial = InputSerial;
+	Buffered.Interaction = Interaction;
+	BufferedChainResponse = Buffered;
+	FinalizeCombatInput(
+		InputSerial,
+		ECombatInputRoute::ChainOnly,
+		ECombatInputDisposition::Queued,
+		EActionReactionTelemetryReason::Queued);
+}
+
+void UCombatComponent::ReleaseBufferedChainResponse(const FDefenseInteractionId OpenedInteraction)
+{
+	if (!BufferedChainResponse.IsSet())
+	{
+		return;
+	}
+	const FBufferedChainResponse Buffered = BufferedChainResponse.GetValue();
+	BufferedChainResponse.Reset();
+
+	UPairedAnimationComponent* PairedAnimComp = CachedPairedAnimComp;
+	if (!PairedAnimComp && GetOwner())
+	{
+		PairedAnimComp = GetOwner()->FindComponentByClass<UPairedAnimationComponent>();
+	}
+	const bool bWindowStillOwnsResponse = OpenedInteraction.IsValid()
+		&& Buffered.Interaction == OpenedInteraction
+		&& PairedAnimComp
+		&& PairedAnimComp->IsChainWaitingForResponse()
+		&& PairedAnimComp->GetActiveDefenseSequenceContext().OriginatingInteraction == OpenedInteraction;
+	if (!bWindowStillOwnsResponse)
+	{
+		FinalizeCombatInput(
+			Buffered.InputSerial,
+			ECombatInputRoute::ChainOnly,
+			ECombatInputDisposition::Expired,
+			EActionReactionTelemetryReason::ChainExpired);
+		return;
+	}
+
+	UAttackData* ChainAttackData = GetAttackForInput(Buffered.InputType);
+	const bool bAdvanced = PairedAnimComp->TryAdvanceChainCounter(ChainAttackData);
+	FinalizeCombatInput(
+		Buffered.InputSerial,
+		ECombatInputRoute::ChainOnly,
+		bAdvanced ? ECombatInputDisposition::Consumed : ECombatInputDisposition::Expired,
+		bAdvanced
+			? EActionReactionTelemetryReason::ChainAdvanced
+			: EActionReactionTelemetryReason::ChainExpired);
+}
+
+void UCombatComponent::DiscardBufferedChainResponse(const EActionReactionTelemetryReason Reason)
+{
+	if (!BufferedChainResponse.IsSet())
+	{
+		return;
+	}
+	const uint64 InputSerial = BufferedChainResponse->InputSerial;
+	BufferedChainResponse.Reset();
+	FinalizeCombatInput(
+		InputSerial,
+		ECombatInputRoute::ChainOnly,
+		ECombatInputDisposition::Expired,
+		Reason);
 }
 
 bool UCombatComponent::CanProcessInput(EInputType InputType) const
@@ -3101,6 +3201,24 @@ bool UCombatComponent::TryCommitPerfectParry(
 	{
 		LastInputDefenseResolution.Decision.Outcome = EDefenseOutcome::GuardEntered;
 		LastInputDefenseResolution.Decision.Reason = EDefenseReason::Duplicate;
+		LastInputDefenseResolution.Decision.AttackerResponse = EAttackerResponse::None;
+		LastInputDefenseResolution.Decision.AlignmentPolicy = EDefenseAlignmentPolicy::GuardFacing;
+		LastInputDefenseResolution.Decision.bChainEligible = false;
+	}
+
+	// A defender released into its own open response window guards normally, but a Block press cannot
+	// commit a second perfect parry: the open window keeps a single owner until it resolves.
+	const UPairedAnimationComponent* PairedAnimComp = CachedPairedAnimComp
+		? CachedPairedAnimComp.Get()
+		: GetOwner()
+		? GetOwner()->FindComponentByClass<UPairedAnimationComponent>()
+		: nullptr;
+	if (LastInputDefenseResolution.Decision.Outcome == EDefenseOutcome::PerfectParry
+		&& PairedAnimComp
+		&& PairedAnimComp->GetChainState() != EChainCounterState::None)
+	{
+		LastInputDefenseResolution.Decision.Outcome = EDefenseOutcome::GuardEntered;
+		LastInputDefenseResolution.Decision.Reason = EDefenseReason::InvalidParticipant;
 		LastInputDefenseResolution.Decision.AttackerResponse = EAttackerResponse::None;
 		LastInputDefenseResolution.Decision.AlignmentPolicy = EDefenseAlignmentPolicy::GuardFacing;
 		LastInputDefenseResolution.Decision.bChainEligible = false;

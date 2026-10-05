@@ -504,6 +504,20 @@ public:
 	void ClearQueue(bool bCancelCurrent = false);
 
 	/**
+	 * Execute the Light/Heavy response buffered during this interaction's committed stage (the parry bridge
+	 * or the counter), now that its response window (CounterWindow or FinisherReady) is open. A response
+	 * buffered for another interaction expires instead.
+	 */
+	void ReleaseBufferedChainResponse(FDefenseInteractionId OpenedInteraction);
+
+	/**
+	 * Expire any buffered Chain response that can no longer execute: its sequence ended, or a stage started
+	 * without it. Reason is recorded in action-reaction telemetry.
+	 */
+	void DiscardBufferedChainResponse(
+		EActionReactionTelemetryReason Reason = EActionReactionTelemetryReason::TerminalCleanup);
+
+	/**
 	 * Cancel actions based on priority
 	 * Used for hit interrupts (severity determines priority)
 	 */
@@ -983,6 +997,7 @@ public:
 	friend class FCombatInputPairedVictimTakeoverTest;
 	friend class FCombatInputRejectedReleaseCleanupTest;
 	friend class FCombatHoldCleanupPreservesMovementModeTest;
+	friend struct FDefenseChainFixture;
 #endif // WITH_AUTOMATION_TESTS
 
 protected:
@@ -1049,6 +1064,26 @@ protected:
 	/** Process-monotonic identity for the next captured input edge. */
 	uint64 NextCombatInputSerial = 1;
 	uint64 NextActionQueueEntryId = 1;
+
+	/**
+	 * One newest-wins ChainOnly slot for Light/Heavy pressed during a committed stage that has a response
+	 * window to come (the parry bridge before CounterWindow, the counter before FinisherReady). Released when
+	 * that interaction's window opens; expired if the sequence ends or a stage starts without it. It never
+	 * feeds ActionQueue.
+	 */
+	struct FBufferedChainResponse
+	{
+		EInputType InputType = EInputType::None;
+		uint64 InputSerial = 0;
+		FDefenseInteractionId Interaction;
+	};
+	TOptional<FBufferedChainResponse> BufferedChainResponse;
+
+	/** Capture a Light/Heavy press made before its response window opened into the newest-wins slot. */
+	void BufferChainResponse(
+		EInputType InputType,
+		uint64 InputSerial,
+		const FDefenseInteractionId& Interaction);
 
 	/** Current attack phase (tracked independently) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
