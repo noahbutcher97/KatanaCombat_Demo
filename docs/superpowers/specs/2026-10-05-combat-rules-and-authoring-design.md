@@ -13,7 +13,7 @@
   rework of today's post-parry press window, which stays as the interim behaviour until the parry-counter stage (9.7)
   retires it. Their effect on the rules is noted where it matters. No pull request that touches these rules is open.
 - **Sources.**
-  - The decisions register, `docs/sessions/registers/decisions.md` (local and git-excluded), through D-20261005-88, plus the ruling R-20261005-01. Only
+  - The decisions register, `docs/sessions/registers/decisions.md` (local and git-excluded), through D-20261007-18, plus the ruling R-20261005-01. Only
     active decisions are used, and "superseded by" is respected.
   - The owner's own answers, read from the session transcript, where the register condenses them.
   - The adopted combat glossary [D-20261005-40], reproduced as section 2 with the amendments of D-20261005-42,
@@ -45,7 +45,9 @@
 
 ## 1. Purpose and design pillars
 
-**Status:** approved by the owner as written at `a34ecd69` [D-20261005-65].
+**Status:** approved by the owner as written at `a34ecd69` [D-20261005-65]; amended since by D-20261006-04 (rules
+before content), D-20261007-07 (how a lethal parry-counter ends) and D-20261007-11 (the words parry, counter and
+parry-counter).
 
 ### 1.1 Purpose
 
@@ -54,7 +56,9 @@ This document holds three things in one place:
 - the data that carries them;
 - the attack-authoring overhaul.
 
-It puts rules first and code later. Implementation briefs carry the rule text from this document. Anything a rule needs
+It puts rules first and code later. It also puts rules before content: no combat rule is derived from what content
+exists; content is created, bought or procedurally fitted to the rules, and an asset limitation is met with technical
+or procedural means, not a weaker rule [D-20261006-04]. Implementation briefs carry the rule text from this document. Anything a rule needs
 that this document does not state is an open question for the owner, not a choice for the implementer.
 
 ### 1.2 Design pillars
@@ -66,7 +70,7 @@ Parts of that page predate the decisions of 5 October and are superseded:
 - the two parry modes by enemy type, now one model [D-20261005-24];
 - the parry window lead, now an adaptive turn [D-20261005-05];
 - resistance by attack phase, now armor [D-20261005-17];
-- the separate press window after a parry, now the Staggered time [D-20261005-22];
+- the separate press window after a parry-counter, now the Staggered time [D-20261005-22];
 - block and parry reactions on the reaction profile, now the weapon's defense set [D-20261005-48].
 
 The pillars themselves are the owner's answers of 4 October [D-20261004-26]:
@@ -85,10 +89,11 @@ The pillars themselves are the owner's answers of 4 October [D-20261004-26]:
 
 These restate decisions; each cites its source.
 
-1. **Health decides kills.** A paired finisher plays when, and only when, an aimed strike's resolved damage is lethal:
-   a parry-counter, a follow-up strike or an ordinary attack. That is decided at the press, from damage after resistances
-   [D-20261005-38, D-20261005-39, D-20261005-42].
-2. **One Staggered state, one number.** A non-lethal parry and a guard break lead to the same state, with one default
+1. **Health decides kills.** A kill is decided at the press, from resolved damage after resistances. A lethal follow-up
+   strike or ordinary attack plays a paired finisher; a lethal parry-counter kills at the counter's contact, and the
+   entry's authored kill sequence plays instead when one exists [D-20261005-38, D-20261005-39, D-20261005-42,
+   D-20261007-07].
+2. **One Staggered state, one number.** A non-lethal parry-counter and a guard break lead to the same state, with one default
    duration. The follow-up strike opportunity lasts exactly that long [D-20261005-08, D-20261005-22, D-20261005-31].
 3. **Defaults with overrides.** Each value resolves through four layers: the combat settings' type default, the combo
    set's type default (the per-weapon layer), the attack's override and the slot's override
@@ -97,7 +102,7 @@ These restate decisions; each cites its source.
 4. **One place per question.**
    - What does this attack do? The attack.
    - What follows what? The weapon's combo set.
-   - How does this weapon block and deflect, and which strike answers a parry? The weapon's defense set.
+   - How does this weapon block and parry, and which counter follows each parry? The weapon's defense set.
    - Which two-character sequences does this weapon play? The weapon's paired set.
    - How does this character's body react, resist and break? Its reaction profile.
    - What are the global rules? The combat settings.
@@ -107,13 +112,16 @@ These restate decisions; each cites its source.
    [D-20261005-13, D-20261005-37, D-20261003-03].
 6. **Feel is judged on rendered captures**, not on code or automation alone. This is project practice, recorded in the
    project memory and in [D-20261004-40].
+7. **Rules before content.** No combat rule is derived from what content exists; content is created, bought or
+   procedurally fitted to the rules, and an asset limitation is met with technical or procedural means, not a weaker
+   rule [D-20261006-04].
 
 ---
 
 ## 2. Glossary
 
 **Status:** approved by the owner as written at `a34ecd69` [D-20261005-65]; the reaction-profile entry was then narrowed by
-D-20261005-68.
+D-20261005-68, and the decisions of 6 and 7 October amended the entries marked below.
 
 ### 2.1 The adopted glossary
 
@@ -121,7 +129,9 @@ The owner adopted this glossary as written [D-20261005-40]. It is reproduced fro
 `.superpowers/design/combat-glossary.md` with the heading levels adjusted. Later decisions changed it, and each
 changed entry is marked **[amended]** with its decision: the paired finisher's scope [D-20261005-42], the reaction
 profile's contents [D-20261005-47, D-20261005-48], and three new authoring entries, defense set, paired set and weapon
-data [D-20261005-48, D-20261005-49, D-20261005-57]. Every other line is verbatim.
+data [D-20261005-48, D-20261005-49, D-20261005-57]; then the words parry, counter and parry-counter [D-20261007-11],
+the aim cone's reference [D-20261007-12], the counter's shape [D-20261007-07], the defense set's damage [D-20261006-03]
+and the lenient lockout [D-20261007-18]. Every other line is verbatim.
 
 One meaning per term. Required in code identifiers, tooltips, logs, specs and docs. Retired words are rejected in review.
 
@@ -145,18 +155,27 @@ One meaning per term. Required in code identifiers, tooltips, logs, specs and do
 - **Unparryable** — an attack flagged so a parry press cannot answer it. All attacks are parryable unless flagged.
 
 #### Actions
-- **Parry** — a block press inside the parry window. Always plays the deflect plus a counter in one sequence.
-- **Counter** — the strike that is part of the parry. Never a separate press.
+- **Parry** — the deflect: the defender's motion that meets the incoming blade, after a block press inside the parry
+  window. Today every parry is part of a parry-counter; the word alone is reserved for a possible later perfect parry
+  that does not counter automatically. **[amended by D-20261007-11]**
+- **Counter** — the strike back that follows the parry inside a parry-counter. Never a separate press.
+  **[amended by D-20261007-11]**
+- **Parry-counter** — the one-press sequence: the turn, the parry and the counter. A block press inside the parry window
+  always plays it today. **[added by D-20261007-11]**
 - **Follow-up strike** — the ×1.5 strike from an aimed attack press while the target is Staggered.
 - **Lethal** — resolved damage (after resistances) ≥ the target's remaining health, decided at the press.
 - **Paired finisher** — the synced two-character kill clip. Plays whenever any aimed strike is lethal: a parry-counter,
-  a follow-up strike, or an ordinary attack. Marked enemies can do the same to the player. Never plays otherwise.
-  **[amended by D-20261005-42]**
+  a follow-up strike, or an ordinary attack. Marked enemies can do the same to the player. Never plays otherwise. For a
+  parry-counter it is the entry's authored kill sequence when one exists; otherwise the counter itself kills at its
+  contact (3.3). **[amended by D-20261005-42, D-20261007-07]**
 - **Parry window** — the input timing on the attacker's animation, never shorter than 0.35 s before contact, scaled by
   the parry-assist setting. Turning is never limited to it.
-- **Parry lockout** — 0.25 s after a missed parry press during which no parry can trigger. Blocking still works.
-- **Aim cone** — 60° either side of the camera direction; Staggered or eligible enemies win ties. Used for follow-up
-  strikes and for choosing finisher targets.
+- **Parry lockout** — 0.25 s after a missed parry press during which no parry can trigger. Blocking still works. A press
+  made during the lockout is remembered and counts as a parry when the lockout ends with the window still open; the
+  length is a tunable to be felt first and may go to zero. **[amended by D-20261007-18]**
+- **Aim cone** — 60° either side of the stick direction, or of the character's facing when no direction is held;
+  Staggered or eligible enemies win ties, nearest otherwise; the camera never decides. Used for every attack press:
+  follow-up strikes, paired finishers and ordinary attacks (3.13). **[amended by D-20261007-12]**
 
 #### Authoring
 - **Combo set** — the asset holding slots, links and entry rules for one moveset, plus set-level type defaults.
@@ -167,11 +186,12 @@ One meaning per term. Required in code identifiers, tooltips, logs, specs and do
   parry assists. It never arbitrates movement or camera; those get their own profiles when needed.
   **[amended by D-20261005-46, D-20261005-47, D-20261005-48, D-20261005-55, D-20261005-68]**
 - **Defense set** — the weapon's block and parry responses: block reactions, the guard enter and exit clips, and for
-  each attacker direction and swing the deflect, the fallback strike, and a reference into the paired set for the
-  counter. Referenced by the weapon data. **[added by D-20261005-48; amended by D-20261005-55, D-20261005-57]**
-- **Paired set** — the weapon's two-character sequences, keyed by direction and role: counters (each with a lethal and a
-  non-lethal variant) and finishers. The defense set references its counters; the combo set references its finishers.
-  **[added by D-20261005-57]**
+  each attacker direction and swing the deflect, the fallback strike, the counter's damage, and a reference into the
+  paired set for the counter. Referenced by the weapon data. **[added by D-20261005-48; amended by D-20261005-55,
+  D-20261005-57, D-20261006-03]**
+- **Paired set** — the weapon's two-character sequences, keyed by direction and role: counters (each able to kill; an
+  authored kill sequence is optional) and finishers. The defense set references its counters; the combo set references
+  its finishers. **[added by D-20261005-57; amended by D-20261007-07]**
 - **Weapon data** — the weapon's kit: it references one combo set (attacks), one defense set (defenses) and one paired set
   (two-character sequences). A character with no weapon data uses the combat settings' default weapon data.
   **[added by D-20261005-48, D-20261005-49; amended by D-20261005-57]**
@@ -183,7 +203,7 @@ One meaning per term. Required in code identifiers, tooltips, logs, specs and do
 | guard broken | Staggered |
 | stunned | hit-stun |
 | counter window | Staggered time |
-| chain, bridge | parry (the sequence) / paired finisher |
+| chain, bridge | parry-counter / paired finisher |
 | ending (alone) | paired finisher, or non-lethal counter |
 | posture | — (no meter exists) |
 
@@ -207,18 +227,23 @@ additions**, so that the product uses one word for each.
 | **Contact** (predicted arrival) | The moment the attacking blade is predicted to reach the defender, computed at runtime from the swing's trajectory [D-20261005-73]. The parry window is measured back from it, the turn finishes at it, and "lands first" compares it. |
 | **Effective parry window** | The authored lead time before predicted arrival, after the 0.35 s minimum and the parry-assist scale are applied (section 3.2). |
 | **Missed parry** | A Block press made while a parryable attack aimed at the defender is in progress, outside that attack's window. It starts the parry lockout. A press with nothing incoming is just a guard [D-20261005-71]. |
-| **Deflect** | The defender's part of a parry that meets the incoming blade. |
+| **Deflect** | The parry as content: the defender's clip that meets the incoming blade. "Deflect" names the clip, "parry" the action [D-20261007-11]. |
 | **Turn-deflect** | An authored 90° turn (for the sides) or 180° turn (for behind) that flows into a front counter pair. Motion warping hides the leftover angle [D-20261004-30]. |
 | **Swing** | The parried attack's swing, one of four: slash left, slash right, overhead, thrust [D-20261005-45]. It is a field on the attack, filled by the "Auto-detect swing" editor action or by hand [D-20261005-84]. |
 | **Counter pool** | The defense set's directional counter entries, keyed by the attacker's direction and the parried attack's swing [D-20261005-24, D-20261005-45, D-20261005-48]. Each refers to a counter in the paired set [D-20261005-57]. |
-| **Counter entry** | One item in the counter pool: the deflect, the fallback strike, and a reference to a paired-set counter whose non-lethal and lethal variants share that deflect. The lethal variant is the paired finisher, the counter's own sequence, never a separate clip played after it [D-20261005-38, D-20261005-48, D-20261005-57]. |
-| **Non-lethal counter** | What a parry plays when the counter's damage is not lethal: a paired non-lethal animation, or the single-character strike when none fits. It leaves the enemy Staggered [D-20261005-23, D-20261005-24]. |
+| **Counter entry** | One item in the counter pool: the deflect, the fallback strike, the counter's damage, and a reference to a paired-set counter that shares that deflect. The counter can kill at its own contact; an authored kill sequence on it is optional and plays instead when the press is lethal, never as a separate clip after it [D-20261005-38, D-20261005-48, D-20261005-57, D-20261006-03, D-20261007-07]. |
+| **Kill sequence** | An optional authored two-character ending on a paired-set counter, played instead of the counter's own contact when its damage is lethal [D-20261007-07]. |
+| **Non-lethal counter** | What a parry-counter plays when the counter's damage is not lethal: a paired counter, or the single-character strike when none fits. It leaves the enemy Staggered [D-20261005-23, D-20261005-24, D-20261007-07]. |
+| **Cancel notify** | The one "free from here" notify on any non-attack montage (3.0) [D-20261006-02]. |
 | **Single-character strike** | A strong cinematic strike played by the defender alone, together with the enemy's stagger reaction. It is the last fallback when no paired animation fits [D-20261005-23, D-20261005-30]. |
 | **Finisher pool** | The paired set's finishers, keyed by the attacker's direction only [D-20261005-47], as the combo set references them [D-20261005-57]. |
 | **Block shove** | The short push a blocked hit gives the blocker, with a per-type default [D-20261005-59]. |
 | **Finisher range** | 350 cm: the maximum distance at which a paired finisher can start [D-20261005-28]. |
 | **Attack token** | An enemy's permission to attack the player. At most 2 are held at once (configurable), and each enemy has a short cooldown [D-20261005-35]. |
-| **Others hold** | While the player performs a parry or a paired finisher, other enemies start no new attack. Swings already in progress finish, and the enemies resume when it ends [D-20261005-21]. Always written as "others hold", to keep it apart from holding a button. |
+| **Free mode** | Targeting with no lock: every attack press aims by the aim cone around the stick direction, or the character's facing when no direction is held (3.13) [D-20261007-12]. |
+| **Lock mode** | Targeting after a lock press: every press aims at the locked target, the player strafes facing it, and a flick of the look stick (or a scroll) switches targets (3.13) [D-20261007-13]. |
+| **Stick direction** | The direction the movement stick is held, read in the frame movement uses (a reading, Appendix B). |
+| **Others hold** | While the player performs a parry-counter or a paired finisher, other enemies start no new attack. Swings already in progress finish, and the enemies resume when it ends [D-20261005-21]. Always written as "others hold", to keep it apart from holding a button. |
 | **Lane** | A group of slots shown together in the moveset grid: light, heavy and directional [D-20261005-02]. |
 | **Link** | What a slot does next for one input: Light, Heavy, or hold-and-release Light toward Forward, Back, Left or Right. A link points at a slot, back to the opener, or nowhere. |
 | **Opener** | The slot a combo starts from when an input is pressed and no combo is running. Today: `DefaultLightAttack` and `DefaultHeavyAttack` on the attack configuration. |
@@ -255,13 +280,30 @@ Each mechanic below gives, in this order:
 - Staggered and hit-stun count game time, so slow motion and hitstop stretch them (`HitReactionComponent.cpp:83-119`).
 - The post-parry press windows count real time **[reported]**.
 
-Q10 asks for one rule. Until it is answered, the rules give durations without naming a clock.
+Q8 asks for one rule. Until it is answered, the rules give durations without naming a clock.
+
+**Rules before content.** No rule in this section is derived from what content exists; content is created, bought or
+procedurally fitted to the rules, and an asset limitation is met with technical or procedural means, not a weaker rule
+[D-20261006-04]. Content findings appear only as notes on the stages (section 9) and in the shopping lists.
 
 **Shared words.** These keep today's meanings:
 - "Hostile" uses the team interface.
 - "Alive" means not dead and not dying.
 - "Aimed at" means the attack's intended target is this character. Enemy AI sets it when it attacks; player attacks set it
   through attack warping **[reported: `CombatComponent.cpp:4200-4204, 6060-6080`]**.
+
+**The cancel notify** [D-20261006-02]. One general "free from here" notify, placed once on any non-attack montage, marks
+the end of a sequence. It is one notify, with one meaning per context:
+- on the defender's counter half of a parry-counter: the player is free from here (3.3);
+- on the victim's half: the enemy becomes Staggered from here, and the rest of its clip is its Staggered reaction
+  (3.3, 3.4);
+- on a hit reaction: the character can act again from here, once hit-stun has also ended (3.6, 3.7);
+- on the fallback strike: the strike carries its own, with the defender's meaning;
+- attacks never carry it: their cancel point stays the phase transition from Active to Recovery;
+- a montage with no cancel notify is read as ending at montage end, and validation warns (4.13).
+
+Inside a parry-counter, neither character can be touched until its own cancel notify fires [D-20261007-08]. The
+paired-content interface (4.12) exposes each role's notify. The notify's class and its validation are in 4.13.
 
 ### 3.1 Guard and block
 
@@ -288,7 +330,7 @@ Staggered player (D-20261005-67, since superseded by D-20261005-88), the block t
 
 | # | Condition | If it fails |
 |---|---|---|
-| Guard-1 | The character is alive, is not a paired victim, and is not playing a parry or a paired finisher [D-20261004-24, merged in #136]. | The press is refused. |
+| Guard-1 | The character is alive, is not a paired victim, and is not playing a parry-counter or a paired finisher [D-20261004-24, merged in #136]. | The press is refused. |
 | Guard-2 | The character is not Staggered. | Refused for everyone: a Staggered enemy is held (3.4), and a Staggered player cannot guard until the state ends or a dodge ends it (3.4) [D-20261005-88]. The player's press is buffered and fires afterwards; that carries over from D-20261005-67 and is a reading (Appendix B). |
 | Guard-3 | The character is not in its own attack. | The press is buffered. It takes effect when the attack reaches Recovery, or when the attack ends, and only if Block is still held then; a buffered press never counts as a parry [D-20261005-13, D-20261005-66]. |
 | Guard-4 | Hit-stun does not refuse the press: guard can be raised during hit-stun [D-20261005-37]. | That press can parry [D-20261005-77]. |
@@ -301,7 +343,7 @@ Staggered player (D-20261005-67, since superseded by D-20261005-88), the block t
 - **starting an attack** [D-20261005-13];
 - a guard break (3.5).
 
-The counter that a parry plays is a strike. This spec reads it as an attack for this rule, so guard ends when the counter
+The counter of a parry-counter is a strike. This spec reads it as an attack for this rule, so guard ends when the counter
 starts (Appendix B). Guard comes back only through a new press, or through the buffer rule Guard-3.
 
 **Block at contact.** The defense resolver evaluates each weapon contact in today's order, with the arc changed
@@ -312,7 +354,7 @@ starts (Appendix B). Guard comes back only through a new press, or through the b
 | Contact-1 | The contact is invalid, friendly, already consumed or stale. | Ignored (today). |
 | Contact-2 | The defender is invulnerable or in i-frames. | Ignored (today). |
 | Contact-3 | The defender started the paired animation now playing. | Ignored (today). |
-| Contact-4 | The attack carries `Attack.Property.Unblockable`. | A hit at full damage through guard; guard stays up (today, `:337-341`). |
+| Contact-4 | The attack carries `Attack.Property.Unblockable`. | A hit at full damage through guard; guard stays up (today, `:337-341`). This holds even when the attack is also a guard breaker: unblockable wins, the guard does not break, and validation warns on the pair of flags (4.4) [D-20261007-16]. |
 | Contact-5 | The defender is not guarding. | A hit (3.6). |
 | Contact-6 | \|yaw\| > 75°. | A hit. |
 | Contact-7 | Otherwise. | **Block.** |
@@ -374,6 +416,10 @@ attacker's location, at contact. It is compared with a strict greater-than (`Def
 - D-20261004-23: a parry from any direction;
 - D-20261004-30: turn-deflects;
 - D-20261005-64: timing alone decides the parry;
+- D-20261007-18: the lenient lockout: a press made during the lockout is remembered and counts when the window is
+  still open at its end; the lockout may go to zero;
+- D-20261007-11: the words: this section covers the parry, the deflect; the counter and the whole parry-counter are
+  3.3;
 - R-20261005-01 (a ruling, **proposed**, the owner may veto): the window is authored as a lead time.
 
 **The window and the turn are independent** [D-20261005-79]. The window decides only whether the press counted. The turn
@@ -389,7 +435,7 @@ counts (today).
 | # | Condition | If it fails |
 |---|---|---|
 | Parry-1 | The press passed Guard-1 to Guard-4 and is a live press: a press buffered through the defender's own attack never parries [D-20261005-66]. A press during hit-stun is live and can parry [D-20261005-77]. | No parry. |
-| Parry-2 | The defender is not in the parry lockout. | No parry. Guard still rises: "blocking still works" [D-20261005-06]. The press counts as a miss only if it meets Parry-3's definition of one, so a press with nothing incoming never extends the lockout [D-20261005-71]. |
+| Parry-2 | The defender is not in the parry lockout. | No parry now. Guard still rises: "blocking still works" [D-20261005-06]. **The press is remembered:** if a candidate's window (Parry-3) is still open when the lockout ends, the remembered press counts as a parry then [D-20261007-18; the lenient reading, Appendix B]. The press counts as a miss only if it meets Parry-3's definition of one, so a press with nothing incoming never extends the lockout [D-20261005-71]. |
 | Parry-3 | At least one **candidate** exists. A candidate is an attack that: (a) belongs to a hostile, living character; (b) is aimed at this defender; (c) is in progress and not consumed; (d) is not flagged unparryable [D-20261005-07]; (e) has its effective parry window open now, including the input buffer [D-20261004-06]; and (f) has not already touched this defender (today, `CombatComponent.cpp:3078-3086`). **The attacker's direction does not matter** [D-20261004-23]. | Guard rises. **It is a missed parry**, starting the 0.25 s lockout, when some parryable attack aimed at this defender is in progress but outside its window [D-20261005-71]. With nothing incoming it is just a guard. |
 | Parry-4 | **Arbitration: lands first.** Of several candidates, the one whose predicted arrival comes first is parried [D-20261005-36]. Equal arrivals fall back to today's lower tie-breaks: smaller angle, then shorter distance, then stable id (`DefenseResolver.cpp:119-146`). | — |
 | Parry-5 | **The parry succeeds.** No lockout follows a success: a second incoming attack can be parried at once with a fresh press [D-20261005-72]. | — |
@@ -441,8 +487,8 @@ the defender, computed at runtime from the swing trajectory. It is the window's 
 
 **On success, in order:**
 1. **The parried attack is consumed** for every target, as today **[reported: `CombatComponent.cpp:1997-2069`]**.
-2. **The outcome is decided now**, from the counter's resolved damage against the attacker's current health: a paired
-   finisher or a non-lethal counter (3.3) [D-20261005-38, D-20261005-40].
+2. **The counter is chosen and its lethality judged now** (3.3): the content first, then its damage, then the outcome
+   [D-20261005-38, D-20261005-40, D-20261006-03].
 3. **Others hold** (3.9) [D-20261005-21].
 4. **The defender turns to face the attacker** [D-20261005-05], independently of the window [D-20261005-79]:
    - θ is the angle from the defender's facing to the attacker at the press. T is the time from the press to the
@@ -488,8 +534,9 @@ the defender, computed at runtime from the swing trajectory. It is the window's 
 - **No candidate, an attack incoming:** guard rises, and the press is a missed parry that starts the 0.25 s lockout
   [D-20261005-06, D-20261005-32, D-20261005-71].
 - **No candidate, nothing incoming:** guard rises, with no lockout [D-20261005-71].
-- **Locked out:** guard rises, with no parry; the lockout is not extended unless the press is itself a miss
-  [D-20261005-71].
+- **Locked out:** guard rises, with no parry now; the lockout is not extended unless the press is itself a miss
+  [D-20261005-71]. The press is remembered, and it counts as a parry if the window is still open when the lockout ends
+  [D-20261007-18].
 - **An unparryable attack inside its window** is not a candidate [D-20261005-07]. The press is a guard, and it is a miss
   only if some other parryable attack aimed at the defender is in progress [D-20261005-71].
 - **The attack touched first:** once an attack has touched the defender, blocked or hit, a later press cannot parry it
@@ -506,7 +553,7 @@ the defender, computed at runtime from the swing trajectory. It is the window's 
 | Window scale (parry assist) | 1.0 | reaction profile, parry assists | D-20261005-09, D-20261005-78 | none |
 | Input buffer, contact grace | 0, 0 | reaction profile, parry assists | D-20261004-06, D-20261005-78 | none |
 | Slow motion on window, telegraph, always perfect parry | off, on, off | reaction profile, parry assists | D-20261004-07, D-20261005-78 | none |
-| Parry lockout | 0.25 s, after a miss only | combat settings | D-20261005-06, D-20261005-32, D-20261005-72 | none: a failed press is a free guard |
+| Parry lockout | 0.25 s, after a miss only; lenient: a press during it is honoured if the window is still open when it ends; to be felt first, and it may go to zero | combat settings | D-20261005-06, D-20261005-32, D-20261005-72, D-20261007-18 | none: a failed press is a free guard |
 | Attacker slowdown, lowest speed | 50% | combat settings | D-20261005-33 | none |
 | Attacker slowdown, longest time | 0.3 s | combat settings | D-20261005-33 | none |
 | Attacker slowdown, ease shape | tuned on captures (proposed) | combat settings | D-20261005-76 | none |
@@ -518,157 +565,175 @@ the defender, computed at runtime from the swing trajectory. It is the window's 
 - **Windows:** at least 0.35 s, where today the only one is 0.10 s, measured back from a predicted arrival instead of the
   window's own end.
 - **Direction:** any direction can be parried, with no angle gate. Pressing early no longer widens the angle.
-- **Lockout:** a missed press locks out further parries for 0.25 s; a success never does.
+- **Lockout:** a missed press locks out parries for 0.25 s, a success never does, and a press made during the lockout
+  is honoured if the window is still open when it ends.
 - **Unparryable** is an opt-out flag. Today parryable is an opt-in tag.
 - **Lands first** replaces today's ranking by credible intent, then deadline.
 - **Turning:** an adaptive turn that finishes at arrival, plus a bounded, eased attacker slowdown.
 
-### 3.3 The parry is the counter
+### 3.3 The parry-counter
 
 **Decisions:**
 - D-20261005-24: the parry is the counter, with one fluid sequence;
-- D-20261005-38: a lethal parry plays a paired finisher, chosen at the press, with no exemptions;
+- D-20261007-11: the words: parry (the deflect), counter (the strike back), parry-counter (the one-press sequence);
+- D-20261005-38: a lethal parry-counter ends in a kill, decided at the press, with no exemptions;
+- D-20261007-07: every counter can kill; an authored kill sequence is optional and plays instead when one exists;
+- D-20261006-03: counter damage on the defense-set entry, settings default 50, a clip override optional; content first,
+  then damage, then the outcome;
+- D-20261006-05: damage at the counter's contact, never clamped;
+- D-20261006-02: the cancel notify (3.0);
+- D-20261007-08: each character untouchable until its own cancel notify;
+- D-20261007-09: a press made inside the sequence is buffered and fires at the player's cancel notify;
+- D-20261007-10: a press aimed elsewhere does not end the opening; it supersedes that half of D-20261005-62;
+- D-20261007-17: a light press with a Staggered target is the follow-up with the light opener; the hold does not open;
+- D-20261007-12 and D-20261007-13: the aim cone and the locked target (3.13);
 - D-20261005-39 and D-20261005-43: the follow-up strike, paired when a clip matches;
 - D-20261005-42: any lethal aimed strike plays a paired finisher;
 - D-20261005-45: counters keyed by direction and swing;
 - D-20261005-47: paired finishers keyed by direction only, and no body types;
 - D-20261005-48 and D-20261005-57: the defense set holds the counter entries, and the paired set holds the
   two-character counters and finishers;
-- D-20261005-51: one follow-up per parry, and Staggered ends at once after it;
-- D-20261005-54: the lethal-counter fallback;
-- D-20261005-80: each counter's own damage, with a settings default of 50;
-- D-20261005-81: Staggered starts when the non-lethal counter sequence ends;
+- D-20261005-51: one follow-up per parry-counter, and Staggered ends at once after it;
+- D-20261005-54: the lethal-counter fallback, as amended by D-20261007-07;
+- D-20261005-80: counter damage with a settings default of 50; its home amended by D-20261006-03;
+- D-20261005-81: Staggered starts when the counter sequence ends, read as the enemy's cancel notify;
 - D-20261005-82 and D-20261005-85: the follow-up strike's ×1.5 and its 350 cm reach;
 - D-20261005-84: the attack's swing field and the auto-detect action;
 - D-20261005-22: the follow-up opportunity equals the Staggered time;
 - D-20261005-23 and D-20261005-30: the single-character strike and the fallback order;
 - D-20261005-08: one Staggered default;
 - D-20261005-21: others hold;
-- D-20261005-27: the aim cone;
+- D-20261006-04: rules before content;
 - D-20261005-40: the glossary;
 - D-20261004-30: turn-deflects;
 - D-20261004-03 and D-20261005-62: the player is fully free after a non-lethal counter, and the attacker is held;
 - D-20261004-35: aim decides.
 
-**A parry always plays the deflect and a counter, in one sequence.** The counter is never a separate press
-[D-20261005-24, D-20261005-40].
+**One press, one sequence.** A Block press inside the parry window plays the parry-counter: the turn, the parry (the
+deflect) and the counter, in one fluid sequence. The counter is never a separate press [D-20261005-24, D-20261007-11].
+The word "parry" alone leaves room for a later perfect parry that does not counter; nothing in this spec plays one.
+The owner asked for this to be "clear and airtight" (the 2026-10-07 log, E8); the sequence below is the one confirmed
+there and in E9.
 
-**What each press does.** This is the table confirmed in the session at 04:10, with the follow-up row's non-lethal
-case completed by D-20261005-43 and the wording aligned with the glossary [D-20261005-40]:
+**What each press does:**
 
 | Press | Not lethal | Lethal |
 |---|---|---|
-| Parry (press 1) | Deflect + counter strike (paired non-lethal counter, or single-character strike fallback per D-20261005-23); enemy Staggered | Deflect + paired finisher |
-| Follow-up while Staggered (press 2) | ×1.5 strike: a paired non-lethal counter clip when one matches the direction, otherwise the single-character ×1.5 strike [D-20261005-43]; enemy recovers | Paired finisher |
+| Parry-counter (press 1) | The turn, the parry and the counter; the counter's damage lands at its contact; the enemy is Staggered from its own cancel notify. | The same sequence, and the enemy dies at the counter's contact; an authored kill sequence plays instead when the entry's counter has one. |
+| Follow-up strike (optional press 2, while the enemy is Staggered) | The ×1.5 strike: a paired counter clip when one matches the direction, otherwise the fallback strike; the enemy recovers. | A paired finisher from the finisher pool; the strike plays unpaired with the normal death when no clip matches. |
 
-- **Choosing the finisher.** The paired finisher is keyed by the attacker's direction only [D-20261005-47]. For a parry it
-  is the lethal variant of the paired-set counter that the matched entry references [D-20261005-38, D-20261005-57]; if
-  that counter has no lethal variant, the paired set's finisher for that direction; if there is none, the non-lethal
-  counter plays and the enemy dies from the damage with its normal death [D-20261005-54]. For a follow-up strike it comes
-  from the finisher pool; with no clip for that direction the strike plays unpaired and the enemy dies with its normal
-  death; the editor warns on missing directions [D-20261005-47].
-- **When it is decided.** Lethal or not is decided at the press, from resolved damage after resistances, so the right
-  clip starts immediately [D-20261005-38, D-20261005-40].
-- **How many presses.** "Weak enemies take one press, tough ones two" [D-20261005-24] is narrowed by D-20261005-39. A
-  tough enemy takes several parry-and-strike exchanges, because health always decides.
+**The sequence, in order:**
 
-**Press 1: the parry.** On success (3.2), in order:
-1. **Direction.** Classify the attacker against the defender's facing at the press: front, left, right or behind
-   [D-20261004-30, D-20261005-45]. This uses today's four-way classifier (`CombatMath.h:53-56`; the dominant axis wins,
-   so each direction spans 90°). Keeping those boundaries is proposed.
-2. **Swing.** The parried attack's swing: slash left, slash right, overhead or thrust [D-20261005-45], read from the
-   attack's `Swing` field (4.5) [D-20261005-84]. Its lane (left, centre, right) is an optional refinement that a counter
-   entry may also name [D-20261005-45].
-3. **Counter damage.** The counter's resolved damage against the attacker: the paired-set counter's own damage, with a
-   combat-settings default of **50** (the heavy attack's damage) [D-20261005-80], times the weapon multiplier and the
-   attacker's resistance. It is **lethal** if it is ≥ the attacker's current health [D-20261005-38, D-20261005-40].
-4. **Content.** From the defender's weapon's defense set, its counter pool [D-20261005-24, D-20261005-48]; each entry
-   refers to a counter in the weapon's paired set [D-20261005-57]. The fallback order is D-20261005-30's, which
-   D-20261005-45 confirms:
-   1. an entry for this direction and this swing. An entry that also names the parried attack's lane beats one that does
-      not (the optional refinement of D-20261005-45; the ordering is proposed);
-   2. an entry for this direction and any swing;
-   3. an entry for any direction, warped to fit;
-   4. the fallback strike of the entry chosen by steps 1 to 3, with the enemy's Staggered reaction [D-20261005-23]. Each
-      entry carries its own fallback strike, per direction and swing [D-20261005-48]; an empty counter pool fails
-      validation (4.6).
+| # | Step | Rule |
+|---|---|---|
+| Seq-1 | **The press.** A Block press passes 3.2, and the parried attack is consumed for every target. | D-20261005-24; consumption as today **[reported: `CombatComponent.cpp:1997-2069`]** |
+| Seq-2 | **Content.** The attacker's direction (front, left, right or behind: today's four-way classifier, `CombatMath.h:53-56`, the dominant axis winning, so each direction spans 90°; keeping those boundaries is proposed), the parried attack's swing (its `Swing` field, 4.5), the variety rule and the room check pick one counter entry and the content it will play (below). | D-20261005-45, D-20261005-84, D-20261005-30, D-20261005-64, D-20261006-03 |
+| Seq-3 | **Damage.** The counter's damage is the chosen clip's override when it has one, else the entry's value, else the combat settings' default of **50** (the heavy attack's damage). Resolved damage is that value times the weapon multiplier and the attacker's resistance (2.2). | D-20261006-03, D-20261005-80 |
+| Seq-4 | **Outcome.** Lethal if the resolved damage is ≥ the attacker's current health. Decided now, at the press, so the right content starts at once. | D-20261005-38, D-20261005-40, D-20261006-03 |
+| Seq-5 | **The turn and the parry.** The defender turns (3.2, "On success", item 4) and the deflect meets the blade at the predicted contact. | D-20261005-05, D-20261005-73 |
+| Seq-6 | **The counter's contact.** The damage applies here, in full. It is never clamped: a counter is not chosen on a lethal press and then held back. | D-20261006-05 |
+| Seq-7a | **Lethal.** The enemy dies at that contact; its death outcome takes over from its victim half of the clip (3.11), with today's death-handling flag (**[reported]** `HitReactionComponent.cpp:1518-1533`). When the entry's counter carries an authored kill sequence, that plays instead, from the press. No lethal variant is required. | D-20261007-07 |
+| Seq-7b | **Not lethal.** The enemy becomes Staggered at its own cancel notify, for the parried attack's Staggered time (3.4); the rest of its clip is its Staggered reaction. | D-20261005-81, D-20261006-02, D-20261007-07 |
+| Seq-8 | **Protection.** Each character is untouchable until its own cancel notify (3.0): the player is free and hittable from theirs; the enemy is open from its own. | D-20261007-08 |
+| Seq-9 | **The player's cancel notify.** From it the player is fully free: move, guard, attack anywhere, be hit. Attack presses made inside the sequence are buffered and fire now, last input wins. | D-20261005-62, D-20261004-03, D-20261007-09 |
 
-   The editor warns about missing coverage [D-20261005-30].
-   - **No room.** A paired counter or finisher whose distance and room check fails plays as the entry's fallback strike,
-     the single-character deflect-and-strike [D-20261005-64].
-   - When several entries match at one step, the proposal reuses today's variety rule for reaction variants: one entry
-     always plays; two alternate; three or more are random, excluding the last two
-     (**[reported]** `HitReactionComponent.cpp:1292-1358`).
-   - **A lethal counter** uses the lethal variant of the paired-set counter the matched entry references. If that counter
-     has no lethal variant, the paired set's finisher for this direction is used; if there is none, the non-lethal counter
-     plays and the enemy dies from the damage with its normal death [D-20261005-54]. When the entry has no paired counter
-     at all, the fallback strike plays and the enemy dies the same way (a reading, Appendix B).
-5. **The sequence.** The turn (3.2, "On success", item 4), then the deflect at contact, then:
-   - **if lethal:** the paired finisher chosen above. The attacker dies, with its death in the clip. Today's death-handling
-     flag stays, so no separate death animation plays (**[reported]** `HitReactionComponent.cpp:1518-1533`);
-   - **if not lethal:** the non-lethal variant of the entry's paired-set counter. Its damage applies, and when the
-     counter sequence ends the attacker becomes **Staggered** for the parried attack's Staggered time (3.4)
-     [D-20261005-08, D-20261005-22, D-20261005-81].
-6. **After a non-lethal counter the player is fully free:** they can move, guard, attack elsewhere and be hit, while the
-   Staggered enemy stays held. An aimed press within the Staggered time is the follow-up strike; a press aimed elsewhere
-   attacks normally and ends the opening [D-20261005-62, D-20261004-03].
+Others hold throughout the sequence [D-20261005-21].
 
-**Hand-off timing.** Two things are measured in the rendered parry stage and reported with captures, not decided here:
-- when the attacker leaves its own attack animation for its half of the counter entry;
-- how the deflect lines up with contact.
+**Choosing the content (Seq-2).** From the defender's weapon's defense set, its counter pool [D-20261005-24,
+D-20261005-48]; each entry refers to a counter in the weapon's paired set [D-20261005-57]. The fallback order is
+D-20261005-30's, which D-20261005-45 confirms:
+1. an entry for this direction and this swing. An entry that also names the parried attack's lane beats one that does
+   not (the optional refinement of D-20261005-45; the ordering is proposed);
+2. an entry for this direction and any swing;
+3. an entry for any direction, warped to fit;
+4. the fallback strike of the entry chosen by steps 1 to 3, with the enemy's Staggered reaction [D-20261005-23]. Each
+   entry carries its own fallback strike, per direction and swing [D-20261005-48]; an empty counter pool fails
+   validation (4.6).
 
-Others hold throughout press 1's sequence [D-20261005-21].
+- The editor warns about missing coverage [D-20261005-30].
+- **No room.** A paired counter whose distance and room check fails plays as the entry's fallback strike, the
+  single-character deflect-and-strike [D-20261005-64]. The check is part of choosing the content, so the damage read in
+  Seq-3 is the one the fallback strike deals (a reading, Appendix B).
+- **Variety.** When several entries match at one step, the proposal reuses today's variety rule for reaction variants:
+  one entry always plays; two alternate; three or more are random, excluding the last two
+  (**[reported]** `HitReactionComponent.cpp:1292-1358`).
+- **A lethal press** plays the chosen counter's authored kill sequence when it has one; otherwise the counter itself,
+  and the enemy dies at its contact [D-20261007-07]. The fallback strike kills the same way. The finisher pool is not
+  consulted for a parry-counter: D-20261005-54's middle step is read as superseded by D-20261007-07 (Appendix B).
 
-**Press 2: the follow-up strike.** Evaluated when an attack press executes, in order:
+**Damage (Seq-3)** [D-20261006-03, D-20261005-80]. Three homes, in order of precedence:
+1. a paired clip's own override, when it has one (4.7);
+2. the defense-set entry's value, per direction and swing (4.6);
+3. the combat settings' default, **50**.
+
+The fallback strike always deals the entry's value; a clip override never reaches it [D-20261006-03]. Content is
+resolved before damage so that the clip's override can be read, and damage before the outcome so that lethality is known
+at the press [D-20261006-03]. The damage applies at the counter's contact, in full [D-20261006-05].
+
+**How many presses.** "Weak enemies take one press, tough ones two" [D-20261005-24] is narrowed by D-20261005-39. A
+tough enemy takes several parry-counter-and-strike exchanges, because health always decides.
+
+**After the sequence: the opening.** The Staggered enemy is an ordinary opening, and nothing more (the 2026-10-07 log,
+E8–E9):
+- it is held for its Staggered time (3.4);
+- there is **no latch** on it and **no end-position rule**: the player is not bound to the parried enemy, and where the
+  clips end changes no rule;
+- a press aimed at someone else attacks that someone. It does **not** end the opening: Staggered runs its time
+  [D-20261007-10]. The aimed-elsewhere rule of D-20261005-62 is retired;
+- the follow-up strike is optional.
+
+**The follow-up strike.** Evaluated when an attack press executes, in order:
 
 | # | Condition | If it fails |
 |---|---|---|
 | FollowUp-1 | The press is Light or Heavy. A reading: Special and Evade resolve to no attack today (Appendix B). | Not a follow-up. |
-| FollowUp-2 | Target selection by the aim cone: within 60° either side of the camera direction, with a Staggered or eligible enemy winning ties [D-20261005-27, D-20261005-40]. What a tie means is Q6. The follow-up strike reaches **350 cm**, the same as a paired finisher [D-20261005-85]. | An ordinary attack. |
+| FollowUp-2 | The target, by 3.13: in free mode the aim cone around the stick direction, or the facing when no direction is held, with Staggered or eligible enemies winning ties and the nearest otherwise; in lock mode the locked target [D-20261007-12, D-20261007-13]. The follow-up strike reaches **350 cm**, the same as a paired finisher [D-20261005-85]. | An ordinary attack. |
 | FollowUp-3 | The chosen target is Staggered. | An ordinary attack, and the paired-finisher rule (3.8) applies. |
-| FollowUp-4 | Damage: ×1.5 the resolved damage of the attack the press resolves to, light or heavy [D-20261005-39, D-20261005-82]. Lethal is decided at the press [D-20261005-38, D-20261005-39, D-20261005-40]. | — |
-| FollowUp-5 | **Lethal:** the paired finisher from the finisher pool for the attacker's direction; with no matching clip the strike plays unpaired and the enemy dies with its normal death reaction [D-20261005-47]. **Not lethal:** the non-lethal variant of a paired-set counter for the target's direction (any swing) when one exists, otherwise the fallback strike of the defense set's entry for that direction, at ×1.5 [D-20261005-43, D-20261005-48, D-20261005-57]. Staggered ends immediately, and there is one follow-up per parry [D-20261005-51]. | — |
+| FollowUp-4 | **The strike.** A light press plays the light opener as the follow-up, from the initial press: the hold window does not open, and a directional light never follows up [D-20261007-17]. A Heavy press is Q19. | — |
+| FollowUp-5 | **Damage:** ×1.5 the resolved damage of the attack the press resolves to [D-20261005-39, D-20261005-82]. Lethal is decided at the press [D-20261005-38, D-20261005-39, D-20261005-40]. | — |
+| FollowUp-6 | **Lethal:** the paired finisher from the finisher pool for the attacker's direction; with no matching clip the strike plays unpaired and the enemy dies with its normal death reaction [D-20261005-47]. **Not lethal:** a paired-set counter for the target's direction (any swing) when one exists, otherwise the fallback strike of the defense set's entry for that direction, at ×1.5 [D-20261005-43, D-20261005-48, D-20261005-57]. Staggered ends immediately, and there is one follow-up per parry-counter [D-20261005-51]. | — |
 
-- **A press aimed elsewhere** becomes an ordinary attack. It ends the Staggered state and releases the held enemy
-  [D-20261004-35, D-20261005-62].
+- **A press inside the counter sequence** is buffered and fires as the follow-up the moment the player's cancel notify
+  fires; last input wins [D-20261007-09].
 - **No press:** the enemy recovers when its Staggered time ends.
-- **One follow-up per parry** [D-20261005-51]. After a non-lethal follow-up strike the enemy is no longer Staggered, so a
-  second press is an ordinary attack.
-- **Which enemies.** The follow-up strike applies to any Staggered enemy, including one Staggered by a guard break: it is
-  "the ×1.5 strike from an aimed attack press while the target is Staggered" [D-20261005-40, D-20261005-39].
+- **One follow-up per parry-counter** [D-20261005-51]. After a non-lethal follow-up strike the enemy is no longer
+  Staggered, so a second press is an ordinary attack.
+- **Which enemies.** The follow-up strike applies to any Staggered enemy, including one Staggered by a guard break: it
+  is "the ×1.5 strike from an aimed attack press while the target is Staggered" [D-20261005-40, D-20261005-39].
 
-**Content this needs:**
+**Hand-off timing.** Two things are measured in the rendered parry-counter stage and reported with captures, not decided
+here:
+- when the attacker leaves its own attack animation for its half of the counter entry;
+- how the deflect lines up with contact.
+
+**Content this needs** (the shopping list; no rule above depends on it [D-20261006-04]):
 - **Counter entries.** For each direction (front, left, right, behind) and swing (slash left, slash right, overhead,
-  thrust), one defense-set entry and the paired-set counter it refers to: one deflect shared by a non-lethal variant and
-  a lethal variant [D-20261005-38, D-20261005-45, D-20261005-48, D-20261005-57]. The paired finisher is part of the counter's own sequence, chosen at
-  the parry press. It is not a separate finisher clip played after a non-lethal counter.
+  thrust), one defense-set entry and the paired-set counter it refers to: one deflect flowing into a counter that can
+  kill. An authored kill sequence is optional, chosen at the press when the counter has one; it is never a separate
+  finisher clip played after a non-lethal counter [D-20261005-38, D-20261005-45, D-20261005-48, D-20261005-57,
+  D-20261007-07].
 - **Turn-deflects.** 90° left and right, and 180° behind, each flowing into a front pair [D-20261004-30]. The decision
   says the 90° turns are mirrorable, but mirroring is not possible in the project today: there is no mirror data table
-  and no Mirror node **[reported, from the turn speed sweep]**.
+  and no Mirror node **[reported, from the turn speed sweep]**. Under rules before content, that is met with tooling,
+  not a narrower rule [D-20261006-04].
 - **The single-character strike**, and the enemy's Staggered reaction [D-20261005-23].
 - **The finisher pool**, one paired finisher per attacker direction in the paired set [D-20261005-47, D-20261005-57].
-  There are no body types: one shared skeleton serves every character today, and D-20261005-47 rules body types out of
-  the design.
+  There are no body types [D-20261005-47].
+- **A cancel notify** on every clip above (3.0, 4.13) [D-20261006-02].
 
-**What is owned today [reported]:**
-- 8 counter-shaped two-character pairs, all starting with the attacker in front. No pack on the market has counter pairs
-  where the attack comes from behind.
-- 90° guarded turns: DSAS `Block_Turn_L90` and `R90` at 0.571 s, and DynamicKatana `Turn_Block_90` at 0.833 s.
-- 180° turns of 0.867–1.5 s.
-- A speed sweep found ×2.0 the best-looking rate for the DSAS left 90° and right 180° turns. It also found:
-  - every DSAS turn starts with a pelvis jump of about 181 cm/s;
-  - the DSAS right 90° turn spins its capsule about 150° in 4 frames.
-
-  The sweep measured these clips; it chose no values.
+What is owned today is a content finding and sits with the stage that builds this (9.7).
 
 **Changes from today:**
 - **Presses.** Today a parry plays a two-character deflect animation, then waits up to 2.0 s for a press that plays a
-  counter, then up to 2.0 s more for a press that plays the kill. Now there is one press, plus an optional follow-up.
+  counter, then up to 2.0 s more for a press that plays the kill. Now one press plays the whole parry-counter, plus an
+  optional follow-up.
 - **Counter choice.** Today the counter is the defender's own default attack's counter data
   (`PairedAnimationComponent.cpp:4288-4321`), so a Heavy press can never counter **[reported]**. Now the counter comes
   from the parried direction and swing.
 - **Lethality.** Today a counter never kills: it is capped at health − 1 unless a component flag is set **[reported]**.
-  Now a lethal counter is a paired finisher.
+  Now a lethal counter kills at its contact, never clamped, and an authored kill sequence plays instead when one exists.
+- **The opening.** Today's post-parry windows bind the player to the parried enemy. Now the Staggered enemy is an
+  ordinary opening: no latch, no end-position rule, and a press elsewhere leaves it running.
 - **No-content fallback.** Today a parry without counter content does nothing more **[reported]**. Now the
   single-character strike always plays.
 - **Other enemies.** Today every other enemy aborts its swing **[reported]**. Now swings in progress finish (3.9).
@@ -687,10 +752,15 @@ Others hold throughout press 1's sequence [D-20261005-21].
 - D-20261005-88: the player's Staggered state: the reaction and the push, no attack, guard or stick movement, a dodge
   ends it after a minimum, 0.6 s by default; it supersedes D-20261005-67;
 - D-20261005-81: Staggered starts when the non-lethal counter sequence ends;
+- D-20261006-01: hit-stun and Staggered both run, each with its own timer and rules;
+- D-20261006-06: the player's own Staggered time always applies to the player;
+- D-20261006-02 and D-20261007-07: the enemy's Staggered starts at its own cancel notify;
+- D-20261007-10: a press aimed elsewhere does not end it;
+- D-20261007-11: the words;
 - D-20261005-40: the glossary.
 
 **Causes.** Only these two [D-20261005-40]:
-1. a non-lethal parry (3.3);
+1. a non-lethal parry-counter (3.3);
 2. a guard break (3.5).
 
 **Duration.** The Staggered time of the attack that caused it:
@@ -698,16 +768,17 @@ Others hold throughout press 1's sequence [D-20261005-21].
 - overridable per attack, and per slot (4.2) [D-20261005-08, D-20261005-31].
 
 **The player's length is the player's own:** **0.6 s** by default, on the player's reaction profile (4.8)
-[D-20261005-88]. Enemies keep the 1.5 s default. Whether an attack's or a slot's Staggered-time override also changes the
-player's length is not decided (Q21).
+[D-20261005-88]. It always applies to the player: an attack's or a slot's Staggered-time override never changes it
+[D-20261006-06]. Enemies keep the 1.5 s default and take the causing attack's override.
 
-For a parry, the causing attack is the parried attack. For a guard break, it is the blocked attack that broke the guard;
-that is a reading (Appendix B).
+For a parry-counter, the causing attack is the parried attack. For a guard break, it is the blocked attack that broke the
+guard; that is a reading (Appendix B).
 
-**Start.** For a parry, when the non-lethal counter sequence ends [D-20261005-81]. For a guard break, at the breaking
-contact; that is a reading.
+**Start.** For a parry-counter, at the enemy's own cancel notify on its half of the counter: that is where "the counter
+sequence ends" [D-20261005-81, D-20261006-02, D-20261007-07]. For a guard break, at the breaking contact; that is a
+reading.
 
-**Clock.** Q10.
+**Clock.** Q8.
 
 **While an enemy is Staggered:**
 - it starts no attack and does not move: it is held [D-20261004-03]. Today the AI cannot start an attack while staggered
@@ -717,9 +788,12 @@ contact; that is a reading.
 
 **Staggered ends:**
 - when its time runs out;
-- immediately when a non-lethal follow-up strike lands; there is one follow-up per parry [D-20261005-39, D-20261005-51];
-- when a press aimed elsewhere releases it [D-20261004-35, D-20261005-62];
+- immediately when a non-lethal follow-up strike lands; there is one follow-up per parry-counter [D-20261005-39,
+  D-20261005-51];
 - on death.
+
+A press aimed at someone else does **not** end it: Staggered runs its time [D-20261007-10]. The release by an
+aimed-elsewhere press [D-20261004-35, D-20261005-62] is retired.
 
 **While the player is Staggered** [D-20261005-88, which supersedes D-20261005-67]:
 - the guard-break reaction plays, and the breaking hit's full push carries the player (3.5, 3.10) [D-20261005-59];
@@ -734,9 +808,15 @@ contact; that is a reading.
 - attack and Block presses made meanwhile are buffered and fire afterwards. That carries over from D-20261005-67 and is a
   reading (Appendix B).
 
-D-20261005-88 names the guard break. No rule in this spec has an enemy parry the player, so the guard break is the only
+D-20261005-88 names the guard break. No rule in this spec has an enemy play a parry-counter against the player, so the
+guard break is the only
 way the player becomes Staggered here. Enemy attacks on a Staggered player are ordinary attacks, because the follow-up
 strike is the player's press [D-20261005-39]. Enemy paired finishers are covered in 3.8.
+
+**Beside hit-stun** [D-20261006-01]. Hit-stun and Staggered on one character both run: each keeps its own timer and its
+own rules (no guard while Staggered, whatever the hit-stun allows: Guard-2 takes precedence over Guard-4, a reading,
+Appendix B); the character is free when both have ended; a dodge-out needs both minimums to have passed; a hit never
+shortens a lock and never restores guard early.
 
 **Being Staggered again while Staggered:** the new time replaces the remaining time, as today
 (`HitReactionComponent.cpp:1439-1466`; section 3.11).
@@ -752,7 +832,7 @@ Staggered state, each 1.5 s on its own timer **[reported]**. They become one sta
 | Tunable | Default | Home | Decision | Today |
 |---|---|---|---|---|
 | Staggered time | 1.5 s, the same for every attack | combat settings; per-attack and per-slot overrides | D-20261005-08, D-20261005-31 | 1.5 s on the **attacker's** defense configuration, plus 1.5 s on the AI component, plus a 1.5 s constant |
-| The player's Staggered time | 0.6 s | the player's reaction profile | D-20261005-88 | none: nothing Staggers the player today |
+| The player's Staggered time | 0.6 s; always the player's own, never an attack's or a slot's override | the player's reaction profile | D-20261005-88, D-20261006-06 | none: nothing Staggers the player today |
 | Staggered dodge escape (player) | opens at max(0.12 s, half the player's Staggered time) | rule, no tunable | D-20261005-87, D-20261005-88 | none |
 
 ### 3.5 Guard break
@@ -772,9 +852,14 @@ Staggered state, each 1.5 s on its own timer **[reported]**. They become one sta
 - D-20261005-59: the breaking hit delivers the attack's full push;
 - D-20261005-83: a sliding window, cleared on a break;
 - D-20261005-86: a guard break grants an enemy nothing;
+- D-20261007-15: the counted guard break is built now, tested on fixtures, and dormant until a shipped enemy guards;
+- D-20261007-16: unblockable wins over guard breaker, and validation warns on the pair;
 - D-20261005-40: the glossary.
 
 There is no meter and no damage-derived stagger [D-20261005-15].
+
+An unblockable attack never reaches the table below: Contact-4 lands it as a hit through guard, so an attack flagged
+both unblockable and guard breaker breaks nothing. Validation warns on the pair of flags (4.4) [D-20261007-16].
 
 **Evaluated after a contact is decided as a block (Contact-7), in order:**
 
@@ -819,6 +904,10 @@ link (Appendix B).
 **Who it applies to.** Any character whose guard is up. Enemies do not guard today **[reported]**. Enemy guarding is not
 designed, and guard-breaker enemy types come later [D-20261004-27].
 
+**Built dormant.** The counted guard break (Break-3) is built with the guard-break stage (9.5) and proven on fixtures
+whose enemy guards; it stays dormant in shipped play until a shipped enemy guards [D-20261007-15]. The guard-breaker
+break (Break-1) is live for the player from that stage.
+
 **Tunables:**
 
 | Tunable | Default | Home | Decision | Today |
@@ -827,6 +916,7 @@ designed, and guard-breaker enemy types come later [D-20261004-27].
 | Guard-break window W | 3 s | reaction profile: base, with per-character overrides | D-20261005-26 | — |
 | Guard-break counting toggle | on in the base profile; off for the player | reaction profile | D-20261005-46, D-20261005-56 | — |
 | Guard breaker | see the defaults table above | combat settings type defaults; attack and slot overrides | D-20261005-29 | — |
+| Counted guard break | built and tested on fixtures; dormant until a shipped enemy guards | rule, no tunable | D-20261007-15 | — |
 
 ### 3.6 Interruption and hit look
 
@@ -834,6 +924,7 @@ designed, and guard-breaker enemy types come later [D-20261004-27].
 - D-20261004-42: the attack type decides the look, and pressure decides interruption;
 - D-20261005-16 and D-20261005-17: pressure against armor;
 - D-20261005-44: current armor is the higher of the base and any active window;
+- D-20261006-02: the reaction's cancel notify;
 - D-20261005-40: the glossary.
 
 **Scope.** Hits that land. Not blocks, not parries, and not damage applied by a paired animation.
@@ -866,7 +957,8 @@ A = the victim's current armor:
 **An interrupting hit:**
 - stops the victim's current action. An interrupted attack ends, as today (**[reported]**
   `CombatComponent.cpp:5810-5831`);
-- plays the full directional reaction, with the look above;
+- plays the full directional reaction, with the look above. The reaction's cancel notify (3.0) lets the character act
+  again from there, once hit-stun has also ended; a reaction with no notify ends at montage end [D-20261006-02];
 - applies hit-stun (3.7);
 - applies knockback (3.10).
 
@@ -905,7 +997,9 @@ an armor level.
 - D-20261003-03: buffered input;
 - D-20261005-18: hit-stun is no longer a finisher route;
 - D-20261005-53: it applies to enemies as to the player;
-- D-20261005-87: a dodge press ends the player's hit-stun early, after a minimum.
+- D-20261005-87: a dodge press ends the player's hit-stun early, after a minimum;
+- D-20261006-01: hit-stun and Staggered both run;
+- D-20261006-02: the hit reaction's cancel notify.
 
 **When.** An interrupting hit (3.6).
 
@@ -927,6 +1021,11 @@ The floor is 0.12 s: never below it [D-20261005-34].
   first half of the stun, so the escape opens at max(0.12 s, H ÷ 2) after the hit. The escape dodge is itself committed:
   it plays through. A dodge press made before the escape opens is buffered and fires when it opens. The dodge itself is
   not designed here; today the Evade input does nothing (`CombatComponent.cpp:4147-4149` **[reported]**).
+
+**Beside Staggered** [D-20261006-01]. When a character is both in hit-stun and Staggered, both run: each keeps its own
+timer and rules; the character is free when both have ended; a dodge-out needs both minimums to have passed; a hit
+never shortens a lock or restores guard early. The hit reaction's cancel notify (3.0) frees the character only once
+hit-stun has also ended [D-20261006-02].
 
 **Who it applies to.** Every character, the same way: no new attack and no movement until it ends, and the enemy AI
 resumes afterwards [D-20261005-53]. Today hit-stun stops nothing: neither the player's input nor the AI
@@ -955,9 +1054,10 @@ resumes afterwards [D-20261005-53]. Today hit-stun stops nothing: neither the pl
 - D-20261005-19: the trigger;
 - D-20261005-20: enemy paired finishers;
 - D-20261005-21: others hold;
-- D-20261005-27: the aim cone;
+- D-20261005-27, as replaced by D-20261007-12 and D-20261007-13: the aim cone and the locked target (3.13);
 - D-20261005-28: 350 cm;
 - D-20261005-38 and D-20261005-39: lethal only;
+- D-20261007-07: a lethal parry-counter kills at the counter's contact, with an authored kill sequence when one exists;
 - D-20261005-42: any lethal aimed strike;
 - D-20261005-47: keyed by direction only, no body types, the normal death when no clip matches;
 - D-20261005-57: the finishers live in the weapon's paired set, referenced by the combo set;
@@ -972,7 +1072,7 @@ percentage is involved [D-20261005-18].
 
 | Strike | Decision |
 |---|---|
-| The parry's counter (3.3) | D-20261005-38 |
+| The counter of a parry-counter (3.3): it kills at its own contact, and the entry's authored kill sequence plays instead when one exists | D-20261005-38, D-20261007-07 |
 | A follow-up strike on a Staggered enemy (3.3) | D-20261005-39 |
 | Any other attack press aimed at an enemy, when its resolved damage is lethal | D-20261005-18, D-20261005-19, D-20261005-42 |
 | A marked enemy's attack on the player, when its resolved damage is lethal | D-20261005-20, D-20261005-42 |
@@ -982,7 +1082,7 @@ percentage is involved [D-20261005-18].
 | # | Condition | If it fails |
 |---|---|---|
 | Trigger-1 | The press is Light or Heavy. A reading: Special and Evade resolve to no attack today (Appendix B). | — |
-| Trigger-2 | **Target, by the aim cone.** Candidates are hostile, alive, not dying and not in a paired animation, within **60° either side of the camera direction** [D-20261005-27]. A paired finisher needs its target within **350 cm** [D-20261005-28] (measured between the two characters' locations, as today); a non-lethal follow-up strike reaches the same 350 cm [D-20261005-85]. A Staggered or eligible (lethal) enemy wins ties [D-20261005-27, D-20261005-40]. What a tie means is Q6. | No paired finisher; the attack plays normally. |
+| Trigger-2 | **Target, by 3.13.** In free mode, candidates are hostile, alive, not dying and not in a paired animation, within **60° either side of the stick direction**, or of the character's facing when no direction is held [D-20261005-27, D-20261007-12]; a Staggered or eligible (lethal) enemy wins ties, and the nearest wins otherwise [D-20261007-12, D-20261005-40]. In lock mode the target is the locked one [D-20261007-13]. A paired finisher needs its target within **350 cm** [D-20261005-28] (measured between the two characters' locations, as today); a non-lethal follow-up strike reaches the same 350 cm [D-20261005-85]. | No paired finisher; the attack plays normally. |
 | Trigger-3 | **The strike.** If the target is Staggered, the follow-up strike at ×1.5 (3.3). Otherwise, the attack the press resolves to [D-20261005-42]. | — |
 | Trigger-4 | **Lethal check:** resolved damage ≥ the target's current health. For a Heavy press, Q4. | The strike plays normally. |
 | Trigger-5 | **Content and start checks.** The paired finisher comes from the attacker's weapon's paired set, through the combo set's finisher references, keyed by the attacker's direction relative to the victim (front, left, right or behind) and nothing else [D-20261005-47, D-20261005-57]. With no clip for that direction, the strike plays unpaired and the victim dies with its normal death reaction; the editor warns on the missing direction [D-20261005-47]. Today's start checks stay: a clear path (a 30 cm sweep), and neither character already in a paired animation (**[reported]** `PairedAnimationComponent.cpp:3863-3998`) [D-20261005-64]. | When a start check fails, the strike plays unpaired and the victim dies its normal death (3.11). |
@@ -1005,7 +1105,8 @@ matching clip simply dies its normal death [D-20261005-38, D-20261005-47]. There
 - the 25% low-health threshold (`HitReactionComponent.cpp:1423`);
 - hit-stun and Staggered as routes on their own;
 - choosing the one best soft-aim target in the character's facing direction, at 500 cm and 120°
-  (**[reported]** `PairedAnimationComponent.cpp:2777-2799`). This becomes the camera aim cone, at 350 cm;
+  (**[reported]** `PairedAnimationComponent.cpp:2777-2799`). This becomes the aim cone of 3.13, around the stick
+  direction or the facing, at 350 cm for a paired finisher;
 - finisher data on every attack, replaced by the finisher pool;
 - every shipped enemy attack carrying lethal finisher data **[reported]**, replaced by marked enemy types only.
 
@@ -1013,7 +1114,7 @@ matching clip simply dies its normal death [D-20261005-38, D-20261005-47]. There
 
 | Tunable | Default | Home | Decision | Today |
 |---|---|---|---|---|
-| Aim cone (half-angle) | 60° | combat settings | D-20261005-27 | soft aim from facing: 120° rejection, scored on 45° |
+| Aim cone (half-angle) | 60°, around the stick direction or the facing (3.13) | combat settings | D-20261005-27, D-20261007-12 | soft aim from facing: 120° rejection, scored on 45° |
 | Finisher range | 350 cm | combat settings | D-20261005-28 | 500 cm, `SoftAimRange` |
 | Can finish the player | off | reaction profile | D-20261005-20, D-20261005-40 | every enemy attack can |
 
@@ -1023,22 +1124,27 @@ matching clip simply dies its normal death [D-20261005-38, D-20261005-47]. There
 - D-20261005-35: up to 2 attackers;
 - D-20261005-21: others hold;
 - D-20261005-36: lands first;
+- D-20261007-08: untouchable until your own cancel notify;
 - D-20261004-01: enemy coordination comes after the player's combat mode.
 
 **Attack tokens:**
 - At most **N = 2** enemies attack the player at once by default. N is configurable, in the combat settings
   [D-20261005-35]. Today N is 1, global and C++ only (`CombatTokenSubsystem.h:41`).
-- Each enemy has **a short cooldown** between attacks [D-20261005-35]. Its value, and when it starts, are Q8. Today it is
+- Each enemy has **a short cooldown** between attacks [D-20261005-35]. Its value, and when it starts, are Q6. Today it is
   1.0 s, counted from the grant (`CombatTokenSubsystem.h:45`).
 - Waiting enemies queue first in, first out, as today.
 
 **Others hold** [D-20261005-21]:
-- While the player performs a parry or a paired finisher, no other enemy starts a new attack.
+- While the player performs a parry-counter or a paired finisher, no other enemy starts a new attack.
 - Swings already in progress finish.
 - The enemies resume when it ends.
 - Today every enemy targeting the player aborts its swing instead **[reported]**.
-- Whether an in-progress swing can touch the player during the parry or the paired finisher is Q7.
-- Whether other enemies hold during a non-lethal follow-up strike is Q9.
+- An in-progress swing cannot touch the player during a parry-counter until the player's own cancel notify
+  [D-20261007-08]; during a paired finisher, today's rule holds: the character that started it cannot be touched (3.11).
+  The swing's contact on an untouchable character is ignored and the swing continues; that is a reading (Appendix B).
+  D-20261005-36's fresh press for the other attack therefore applies before the sequence starts, or after the player's
+  cancel notify.
+- Whether other enemies hold during a non-lethal follow-up strike is Q7.
 
 **Two parryable attacks** [D-20261005-36]. A parry press answers whichever lands first (3.2, Parry-4). The other can be parried
 at once with a fresh press, since a success starts no lockout [D-20261005-72], or blocked.
@@ -1051,7 +1157,7 @@ at once with a fresh press, since a success starts no lockout [D-20261005-72], o
 | Tunable | Default | Home | Decision | Today |
 |---|---|---|---|---|
 | Most enemies attacking at once | 2 | combat settings | D-20261005-35 | 1, C++ only |
-| Per-enemy cooldown | Q8 | combat settings | D-20261005-35 | 1.0 s from the grant |
+| Per-enemy cooldown | Q6 | combat settings | D-20261005-35 | 1.0 s from the grant |
 
 ### 3.10 Knockback
 
@@ -1123,6 +1229,9 @@ No decision touches these, so they keep working as they do today. Each one can c
 - **Input buffering** uses the last-input-wins queue.
 - **Direction classification** uses the four-way classifier.
 - **The path check before a paired finisher** is a 30 cm sweep. When it fails, the strike plays normally.
+- **Targeting today.** No lock-on, strafe or target cycling exists in source (the 2026-10-07 log, E9). Today's soft aim
+  picks the one best target in the character's facing direction, at 500 cm and 120°, and serves paired finishers only.
+  Free mode (3.13) replaces it, and lock mode is new [D-20261007-12, D-20261007-13].
 
 ### 3.12 Tunables at a glance
 
@@ -1132,15 +1241,15 @@ No decision touches these, so they keep working as they do today. Each one can c
 | Block turn rate (the turn is always the full angle) | 360°/s | combat settings; defense set override | per weapon | D-20261005-69 |
 | Minimum parry window | 0.35 s | combat settings | no | D-20261005-09 |
 | Parry window scale | 1.0 | reaction profile, parry assists | yes | D-20261005-09, D-20261005-78 |
-| Parry lockout | 0.25 s | combat settings | no | D-20261005-32 |
+| Parry lockout | 0.25 s, lenient; to be felt first, and it may go to zero | combat settings | no | D-20261005-32, D-20261007-18 |
 | Attacker slowdown | ≥ 50% speed, ≤ 0.3 s | combat settings | no | D-20261005-33 |
 | Fastest natural turn | 720°/s | combat settings; defense set override | per weapon | D-20261005-75, D-20261005-68 |
 | Other parry assists (input buffer, contact grace, slow motion on window, telegraph, always perfect parry) | 0, 0, off, on, off | reaction profile | yes | D-20261004-07, D-20261005-78 |
 | Staggered time | 1.5 s (one default) | combat settings → attack → slot | per attack | D-20261005-08, D-20261005-31 |
 | Follow-up strike multiplier | ×1.5 of the resolved attack's damage | combat settings (proposed) | no | D-20261005-39, D-20261005-82 |
-| Counter damage | 50 (default); each paired-set counter overrides | combat settings → paired-set counter | per counter | D-20261005-80 |
+| Counter damage | 50 (default); each defense-set entry sets its own; a paired clip may override | combat settings → defense-set entry → paired clip | per entry | D-20261005-80, D-20261006-03 |
 | Hit-stun dodge escape | opens at max(0.12 s, half the stun) | rule | no | D-20261005-87 |
-| The player's Staggered time | 0.6 s | the player's reaction profile | yes | D-20261005-88 |
+| The player's Staggered time | 0.6 s, always the player's own | the player's reaction profile | yes | D-20261005-88, D-20261006-06 |
 | Staggered dodge escape (player) | opens at max(0.12 s, half the player's Staggered time) | rule | no | D-20261005-88 |
 | Guard-break threshold and window | 4 points within 3 s | reaction profile | yes | D-20261005-15, D-20261005-26 |
 | Guard breaker | charged heavy and directional light: yes; others: no | combat settings → attack → slot | per attack | D-20261005-29 |
@@ -1148,14 +1257,83 @@ No decision touches these, so they keep working as they do today. Each one can c
 | Base armor | 0 | reaction profile | yes | D-20261005-17 |
 | Hit-stun | 0.25 / 0.45 / 0.6 s | combat settings → set → attack → slot | per attack | D-20261005-34 |
 | Hit-stun floor | 0.12 s | combat settings | no | D-20261005-34 |
-| Aim cone | 60° either side | combat settings | no | D-20261005-27 |
+| Aim cone | 60° either side of the stick direction, or of the facing when no direction is held | combat settings | no | D-20261005-27, D-20261007-12 |
 | Finisher range | 350 cm | combat settings | no | D-20261005-28 |
+| Lock range, and "near" for the automatic re-pick | Q20 | combat settings (proposed) | D-20261007-13 |
+| Flick threshold (lock switch) | no decided value; tuned on captures (proposed) | combat settings (proposed) | D-20261007-13 |
 | Can finish the player | off | reaction profile | yes | D-20261005-20 |
 | Guard-break counting toggle | base on; player off | reaction profile | yes | D-20261005-46, D-20261005-56 |
 | Most attackers at once | 2 | combat settings | no | D-20261005-35 |
-| Per-enemy attack cooldown | Q8 | combat settings | no | D-20261005-35 |
+| Per-enemy attack cooldown | Q6 | combat settings | no | D-20261005-35 |
 | Knockback (hit push) | Light 25 cm / 0.2 s, Heavy 20 cm / 0.25 s (code seeds) | combat settings → set → attack → slot | per attack | D-20261004-38 |
 | Block shove | Light 10 cm / 0.2 s, Heavy 8 cm / 0.25 s (proposed) | combat settings → set → attack → slot | per attack | D-20261005-59 |
+
+### 3.13 Targeting and camera
+
+**Decisions:**
+- D-20261007-12: free-mode aim: one rule for every attack press, the aim cone around the stick direction, or the
+  character's facing when no direction is held; Staggered or eligible enemies win ties, nearest otherwise; the camera
+  never decides;
+- D-20261007-13: lock mode: a lock press picks the best target by the same cone and scores; while locked every press
+  aims at the locked target, the player strafes facing it, and a flick of the look stick (or a scroll) switches to the
+  nearest enemy in that direction; the lock drops on the target's death (the next is picked automatically when one is
+  near) or on a second press;
+- D-20261007-14: this design lives here, beside the rules that use it;
+- D-20261005-27: the cone's 60° half-angle; its camera reference is replaced by D-20261007-12;
+- D-20261005-28 and D-20261005-85: 350 cm for a paired finisher and for a follow-up strike;
+- D-20261004-35: aim decides;
+- D-20261004-26: the pillars: a free camera, with an optional lock.
+
+The owner's description (the 2026-10-07 log, E9): "the camera will use input direction to let you turn and attack in
+the direction you are pressing but then clicking lockon locks to the best target and enters strafe mode letting you
+scroll through targets by direction and location".
+
+**Two modes.** Free mode is the default. Lock mode starts with a lock press and ends as below. Neither a lock-on nor a
+target cycle exists today, and today's soft aim (the facing, 500 cm, 120°) is what free mode replaces (3.11).
+
+**Free mode** [D-20261007-12]. One rule for every attack press: ordinary attacks, follow-up strikes and paired
+finishers alike.
+
+| # | Rule |
+|---|---|
+| Free-1 | The cone's centre is the stick direction when a direction is held, else the character's facing. The stick direction is the world direction the stick points to in the frame movement uses; that is a reading (Appendix B). |
+| Free-2 | Candidates are hostile, alive, not dying and not in a paired animation, within 60° either side of the centre [D-20261005-27]. |
+| Free-3 | Staggered or eligible (lethal) enemies win ties; otherwise the nearest wins. Among several Staggered or eligible enemies the nearest wins; that is a reading (Appendix B). |
+| Free-4 | A paired finisher needs its target within 350 cm, and a follow-up strike reaches the same 350 cm [D-20261005-28, D-20261005-85]. An ordinary attack has no range here beyond today's attack warp (3.0, "aimed at"); that is a reading (Appendix B). |
+| Free-5 | The camera never decides. It follows the character and the look stick and plays no part in picking the target. |
+
+**Lock mode** [D-20261007-13].
+
+| # | Rule |
+|---|---|
+| Lock-1 | A lock press picks the best target by the free-mode cone and its scores (Free-1 to Free-3), at that moment. With no candidate nothing happens, and the mode does not change (a reading, Appendix B). |
+| Lock-2 | While locked, every attack press aims at the locked target; the cone is not consulted. |
+| Lock-3 | The player strafes, facing the locked target. |
+| Lock-4 | A flick of the look stick, or a scroll, switches the lock to the nearest enemy in that direction. |
+| Lock-5 | The lock drops when the target dies. If another enemy is near, it is picked automatically; what "near" means is Q20. |
+| Lock-6 | A second lock press drops the lock. |
+
+Nothing here designs the camera's framing while locked, the strafe speed or the lock indicator; they belong to the camera
+and movement designs the pillars queued, with guard aim (3.11), and come later. Guard facing keeps today's threat
+selection (3.11); the lock does not change what guard faces (a reading, Appendix B).
+
+**Tunables:**
+
+| Tunable | Default | Home | Decision | Today |
+|---|---|---|---|---|
+| Aim cone (half-angle) | 60° | combat settings | D-20261005-27, D-20261007-12 | soft aim from facing: 120° rejection, scored on 45° |
+| Cone centre | the stick direction, else the facing | rule, no tunable | D-20261007-12 | the facing |
+| Tie rule | Staggered or eligible first, then nearest | rule, no tunable | D-20261007-12 | scored on angle |
+| Finisher and follow-up range | 350 cm | combat settings | D-20261005-28, D-20261005-85 | 500 cm, `SoftAimRange` |
+| Lock range (how far a lock press looks) | Q20 | combat settings (proposed) | D-20261007-13 | none |
+| "Near", for the automatic re-pick on death | Q20 | combat settings (proposed) | D-20261007-13 | none |
+| Flick threshold (look-stick deflection that switches) | no decided value; tuned on captures | combat settings (proposed) | D-20261007-13 | none |
+
+**Changes from today:**
+- The cone's centre is the stick direction, else the facing. The earlier draft of this spec keyed it to where the
+  camera looked [D-20261005-27, replaced by D-20261007-12].
+- One rule for every press; today's soft aim serves paired finishers only.
+- Lock mode is new: today there is no lock-on, strafe or target cycling.
 
 ---
 
@@ -1175,9 +1353,9 @@ BaseCombatCharacter ── WeaponData ─▶ UWeaponData ──▶ UComboSet    
                     │                            │                 finisher references ─────────────┐)
                     │                            ├──▶ UDefenseSet  (block reactions, guard enter/exit,  │
                     │                            │                 counter entries: deflect, fallback   │
-                    │                            │                 strike, counter reference ───┐       │)
+                    │                            │                 strike, damage, counter ref ─┐       │)
                     │                            └──▶ UPairedSet   (counters by direction and swing ◀──┘       │
-                    │                                              with lethal and non-lethal variants;        │
+                    │                                              each can kill, kill sequence optional;       │
                     │                                              finishers by direction ◀───────────────────┘)
                     └── ReactionProfile ──▶ UReactionProfile (hit reactions, Staggered reaction, recoil, armor,
                                                               guard break, marker, parry assists)
@@ -1204,7 +1382,7 @@ BaseCombatCharacter ── WeaponData ─▶ UWeaponData ──▶ UComboSet    
 
 **Which side's asset is read.**
 - The **defender's** defense set and paired set supply its block reactions, deflects, counters and the paired finisher
-  of a lethal parry.
+  of a lethal parry-counter, when its counter has one.
 - The **attacker's** combo set and paired set supply the paired finisher when its follow-up strike or ordinary attack is
   lethal (3.8).
 - The **victim's** reaction profile supplies its hit reactions, its Staggered reaction, its armor and its guard-break
@@ -1284,7 +1462,7 @@ It is named for its purpose, following the project's naming rule [D-20261004-17]
 - **To a slot:** the combo continues into that slot.
 - **Back to opener:** the combo starts over at the opener for the link's own input. It is shown with a loop icon. It is
   the only allowed kind of cycle [D-20261005-03, D-20261005-40].
-- **None:** the slot has no follow-up for that input. What a press then does is Q11.
+- **None:** the slot has no follow-up for that input. What a press then does is Q9.
 
 **Validation.** The set implements `IsDataValid`, and every result also shows in place as a badge (5.5).
 
@@ -1297,6 +1475,8 @@ It is named for its purpose, following the project's naming rule [D-20261004-17]
 | Warning | A combo set whose slots all have an AI weight of 0, so an enemy using it never attacks. |
 | Warning | An attack with no authored parry window; it gets the 0.35 s minimum at runtime [D-20261005-74]. |
 | Warning | An unparryable attack that has an authored parry window. |
+| Warning | An attack flagged both unblockable and guard breaker: at contact unblockable wins and the guard does not break [D-20261007-16]. |
+| Warning | A cancel notify on an attack montage: attacks cancel at the phase transition, and the notify is ignored (4.13) [D-20261006-02]. |
 | Info | An override equal to the value it inherits. |
 | Not flagged | A loop through a back-to-opener link. It is shown, not flagged [D-20261005-03]. |
 
@@ -1352,7 +1532,8 @@ refinement [D-20261005-45], and the swing shape is kept for height and the edito
 | Unparryable | off | yes | D-20261005-07, D-20261005-40 |
 
 "Unparryable" is a plain on/off flag. The project's semantics rule gives booleans "direct authored gates", and the
-glossary calls it "an attack flagged".
+glossary calls it "an attack flagged". An attack flagged both unblockable and guard breaker saves, with a warning (4.4):
+at contact unblockable wins [D-20261007-16].
 
 **Deprecated, then removed after migration (7.2):**
 - **The combo links** `NextComboAttack`, `HeavyComboAttack`, `DirectionalFollowUps` and `HeavyDirectionalFollowUps`
@@ -1366,13 +1547,15 @@ glossary calls it "an attack flagged".
 - **`HitStunDuration`**, which becomes the hit-stun override.
 - **The separate feedback fields** `ImpactAudioConfig`, `ImpactVFXConfig`, `HitstopConfig` and the defense profile's
   blocked-impact overrides. They fold into the impact feedback per outcome.
-- **The `Attack.Capability.Terminal` tag**, replaced by links of kind "None". This is proposed, and part of Q12.
+- **The `Attack.Capability.Terminal` tag**, replaced by links of kind "None". This is proposed, and part of Q10.
 
 ### 4.6 The defense set
 
 The defense set is the weapon's "block and parry responses: deflect, counter, lethal paired variant, fallback strike,
 keyed by direction and swing" [D-20261005-48]. Since D-20261005-57 the two-character counters themselves live in the
-paired set; the defense set keeps the deflect and the fallback strike and references the counter.
+paired set; the defense set keeps the deflect and the fallback strike and references the counter. Since D-20261006-03
+each entry also holds the counter's damage, and since D-20261007-07 the referenced counter can kill on its own, with an
+authored kill sequence optional.
 
 **Proposed class:** `UDefenseSet`. **Proposed asset name:** `DA_DefenseSet_<Weapon>`, for example `DA_DefenseSet_Katana`.
 
@@ -1392,8 +1575,9 @@ paired set; the defense set keeps the deflect and the fallback strike and refere
 | Swing | Slash left, slash right, overhead or thrust. | D-20261005-45 |
 | Lane | Optional: left, centre or right. An entry that names the lane is preferred when it matches (3.3). | D-20261005-45 |
 | Deflect | The defender's deflect that meets the blade. An off-front entry may instead name its turn-deflect and a front entry. | D-20261005-38, D-20261004-30 |
-| Counter | A reference to a counter in the weapon's paired set (4.7), or none, in which case this entry's fallback strike plays. The referenced counter carries the non-lethal and lethal variants that share this entry's deflect. | D-20261005-48, D-20261005-57 |
-| Fallback strike | This entry's single-character strike, played when no paired counter fits. The glossary keys it by direction and swing like the rest of the entry. | D-20261005-23, D-20261005-48 |
+| Counter | A reference to a counter in the weapon's paired set (4.7), or none, in which case this entry's fallback strike plays. The referenced counter shares this entry's deflect, can kill at its own contact, and may carry an authored kill sequence. | D-20261005-48, D-20261005-57, D-20261007-07 |
+| Damage | This entry's counter damage: a toggle plus a value over the combat settings' default of 50. The referenced clip's own override beats it; the fallback strike always deals this value (3.3). | D-20261006-03, D-20261005-80 |
+| Fallback strike | This entry's single-character strike, played when no paired counter fits. The glossary keys it by direction and swing like the rest of the entry. It carries its own cancel notify (3.0). | D-20261005-23, D-20261005-48, D-20261006-02 |
 
 **Validation** (`IsDataValid`, with badges in the defense set editor, 5.9):
 
@@ -1401,6 +1585,7 @@ paired set; the defense set keeps the deflect and the fallback strike and refere
 |---|---|
 | Warning | A direction × swing cell with no entry, with the fallback that will play for it [D-20261005-30]. |
 | Warning | An entry with no counter reference, so only its fallback strike can play. |
+| Warning | A deflect, turn-deflect, fallback strike or block reaction with no cancel notify; it is read as ending at montage end [D-20261006-02]. |
 | Error | An entry with no fallback strike; an empty counter pool; no front block reaction; no guard enter or exit clip. |
 | Error | A counter reference into a paired set other than the weapon's, or to a counter whose direction differs from the entry's. |
 
@@ -1408,7 +1593,8 @@ paired set; the defense set keeps the deflect and the fallback strike and refere
 
 The paired set "holds every two-character sequence keyed by direction and role: counters (lethal and non-lethal
 variants) and finishers. The defense set references counters from it; the combo set references finishers from it"
-[D-20261005-57]. The owner's reason: finishers are offensive, so they do not belong with the weapon's defenses.
+[D-20261005-57]. The owner's reason: finishers are offensive, so they do not belong with the weapon's defenses. Since
+D-20261007-07 a counter is one sequence that can kill at its own contact; an authored kill sequence is optional.
 
 **Proposed class:** `UPairedSet`. **Proposed asset name:** `DA_PairedSet_<Weapon>`, for example `DA_PairedSet_Katana`.
 
@@ -1423,9 +1609,9 @@ variants) and finishers. The defense set references counters from it; the combo 
 |---|---|---|
 | Direction | Front, left, right or behind. | D-20261005-57 |
 | Swing tag | Optional: the swing this counter was authored against, for the defense set editor's picker. | D-20261005-45 |
-| Non-lethal variant | A paired-content reference (4.12): deflect plus counter, leaving the enemy Staggered. | D-20261005-24, D-20261005-57 |
-| Lethal variant | A paired-content reference (4.12): the same deflect flowing into the kill, the paired finisher. | D-20261005-38, D-20261005-57 |
-| Damage | This counter's damage, a toggle plus a value over the combat-settings default of 50. It decides lethality at the press (3.3). | D-20261005-80 |
+| Counter | A paired-content reference (4.12): deflect plus counter. Its damage lands at the counter's contact and can kill; when it does not, the enemy is Staggered from its own cancel notify. | D-20261005-24, D-20261005-57, D-20261007-07 |
+| Kill sequence (optional) | A paired-content reference (4.12): the same deflect flowing into an authored kill, played instead of the counter when the press is lethal. Not required. | D-20261005-38, D-20261005-57, D-20261007-07 |
+| Damage override (optional) | A toggle plus a value that replaces the defense-set entry's damage for this clip (3.3). | D-20261006-03 |
 
 **Finisher** (proposed struct `FPairedFinisher`): a direction and a paired-content reference (4.12).
 
@@ -1433,11 +1619,13 @@ variants) and finishers. The defense set references counters from it; the combo 
 
 | Severity | Rule |
 |---|---|
-| Warning | A direction with no counter, or a counter with only one variant. |
+| Warning | A direction with no counter. |
 | Warning | A direction with no finisher [D-20261005-47]. |
 | Warning | A counter or finisher that no defense set or combo set references. |
-| Error | A variant whose two roles share a montage, or whose "can it start here?" check (4.12) can never pass, for example missing roles. |
-| Error | A finisher that is not lethal, or a non-lethal variant that is. |
+| Warning | A counter half, kill-sequence half or finisher half with no cancel notify; it is read as ending at montage end [D-20261006-02]. |
+| Info | A counter with no kill sequence: a lethal press kills at the counter's own contact [D-20261007-07]. |
+| Error | A counter, kill sequence or finisher whose two roles share a montage, or whose "can it start here?" check (4.12) can never pass, for example missing roles. |
+| Error | A finisher reference whose content is a counter, or a counter reference whose content is a kill (4.12). |
 
 ### 4.8 The reaction profile
 
@@ -1454,11 +1642,11 @@ body type [D-20261005-47].
 
 | Section | Contents | Decision |
 |---|---|---|
-| Hit reactions | Directional light and heavy reactions (front, back, left, right), each an array of variants. Death reactions, also an array. The additive flinch for each direction. I-frames on each entry, as today. **No stun field.** | D-20261002-07, D-20261004-41, D-20261004-42 |
+| Hit reactions | Directional light and heavy reactions (front, back, left, right), each an array of variants. Death reactions, also an array. The additive flinch for each direction. I-frames on each entry, as today. **No stun field.** Each reaction clip carries a cancel notify (3.0); one without it ends at montage end, with a warning (4.13). | D-20261002-07, D-20261004-41, D-20261004-42, D-20261006-02 |
 | Body-side defense reactions | The Staggered reaction, by direction: what this character does when its attack is parried or its guard breaks, also played with the fallback strike. Recoil, when its attack is blocked by a block-interruptible defender. | D-20261005-23, D-20261005-55 |
 | Armor | Base armor, default 0. | D-20261005-17, D-20261005-44 |
 | Guard break | Counting toggle: on in the base profile, off for the player. Threshold N, default 4. Window W, default 3 s. | D-20261005-15, D-20261005-26, D-20261005-46, D-20261005-56 |
-| Staggered | This character's own Staggered time, a toggle plus a value. Unset in the base profile, so enemies take the causing attack's time; set to 0.6 s on the player's profile. How it combines with an attack's override is Q21. | D-20261005-88 |
+| Staggered | This character's own Staggered time, a toggle plus a value. Unset in the base profile, so enemies take the causing attack's time; set to 0.6 s on the player's profile. When set, it always applies: an attack's or a slot's override never changes it. | D-20261005-88, D-20261006-06 |
 | Marker | Can finish the player, default off. | D-20261005-20, D-20261005-40 |
 | Parry assists | Window scale 1.0, input buffer 0, contact grace 0, slow motion on window off, telegraph on, always perfect parry off. | D-20261004-07, D-20261005-09, D-20261005-78 |
 | Other per-character hit values | `KnockbackScale` and damage resistance: how this body takes a hit. They move here; proposed. The guard-facing turn and the block turn do **not** live here [D-20261005-68]. | D-20260930-01 |
@@ -1479,16 +1667,18 @@ body type [D-20261005-47].
 | Guard arc | ±75°, overridable on a defense set | D-20261005-11, D-20261005-70 |
 | Block turn rate | 360°/s, overridable on a defense set | D-20261005-69 |
 | Minimum parry window | 0.35 s before contact | D-20261005-09 |
-| Parry lockout | 0.25 s | D-20261005-32 |
+| Parry lockout | 0.25 s, lenient: a press during it is honoured if the window is still open when it ends; it may go to zero | D-20261005-32, D-20261007-18 |
 | Attacker slowdown | no lower than 50% speed, at most 0.3 s | D-20261005-33 |
 | Staggered time default | 1.5 s | D-20261005-08 |
 | Hit-stun floor | 0.12 s | D-20261005-34 |
 | Follow-up strike multiplier | ×1.5 of the resolved attack's damage | D-20261005-39, D-20261005-82 |
-| Counter damage default | 50 | D-20261005-80 |
-| Aim cone | 60° either side of the camera direction | D-20261005-27 |
+| Counter damage default | 50, under each defense-set entry's value and any clip override | D-20261005-80, D-20261006-03 |
+| Aim cone | 60° either side of the stick direction, or of the facing when no direction is held | D-20261005-27, D-20261007-12 |
+| Lock range, and "near" for the automatic re-pick | Q20 | D-20261007-13 |
+| Flick threshold | no decided value; tuned on captures (proposed) | D-20261007-13 |
 | Finisher range | 350 cm | D-20261005-28 |
 | Most enemies attacking at once | 2 | D-20261005-35 |
-| Per-enemy attack cooldown | Q8 | D-20261005-35 |
+| Per-enemy attack cooldown | Q6 | D-20261005-35 |
 | Default weapon data | the kit used by a character with none (`CombatSettings.h:78`) | D-20261005-49 |
 | Guard-facing threat selection | today's values, unchanged (3.11) | — |
 | Fastest natural turn (default) | 720°/s, overridable on a defense set | D-20261005-75, D-20261005-68 |
@@ -1562,13 +1752,32 @@ This follows the plugin review's "narrow seam" idea (proposed).
 **Proposed shape:** an interface, `ICombatPairedContent`, that answers:
 - its roles: who starts it and who receives it, with their montages and sections;
 - its warp targets and warp limits;
-- its sync moments: the deflect and the damage;
+- its sync moments: the deflect and the damage, and each role's cancel notify (3.0) [D-20261006-02];
 - its direction and swing tags;
-- whether it is a paired finisher or a non-lethal counter;
+- whether it is a kill (a paired finisher, or a counter's authored kill sequence) or a counter [D-20261007-07];
 - a quiet "can it start here?" check that returns refusal reasons. The editor and the "why didn't it play" debug readout
   use those reasons.
 
 `UPairedAnimationData` implements it first.
+
+### 4.13 Notifies on montages
+
+Several rules read data from the montage itself. They are listed here once, with their validation, so that the timing
+strip (5.4) and `IsDataValid` agree.
+
+| Notify | On | Carries | Read by | When missing |
+|---|---|---|---|---|
+| Phase transition (`AnimNotify_AttackPhaseTransition`) | attack montages | Windup, Active, Recovery | combo timing; the Active start as the contact fallback (3.2); the attack's cancel point [D-20261006-02] | today's rules |
+| Parry window | attack montages | a lead time before the predicted arrival (R-20261005-01, proposed) | 3.2 | the 0.35 s minimum at runtime, with a warning [D-20261005-74] |
+| Contact marker | attack montages | the authored contact frame (proposed, 3.2) | the predicted arrival | the Active start |
+| Hold start (`AnimNotify_HoldWindowStart`) | attack montages | the moment the hold check runs | the hold | no hold |
+| Armor window | character animations | an armor level (proposed notify state, 3.6) | 3.6 | base armor only |
+| Cancel notify | every non-attack montage: deflects, turn-deflects, fallback strikes, block reactions, each half of a paired counter, kill sequence or finisher, hit and Staggered reactions | nothing; its position is the meaning (3.0) | 3.3, 3.4, 3.6, 3.7 | montage end, with a warning [D-20261006-02] |
+
+**The cancel notify's shape** (proposed; D-20261006-02 fixes its meanings, not its class): one notify class with no
+payload, placed once per montage. A second one on the same montage is an error. Attacks never carry it: their cancel
+point is the phase transition from Active to Recovery; a cancel notify on an attack montage is a warning and is ignored
+(4.4).
 
 ---
 
@@ -1620,7 +1829,8 @@ uses [D-20261004-33]. It shows:
 - the authored parry window **and** the effective window after the minimum and the scale, with the extension hatched;
 - the hold start;
 - the armor windows;
-- the contact moment.
+- the contact moment;
+- on a non-attack montage, the cancel notify (4.13).
 
 A warning appears when the animation has changed under its notifies.
 
@@ -1657,14 +1867,17 @@ A warning appears when the animation has changed under its notifies.
   clips above them [D-20261005-55]; the rows outside the guard arc are greyed while the arc is ±75°.
 - **Counter tab:** a grid with the four directions as rows and the four swings as columns [D-20261005-45]. Each cell shows
   its entry's deflect, its fallback strike and the paired-set counter it references, as three chips, with an empty chip
-  for missing content. The counter chip opens the paired set entry. A cell is coloured by the fallback that would play for
+  for missing content, and the entry's counter damage with its source (the entry, or the settings default)
+  [D-20261006-03]. The counter chip opens the paired set entry. A cell is coloured by the fallback that would play for
   it, so that a gap is seen before it is felt [D-20261005-30]. Optional lane refinements appear as sub-rows.
 - **Pickers** for every clip and reference; the picker for a counter reference lists only the weapon's paired set, filtered
   to the cell's direction, with the swing tag shown.
 
 **The paired set editor** [D-20261005-57]:
-- **Counter tab:** one row per direction, each with its counters; every counter shows its non-lethal and lethal variants
-  as two chips, with the swing tag. A direction with no counter, or a counter with one variant, is marked.
+- **Counter tab:** one row per direction, each with its counters; every counter shows its counter clip and, when it has
+  one, its authored kill sequence as two chips, with the swing tag and any damage override [D-20261007-07,
+  D-20261006-03]. A direction with no counter is marked; a counter with no kill sequence is noted, not flagged, since it
+  kills at its own contact.
 - **Finisher tab:** one row per direction with its paired finisher; an empty row is a warning [D-20261005-47].
 - **Coverage strip:** the four directions, coloured by whether a counter and a finisher exist, so missing directions are
   seen at a glance.
@@ -1696,7 +1909,8 @@ A warning appears when the animation has changed under its notifies.
 - the current slot id;
 - the combo state machine (`FAttackStateMachine`, `CombatTypes.h:1736`);
 - the resolved attack spec of the running attack;
-- the parry lockout timer;
+- the parry lockout timer, and the press remembered during it [D-20261007-18];
+- the targeting mode, free or lock, and the locked target (3.13);
 - the guard-break ledger;
 - the Staggered and hit-stun timers.
 
@@ -1726,24 +1940,37 @@ Timing is never a rejection. Input is always captured, and the combo timing only
 ### 6.3 Order of evaluation
 
 **An attack press executes (Light or Heavy):**
-1. The player is in hit-stun, or Staggered: the press is buffered (3.7, 3.4) [D-20261005-37, D-20261005-88].
-2. Pick the target by the aim cone (3.8, Trigger-2), within 350 cm for a paired finisher and for a follow-up strike
-   alike [D-20261005-28, D-20261005-85].
-3. The target is Staggered: a follow-up strike. If it is lethal, a paired finisher (3.3).
+1. The player is in hit-stun, or Staggered, or inside their own parry-counter before their cancel notify: the press is
+   buffered, last input wins (3.7, 3.4, 3.3) [D-20261005-37, D-20261005-88, D-20261007-09].
+2. Pick the target (3.13): in free mode by the aim cone around the stick direction, or the facing when no direction is
+   held, Staggered or eligible enemies first and the nearest otherwise; in lock mode the locked target
+   [D-20261007-12, D-20261007-13]. A paired finisher and a follow-up strike need 350 cm [D-20261005-28, D-20261005-85].
+3. The target is Staggered: a follow-up strike. A light press uses the light opener from the initial press, and the hold
+   does not open [D-20261007-17]. If it is lethal, a paired finisher (3.3).
 4. Otherwise, the lethal check on the attack the press resolves to: a paired finisher (3.8) [D-20261005-42].
 5. Otherwise, select the transition, start the attack, and build its resolved attack spec.
+
+**A lock press** (3.13) [D-20261007-13]:
+1. Not locked: pick the best target by the cone and its scores; lock on it, and strafe facing it.
+2. Locked: drop the lock.
+
+**A look-stick flick, or a scroll, while locked:** switch to the nearest enemy in that direction [D-20261007-13].
+
+**The locked target dies:** drop the lock; pick the next automatically when one is near [D-20261007-13].
 
 **A dodge press:**
 1. The player is in hit-stun: the press waits for the escape to open, then ends the hit-stun and the committed dodge
    plays (3.7) [D-20261005-87].
 2. The player is Staggered: the press waits for the escape to open, then ends the Staggered state, the enemy's opening
    with it, and the committed dodge plays (3.4) [D-20261005-88].
-3. Otherwise, the dodge (not designed in this spec).
+3. Both run: the escape needs both minimums to have passed [D-20261006-01].
+4. Otherwise, the dodge (not designed in this spec).
 
 **A Block press:**
 1. The guard rules (3.1).
-2. The parry rules (3.2).
-3. The parry plays its counter (3.3).
+2. The parry rules (3.2), including the press remembered through a lockout [D-20261007-18].
+3. The parry-counter (3.3): content, damage, outcome; then the turn, the parry and the counter; then each character's
+   cancel notify.
 
 **A weapon contact** (this order is proposed; today the resolver decides the block before anything else):
 1. Block resolution (3.1).
@@ -1756,14 +1983,15 @@ Timing is never a rejection. Input is always captured, and the combo timing only
 
 | Component | What changes |
 |---|---|
-| **Combat** (`UCombatComponent`) | The combo set and current slot; the selection function; the resolved spec at attack start; guard dropping when an attack starts, and Block buffered until Recovery; the parry lockout; hit-stun holding attacks and movement, with the dodge escape after its minimum [D-20261005-87]; aim-cone targets for follow-up strikes and paired finishers (with Targeting). |
-| **Targeting** | The camera-direction aim cone (60°, 350 cm, preferring Staggered or eligible enemies); the code-driven turn for block and parry (the adaptive rate and its cap), through the alignment arbiter. Motion warping stays for attacks and paired content [D-20261004-21]. |
-| **HitReaction** | Pressure against armor, armor windows and the flinch; hit-stun from the resolved spec, with its floor, holding the AI too; one Staggered state using the causing attack's time; the guard-break count; knockback by outcome, with the block shove and no push on a flinch or in a paired sequence; the reaction profile in place of the hit-reaction settings; death reading the variants array. |
-| **PairedAnimation** | The parry sequence: the deflect, plus a non-lethal counter or a paired finisher, decided at the press; the defense set's counter entries, the paired set's counters and their fallback; the follow-up strike and the combo set's finisher references into the paired set; the paired-content interface. The post-parry timers of today go. |
+| **Combat** (`UCombatComponent`) | The combo set and current slot; the selection function; the resolved spec at attack start; guard dropping when an attack starts, and Block buffered until Recovery; the parry lockout, with the press remembered through it [D-20261007-18]; hit-stun holding attacks and movement, with the dodge escape after its minimum [D-20261005-87]; the target of every attack press, from Targeting (3.13); presses buffered inside the parry-counter until the player's cancel notify [D-20261007-09]. |
+| **Targeting** | Free mode: the aim cone around the stick direction, or the facing when no direction is held, Staggered or eligible enemies first and the nearest otherwise, for every attack press, with 350 cm for a paired finisher and a follow-up strike [D-20261007-12]; lock mode: the lock press, the locked target for every press, the strafe facing it, the flick (or scroll) switch, the drop on death with the automatic re-pick, and the second press [D-20261007-13]; today's soft aim retired. The code-driven turn for block and parry (the adaptive rate and its cap), through the alignment arbiter. Motion warping stays for attacks and paired content [D-20261004-21]. |
+| **HitReaction** | Pressure against armor, armor windows and the flinch; hit-stun from the resolved spec, with its floor, holding the AI too; one Staggered state using the causing attack's time, and always the player's own time for the player [D-20261006-06], running beside hit-stun with both ending before the character is free [D-20261006-01]; the cancel notify on hit and Staggered reactions [D-20261006-02]; the guard-break count, built dormant [D-20261007-15]; knockback by outcome, with the block shove and no push on a flinch or in a paired sequence; the reaction profile in place of the hit-reaction settings; death reading the variants array. |
+| **PairedAnimation** | The parry-counter: content, damage and outcome at the press; the turn, the deflect and the counter; damage at the counter's contact, never clamped; the kill at contact, or the authored kill sequence; each half's cancel notify, and the protection until it [D-20261006-03, D-20261006-05, D-20261007-07, D-20261007-08]; the defense set's counter entries, the paired set's counters and their fallback; the follow-up strike and the combo set's finisher references into the paired set; the paired-content interface. The post-parry timers of today go. |
 | **Weapon** (`UWeaponComponent`, `UWeaponData`) | The weapon data references a combo set, a defense set and a paired set in place of the attack configuration; the default weapon data stays the fallback for a character without one [D-20261005-48, D-20261005-49, D-20261005-57]. |
 | **Defense resolver** (`DefenseResolver.cpp`) | The guard arc at 75°; parry candidates (any direction, unparryable, effective window); lands first. The cone and reachability gates go. |
 | **Enemy AI and attack tokens** (`EnemyCombatAIComponent`, `CombatTokenSubsystem`) | Attacks chosen among the weapon's combo-set slots by their AI weight and range, with `AvailableAttacks` and `FEnemyAttackConfig` retired [D-20261005-63]; 2 attackers and a per-enemy cooldown; others hold instead of aborting; hit-stun and Staggered holding attacks and movement; enemy paired finishers only for marked types. |
 | **Cinematic effects** (`CombatEffectsWorldSubsystem`) | The attacker slowdown, as an actor time lease (no lower than 50%, at most 0.3 s), on the existing overlap-safe lease system. |
+| **Animation notifies** | The cancel notify class and its validation (4.13) [D-20261006-02]; the parry window as a lead time (R-20261005-01, proposed). |
 | **Editor module** | The combo set editor: the grid, the map, overrides, the timing strip and validation; the defense set and paired set editors; the migration operation (7.1). |
 
 **Project instructions change too.** `CLAUDE.md`'s rule "Stateful Block input is immediate" no longer holds: a Block press
@@ -1811,7 +2039,7 @@ This section names today's code and assets, so the retired words appear here whe
 - reports any other cycle to the owner as an error, without guessing;
 - takes the openers from `DA_Configuration_Katana`.
 
-**Clean-ups, decided by the answer to Q12:**
+**Clean-ups, decided by the answer to Q10:**
 - **`LightAttack_11`** has no incoming link. It is Unblockable and Terminal.
 - **The `None` key.**
 - **`SprintAttack`, `JumpAttack` and `PlungingAttack`**, which nothing reads.
@@ -1826,7 +2054,7 @@ This section names today's code and assets, so the retired words appear here whe
 - **Timing first.** `HeavyAttack_1`–`4` keep default timing that does not match their animations. PR #139's action
   [D-20261004-33] runs first, so that the combo set validates.
 - **Old fields.** After migration, the old link fields are read-only and ignored. They are removed once the combo set is
-  the only path (stage 9.9).
+  the only path (stage 9.10).
 - **The weapon's reference.** `UAttackConfiguration` is replaced by the combo set. The weapon data's slot
   (`WeaponData.h:185`) points at a combo set and a defense set [D-20261005-48]. The combat settings' own
   `AttackConfiguration` field (`CombatSettings.h:112`, kept only for serialization) is removed; the settings reach the
@@ -1834,7 +2062,7 @@ This section names today's code and assets, so the retired words appear here whe
 - **Enemies.** Enemies choose among their combo set's slots by per-slot weight and range [D-20261005-63]. Today
   `BP_EnemyCharacter` lists `LightAttack_1`, and the four placed enemies override that list with one attack each
   (`LightAttack_4`, `_3`, `_1`, `_2`) **[reported]**. The migration gives enemies their own combo set, seeded from today's
-  lists as weights; how the per-actor differences survive is Q17.
+  lists as weights; how the per-actor differences survive is Q15.
 
 ### 7.3 Attack fields
 
@@ -1844,11 +2072,12 @@ This section names today's code and assets, so the retired words appear here whe
 | `Attack.Defense.Parryable` (only on `LightAttack_1`) | Removed: every attack is parryable unless flagged [D-20261005-07]. |
 | `LightAttack_1`'s 0.10 s window | Unchanged in the asset. The 0.35 s minimum makes it effective. |
 | Other attacks' parry windows | None exist **[reported]**; they get the 0.35 s minimum at runtime with an editor warning [D-20261005-74]. |
-| `CounterData` | The paired set `DA_PairedSet_Katana` takes `DA_Counter_GateA`, the only counter the shipped flow reaches, as its front counter's non-lethal variant, and the defense set's front entries reference it, with its damage 25 kept as the counter's own value [D-20261005-57, D-20261005-80]. `Counter_LightAttack_1`–`11` are never reached and use placeholder editor sounds **[reported]**, so they are migrated only if the owner says so. |
+| `CounterData` | The paired set `DA_PairedSet_Katana` takes `DA_Counter_GateA`, the only counter the shipped flow reaches, as its front counter, and the defense set's front entries reference it, with its damage 25 kept as those entries' value [D-20261005-57, D-20261006-03]. `Counter_LightAttack_1`–`11` are never reached and use placeholder editor sounds **[reported]**, so they are migrated only if the owner says so. |
 | `FinisherData` (`DA_Finisher_GateA`, `Finisher_A`) | The paired set's front finisher, referenced by the combo set [D-20261005-47, D-20261005-57]. Which of the two is the front finisher is for the owner to pick during migration. |
 | `ImpactAudioConfig`, `ImpactVFXConfig`, `HitstopConfig` | The impact feedback for the hit outcome. |
 | `DefenseProfile` blocked-impact overrides | The impact feedback for the block outcome. |
 | `SwingShape`, `NominalLane` | Kept. The new `Swing` field is filled for all 29 attacks by one run of "Auto-detect swing", and the designer reviews the result [D-20261005-84]. |
+| The non-attack montages the migration reaches (the deflect, the counter halves, the hit and Staggered reactions, guard enter and exit) | Each gets a cancel notify where the owner places it; until then it is read as ending at montage end, with a warning [D-20261006-02]. |
 
 ### 7.4 Defense configuration and hit reactions into the defense set and reaction profiles
 
@@ -1892,7 +2121,7 @@ This section names today's code and assets, so the retired words appear here whe
 ### 7.5 Renaming the GateA and GateB assets
 
 The decisions: [D-20261004-19, D-20261004-17]. Assets the redesign retires are removed rather than renamed. **The names
-below are proposed** (Q18). They describe each asset, and they avoid the retired words [D-20261005-40].
+below are proposed** (Q16). They describe each asset, and they avoid the retired words [D-20261005-40].
 
 | Today | Proposed |
 |---|---|
@@ -1903,7 +2132,7 @@ below are proposed** (Q18). They describe each asset, and they avoid the retired
 | `DA_DefenseConfiguration_GateA` | removed: its contents go to `DA_DefenseSet_Katana`, `DA_PairedSet_Katana` and `DA_ReactionProfile_Base` |
 | `DA_DefenseConfiguration_GateB` | removed: its contents go to `DA_DefenseSet_DefenseMatrix`, `DA_PairedSet_DefenseMatrix` and `DA_ReactionProfile_DefenseMatrix` |
 | `DA_ParryBridge_GateA` | `DA_Paired_ParryDeflect_Front`, referenced by the paired set's front counter |
-| `DA_Counter_GateA` | `DA_Paired_Counter_Front`, the paired set's front counter, non-lethal variant |
+| `DA_Counter_GateA` | `DA_Paired_Counter_Front`, the paired set's front counter |
 | `DA_Finisher_GateA` | `DA_Paired_Finisher_Front`, the paired set's front finisher |
 | `AM_ParryBridge_Defender`, `AM_ParryBridge_Attacker` | `AM_ParryDeflect_Defender`, `AM_ParryDeflect_Attacker` |
 | `AM_ParryStagger_Fallback_Middle_Center` | `AM_Staggered_Front` |
@@ -2015,22 +2244,24 @@ In each test, the fixture sets the values named, never the shipped ones.
 | Block turn | `…Guard.BlockTurnFacesAttackerFully`; `…Guard.BlockTurnRateFromDefenseSetElseSettings`: the fixture sets the rate. | The turn reads as natural at the tuned rate. |
 | Staggered player | `…Staggered.PlayerCannotAttackGuardOrSteer`; `…Staggered.PlayerCarriedByFullPush`; `…Staggered.PlayerUsesOwnProfileTime` (the fixture sets the time); `…Staggered.PlayerDodgeEscapeOpensAtMaxOfFloorAndHalf`; `…Staggered.PlayerDodgeOutEndsTheStateForBothSides`; `…Staggered.PlayerInputBufferedFiresAfter`. | The stumble, the push and the dodge out read as one beat. |
 | Parry window | `…Parry.EffectiveWindowNeverBelowMinimum`; `…Parry.FloorAppliesAfterScale`; `…Parry.WindowNeverOpensBeforeAttackStarts`; `…Parry.NoAuthoredWindowGetsMinimum`; `…Parry.ArrivalPredictedFromTrajectoryMovesWithSlowdown`. | — |
-| Parry lockout | `…Parry.MissedPressLocksOutParries`; `…Parry.PressWithNothingIncomingIsNotAMiss`; `…Parry.SuccessStartsNoLockout`; `…Parry.BlockingWorksDuringLockout`. | — |
+| Parry lockout | `…Parry.MissedPressLocksOutParries`; `…Parry.PressWithNothingIncomingIsNotAMiss`; `…Parry.SuccessStartsNoLockout`; `…Parry.BlockingWorksDuringLockout`; `…Parry.LockedOutPressCountsWhenWindowStillOpenAtLockoutEnd`; `…Parry.LockedOutPressForgottenWhenWindowClosed`; `…Parry.ZeroLockoutNeverLocksOut` (the fixture sets the lockout). | — |
 | Unparryable | `…Parry.UnparryableAttackIsNotACandidate`; `…Parry.AttacksAreParryableByDefault`. | — |
 | Lands first | `…Parry.AnswersEarliestContact`; `…Parry.EqualContactFallsBackToAngle`. | — |
 | Adaptive turn and slowdown | `…Parry.TurnFinishesExactlyAtPredictedArrival`; `…Parry.SlowdownEasesInAndOut`; `…Parry.SlowdownNeverBelowFloorSpeedOrBeyondMaxTime`; `…Parry.SucceedsWhenTurnCannotFinish`. | Side and rear parries pressed late, midway and early, measured for foot slide, pelvis jump and yaw rate, as in the earlier prototype. |
-| Parry outcome | `…Counter.LethalParryPlaysPairedFinisher`; `…Counter.NonLethalParryLeavesStaggered`; `…Counter.OutcomeFixedAtPress`, in which the health changes between the press and contact and the clip does not. | Front, side and rear parries, lethal and non-lethal. |
-| Counter damage | `…Counter.UsesItsOwnDamageElseSettingsDefault`; `…Counter.StaggeredStartsWhenSequenceEnds`. | — |
+| Parry-counter outcome | `…Counter.LethalCounterKillsAtItsContact`; `…Counter.AuthoredKillSequencePlaysInsteadWhenLethal`; `…Counter.NoKillSequenceNeeded`; `…Counter.NonLethalCounterLeavesStaggered`; `…Counter.OutcomeFixedAtPress`, in which the health changes between the press and contact and the clip does not; `…Counter.DamageAppliedAtContactNeverClamped`. | Front, side and rear parry-counters, lethal and non-lethal. |
+| Counter damage | `…Counter.ContentThenDamageThenOutcome`; `…Counter.UsesEntryDamageElseSettingsDefault`; `…Counter.ClipOverrideBeatsEntryDamage`; `…Counter.FallbackStrikeAlwaysDealsEntryDamage`; `…Counter.StaggeredStartsAtEnemyCancelNotify`. | — |
+| Cancel notify | `…CancelNotify.PlayerFreeFromTheirOwn`; `…CancelNotify.EnemyStaggeredFromItsOwn`; `…CancelNotify.BothUntouchableUntilTheirOwn`; `…CancelNotify.HitReactionActsOnceHitStunAlsoOver`; `…CancelNotify.FallbackStrikeCarriesItsOwn`; `…CancelNotify.AttacksCancelAtPhaseTransition`; `…CancelNotify.MissingMeansMontageEndAndWarns`. | The hand-off from the counter to free play reads as one motion. |
 | Swing detection | `…Editor.AutoDetectSwingClassifiesLateralOverheadAndThrustPaths`, on synthetic socket paths; `…Editor.AutoDetectSwingAsksBeforeOverwritingAHandValue`. | — |
-| Counter fallback | `…Counter.FallbackOrderDirectionSwingThenDirectionThenAnyThenStrike`; `…Counter.LethalWithoutVariantUsesFinisherThenNormalDeath`. | — |
-| Follow-up strike | `…FollowUp.AppliesMultiplierToResolvedAttackDamage`; `…FollowUp.ReachIs350cm`; `…FollowUp.NonLethalEndsStaggeredImmediately`; `…FollowUp.OnlyOnePerParry`; `…FollowUp.PairedClipWhenDirectionMatches`; `…FollowUp.LethalPlaysPairedFinisher`; `…FollowUp.PressElsewhereReleases`. | The follow-up strike reads clearly. |
-| Staggered | `…Staggered.OneStateOneDuration`; `…Staggered.CausingAttackOverrideWins`; `…Staggered.EnemyHeldWhileStaggered`. | — |
-| Guard break | `…GuardBreak.GuardBreakerBreaksAtOnce`; `…GuardBreak.SlidingWindowSumsLastWSeconds` (the fixture sets N and W); `…GuardBreak.CountClearsOnBreak`; `…GuardBreak.CountingToggleOffNeverCounts`; `…GuardBreak.PlayerOnlyBreaksToGuardBreakers`; `…GuardBreak.BreakingHitDealsNoDamage`. | The guard-break reaction reads clearly. |
+| Counter fallback | `…Counter.FallbackOrderDirectionSwingThenDirectionThenAnyThenStrike`; `…Counter.LethalFallbackStrikeKillsAtContact`; `…Counter.FinisherPoolNotConsultedForParryCounter`. | — |
+| Follow-up strike | `…FollowUp.AppliesMultiplierToResolvedAttackDamage`; `…FollowUp.ReachIs350cm`; `…FollowUp.NonLethalEndsStaggeredImmediately`; `…FollowUp.OnlyOnePerParryCounter`; `…FollowUp.PairedClipWhenDirectionMatches`; `…FollowUp.LethalPlaysPairedFinisher`; `…FollowUp.PressElsewhereLeavesStaggeredRunning`; `…FollowUp.LightPressUsesLightOpenerFromInitialPress`; `…FollowUp.HoldDoesNotOpenOnStaggeredTarget`; `…FollowUp.DirectionalLightNeverFollowsUp`; `…FollowUp.PressInsideSequenceFiresAtPlayerCancelNotify`; `…FollowUp.LastInputWinsInsideSequence`. | The follow-up strike reads clearly. |
+| Staggered | `…Staggered.OneStateOneDuration`; `…Staggered.CausingAttackOverrideWins`; `…Staggered.PlayerTimeIgnoresAttackAndSlotOverrides`; `…Staggered.EnemyHeldWhileStaggered`; `…Staggered.RunsBesideHitStunFreeWhenBothEnd`; `…Staggered.NoGuardWhileStaggeredEvenInHitStun`; `…Staggered.DodgeOutNeedsBothMinimums`; `…Staggered.HitNeverShortensALock`. | — |
+| Guard break | `…GuardBreak.GuardBreakerBreaksAtOnce`; `…GuardBreak.SlidingWindowSumsLastWSeconds` (the fixture sets N and W, on a fixture enemy that guards); `…GuardBreak.CountClearsOnBreak`; `…GuardBreak.CountingToggleOffNeverCounts`; `…GuardBreak.PlayerOnlyBreaksToGuardBreakers`; `…GuardBreak.BreakingHitDealsNoDamage`; `…GuardBreak.UnblockableWinsOverGuardBreaker`; `…Content.UnblockableGuardBreakerPairWarns`. | The guard-break reaction reads clearly. |
 | Interruption | `…Interrupt.OnlyWhenPressureExceedsArmor`, using strict inequality; `…Interrupt.ArmorIsMaxOfBaseAndWindow`; `…Interrupt.FlinchKeepsCurrentAction`. | A flinch and an interrupt are told apart at a glance. |
 | Hit-stun | `…HitStun.NeverBelowFloor`; `…HitStun.ActionsWaitGuardAllowed`; `…HitStun.InputBufferedFiresAfter`; `…HitStun.EnemyAIHoldsThenResumes`; `…HitStun.DodgeEscapeOpensAtMaxOfFloorAndHalf`; `…HitStun.EscapeDodgeIsCommitted`. | Hit-stun lengths read well. |
 | Knockback by outcome | `…Knockback.FlinchDoesNotPush`; `…Knockback.BlockedHitUsesBlockShove`; `…Knockback.GuardBreakUsesFullPush`; `…Knockback.StaggeredOrInHitStunVictimsPushNormally`; `…Knockback.NoneDuringPairedSequence`. | The block shove and the break push read as different weights. |
 | Paired finishers | `…Finisher.OnlyWhenLethal`; `…Finisher.AnyLethalAimedStrikeQualifies`; `…Finisher.NoHealthPercentRoute`; `…Finisher.StaggeredAloneDoesNotFinish`; `…Finisher.KeyedByDirectionOnly`; `…Finisher.NoClipForDirectionPlaysNormalDeath`; `…Finisher.AimConeAndRange`; `…Finisher.EnemyOnlyWhenMarked`; `…Finisher.GuardBreakAloneGrantsNoEnemyFinisher`; `…Finisher.MarkedEnemyLethalHitOnStaggeredPlayerStillFinishes`. | Alignment from up to 350 cm. |
-| Several attackers | `…Attackers.AtMostConfiguredCount`; `…Attackers.CooldownPerEnemy`; `…Attackers.OthersHoldDuringParryAndPairedFinisher`; `…Attackers.InProgressSwingsFinish`. | A one-against-four crowd fight. |
+| Several attackers | `…Attackers.AtMostConfiguredCount`; `…Attackers.CooldownPerEnemy`; `…Attackers.OthersHoldDuringParryCounterAndPairedFinisher`; `…Attackers.InProgressSwingsFinish`; `…Attackers.InProgressSwingCannotTouchBeforeCancelNotify`. | A one-against-four crowd fight. |
+| Targeting | `…Targeting.FreeModeConeAroundStickDirection`; `…Targeting.FreeModeConeAroundFacingWhenNoDirectionHeld`; `…Targeting.StaggeredOrEligibleWinsTiesElseNearest`; `…Targeting.CameraNeverDecides`; `…Targeting.OneRuleForOrdinaryFollowUpAndFinisher`; `…Targeting.LockPicksBestByConeAndScores`; `…Targeting.LockedPressesAimAtLockedTarget`; `…Targeting.FlickSwitchesToNearestInThatDirection`; `…Targeting.LockDropsOnDeathAndRePicksWhenNear`; `…Targeting.SecondPressDropsLock`. | Attacks go where the stick points; the lock, strafe and switch read as one system. |
 | Precedence | `…Data.SlotOverrideWins`; `…Data.AttackOverrideBeatsSetDefault`; `…Data.SetDefaultBeatsSettings`; `…Data.ResolvedSpecUnchangedByMidAttackEdit`. | — |
 | Weapon kit | `…Data.WeaponDataSuppliesThreeSets`; `…Data.NoWeaponDataUsesSettingsDefaultKit`; `…Data.ReferencesStayInsideTheWeaponsPairedSet`. | — |
 | Selection function | `…ComboSet.ReturnsChosenAndRejectionReasons`; `…ComboSet.BackToOpenerIsTheOnlyLegalCycle`. | — |
@@ -2055,7 +2286,7 @@ In each test, the fixture sets the values named, never the shipped ones.
 - has the owner's review;
 - goes in a pull request named for what it does, with no planning labels [D-20261004-17].
 
-**The order below is proposed** (Q20). Each stage lists the decisions it implements and the questions it needs answered
+**The order below is proposed** (Q18). Each stage lists the decisions it implements and the questions it needs answered
 first.
 
 ### 9.1 Combo sets with today's behaviour
@@ -2069,7 +2300,7 @@ first.
   - the old link fields kept read-only.
 - **Ships:** the same combos, now with loops that validate.
 - **Decisions:** D-20261005-01 (structure), D-20261005-03.
-- **Needs:** Q11, Q12 to Q16. PR #139 has merged.
+- **Needs:** Q9, Q10 to Q14. PR #139 has merged.
 
 ### 9.2 The moveset grid
 
@@ -2098,67 +2329,99 @@ first.
 - **Decisions:** D-20261004-20, D-20261004-22 (placement per D-20261005-48), D-20261004-32, D-20261004-38,
   D-20261004-41 (data), D-20261004-19, D-20261002-07, D-20261005-45 (keys), D-20261005-46, D-20261005-47 (no body
   types), D-20261005-48, D-20261005-49, D-20261005-55, D-20261005-56, D-20261005-57.
-- **Needs:** Q1, Q18, Q17.
+- **Needs:** Q1, Q16, Q15.
 
 ### 9.4 Hit rules
 
 - **What:**
   - pressure against armor, with armor windows and the flinch;
   - hit-stun with its floor, holding attacks and movement while input buffers;
-  - one Staggered state, still caused only by a parry at this stage;
+  - one Staggered state, still caused only by a parry-counter at this stage, running beside hit-stun with both ending
+    before the character is free [D-20261006-01];
+  - the cancel notify on hit reactions, read as montage end with a warning where missing [D-20261006-02];
   - knockback by outcome: no push on a flinch, the block shove, the full push on a guard break, none in paired sequences;
   - the damage ÷ health rule removed.
 - **Decisions:** D-20261004-42, D-20261005-17, D-20261005-34, D-20261005-37, D-20261005-53, D-20261005-58,
-  D-20261005-59, D-20261005-60, D-20261005-87.
-- **Needs:** Q2, Q3, Q10.
+  D-20261005-59, D-20261005-60, D-20261005-87, D-20261006-01, D-20261006-02.
+- **Needs:** Q2, Q3, Q8.
 
 ### 9.5 Guard rules
 
 - **What:**
   - the ±75° arc and the code-driven block turn, with their settings defaults and defense-set overrides;
   - guard dropping when an attack starts, and Block buffered until Recovery;
-  - guard break, by count and by guard breakers.
+  - guard break by guard breakers, live for the player;
+  - the counted guard break, built now and proven on fixtures whose enemy guards, dormant in shipped play until a
+    shipped enemy guards [D-20261007-15];
+  - unblockable wins over guard breaker at contact, with the validation warning on the pair [D-20261007-16].
 - **Decisions:** D-20261005-11 to D-20261005-15, D-20261005-25, D-20261005-26, D-20261005-29, D-20261005-31,
   D-20261005-46, D-20261005-52, D-20261005-56, D-20261005-59, D-20261005-66, D-20261005-69, D-20261005-70,
-  D-20261005-83, D-20261005-88, D-20261004-21.
+  D-20261005-83, D-20261005-88, D-20261004-21, D-20261007-15, D-20261007-16.
 - **Needs:** nothing open. PR #136 has merged.
 
 ### 9.6 Parry rules
 
 - **What:**
   - the effective window, with its minimum and scale;
-  - the lockout and the unparryable flag;
+  - the lockout in its lenient form, with the press remembered through it, and the unparryable flag;
   - lands first;
   - the adaptive turn and the attacker slowdown;
   - parry feedback and parry assists.
 - **Meanwhile:** after a successful parry, today's post-parry sequence still plays.
 - **Decisions:** D-20261005-05 to D-20261005-07, D-20261005-09, D-20261005-10, D-20261005-32, D-20261005-33,
-  D-20261005-36, D-20261005-50, D-20261005-64, D-20261005-71 to D-20261005-79, D-20261004-06, D-20261004-07.
+  D-20261005-36, D-20261005-50, D-20261005-64, D-20261005-71 to D-20261005-79, D-20261004-06, D-20261004-07,
+  D-20261007-18.
 - **Also needs:** the owner's veto or approval of the lead-time authoring (R-20261005-01).
-- **Needs:** Q10.
+- **Needs:** Q8.
 
-### 9.7 The parry is the counter, and paired finishers by lethal damage
+### 9.7 The parry-counter, and paired finishers by lethal damage
 
 - **What:**
-  - the counter entries, the paired set's counters and their fallback;
-  - the decision at the press: a paired finisher or a non-lethal counter, with the lethal-counter fallback;
-  - the follow-up strike, paired when a clip matches the direction;
-  - paired finishers on any lethal aimed strike, keyed by direction, with the aim cone and 350 cm;
+  - the counter entries with their damage, the paired set's counters and their fallback, and the optional kill sequence;
+  - the decision at the press: content, damage, outcome; damage at the counter's contact, never clamped; the kill at
+    contact, or the authored kill sequence;
+  - the cancel notify on every clip the sequence plays, and the protection until each character's own;
+  - the follow-up strike, paired when a clip matches the direction; the light opener from the initial press, with no
+    hold; presses buffered inside the sequence, last input wins;
+  - no latch and no end-position rule; a press aimed elsewhere leaves Staggered running;
+  - free-mode aim for every attack press: the cone around the stick direction, or the facing when no direction is held,
+    replacing today's soft aim (3.13);
+  - paired finishers on any lethal aimed strike, keyed by direction, at 350 cm;
   - the finisher pool, and the normal death when no clip matches;
   - enemy paired finishers for marked types only;
   - today's post-parry stages, including #137's interim window, and the 25% threshold removed.
 - **Decisions:** D-20261005-18 to D-20261005-24, D-20261005-27, D-20261005-28, D-20261005-30, D-20261005-38,
   D-20261005-39, D-20261005-42, D-20261005-43, D-20261005-45, D-20261005-47, D-20261005-51, D-20261005-54,
-  D-20261005-57, D-20261005-80 to D-20261005-82, D-20261005-84 to D-20261005-86.
-- **Needs:** Q4 to Q6; counter content (3.3).
+  D-20261005-57, D-20261005-80 to D-20261005-82, D-20261005-84 to D-20261005-86, D-20261006-02 to D-20261006-05,
+  D-20261007-07 to D-20261007-12, D-20261007-14, D-20261007-17.
+- **Needs:** Q4, Q5, Q19; counter content (3.3).
+- **Content notes [reported]**, which bind no rule [D-20261006-04]:
+  - 8 counter-shaped two-character pairs are owned, all starting with the attacker in front. No pack on the market has
+    counter pairs where the attack comes from behind.
+  - 90° guarded turns: DSAS `Block_Turn_L90` and `R90` at 0.571 s, and DynamicKatana `Turn_Block_90` at 0.833 s.
+  - 180° turns of 0.867–1.5 s.
+  - A speed sweep found ×2.0 the best-looking rate for the DSAS left 90° and right 180° turns. It also found that every
+    DSAS turn starts with a pelvis jump of about 181 cm/s, and that the DSAS right 90° turn spins its capsule about 150°
+    in 4 frames. The sweep measured these clips; it chose no values.
+  - Where the owned clips do not fit the rules, the gap is met by creating, buying or procedurally fitting content, not
+    by narrowing a rule [D-20261006-04].
 
-### 9.8 Several attackers
+### 9.8 Lock mode
+
+- **What:** the lock press and the best target by the cone and its scores; every press aimed at the locked target; the
+  strafe facing it; the flick (or scroll) switch to the nearest enemy in that direction; the drop on the target's death
+  with the automatic re-pick when one is near; the second press (3.13).
+- **Ships:** the optional lock the pillars ask for.
+- **Decisions:** D-20261007-13, D-20261007-14.
+- **Needs:** Q20; the camera's framing while locked, which belongs to the camera design and is not in this spec.
+
+### 9.9 Several attackers
 
 - **What:** two attack tokens, a per-enemy cooldown, and others hold instead of aborting.
-- **Decisions:** D-20261005-21, D-20261005-35, D-20261005-36.
-- **Needs:** Q7, Q8, Q9.
+- **Decisions:** D-20261005-21, D-20261005-35, D-20261005-36, D-20261007-08.
+- **Needs:** Q6, Q7.
 
-### 9.9 Removing the deprecated fields
+### 9.10 Removing the deprecated fields
 
 - **What:**
   - the old link fields, `CounterData` and `FinisherData`, and the unread fields;
@@ -2177,7 +2440,10 @@ already answer (the window floor, the aimed-elsewhere press, the follow-up on a 
 settled (PR #137). The owner's answers of 5 October (D-20261005-50 to -70) removed the turn-rate, flinch-push,
 enemy-kit, buffered-Block, Staggered-player and block-turn questions; the walk of 3.2 (D-20261005-71 to -79) removed the
 eight parry questions; the walk of 3.3 to 3.5 (D-20261005-80 to -88) removed the counter, Staggered and guard-break
-questions, and D-20261005-88 added one (Q21).
+questions, and D-20261005-88 added one. The answers of 6 and 7 October (D-20261006-01 to D-20261007-18) removed three
+more: the tie rule in the aim cone (D-20261007-12), the in-progress swing during your own sequence (D-20261007-08) and
+the player's Staggered time against an attack's override (D-20261006-06); they added two, a Heavy press on a Staggered
+target (Q19) and lock mode's numbers (Q20).
 
 ### Hits
 
@@ -2217,41 +2483,24 @@ the old one, even when it is shorter.
 - C. When it is pressed, and cancelled if the target has changed.
 - D. A buffered press never starts a paired finisher.
 
-**Q6. In the aim cone, what does "Staggered or eligible enemies win ties" mean?**
-- A. Any Staggered or eligible enemy in the cone beats every other one. Among them, the one nearest the camera direction
-  wins. **(Recommended: it matches "prefers" in D-20261004-35.)**
-- B. Candidates are scored by angle and distance, and Staggered or eligible enemies win only an exact tie.
-- C. Staggered or eligible enemies get a score bonus.
-- D. They win only within half the cone.
-
 ### Several attackers
 
-**Q7. During your parry or paired finisher, can a second enemy's swing that was already in progress touch you?**
-D-20261005-21 lets in-progress swings finish. D-20261005-36 says the other attack can be parried after the lockout, or
-blocked.
-- A. No: you cannot be touched during your own parry or paired finisher, which is today's rule for whoever starts a
-  paired animation. D-20261005-36's second press then applies only before your parry's sequence begins.
-  **(Recommended.)**
-- B. Yes, and it interrupts your sequence.
-- C. Yes, and a Block press during your sequence can parry it, queuing a second parry.
-- D. In-progress swings are cancelled when your sequence starts, which is today's abort.
-
-**Q8. What is the per-enemy attack cooldown, and when does it start?**
+**Q6. What is the per-enemy attack cooldown, and when does it start?**
 - A. 1.0 s, starting when the enemy's attack ends. **(Recommended: today's value, counted so that it actually spaces
   attacks out.)**
 - B. 1.0 s, starting when the token is granted, as today.
 - C. 0.5 s, from the end of the attack.
 - D. Set per enemy type.
 
-**Q9. Do other enemies hold during a non-lethal follow-up strike?**
-- A. No: D-20261005-21 covers parries and paired finishers only. **(Recommended.)**
-- B. Yes, as for a parry.
+**Q7. Do other enemies hold during a non-lethal follow-up strike?**
+- A. No: D-20261005-21 covers parry-counters and paired finishers only. **(Recommended.)**
+- B. Yes, as for a parry-counter.
 - C. Only when the strike is paired.
 - D. Only against the struck enemy.
 
 ### Guard, clocks and data
 
-**Q10. Which clock do combat durations use?**
+**Q8. Which clock do combat durations use?**
 - A. Game time for all of them (Staggered, hit-stun, the lockout, the guard-break window and the windows), so that slow
   motion and hitstop stretch them alike. The slowdown's 0.3 s cap counts real time. **(Recommended.)**
 - B. Real time for all of them.
@@ -2259,7 +2508,7 @@ blocked.
   guard-break window).
 - D. Chosen per setting.
 
-**Q11. What does a press do when the slot has no link for that input?**
+**Q9. What does a press do when the slot has no link for that input?**
 - A. The combo ends: the press is buffered and starts the opener once the attack finishes, without a combo blend.
   **(Recommended: it stays distinct from an explicit back-to-opener link, which continues the combo.)**
 - B. The same as a back-to-opener link.
@@ -2268,39 +2517,39 @@ blocked.
 
 ### Migration and delivery
 
-**Q12. `LightAttack_11`.** No link reaches it; it is Unblockable and Terminal.
+**Q10. `LightAttack_11`.** No link reaches it; it is Unblockable and Terminal.
 - A. Migrate it as an unlinked slot, flagged unreachable, for the owner to place. **(Recommended: nothing is lost.)**
 - B. Link it after `LightAttack_10` as the light combo's last hit.
 - C. Delete it.
 - D. Leave it out of the combo set but keep the asset.
 
-**Q13. The `None` direction key.** Every light attack maps the `None` direction to `DA_DirectionalAttack_None`, which
+**Q11. The `None` direction key.** Every light attack maps the `None` direction to `DA_DirectionalAttack_None`, which
 nothing can reach.
 - A. Drop the key and leave the asset unreferenced, reported by the orphan report. **(Recommended.)**
 - B. Drop the key and delete `DA_DirectionalAttack_None`.
 - C. Keep it as the hold-release link for a release with no direction.
 - D. Migrate it exactly and flag it.
 
-**Q14. The unused Sprint, Jump and Plunging slots** on the attack configuration, which nothing reads.
+**Q12. The unused Sprint, Jump and Plunging slots** on the attack configuration, which nothing reads.
 - A. Remove them; they come back as entry rules when those moves are designed. **(Recommended.)**
 - B. Migrate them as entry rules now, empty.
 - C. Migrate them as empty slots in the combo set.
 - D. Keep the attack configuration asset for them.
 
-**Q15. The directional context tag.** The five directional attacks require `Context.DirectionalFollowUp`, nothing grants
+**Q13. The directional context tag.** The five directional attacks require `Context.DirectionalFollowUp`, nothing grants
 it, and the hold-release path skips the gate.
 - A. Drop the requirement; the hold link is the gate. **(Recommended.)**
 - B. Grant the tag on hold release and keep the requirement.
 - C. Keep the requirement and let the editor flag it.
 - D. Migrate exactly and flag it.
 
-**Q16. The Terminal tag.** `HeavyAttack_4` is Terminal yet has follow-ups, and fails validation today.
+**Q14. The Terminal tag.** `HeavyAttack_4` is Terminal yet has follow-ups, and fails validation today.
 - A. Replace Terminal with empty links; the tag is removed. **(Recommended.)**
 - B. Keep the tag and make it set every link to None at migration.
 - C. Keep the tag as a validation hint only.
 - D. Migrate exactly and flag it.
 
-**Q17. Enemies' per-actor attack choices.** Enemies now pick slots of their combo set by per-slot weight and range
+**Q15. Enemies' per-actor attack choices.** Enemies now pick slots of their combo set by per-slot weight and range
 [D-20261005-63]. Today `BP_EnemyCharacter` lists `LightAttack_1`, and each of the four placed enemies in
 `Lvl_ThirdPerson1` overrides that list with a different single attack; a weight stored on a shared combo set cannot
 express that.
@@ -2311,13 +2560,13 @@ express that.
 - C. Drop the per-actor differences; every enemy uses the same weights.
 - D. Keep per-actor attack lists as a list of slot ids with weights.
 
-**Q18. Do you approve the proposed asset names (7.5)?**
+**Q16. Do you approve the proposed asset names (7.5)?**
 - A. Approve as proposed. **(Recommended.)**
 - B. Approve, but keep test-only assets under one `Test` folder.
 - C. Rename the data assets only; montages keep their names.
 - D. Propose different names.
 
-**Q19. What remains of "defense role per enemy type" (D-20261004-27), now that there are no per-enemy-type modes
+**Q17. What remains of "defense role per enemy type" (D-20261004-27), now that there are no per-enemy-type modes
 (D-20261005-24)?** D-20261004-27 chose counter-led grunts and a parry-centric kit for duelists and elites. D-20261005-24
 made one parry model for every enemy.
 - A. The rules are the same for every enemy; enemy types differ only in content: which attacks they have (unparryable,
@@ -2329,24 +2578,30 @@ made one parry model for every enemy.
 Recommendation: A. It keeps D-20261004-27's intent (grunts fall to counters, elites demand parries) through content and
 per-character values, which this data model already provides, without a second rule set.
 
-**Q20. Do you approve the stage order (section 9)?**
-- A. As proposed: the authoring foundation, the editor and the data, then hits, guard, parry, the parry-counter and
-  attackers. **(Recommended: attack data changes once, as D-20261005-04 intended.)**
+**Q18. Do you approve the stage order (section 9)?**
+- A. As proposed: the authoring foundation, the editor and the data, then hits, guard, parry, the parry-counter with
+  free-mode aim, lock mode and attackers. **(Recommended: attack data changes once, as D-20261005-04 intended.)**
 - B. Rules first, on today's attack data, with authoring after.
 - C. Data and rules first, and the editor last.
 - D. A different order.
 
-### The player's Staggered state
+### The follow-up strike and targeting
 
-**Q21. An enemy's guard breaker carries its own Staggered-time override. How long is the player Staggered?** The player's
-own time is 0.6 s on the player's reaction profile [D-20261005-88], while the Staggered time is otherwise the causing
-attack's (3.4).
-- A. The player's own time always wins; an attack's override never changes it. **(Recommended: the dodge-out and the
-  length stay predictable for the player, and no enemy attack can be authored into a long lock.)**
-- B. An attack's or slot's override, when set, replaces the player's default; unset attacks give the player's 0.6 s.
-- C. The attack's time times a player scale (0.4 to start, so 1.5 s becomes 0.6 s): heavier guard breakers Stagger the
-  player longer in proportion.
-- D. The shorter of the two.
+**Q19. With a Staggered target in the cone, what does a Heavy press do?** D-20261007-17 settles the light press: the
+light opener, from the initial press, with the hold not opening. It says nothing about Heavy, whose hold is the charge.
+- A. The heavy opener, from the initial press, with the charge hold not opening, as for the light. **(Recommended: one
+  rule for both buttons, and the decision stays at the press.)**
+- B. The heavy opener, and the charge hold opens; a charged release is the follow-up at ×1.5 of its charged damage.
+- C. A Heavy press is never a follow-up strike; it is an ordinary attack on the Staggered enemy.
+- D. The light opener, whichever button was pressed.
+
+**Q20. Lock mode's two distances: how far does a lock press look, and how near must the next enemy be for the
+automatic re-pick on death?** D-20261007-13 names neither. The spec has two distances already: the 350 cm finisher
+range [D-20261005-28] and today's 500 cm soft-aim range.
+- A. Both 350 cm, the finisher range. **(Recommended: one number, and a lock never reaches past a finisher.)**
+- B. Both 500 cm, today's soft-aim range.
+- C. The lock press looks to 500 cm; "near" is 350 cm.
+- D. Two separate tunables, with no decided value, tuned on captures.
 
 ---
 
@@ -2370,7 +2625,7 @@ attack's (3.4).
 | D-20261004-23 | Parry any direction; block front; data keyed by direction | 3.1, 3.2 |
 | D-20261004-24 | One block rule (merged in #136) | 3.1 |
 | D-20261004-26 | Design pillars | 1.2 |
-| D-20261004-27 | Defense role per enemy type (Q19) | 3.5, Q19 |
+| D-20261004-27 | Defense role per enemy type (Q17) | 3.5, Q17 |
 | D-20261004-30 | Turn-deflect into front pairs | 3.2, 3.3 |
 | D-20261004-32 | Charge-loop snap fix with the redesign | 7.6, 9.3 |
 | D-20261004-33 | Timing read from the montage (merged in #139) | 5.4, 7.2 |
@@ -2384,14 +2639,14 @@ attack's (3.4).
 | D-20261005-11 to -15 | Guard arc and turn, no chip, block in recovery, the player's guard, counted guard break | 3.1, 3.5 |
 | D-20261005-16, -17 | Interruption is pressure against armor | 3.6 |
 | D-20261005-18 to -21 | Finisher eligibility, trigger, enemy finishers, others hold | 3.8, 3.9 |
-| D-20261005-22 to -24 | Opportunity equals Staggered time; strike fallback; the parry is the counter | 3.3 |
+| D-20261005-22 to -24 | Opportunity equals Staggered time; strike fallback; the parry is the counter (the parry-counter, since D-20261007-11) | 3.3 |
 | D-20261005-25, -26 | Count by pressure; 4 within 3 s | 3.5 |
-| D-20261005-27, -28 | 60° aim cone; 350 cm | 3.3, 3.8 |
+| D-20261005-27, -28 | 60° aim cone; 350 cm. **The cone's camera reference is replaced by D-20261007-12** (the stick direction, else the facing); the 60° stands | 3.3, 3.8, 3.13 |
 | D-20261005-29 to -31 | Guard breakers; counter fallback order; guard-break Staggered | 3.3–3.5 |
 | D-20261005-32, -33 | Lockout 0.25 s; slowdown bounds | 3.2 |
 | D-20261005-34 to -37 | Hit-stun values; 2 attackers; lands first; what hit-stun blocks | 3.7, 3.9 |
-| D-20261005-38, -39 | A lethal parry plays a paired finisher; the follow-up strike | 3.3, 3.8 |
-| D-20261005-40 | The glossary | 2, throughout |
+| D-20261005-38, -39 | A lethal parry-counter ends in a kill, decided at the press; the follow-up strike. **The lethal-variant shape is amended by D-20261007-07:** optional, not required | 3.3, 3.8 |
+| D-20261005-40 | The glossary; its parry and counter entries amended by D-20261007-11 | 2, throughout |
 | D-20261005-42 | Any lethal aimed strike plays a paired finisher; the glossary line amended | 1.3, 2.1, 3.8 |
 | D-20261005-43 | The follow-up strike is paired when a clip matches | 3.3 |
 | D-20261005-44 | Armor is the higher of the base and any active window | 2.1, 3.6 |
@@ -2401,18 +2656,18 @@ attack's (3.4).
 | D-20261005-48 | Weapon data → combo set + defense set (plus the paired set since D-20261005-57); the reaction profile keeps the body's data | 2.1, 4 |
 | D-20261005-49 | No weapon data means the combat settings' default weapon data | 4.3, 6.1 |
 | D-20261005-50 | The parry turn finishes exactly at contact: rate = angle ÷ time left; the slowdown is the safety valve | 3.2 |
-| D-20261005-51 | Staggered ends at once after a non-lethal follow-up strike; one follow-up per parry | 3.3, 3.4 |
+| D-20261005-51 | Staggered ends at once after a non-lethal follow-up strike; one follow-up per parry-counter | 3.3, 3.4 |
 | D-20261005-52 | The hit that breaks a guard deals no damage; the guard breaks and the defender is Staggered | 3.5 |
 | D-20261005-53 | Hit-stun holds enemies as it holds the player; the AI resumes after | 3.7 |
-| D-20261005-54 | A lethal counter with no lethal variant uses the finisher for that direction, else the non-lethal counter and the normal death | 3.3 |
+| D-20261005-54 | A lethal counter with no lethal variant uses the finisher for that direction, else the non-lethal counter and the normal death. **Read as superseded in its middle step by D-20261007-07** (Appendix B) | 3.3 |
 | D-20261005-55 | Guard enter and exit on the defense set; the Staggered reaction and recoil on the reaction profile | 4.6, 4.8, 7.4 |
 | D-20261005-56 | Guard-break counting on in the base profile, off for the player | 3.5, 4.8 |
-| D-20261005-57 | The paired set: a third weapon asset holding the counters and finishers by direction and role | 2.1, 4.1, 4.3, 4.7, 5.9, 7 |
+| D-20261005-57 | The paired set: a third weapon asset holding the counters and finishers by direction and role. **Its lethal-and-non-lethal-variant shape is amended by D-20261007-07** | 2.1, 4.1, 4.3, 4.7, 5.9, 7 |
 | D-20261005-58 | No push on a hit that does not interrupt | 3.6, 3.10 |
 | D-20261005-59 | The block shove on a blocked hit; the full push on the hit that breaks a guard | 3.5, 3.10, 4.9 |
 | D-20261005-60 | Normal pushes on victims that are Staggered or in hit-stun; none during paired sequences | 3.10 |
 | D-20261005-61 | Four precedence layers; the combo set's is the per-weapon layer | 1.3, 4.2 |
-| D-20261005-62 | The player is fully free after a non-lethal counter; aiming elsewhere ends the opening | 3.3, 3.4 |
+| D-20261005-62 | The player is fully free after a non-lethal counter; aiming elsewhere ends the opening. **The aimed-elsewhere half is superseded by D-20261007-10**; the freedom stands | 3.3, 3.4 |
 | D-20261005-63 | Enemies pick slots of their combo set by per-slot weight and range; AI attack lists retired | 4.4, 6.4, 7.2 |
 | D-20261005-64 | The parry succeeds on timing alone; room matters only for paired content | 3.2, 3.3, 3.8 |
 | D-20261005-65 | Sections 1, 2 and 3.1 approved as written at `a34ecd69` | 1, 2, 3.1 |
@@ -2431,8 +2686,8 @@ attack's (3.4).
 | D-20261005-78 | Assists default neutral; parry feedback values from a rendered sweep | 3.2, 4.8, 4.9 |
 | D-20261005-79 | The window and the turn are independent; both reference the predicted arrival | 3.2 |
 | R-20261005-01 | A ruling, proposed: the window is authored as a lead time before arrival | 3.2 |
-| D-20261005-80 | Each paired-set counter's own damage; settings default 50 | 3.3, 4.7, 4.9 |
-| D-20261005-81 | Staggered starts when the non-lethal counter sequence ends | 3.3, 3.4 |
+| D-20261005-80 | Each counter's own damage; settings default 50. **Its home is amended by D-20261006-03:** the defense-set entry, with a clip override optional | 3.3, 4.6, 4.7, 4.9 |
+| D-20261005-81 | Staggered starts when the non-lethal counter sequence ends; read as the enemy's cancel notify since D-20261006-02 and D-20261007-07 | 3.3, 3.4 |
 | D-20261005-82 | ×1.5 multiplies the damage of the attack the press resolves to | 3.3 |
 | D-20261005-83 | A sliding 3 s guard-break window; the count clears on a break | 3.5 |
 | D-20261005-84 | A per-attack Swing field, filled by an "Auto-detect swing" editor action, overridable by hand | 2.2, 3.3, 4.5, 5.3, 7.3 |
@@ -2440,13 +2695,33 @@ attack's (3.4).
 | D-20261005-86 | A guard break grants an enemy nothing; a marked enemy's lethal hit still finishes | 3.5, 3.8 |
 | D-20261005-87 | A dodge press ends the player's hit-stun early, after max(0.12 s, half the stun); the dodge is committed | 3.7, 6.3 |
 | D-20261005-88 | The player's Staggered state: reaction and full push; no attack, guard or stick movement; a dodge after the minimum ends it and closes the enemy's opening; 0.6 s by default on the player's profile | 2.1, 3.1, 3.4, 3.5, 4.8, 6.3 |
+| D-20261006-01 | Hit-stun and Staggered both run, each with its own timer and rules; free when both end; a dodge-out needs both minimums; a hit never shortens a lock or restores guard early | 3.4, 3.7, 6.3, 9.4 |
+| D-20261006-02 | One general cancel notify on any non-attack montage, with one meaning per context; attacks keep the phase transition; missing means montage end with a warning | 2.2, 3.0, 3.3, 3.4, 3.6, 3.7, 4.6–4.8, 4.12, 4.13, 5.4, 7.3, 9.4, 9.7 |
+| D-20261006-03 | Counter damage on the defense-set entry, settings default 50, a clip override optional; content, then damage, then the outcome; the fallback strike deals the entry's value. Amends D-20261005-80's home | 2.1, 2.2, 3.2, 3.3, 3.12, 4.6, 4.7, 4.9, 7.3 |
+| D-20261006-04 | Rules before content: no rule from what content exists; content made, bought or fitted to the rules | 1.1, 1.3, 3.0, 3.3, 9.7 |
+| D-20261006-05 | Counter damage lands at the counter's contact and never clamps | 3.3, 6.4 |
+| D-20261006-06 | The player's own Staggered time always applies; an attack's or slot's override never changes it | 3.4, 3.12, 4.8, 6.4 |
+| D-20261007-07 | Every counter can kill: lethal damage at the counter's contact kills there, the enemy's death outcome taking over; an authored kill sequence plays instead when one exists. Amends the lethal-variant shape of D-20261005-38 and D-20261005-57 | 1.3, 2.1, 2.2, 3.3, 3.4, 3.8, 4.6, 4.7, 4.12, 9.7 |
+| D-20261007-08 | Inside a parry-counter each character is untouchable until its own cancel notify | 3.0, 3.3, 3.9, 9.9 |
+| D-20261007-09 | An attack press inside the sequence is buffered and fires as the follow-up at the player's cancel notify; last input wins | 3.3, 6.3, 6.4 |
+| D-20261007-10 | A press aimed elsewhere no longer ends the opening; Staggered runs its time. Supersedes the aimed-elsewhere half of D-20261005-62 | 3.3, 3.4 |
+| D-20261007-11 | The words: parry (the deflect), counter (the strike back), parry-counter (the one-press sequence). Amends the glossary's parry and counter entries | 2.1, throughout |
+| D-20261007-12 | Free-mode aim: one rule for every press; the cone around the stick direction, else the facing; Staggered or eligible win ties, nearest otherwise; the camera never decides. Replaces D-20261005-27's camera reference | 2.1, 2.2, 3.3, 3.8, 3.11, 3.12, 3.13, 4.9, 6.3, 6.4 |
+| D-20261007-13 | Lock mode: the lock press, the locked target for every press, the strafe, the flick switch, the drop on death with a re-pick, the second press | 2.2, 3.3, 3.8, 3.11, 3.12, 3.13, 4.9, 6.3, 6.4, 9.8 |
+| D-20261007-14 | The targeting and camera design lives in this spec, as 3.13 | 3.13 |
+| D-20261007-15 | The counted guard break is built with the guard-break stage, tested on fixtures, and dormant until a shipped enemy guards | 3.5, 6.4, 9.5 |
+| D-20261007-16 | Unblockable wins over guard breaker; validation warns on the pair | 3.1, 3.5, 4.4, 4.5, 9.5 |
+| D-20261007-17 | A light press with a Staggered target is the follow-up with the light opener; the hold does not open; directional lights never follow up | 3.3, 6.3, 9.7 |
+| D-20261007-18 | The lenient lockout: a press during it is remembered and counts if the window is still open at its end; the lockout may go to zero. **My reading of "the more lenient version"; the owner may veto** | 2.1, 3.2, 3.12, 4.9, 6.1, 6.3, 6.4, 9.6 |
 
 **Superseded, and not used as rules:**
 - D-20261004-28, the two modes by enemy type, superseded by D-20261005-24;
 - D-20261004-36's window lead, superseded by D-20261005-05;
 - D-20261004-11 and D-20261004-13, superseded by D-20261004-20 and D-20261004-21;
 - D-20261004-22's placement of parry entries on the reaction profile, and D-20261004-20's "the reaction profile holds
-  block and parry", superseded by D-20261005-48.
+  block and parry", superseded by D-20261005-48;
+- D-20261005-62's aimed-elsewhere half (a press elsewhere ends the opening), superseded by D-20261007-10;
+- D-20261005-67, superseded by D-20261005-88.
 
 ## Appendix B. Ambiguities, conflicts and readings
 
@@ -2465,7 +2740,7 @@ Each item is either an open question, or a reading this spec chose that the owne
   [D-20261005-46, D-20261005-56];
 - the counter keys and the finisher keys: direction and swing, and direction only [D-20261005-45, D-20261005-47];
 - the turn rate: angle ÷ time left, finishing exactly at contact [D-20261005-50];
-- "the enemy recovers": Staggered ends at once after a non-lethal follow-up, one follow-up per parry [D-20261005-51];
+- "the enemy recovers": Staggered ends at once after a non-lethal follow-up, one follow-up per parry-counter [D-20261005-51];
 - the guard-breaking hit deals no damage [D-20261005-52];
 - hit-stun holds enemies too [D-20261005-53];
 - the lethal-counter lookup: the lethal variant, then the finisher for that direction, then the non-lethal counter and the
@@ -2490,15 +2765,32 @@ Each item is either an open question, or a reading this spec chose that the owne
 - counter damage, when Staggered starts, what ×1.5 multiplies, the sliding guard-break window, the swing field and its
   auto-detect action, the follow-up reach, and "not on guard break" [D-20261005-80 to D-20261005-86];
 - the dodge out of hit-stun and out of the player's Staggered state [D-20261005-87, D-20261005-88];
-- the register's D-20261004-27 entry: its "evade becomes a universal escape" line has been removed.
+- the register's D-20261004-27 entry: its "evade becomes a universal escape" line has been removed;
+- two locks on one character: both run, free when both end [D-20261006-01];
+- the counter's end, the hit-stun hand-off and the attack's cancel point: one general cancel notify [D-20261006-02];
+- where counter damage lives, and its order against content: the defense-set entry, a clip override optional; content,
+  then damage, then the outcome [D-20261006-03];
+- rules against content: rules before content, as a standing principle [D-20261006-04];
+- when counter damage lands, and that it never clamps [D-20261006-05];
+- the player's Staggered time against an attack's override: the player's own, always [D-20261006-06];
+- how a lethal parry-counter is presented: every counter can kill, the enemy's outcome changes, a kill sequence is
+  optional [D-20261007-07];
+- protection inside the sequence, and the early press: untouchable until your own cancel notify; the press buffered and
+  fired then [D-20261007-08, D-20261007-09];
+- the aimed-elsewhere release: retired [D-20261007-10];
+- the words parry, counter and parry-counter [D-20261007-11];
+- targeting: free mode by the stick, else the facing; lock mode; in this spec as 3.13 [D-20261007-12 to D-20261007-14];
+- the counted guard break built dormant; unblockable over guard breaker; the light press on a Staggered target; the
+  lenient lockout [D-20261007-15 to D-20261007-18].
 
 **Conflicts between active decisions:**
 1. D-20261004-35's "a press aimed elsewhere … releasing the held enemy" became the Staggered-time rule by D-20261005-22
-   and was confirmed by D-20261005-62. Resolved; kept here because the pillars page still describes the old window.
+   and was confirmed by D-20261005-62. D-20261007-10 then retired the release itself: a press elsewhere leaves
+   Staggered running. Resolved; kept here because the pillars page still describes the old window.
 2. D-20261003-02's "phase resistance" against D-20261005-17's armor windows. The form answered at 03:38 EDT offered a
    state-based resistance, which the owner did not pick. Phase resistance is treated as replaced. The design pillars
    page still lists it.
-3. D-20261004-27's per-type defense role against D-20261005-24's "no per-enemy-type modes" (Q19).
+3. D-20261004-27's per-type defense role against D-20261005-24's "no per-enemy-type modes" (Q17).
 4. D-20260929-07 says to wire `FFinisherTriggerConfig`. D-20261005-18 removes its thresholds, so it is retired.
 5. `CLAUDE.md`'s "Stateful Block input is immediate" against D-20261005-13's buffered Block press.
 6. The design pillars page, now on `main`, predates the 10-05 decisions: the two modes, the window lead, phase
@@ -2520,11 +2812,12 @@ Each item is either an open question, or a reading this spec chose that the owne
 13. The "Auto-detect swing" classification thresholds (D-20261005-84 names the action, not the thresholds); 4.5's are
     proposed.
 14. "Charged" is not an attack type, and the latched charge is never written today (Q1).
-15. The interplay of D-20261005-21, -35 and -36 (Q7).
-16. "A short cooldown" in D-20261005-35 (Q8).
-17. No decision names a clock (Q10).
+15. The interplay of D-20261005-21, -35 and -36: answered for the parry-counter by D-20261007-08 (untouchable until
+    your own cancel notify); the rest is read in 3.9 and in item 47 below.
+16. "A short cooldown" in D-20261005-35 (Q6).
+17. No decision names a clock (Q8).
 18. D-20261005-59 names the block shove's per-type default but no value; the values in 3.10 are proposed.
-19. D-20261005-63 stores AI weights per slot, which a shared combo set cannot vary per placed actor (Q17).
+19. D-20261005-63 stores AI weights per slot, which a shared combo set cannot vary per placed actor (Q15).
 
 **Readings this spec chose, for the owner to see:**
 
@@ -2536,7 +2829,7 @@ Each item is either an open question, or a reading this spec chose that the owne
 25. The limit of two attackers counts the attackers of the player; it is set in the combat settings.
 26. The 0.12 s floor came from a proposed, unmerged hit-reaction spec. The owner adopted the number by picking
     D-20261005-34; the option's description (session transcript, 04:02 EDT) calls it "the 0.12 s floor decided earlier".
-27. The glossary's back-to-opener entry uses a word that its own last table retires, for the parry sequence. This spec
+27. The glossary's back-to-opener entry uses a word that its own last table retires, for the parry-counter. This spec
     says "combo" for a run of linked attacks.
 28. The owner's held knockback values (60 cm and 150 cm) come from a condensed summary. Check them on the asset.
 29. An entry that names the parried attack's lane is preferred over one that does not, as the ordering of D-20261005-45's
@@ -2559,8 +2852,46 @@ Each item is either an open question, or a reading this spec chose that the owne
 37. The block shove's per-attack and per-slot overrides, its scaling by charge and victim scale, and its direction follow
     the hit push; D-20261005-59 names only the per-type default.
 38. D-20261005-88 says "the player's profile"; the spec reads it as the player's reaction profile, because the state is a
-    reaction to a hit (D-20261005-68). How that time combines with an attack's Staggered-time override is Q21.
+    reaction to a hit (D-20261005-68). How that time combines with an attack's Staggered-time override was open and is
+    now decided: the player's own time, always [D-20261006-06].
 39. D-20261005-88 does not restate what happens to attack and Block presses while the player is Staggered; the spec
     keeps D-20261005-67's "buffered, fires afterwards".
 40. D-20261005-88's dodge minimum is "the same rule as hit-stun"; the spec measures it against the player's Staggered
     length, from the breaking contact.
+
+**Readings of the 6 and 7 October decisions, for the owner to see:**
+
+41. **The lenient lockout** [D-20261007-18]. The owner's words, verbatim: "im uncertain if i even want to punish parry
+    attempts but i want to start with the parry lock in to see how it feels so the more lenient version sounds good to
+    me". My reading: "the more lenient version" is the option in which a press made during the lockout is remembered
+    and counts as a parry if the window is still open when the lockout ends, not the option that caps the lockout; the
+    owner may veto. The lockout is kept as a tunable to be felt first and may go to zero.
+42. D-20261007-07 says "where an entry carries an authored kill sequence". This spec places the kill sequence on the
+    paired-set counter the entry references (4.7), since D-20261005-57 keeps two-character content in the paired set;
+    the entry reaches it through its reference.
+43. D-20261005-54's middle step (the finisher pool for a lethal counter without a lethal variant) is read as superseded
+    by D-20261007-07: no separate kill clip is needed, so the pool is not consulted for a parry-counter, and a lethal
+    press with no kill sequence kills at the counter's contact. The owner may veto.
+44. D-20261005-81's "when the counter sequence ends" is read as the enemy's cancel notify on its half of the counter
+    (D-20261006-02, D-20261007-07).
+45. D-20261007-12's "nearest otherwise": among several Staggered or eligible enemies, the nearest wins. With that, the
+    tie rule is settled and the former question on it is removed.
+46. The stick direction (Free-1) is read in the frame movement uses, as the owner's "attack in the direction you are
+    pressing" implies; no decision names the frame.
+47. D-20261007-08 answers the former question on an in-progress swing during your own sequence, for the parry-counter.
+    For a paired finisher today's rule stands: the character that started it cannot be touched (Contact-3). An
+    in-progress swing's contact on an untouchable character is ignored and the swing continues to its end.
+48. Lock-1 with no candidate does nothing and leaves free mode in place; the lock does not change what guard faces.
+    D-20261007-13 says neither.
+49. D-20261006-03's order "content first, then damage, then the variant" is read with the room check and the variety
+    rule inside "content", so that when the fallback strike is chosen for lack of room, the damage read is the entry's
+    value, which the fallback strike always deals.
+50. D-20261007-17 names the light press only. The Heavy press on a Staggered target is Q19.
+51. The cancel notify's shape (one class, no payload, one per montage, ignored on attacks with a warning) is proposed;
+    D-20261006-02 fixes its meanings, not its class (4.13).
+52. D-20261006-01's "no guard while Staggered, whatever the hit-stun allows" is read as Guard-2 taking precedence over
+    Guard-4 while both states run.
+53. An ordinary attack has no range in free mode beyond today's attack warp; D-20261007-12 names no range, and the
+    350 cm of D-20261005-28 and D-20261005-85 bound the paired finisher and the follow-up strike only.
+54. Lock mode's distances (how far a lock press looks, and "near" for the re-pick on death) and the flick threshold are
+    not in D-20261007-13; the distances are Q20 and the threshold is a proposed tunable with no decided value.
