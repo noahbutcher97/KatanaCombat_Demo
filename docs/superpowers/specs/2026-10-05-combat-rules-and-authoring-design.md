@@ -1,13 +1,18 @@
 # Combat rules, data model and attack authoring: design
 
 - **Date:** 2026-10-05.
-- **Revised:** 2026-10-10, twice. First for D-20261007-53 to -59 and D-20261010-01 to -04: the kit as the root asset,
+- **Revised:** 2026-10-10, three times. First for D-20261007-53 to -59 and D-20261010-01 to -04: the kit as the root asset,
   the combat rules split from the per-character settings, the player by data, the marker's home, table-shaped selection
   with one trace, the timeline as the attack editor, and paired content found by key. Then for D-20261010-05 to -15:
   **the parry simplified to the standard model** (a deflect that Staggers the attacker; a Staggered enemy dies to the
   next aimed hit), the deflect's presentation in three layers keyed by direction × height, three data-model answers
   (the Heavy 4 link, hits with no resolved spec, the charged damage multiplier) and two housekeeping items. The
-  parry-counter design is set aside, not deleted: Appendix C holds it for a later graduation.
+  parry-counter design is set aside, not deleted: Appendix C holds it for a later graduation. Then for D-20261010-16
+  to -19, which closed the four data-model questions the second revision had opened: the globals no decision names
+  live on the combat rules by elimination; a dragged slot row carries its overrides, and the drop offers "keep
+  overrides at position"; the set layer stays below the attack layer, with a lane batch action; and **no content is
+  player-specific**: the "can finish the player" marker is gone, and whether an enemy executes finishers is a
+  behaviour setting on its AI.
 - **Status:** draft for the owner's review, section by section. It authorizes no code change and no asset save.
 - **Why this exists.** The owner's standing rule [D-20261004-45]: "i want to get more specific with the rules for guard
   breaks, finishers, parries, and counters, and what causes what and how and why and exact mechanics i dont want to find
@@ -20,7 +25,7 @@
   rework of today's post-parry press window, which stays as the interim behaviour until the parry and follow-up stages
   (9.7, 9.8) retire it. Their effect on the rules is noted where it matters. No pull request that touches these rules is open.
 - **Sources.**
-  - The decisions register, `docs/sessions/registers/decisions.md` (local and git-excluded), through D-20261010-15, plus the ruling R-20261005-01. Only
+  - The decisions register, `docs/sessions/registers/decisions.md` (local and git-excluded), through D-20261010-19, plus the ruling R-20261005-01. Only
     active decisions are used, and "superseded by" is respected. Where the register records the owner's words, those words
     are quoted; where it records a reading of them ("my reading", "the owner may veto"), the hedge is carried into Appendix
     B unchanged.
@@ -132,13 +137,14 @@ These restate decisions; each cites its source.
    - What does this character fight with? Its kit: the weapon plus a combo set, a defense set and a paired set.
    - What follows what? The kit's combo set.
    - How does this kit block, and which deflect answers which attack? The kit's defense set.
-   - Which two-character sequences does this kit play, and can it finish the player? The kit's paired set.
+   - Which two-character sequences does this kit play? The kit's paired set.
    - How does this character's body react, resist and break, and is it the player? Its reaction profile.
+   - Does this enemy execute finishers at all? A behaviour setting on its enemy type's AI, never a marker on content.
    - What are the global rules? The combat rules, one asset for the project.
    - What are this character's type defaults and its default kit? Its combat settings.
 
-   Sources: [D-20261004-20, D-20261005-01, D-20261005-48, D-20261005-57, D-20261007-53, D-20261007-54, D-20261007-55,
-   D-20261010-01, D-20261010-02].
+   Sources: [D-20261004-20, D-20261005-01, D-20261005-48, D-20261005-57, D-20261007-53, D-20261007-54,
+   D-20261010-01, D-20261010-02, D-20261010-19].
 5. **Input is never lost.** Presses made during your own attack or during hit-stun are buffered
    [D-20261005-13, D-20261005-37, D-20261003-03].
 6. **Feel is judged on rendered captures**, not on code or automation alone. This is project practice, recorded in the
@@ -155,15 +161,17 @@ These restate decisions; each cites its source.
     and which opener a press starts from are rows of one table shape, judged by one evaluator that records the rows it
     evaluated; the simulate-press panel shows that trace (4.16, 5.12) [D-20261007-57]. Paired content is found by key
     through those tables, never by a reference from another set [D-20261010-01].
-11. **The player is data, not identity.** Every rule that treats the player differently reads a field on the player's
-    reaction profile; no rule asks "is this the player" (4.8) [D-20261007-54].
+11. **The player is data, not identity, and no content is player-specific.** Every rule that treats the player
+    differently reads a field on the player's reaction profile; no rule asks "is this the player" (4.8)
+    [D-20261007-54]. No asset carries player-specific content: a finisher row names no victim kind, and whether an
+    enemy executes finishers is a behaviour setting on its AI (3.8) [D-20261010-19].
 
 ---
 
 ## 2. Glossary
 
 **Status:** approved by the owner as written at `a34ecd69` [D-20261005-65]; the reaction-profile entry was then narrowed by
-D-20261005-68, and the decisions of 6, 7 and 10 October, through D-20261010-15, amended the entries marked below.
+D-20261005-68, and the decisions of 6, 7 and 10 October, through D-20261010-19, amended the entries marked below.
 
 ### 2.1 The adopted glossary
 
@@ -175,11 +183,12 @@ data [D-20261005-48, D-20261005-49, D-20261005-57]; then the words parry, counte
 the aim cone's reference [D-20261007-12], the counter's shape [D-20261007-07], the defense set's damage [D-20261006-03]
 and the lenient lockout [D-20261007-18]; then the parry window's home [D-20261007-38], the slot [D-20261007-35], the
 paired set's finisher lists [D-20261007-31] and the second attacker under others hold [D-20261007-44]; then the
-reaction profile's marker and player fields [D-20261007-54, D-20261007-55], the defense set's and paired set's
+reaction profile's player fields [D-20261007-54] and its marker [D-20261007-55], the defense set's and paired set's
 references, now lookups by key [D-20261010-01], and the root asset, weapon data renamed kit [D-20261010-02]; then the
 parry simplified, with counter and parry-counter reserved and the follow-up always lethal [D-20261010-08,
-D-20261010-10], and the defense set's deflect rows keyed by direction × height [D-20261010-12, D-20261010-13]. Every
-other line is verbatim.
+D-20261010-10], and the defense set's deflect rows keyed by direction × height [D-20261010-12, D-20261010-13]; then no
+player-specific content anywhere, which retires the marker lines of the reaction-profile and paired-set entries and
+reverses D-20261007-55 [D-20261010-19]. Every other line is verbatim.
 
 One meaning per term. Required in code identifiers, tooltips, logs, specs and docs. Retired words are rejected in review.
 
@@ -214,8 +223,8 @@ One meaning per term. Required in code identifiers, tooltips, logs, specs and do
 - **Lethal** — resolved damage (after resistances) ≥ the target's remaining health, decided at the press; or any landed
   aimed hit on a Staggered enemy, by rule. **[amended by D-20261010-10]**
 - **Paired finisher** — the synced two-character kill clip. Plays whenever any aimed strike is lethal: a follow-up on a
-  Staggered enemy, or an ordinary attack. Marked enemies can do the same to the player. Never plays otherwise (3.8).
-  **[amended by D-20261005-42, D-20261007-07, D-20261010-08, D-20261010-10]**
+  Staggered enemy, or an ordinary attack. An enemy whose type executes finishers can do the same to the player. Never
+  plays otherwise (3.8). **[amended by D-20261005-42, D-20261007-07, D-20261010-08, D-20261010-10, D-20261010-19]**
 - **Parry window** — the input timing on the attacker's animation, never shorter than 0.35 s before contact, scaled by
   the parry-assist setting. Turning is never limited to it. The window is the attacker's and is held as data on the
   attack, a lead time before predicted contact, anchored to the animation; the montage notify is a derived mirror of it
@@ -238,11 +247,12 @@ One meaning per term. Required in code identifiers, tooltips, logs, specs and do
 - **Reaction profile** — a character's reactions to hits only: hit reactions, armor base, guard-break threshold, window
   and counting toggle, the Staggered reaction and recoil, hit-stun responses, the character's own Staggered time, whether
   a dodge may escape its locked states, and parry assists. The player is whichever character's profile says so: counting
-  off, its own Staggered time, the dodge escape allowed; no rule asks for an identity. The "can finish the player" marker
-  is no longer here: it is the kit's paired set holding player-finisher content. It never arbitrates movement or camera;
-  those get their own profiles when needed.
+  off, its own Staggered time, the dodge escape allowed; no rule asks for an identity. There is no "can finish the
+  player" marker here or anywhere: whether an enemy executes finishers is a behaviour setting on its AI, not a field on
+  any content (3.8). It never arbitrates movement or camera; those get their own profiles when needed.
   **[amended by D-20261005-46, D-20261005-47, D-20261005-48, D-20261005-55, D-20261005-68, D-20261005-88,
-  D-20261007-54, D-20261007-55]**
+  D-20261007-54, D-20261007-55 (the marker moved to the paired set), D-20261010-19 (that move reversed; the marker
+  retired as content)]**
 - **Defense set** — the weapon's block and parry responses: block reactions, the guard enter and exit clips, and the
   deflect rows, one per attacker direction × attack height, each naming its deflect clip, the body yaw the clip
   covers, an optional blade IK clamp override and its cancel notify. Referenced by the kit. **[added by D-20261005-48;
@@ -250,10 +260,11 @@ One meaning per term. Required in code identifiers, tooltips, logs, specs and do
   D-20261010-13]**
 - **Paired set** — the kit's two-character sequences: finishers, a list per attacker direction chosen by the variety
   rule. Nothing references into it: a lethal strike asks it for finishers by direction. Each entry is one content
-  asset; the content's own variants are alternates of that entry, never the direction choice. A paired set that holds
-  player-finisher content is one that can finish the player. Its counters are set aside for the later graduation
-  (Appendix C). **[added by D-20261005-57; amended by D-20261007-07, D-20261007-31, D-20261007-55, D-20261010-01,
-  D-20261010-04, D-20261010-08]**
+  asset; the content's own variants are alternates of that entry, never the direction choice. No row names a victim
+  kind: whether a clip fits a victim is the content's own start check through the seam (rig, size, ground state), and
+  whether an enemy executes finishers at all is its AI's business, not the set's. Its counters are set aside for the
+  later graduation (Appendix C). **[added by D-20261005-57; amended by D-20261007-07, D-20261007-31, D-20261007-55,
+  D-20261010-01, D-20261010-04, D-20261010-08, D-20261010-19]**
 - **Kit** — the root asset a character fights with: the weapon (its mesh, sockets, traces and multiplier, the physical
   data) plus one combo set (attacks), one defense set (defenses) and one paired set (two-character sequences). Two kits
   may share the weapon and the defense and paired sets and differ in combo set. A character with no kit uses its combat
@@ -314,6 +325,7 @@ additions**, so that the product uses one word for each.
 | **Later graduation** | The set-aside design in which a parry seeks a paired counter keyed by direction, with counter damage and an optional kill sequence: the owner's "arkham paired counter for all directions strategy" (Appendix C) [D-20261010-08]. |
 | **Cancel notify** | The one "free from here" notify on any non-attack montage (3.0) [D-20261006-02]. |
 | **Finisher pool** | The paired set's finishers: rows of clips per attacker direction, keyed by direction only [D-20261005-47, D-20261007-31], asked for by key from the attacker's kit's paired set; the combo set holds no reference to them [D-20261005-57, D-20261010-01]. One is chosen by the variety rule, and there is no throttle [D-20261007-31]. |
+| **Executes finishers** | The per-enemy-type behaviour setting on an enemy's AI that says whether it ever chooses a paired finisher against the player, under the rules of 3.8 (its own target, a lethal next attack, the predictor's confirmation). It is behaviour, not content: no asset carries a "can finish the player" marker, and no finisher row names a victim kind. Its home is proposed (3.8) [D-20261010-19]. |
 | **Fit to clip** | Bringing a lethal strike whose direction has no finisher clip to the nearest authored direction: the attacker's approach warp moves the pair, the victim turns within a small budget, and the first part of the clip is blended procedurally to hide the approach (3.8) [D-20261007-22, D-20261007-23]. |
 | **Fitting budgets** | The turn, distance and room limits a fit may use, tunables on the paired set with combat-rules defaults; beyond them fitting fails and an ordinary attack plays [D-20261007-23, D-20261007-53]. |
 | **Scripted hit** | A hit applied at a clip's contact marker without a weapon trace, because the predictor already confirmed the target [D-20261007-41]. No live rule lands one: the follow-up is a paired finisher (damage at its sync moment) or an ordinary attack (a weapon trace). The term is kept for an unpaired follow-up clip, should one be authored; the counter half of D-20261007-41 is set aside (Appendix B, Appendix C). |
@@ -338,7 +350,7 @@ additions**, so that the product uses one word for each.
 | **Set-level type default** | A per-type default held by a combo set: the per-weapon layer, second of the four in section 4.2 [D-20261005-40, D-20261005-61]. |
 | **Attack override** | A field the attack asset sets for itself, replacing the default [D-20261004-20]. |
 | **Slot override** | A field a slot sets, replacing the attack's value for that slot only [D-20261005-01]. Every attack field can be overridden [D-20261007-35]. |
-| **Slot diff** | The set of a slot's overrides: what the slot changes about its attack. The row shows only the diff by default [D-20261007-35]. |
+| **Slot diff** | The set of a slot's overrides: what the slot changes about its attack. The row shows only the diff by default [D-20261007-35]. It travels with the row when the row is dragged (5.1) [D-20261010-17]. |
 | **Save to asset** | The per-field action beside an overridden value that writes it into the attack asset and clears the override, with the used-by notice [D-20261007-35]. |
 | **Edit-through** | Editing the referenced attack's own fields inline from the combo set [D-20261005-01]. |
 | **Extract to new attack** | Turning a slot's diff into a new attack asset that the slot then references. It replaces "make unique" [D-20261005-01, D-20261007-35]. |
@@ -889,8 +901,8 @@ value.
 | Layer | What it does | Tunables | Home |
 |---|---|---|---|
 | 1. Pose library, bounded body share | The deflect row for the key names one short single-character deflect clip and the **body yaw it covers**. The adaptive turn (3.2) carries only the remainder: a rear parry barely turns, and an over-shoulder pose covers the back; a 60° threat turns the body about 15° and a side pose covers the rest. The capsule's turn is hidden behind the mesh, so that the mesh never skates. | Per clip: its body-yaw coverage. The report's starting values **[reported]**: front about ±45°, side about ±100°, rear 180°. | The deflect row (4.6) |
-| 2. Blade IK | The sword hand is driven toward the predicted contact point, the blade turned perpendicular to the predicted path, from the press to predicted contact, released at the cancel point. **Clamped** to about 20 cm and about 25° from the authored pose; outside the clamp the pose stands as authored and is never rubbery. | The clamp: about 20 cm / 25°. | Combat rules default (Q23); a deflect row may override it (4.6) |
-| 3. Attacker nudge | Inside the attacker's slowdown (3.2) its weapon is warped by up to about 15 cm toward the defender's blade. Moving the attacker's blade is cheaper and less visible than moving the defender's body. | The nudge limit: about 15 cm; only inside the slowdown. | Combat rules (Q23) |
+| 2. Blade IK | The sword hand is driven toward the predicted contact point, the blade turned perpendicular to the predicted path, from the press to predicted contact, released at the cancel point. **Clamped** to about 20 cm and about 25° from the authored pose; outside the clamp the pose stands as authored and is never rubbery. | The clamp: about 20 cm / 25°. | Combat rules default; a deflect row may override it (4.6) |
+| 3. Attacker nudge | Inside the attacker's slowdown (3.2) its weapon is warped by up to about 15 cm toward the defender's blade. Moving the attacker's blade is cheaper and less visible than moving the defender's body. | The nudge limit: about 15 cm; only inside the slowdown. | Combat rules |
 
 The report's reading of the engine techniques (a pose select for layer 1, with the Animation Warping plugin's offset
 root bone hiding the capsule's turn; two-bone IK first for layer 2, a full-body solver with per-bone limits only if
@@ -938,8 +950,8 @@ the project today **[reported, from the turn speed sweep]**; under rules before 
 |---|---|---|---|---|
 | Deflect key | direction × height, relative to the defender's facing at predicted contact; low-rear folds into mid-rear | rule, no tunable | D-20261010-13 | one front deflect, keyed by outcome, height, lane, swing and tags on the defense configuration |
 | Body-yaw coverage | per clip; the report's starting values **[reported]**: front ±45°, side ±100°, rear 180° | the deflect row | D-20261010-12 | none: the body turns the whole angle |
-| Blade IK clamp | about 20 cm / 25°, tuned on captures | combat rules (Q23); deflect row override | D-20261010-12 | none |
-| Attacker nudge limit | about 15 cm, inside the slowdown only, tuned on captures | combat rules (Q23) | D-20261010-12 | none |
+| Blade IK clamp | about 20 cm / 25°, tuned on captures | combat rules; deflect row override | D-20261010-12 | none |
+| Attacker nudge limit | about 15 cm, inside the slowdown only, tuned on captures | combat rules | D-20261010-12 | none |
 | Authored deflect clips | 6 to 9 | content | D-20261010-12 | 1 |
 
 **Content this needs** (the shopping list; no rule above depends on it [D-20261006-04]):
@@ -1049,13 +1061,13 @@ aimed-elsewhere press [D-20261004-35, D-20261005-62] is retired.
   reading (Appendix B). A buffered Light or Heavy press starts its attack when the state ends, and at that attack's
   hold-window start the button state is checked as usual: holding through and releasing after yields a directional light
   or a charged heavy [D-20261007-45];
-- a marked enemy may choose a finisher as its next attack while the player is Staggered, when the predictor says it lands
-  (3.8) [D-20261007-20].
+- an enemy whose type executes finishers may choose one as its next attack while the player is Staggered, when the
+  predictor says it lands (3.8) [D-20261007-20, D-20261010-19].
 
 D-20261005-88 names the guard break. No rule in this spec has an enemy parry the player, so the guard break is the only
 way the player becomes Staggered here. D-20261010-10 names the enemy ("a Staggered enemy dies to the next aimed hit"),
-so enemy attacks on a Staggered player stay ordinary attacks, lethal by health, and a marked enemy finishes only by the
-rule of 3.8; that is a reading (Appendix B).
+so enemy attacks on a Staggered player stay ordinary attacks, lethal by health, and an enemy finishes only by the rule
+of 3.8; that is a reading (Appendix B).
 
 **Beside hit-stun** [D-20261006-01]. Hit-stun and Staggered on one character both run: each keeps its own timer and its
 own rules (no guard while Staggered, whatever the hit-stun allows: Guard-2 takes precedence over Guard-4, a reading,
@@ -1150,8 +1162,9 @@ link (Appendix B).
 - **An enemy whose guard breaks is one hit from death**: its Staggered state is a finisher waiting, and the next aimed
   hit kills it (3.4) [D-20261010-10]. The player's guard break leaves the player Staggered only; the enemy's hits on
   the Staggered player stay ordinary (3.4).
-- **No enemy paired finisher** comes from it by itself; if a marked enemy's next hit on the Staggered player would be
-  lethal, the normal lethal rule still applies [D-20261005-20, D-20261005-86] (3.8).
+- **No enemy paired finisher** comes from it by itself; if the next hit of an enemy whose type executes finishers on
+  the Staggered player would be lethal, the normal lethal rule still applies [D-20261005-20, D-20261005-86,
+  D-20261010-19] (3.8).
 
 **What does not count:**
 - unblockable hits, hits outside the arc and hits while not guarding, none of which is a block;
@@ -1292,7 +1305,8 @@ invulnerability, not armor (3.14).
 - D-20261007-32: a push in flight runs under the character; only a dodge cancels it;
 - D-20261007-45: a buffered press honours the hold when it fires;
 - D-20261007-51: the dodge escapes hit-stun after its minimum (3.14);
-- D-20261007-20: a marked enemy may choose a finisher against a player in hit-stun.
+- D-20261007-20: an enemy whose type executes finishers may choose one against a player in hit-stun
+  [D-20261010-19].
 
 **When.** An interrupting hit (3.6).
 
@@ -1322,8 +1336,8 @@ The floor is 0.12 s: never below it [D-20261005-34].
   first half of the stun, so the escape opens at max(0.12 s, H ÷ 2) after the hit. The escape dodge is itself committed:
   it plays through. A dodge press made before the escape opens is buffered and fires when it opens. The dodge is 3.14
   [D-20261007-51]; today the Evade input does nothing (`CombatComponent.cpp:4147-4149` **[reported]**);
-- a marked enemy may choose a finisher as its next attack against a player in hit-stun, when the predictor says it lands
-  (3.8) [D-20261007-20].
+- an enemy whose type executes finishers may choose one as its next attack against a player in hit-stun, when the
+  predictor says it lands (3.8) [D-20261007-20, D-20261010-19].
 
 **Beside Staggered** [D-20261006-01]. When a character is both in hit-stun and Staggered, both run: each keeps its own
 timer and rules; the character is free when both have ended; a dodge-out needs both minimums to have passed; a hit
@@ -1347,7 +1361,7 @@ resumes afterwards [D-20261005-53]. Today hit-stun stops nothing: neither the pl
 | Tunable | Default | Home | Decision | Today |
 |---|---|---|---|---|
 | Hit-stun | light 0.25 s, heavy 0.45 s, charged 0.6 s | combat settings type defaults; attack and slot overrides | D-20261005-34, D-20261004-41 | 0 on every shipped reaction entry, so nothing stuns **[reported]** |
-| Hit-stun floor | 0.12 s | combat rules (Q23) | D-20261005-34 | none |
+| Hit-stun floor | 0.12 s | combat rules | D-20261005-34 | none |
 | Hit-stun dodge escape | opens at max(0.12 s, half the stun) | rule, no tunable | D-20261005-87 | none |
 
 ### 3.8 Paired finishers
@@ -1367,7 +1381,8 @@ resumes afterwards [D-20261005-53]. Today hit-stun stops nothing: neither the pl
   D-20261007-22 and D-20261007-23: an uncovered direction is fitted first;
 - D-20261005-57: the finishers live in the kit's paired set; the combo set's reference to them is dropped by
   D-20261010-01;
-- D-20261007-55: the marker: a paired set that holds player-finisher content can finish the player;
+- D-20261007-55, reversed by D-20261010-19: there is no "can finish the player" marker and no player-specific content;
+  whether an enemy executes finishers at all is a per-enemy-type behaviour setting on its AI, under the rules below;
 - D-20261010-01: finishers are found by key from the attacker's kit's paired set;
 - D-20261010-04: one finisher row is one content asset; its alternates never decide the direction;
 - D-20261007-20: an enemy's finisher is chosen at its attack's start, against a player who is Staggered or in hit-stun,
@@ -1393,7 +1408,7 @@ does an ordinary attack play, which kills only if it lands [D-20261007-22].
 |---|---|
 | A follow-up on a Staggered enemy (3.3): lethal by rule | D-20261010-10 |
 | Any other attack press aimed at an enemy, when its resolved damage is lethal | D-20261005-18, D-20261005-19, D-20261005-42 |
-| A marked enemy's attack on the player, when its resolved damage is lethal | D-20261005-20, D-20261005-42 |
+| The attack of an enemy whose type executes finishers, on the player, when its resolved damage is lethal | D-20261005-20, D-20261005-42, D-20261010-19 |
 
 **The player's trigger.** Evaluated when an attack press executes, in order. When a buffered press is decided is Q4.
 
@@ -1410,7 +1425,7 @@ does an ordinary attack play, which kills only if it lands [D-20261007-22].
 1. the attacker's approach warp brings the pair to the **nearest authored direction**, and the victim may turn within a
    small budget;
 2. the turn, distance and room the fit may use are **budgets**: tunables on the paired set with combat-rules
-   defaults (4.7, Q23). Beyond them fitting fails, and an ordinary attack plays [D-20261007-22];
+   defaults (4.7). Beyond them fitting fails, and an ordinary attack plays [D-20261007-22];
 3. the first part of the clip is **blended procedurally**, the upper body and the blade toward the victim, to hide the
    approach. It is verified on a rendered check;
 4. the budgets' values are not in the decision; they are tunables with no decided value, set on the captures that verify
@@ -1423,7 +1438,7 @@ techniques to make the situation fit the finisher or another technique that coul
 
 **What a clip requires** [D-20261007-42]. Paired content declares, per role (attacker and victim), the ground state it
 needs: grounded, airborne or any, with both grounded by default; and a height-difference limit with a combat-rules
-default (Q23). The victim must never be invulnerable. A mismatch counts as fitting failed, so an ordinary attack plays. Air
+default. The victim must never be invulnerable. A mismatch counts as fitting failed, so an ordinary attack plays. Air
 content later declares airborne; the defaults keep today's behaviour. These live on the paired content and are read
 through the paired-content interface (4.12), never copied into a table row [D-20261010-04].
 
@@ -1433,15 +1448,15 @@ through the paired-content interface (4.12), never copied into a table row [D-20
 - the victim's death is in the clip.
 
 **Enemy paired finishers on the player** [D-20261005-20, D-20261007-20]. All of these must hold:
-- the enemy's kit's paired set holds player-finisher content: that is the marker, and validation checks it; the reaction
-  profile no longer carries one [D-20261007-55];
+- the enemy's type **executes finishers**: a behaviour setting on its AI (below), not a marker on any content
+  [D-20261010-19];
 - the enemy's **next** attack would be lethal to the player [D-20261005-42];
 - the player is **Staggered or in hit-stun** at that attack's start, and the contact predictor says the hit lands, at
   the finisher-choice threshold (3.15) [D-20261007-20, D-20261007-24];
 - the enemy **chooses the finisher as its next attack, at that attack's start**. An ordinary swing already in progress
   never becomes a finisher: there is no mid-swing promotion, whatever the player's health [D-20261007-20]. The owner:
   "enemies shouldnt be transitioning between normal combo attacks into finishers thats a recipe for chaos";
-- a guard break grants nothing by itself [D-20261005-20, D-20261005-86]; a marked enemy's lethal hit on the Staggered
+- a guard break grants nothing by itself [D-20261005-20, D-20261005-86]; such an enemy's lethal hit on the Staggered
   player finishes only through the choice above, which narrows D-20261005-86's "still finishes" (Appendix B);
 - the enemy is within 350 cm [D-20261005-28];
 - the enemy's finisher counts as its attack for the tokens (3.9) [D-20261007-30], and others hold during it
@@ -1451,8 +1466,20 @@ through the paired-content interface (4.12), never copied into a table row [D-20
 has no clip is fitted to the nearest authored one, and only a failed fit falls back to an ordinary attack
 [D-20261005-38, D-20261005-47, D-20261007-22]. There are no body types [D-20261005-47].
 
-**A marked enemy** is one whose kit's paired set holds player-finisher content [D-20261007-55]; the word is kept for
-brevity, and nothing on the enemy's profile carries it.
+**Whether an enemy executes finishers is behaviour, not content** [D-20261010-19]. No asset holds player-specific
+content: a finisher row names no victim kind, and there is no "can finish the player" marker on the paired set, the
+reaction profile or anywhere else; D-20261007-55's marker on the paired set is reversed. The owner: "Having a separate
+container for a specific class on an asset used across classes is code smell." Two facts replace it:
+- **Whether a clip fits a victim** is the content's own start check through the paired-content seam (4.12): the rig
+  and size it was authored for, and the ground state each role needs [D-20261007-42, D-20261010-19]. A clip that does
+  not fit refuses, and the refusal counts as fitting failed.
+- **Whether an enemy executes finishers at all** is a per-enemy-type behaviour setting on its AI, read where the enemy
+  chooses its next attack (6.3). **Proposed home:** a toggle, "Executes finishers", on the enemy AI component
+  (`UEnemyCombatAIComponent`), set per enemy type in its Blueprint, off until a type turns it on; the StateTree reads
+  it from the component. Its StateTree data was the other candidate; the component is chosen because it already owns
+  the enemy's attack choice and its Staggered hold (3.4) and needs no new asset. The home and the default are proposed
+  (Appendix B). The setting opens nothing by itself: the finisher still needs every rule above, against the enemy's own
+  target, with a lethal next attack and the predictor's confirmation.
 
 **Removed from today:**
 - the 25% low-health threshold (`HitReactionComponent.cpp:1423`);
@@ -1461,8 +1488,8 @@ brevity, and nothing on the enemy's profile carries it.
   (**[reported]** `PairedAnimationComponent.cpp:2777-2799`). This becomes the aim cone of 3.13, around the stick
   direction or the facing, at 350 cm for a paired finisher;
 - finisher data on every attack, replaced by the finisher pool;
-- every shipped enemy attack carrying lethal finisher data **[reported]**, replaced by kits whose paired set holds
-  player-finisher content [D-20261007-55];
+- every shipped enemy attack carrying lethal finisher data **[reported]**, replaced by the per-enemy-type behaviour
+  setting and the kit's paired set found by key [D-20261010-01, D-20261010-19];
 - the normal death as the first answer to a missing clip: fitting comes first [D-20261007-22].
 
 **Tunables:**
@@ -1471,11 +1498,11 @@ brevity, and nothing on the enemy's profile carries it.
 |---|---|---|---|---|
 | Aim cone (half-angle) | 60°, around the stick direction or the facing (3.13) | combat rules | D-20261005-27, D-20261007-12 | soft aim from facing: 120° rejection, scored on 45° |
 | Finisher range | 350 cm | combat rules | D-20261005-28 | 500 cm, `SoftAimRange` |
-| Can finish the player | no: the kit's paired set holds no player-finisher content | the kit's paired set, as content presence; validation checks it (Q24) | D-20261005-20, D-20261005-40, D-20261007-55 | every enemy attack can |
+| Executes finishers (enemy type) | off until a type turns it on (proposed) | a behaviour setting on the enemy AI component, per enemy type (proposed); never on content | D-20261005-20, D-20261005-40, D-20261010-19 | every enemy attack can |
 | Finisher list, variety | the variety rule: one plays; two alternate; three or more random, excluding the last two | rule, no tunable; no throttle | D-20261007-31 | one clip, no variety |
-| Fitting budgets: turn, distance, room | no decided value; tuned on the captures that verify the seam blend | paired set, with combat-rules defaults (Q23) | D-20261007-23 | none: a missing clip means the normal death |
+| Fitting budgets: turn, distance, room | no decided value; tuned on the captures that verify the seam blend | paired set, with combat-rules defaults | D-20261007-23 | none: a missing clip means the normal death |
 | Ground state per role | both grounded | the paired content | D-20261007-42 | implicit |
-| Height-difference limit | no decided value; "defaults keep today's behaviour" | combat rules default (Q23); the paired content may override | D-20261007-42 | **[reported]** none explicit |
+| Height-difference limit | no decided value; "defaults keep today's behaviour" | combat rules default; the paired content may override | D-20261007-42 | **[reported]** none explicit |
 | Lethal-strike predictor threshold | Q19 | combat rules | D-20261007-22, D-20261007-24 | none |
 
 ### 3.9 Several attackers
@@ -1547,7 +1574,7 @@ at once with a fresh press, since a success starts no lockout [D-20261005-72], o
 | Per-enemy cooldown | length Q5; it starts when the token returns | combat rules | D-20261005-35, D-20261007-30 | 1.0 s from the grant |
 | Re-grant delay | no decided value, "short" | combat rules | D-20261007-30 | none |
 | Resume delay | no decided value; per enemy | combat rules default; per-profile override | D-20261007-29 | none: enemies abort and re-queue at once |
-| Shove-back distance (second attacker) | no decided value; tuned on captures | combat rules (Q23) | D-20261007-44 | none |
+| Shove-back distance (second attacker) | no decided value; tuned on captures | combat rules | D-20261007-44 | none |
 
 ### 3.10 Knockback
 
@@ -1630,7 +1657,7 @@ push, and nothing else does. The block shove and the guard-break push are new.
 | Push on a killing hit | none | — | D-20261007-19 | a reaction and a push start, then death **[reported]** |
 | Push during paired sequences | none | — | D-20261005-60 | none |
 | Push cancelled by | a dodge only | rule, no tunable | D-20261007-32 | nothing cancels a push |
-| Shove-back distance | no decided value; tuned on captures | combat rules (Q23) | D-20261007-44 | none |
+| Shove-back distance | no decided value; tuned on captures | combat rules | D-20261007-44 | none |
 | Walls, ledges, replacement, hitstop pause | today's behaviour until captures decide | — | D-20261007-28 | today's displacement rules |
 
 ### 3.11 What stays as today
@@ -1661,20 +1688,23 @@ No decision touches these, so they keep working as they do today. Each one can c
 
 ### 3.12 Tunables at a glance
 
+Where a home reads "combat rules" and no decision named the value there, it is there by elimination: anything that is
+neither a per-type default nor a per-character choice is a rule (4.15) [D-20261010-16].
+
 | Tunable | Default | Home | Per character? | Decision |
 |---|---|---|---|---|
-| Guard arc | ±75° | combat rules (Q23); defense set override | per weapon | D-20261005-11, D-20261005-70 |
-| Block turn rate (the turn is always the full angle) | 360°/s | combat rules (Q23); defense set override | per weapon | D-20261005-69 |
+| Guard arc | ±75° | combat rules; defense set override | per weapon | D-20261005-11, D-20261005-70 |
+| Block turn rate (the turn is always the full angle) | 360°/s | combat rules; defense set override | per weapon | D-20261005-69 |
 | Minimum parry window | 0.35 s | combat rules | no | D-20261005-09, D-20261007-53 |
 | Parry window scale | 1.0 | reaction profile, parry assists | yes | D-20261005-09, D-20261005-78 |
 | Parry lockout | 0.25 s, lenient; to be felt first, and it may go to zero | combat rules | no | D-20261005-32, D-20261007-18 |
 | Attacker slowdown | ≥ 50% speed, ≤ 0.3 s | combat rules | no | D-20261005-33 |
-| Fastest natural turn | 720°/s | combat rules (Q23); defense set override | per weapon | D-20261005-75, D-20261005-68 |
+| Fastest natural turn | 720°/s | combat rules; defense set override | per weapon | D-20261005-75, D-20261005-68 |
 | Other parry assists (input buffer, contact grace, slow motion on window, telegraph, always perfect parry) | 0, 0, off, on, off | reaction profile | yes | D-20261004-07, D-20261005-78 |
 | Staggered time | 1.5 s (one default) | combat rules → attack → slot | per attack | D-20261005-08, D-20261005-31 |
 | Body-yaw coverage of a deflect clip | per clip; the report's starting values **[reported]**: front ±45°, side ±100°, rear 180° | the deflect row | per row | D-20261010-12 |
-| Blade IK clamp | about 20 cm / 25°, tuned on captures | combat rules (Q23); defense set and deflect row override | per weapon, per row | D-20261010-12 |
-| Attacker nudge limit | about 15 cm, inside the slowdown only, tuned on captures | combat rules (Q23) | no | D-20261010-12 |
+| Blade IK clamp | about 20 cm / 25°, tuned on captures | combat rules; defense set and deflect row override | per weapon, per row | D-20261010-12 |
+| Attacker nudge limit | about 15 cm, inside the slowdown only, tuned on captures | combat rules | no | D-20261010-12 |
 | Charged damage multiplier | per attack, default to be tuned | attack → slot | per attack | D-20261010-07 |
 | Hit-stun dodge escape | opens at max(0.12 s, half the stun) | rule | no | D-20261005-87 |
 | The player's Staggered time | 0.6 s, always the player's own | the player's reaction profile | yes | D-20261005-88, D-20261006-06 |
@@ -1684,12 +1714,12 @@ No decision touches these, so they keep working as they do today. Each one can c
 | Pressure | light 1, heavy 2, charged 3 | combat settings → set → attack → slot | per attack | D-20261005-17 |
 | Base armor | 0 | reaction profile | yes | D-20261005-17 |
 | Hit-stun | 0.25 / 0.45 / 0.6 s | combat settings → set → attack → slot | per attack | D-20261005-34 |
-| Hit-stun floor | 0.12 s | combat rules (Q23) | no | D-20261005-34 |
+| Hit-stun floor | 0.12 s | combat rules | no | D-20261005-34 |
 | Aim cone | 60° either side of the stick direction, or of the facing when no direction is held | combat rules | no | D-20261005-27, D-20261007-12 |
 | Finisher range | 350 cm | combat rules | no | D-20261005-28 |
 | Lock range, and "near" for the automatic re-pick | Q18 | combat rules (proposed) | no | D-20261007-13, D-20261007-48 |
-| Flick threshold (lock switch) | no decided value; tuned on captures (proposed) | combat rules (proposed, Q23) | no | D-20261007-13 |
-| Can finish the player | content presence: the kit's paired set holds player-finisher content | the kit's paired set | per kit | D-20261005-20, D-20261007-55 |
+| Flick threshold (lock switch) | no decided value; tuned on captures (proposed) | combat rules | no | D-20261007-13 |
+| Executes finishers (enemy type) | off until a type turns it on (proposed) | the enemy AI component, as a behaviour setting (proposed); never on content | per enemy type | D-20261005-20, D-20261010-19 |
 | Guard-break counting toggle | base on; player off; no is-player branch | reaction profile | yes | D-20261005-46, D-20261005-56, D-20261007-54 |
 | Dodge escape allowed | on for the player; off in the base profile (a reading) | reaction profile | yes | D-20261005-87, D-20261005-88, D-20261007-54 |
 | Most attackers on one target at once | 2; the tokens count the attackers of whoever is targeted | combat rules | no | D-20261005-35, D-20261007-54 |
@@ -1701,14 +1731,14 @@ No decision touches these, so they keep working as they do today. Each one can c
 | Token held until | the attack ends for any reason; cooldown from the return | rule | no | D-20261007-30 |
 | Re-grant delay | no decided value, "short" | combat rules | no | D-20261007-30 |
 | Resume delay (others hold) | no decided value | combat rules; per-profile override | yes | D-20261007-29 |
-| Shove-back distance (second attacker) | no decided value; tuned on captures | combat rules (Q23) | no | D-20261007-44 |
+| Shove-back distance (second attacker) | no decided value; tuned on captures | combat rules | no | D-20261007-44 |
 | Finisher list, variety | the variety rule; no throttle | rule | no | D-20261007-31 |
-| Fitting budgets: turn, distance, room | no decided value; tuned on captures | paired set; combat-rules defaults (Q23) | per weapon | D-20261007-23 |
-| Ground state per role; height-difference limit | both grounded; no decided value | the paired content; combat-rules default (Q23) | per clip | D-20261007-42 |
+| Fitting budgets: turn, distance, room | no decided value; tuned on captures | paired set; combat-rules defaults | per weapon | D-20261007-23 |
+| Ground state per role; height-difference limit | both grounded; no decided value | the paired content; combat-rules default | per clip | D-20261007-42 |
 | Predictor tolerance and horizon | no decided value | combat rules; per-attack overrides | per attack | D-20261007-24 |
 | Predictor thresholds (parry window lenient, finisher choice strict, lethal strike) and confidence scale | Q19 | combat rules | no | D-20261007-24 |
-| Lock grace (out of range or out of sight) | no decided value, "short" | combat rules (proposed, Q23) | no | D-20261007-48 |
-| Dodge distance, duration, i-frame window | no decided value; tuned on captures (Q21) | the dodge's own data; combat-rules defaults (Q23) | no | D-20261007-21, D-20261007-50 |
+| Lock grace (out of range or out of sight) | no decided value, "short" | combat rules | no | D-20261007-48 |
+| Dodge distance, duration, i-frame window | no decided value; tuned on captures (Q21) | the dodge's own data; combat-rules defaults | no | D-20261007-21, D-20261007-50 |
 | Dodge direction mode (eight-way or free angle) | a content choice | the dodge's clips | — | D-20261007-49 |
 
 ### 3.13 Targeting and camera
@@ -1798,8 +1828,8 @@ selection (3.11); the lock does not change what guard faces except through End-6
 | Finisher and follow-up range | 350 cm | combat rules | D-20261005-28, D-20261005-85 | 500 cm, `SoftAimRange` |
 | Lock range (how far a lock press looks, and the out-of-range end) | Q18 | combat rules (proposed) | D-20261007-13, D-20261007-48 | none |
 | "Near", for the automatic re-pick on death | Q18 | combat rules (proposed) | D-20261007-13, D-20261007-48 | none |
-| Lock grace (out of range or out of sight before the lock ends) | no decided value, "short" | combat rules (proposed, Q23) | D-20261007-48 | none |
-| Flick threshold (look-stick deflection that switches) | no decided value; tuned on captures | combat rules (proposed, Q23) | D-20261007-13 | none |
+| Lock grace (out of range or out of sight before the lock ends) | no decided value, "short" | combat rules | D-20261007-48 | none |
+| Flick threshold (look-stick deflection that switches) | no decided value; tuned on captures | combat rules; the threshold itself is proposed | D-20261007-13 | none |
 | Lock input | a new input-action asset, key per device a content choice | the combat mapping context | — | none exists |
 
 **Changes from today:**
@@ -1863,9 +1893,9 @@ exists (`IA_Dash` **[reported]**).
 
 | Tunable | Default | Home | Decision | Today |
 |---|---|---|---|---|
-| Dodge distance | no decided value | the dodge's own data; combat-rules default (Q23) | D-20261007-21 | none |
-| Dodge duration | no decided value | the dodge's own data; combat-rules default (Q23) | D-20261007-21 | none |
-| I-frame window (start and length) | no decided value; tuned on captures | the dodge's own data, as a data window; combat-rules default (Q23) | D-20261007-50 | none |
+| Dodge distance | no decided value | the dodge's own data; combat-rules default | D-20261007-21 | none |
+| Dodge duration | no decided value | the dodge's own data; combat-rules default | D-20261007-21 | none |
+| I-frame window (start and length) | no decided value; tuned on captures | the dodge's own data, as a data window; combat-rules default | D-20261007-50 | none |
 | Cancel point | authored on the dodge's data | the dodge's own data | D-20261007-51 | none |
 | Direction mode | a content choice | the dodge's clips | D-20261007-49 | none |
 | Cooldown, resource | none | rule, no tunable | D-20261007-52 | none |
@@ -1908,7 +1938,7 @@ contacts so we dont have to guess whether attacks are going to land" [D-20261007
 | User | Threshold | What it decides |
 |---|---|---|
 | The parry window (3.2) | lenient | the arrival C that the window is measured back from; and, at the lenient threshold, that the attack is reaching this defender at all (Parry-3's "aimed at" and "in progress"). It never decides whether the parry succeeds [D-20261005-64, D-20261005-79]; that is a reading beside the removed confidence gate (Appendix B). |
-| The enemy's finisher choice (3.8) | strict | whether a marked enemy's next attack would land on the player while Staggered or in hit-stun, at that attack's start [D-20261007-20]. |
+| The enemy's finisher choice (3.8) | strict | whether the next attack of an enemy whose type executes finishers would land on the player while Staggered or in hit-stun, at that attack's start [D-20261007-20, D-20261010-19]. |
 | The player's lethal strike (3.8) | its own; not named in the decision (Q19) | whether a lethal press reaches its target, so that a paired finisher is chosen only for a strike that lands [D-20261007-22]. |
 
 **Tunables:**
@@ -1955,10 +1985,12 @@ BaseCombatCharacter ── Kit ─▶ UCombatKit ──▶ UWeaponData   (mesh, 
                     │                   │                   overrides; deflect rows: direction × height → deflect clip,
                     │                   │                   body-yaw coverage, IK clamp override)
                     │                   └──▶ UPairedSet    (finisher rows by direction, a list each; fit budgets;
-                    │                                       holds player-finisher content = can finish the player.
-                    │                                       Found by key from a lethal strike. Counters set aside.)
-                    └── ReactionProfile ──▶ UReactionProfile (hit reactions, Staggered reaction, recoil, armor, guard
-                                                              break, own Staggered time, dodge escape, parry assists)
+                    │                                       no victim kind on any row: the clip's fit is the content's
+                    │                                       start check. Found by key from a lethal strike.
+                    │                                       Counters set aside.)
+                    ├── ReactionProfile ──▶ UReactionProfile (hit reactions, Staggered reaction, recoil, armor, guard
+                    │                                         break, own Staggered time, dodge escape, parry assists)
+                    └── (enemy types) EnemyCombatAIComponent: "Executes finishers", a behaviour setting (proposed, 3.8)
 ```
 
 | Question | Where the answer lives | Decision |
@@ -1971,7 +2003,7 @@ BaseCombatCharacter ── Kit ─▶ UCombatKit ──▶ UWeaponData   (mesh, 
 | Which slot does an enemy pick, from where, against what? | The slot row's selection columns | D-20261005-63, D-20261007-57 |
 | How does this kit block, and which deflect answers which attack? | The defense set: block reactions, guard enter and exit, the deflect rows by direction × height | D-20261005-48, D-20261005-55, D-20261010-03, D-20261010-13 |
 | Which paired finishers does this kit play? | The paired set, keyed by direction, found by key | D-20261005-57, D-20261005-47, D-20261010-01 |
-| Can this kit finish the player? | Its paired set holds player-finisher content | D-20261007-55 |
+| Does this enemy execute finishers at all? | A behaviour setting on its enemy type's AI (the enemy AI component, proposed), never on content; no row names a victim kind | D-20261010-19 |
 | How does this character's body react, resist and break? | Its reaction profile | D-20261004-20, D-20261005-48, D-20261010-03 |
 | Is this character the player? | No rule asks. The player's profile says: counting off, its own Staggered time, the dodge escape allowed | D-20261007-54 |
 | What are the global rules? | The combat rules, one asset | D-20261007-53 |
@@ -2001,7 +2033,8 @@ settings of the character whose attack it is, when that attack's resolved spec i
 B). The sets:
 - The **defender's** kit supplies its defense set (block reactions, the deflect rows) for a block or a parry.
 - The **attacker's** kit supplies its combo set and, by key, its paired set's finishers when its follow-up strike or
-  ordinary attack is lethal (3.8), and whether it can finish the player [D-20261007-55].
+  ordinary attack is lethal (3.8); whether an enemy attacker executes finishers at all comes from its AI, not its kit
+  [D-20261010-19].
 - The **victim's** reaction profile supplies its hit reactions, its Staggered reaction, its armor and its guard-break
   settings.
 
@@ -2033,9 +2066,11 @@ Notes:
   for a charged release. This is proposed (Q1 defines "charged").
 - **Characters resolve the same way:** the base profile, then the character profile's overrides [D-20261004-20].
 - **The editor always shows which layer an effective value came from** (5.3).
-- **Two ambiguities the stress test exposed are open** (**[reported]**; neither is decided): a row drag carries the
-  slot's diff with the row (Q25), and the set layer sits below the attack layer, so a weapon cannot re-default an attack
-  that sets its own value except slot by slot (Q26).
+- **Two ambiguities the stress test exposed are decided** (the findings are **[reported]**). A row drag carries the
+  slot's diff with the row, and the drop offers "keep overrides at position" (4.4, 5.1) [D-20261010-17]. The set layer
+  stays below the attack layer: a weapon cannot re-default an attack that sets its own value by changing the set, and
+  that is kept for predictable precedence; the whole-lane case is served by a grid batch action, "apply to all slots in
+  lane", which writes slot overrides in one undo step (5.1) [D-20261010-18].
 
 ### 4.3 The kit
 
@@ -2155,9 +2190,11 @@ undecided (the design pass left it open); nothing in play depends on it.
 list (this spec's shape under D-20261005-57). It carries none: a lethal strike asks the attacker's kit's paired set by
 key (3.8, 4.16) [D-20261010-01]. One link, one validation rule and one way to drift are gone with it.
 
-**A row drag and the diff** (Q25). Dragging a row carries the slot's diff with it, so a diff authored for position 3
-travels to position 4 when the row moves (the stress test, **[reported]**). Whether the grid says so on the drop or
-offers "keep overrides at position" is open.
+**A row drag and the diff** [D-20261010-17]. The slot is an attack plus its diff, and the diff is the slot's: dragging a
+row to a new position carries its overrides with it, so a diff authored at position 3 travels to position 4 when the
+row moves (the stress test's finding, **[reported]**). The drop offers **"keep overrides at position"**, which leaves
+the overrides where they were, re-applied to the slot that lands there (5.1, 5.3). Slot identity is the id, so links
+follow the slot either way.
 
 ### 4.5 The attack
 
@@ -2307,23 +2344,24 @@ D-20261005-57 placed here, with their kill sequences and damage overrides, are s
 "reference" in the decision's wording is that lookup. Since D-20261007-57 its finishers are rows of a selection table
 (4.16). Since D-20261010-04 **one row is one content asset**: the content's own internal variants (Duet's angle sector,
 distance and weight) are alternates of that row's clip, chosen by the content inside the direction and variety choice
-our tables have already made; they never decide the direction. Since D-20261007-55 a paired set that holds
-player-finisher content is the one that can finish the player (3.8).
+our tables have already made; they never decide the direction. Since D-20261010-19 **no row names a victim kind**:
+whether a clip fits a victim is the content's own start check through the seam (rig, size, ground state), and whether
+an enemy executes finishers at all is a behaviour setting on its AI, not anything the set holds (3.8); D-20261007-55's
+marker is reversed.
 
 **Proposed class:** `UPairedSet`. **Proposed asset name:** `DA_PairedSet_<Weapon>`, for example `DA_PairedSet_Katana`.
 
 | Field | Holds | Decision |
 |---|---|---|
 | Finisher rows | Finisher rows (below), a selection table keyed by attacker direction (front, left, right, behind). Each direction's rows are a **list**; one is chosen by the variety rule, no throttle. A lethal strike is answered from here by key. | D-20261005-57, D-20261005-47, D-20261007-31, D-20261007-57, D-20261010-01 |
-| Player-finisher content | The finisher rows whose victim is the player. Their presence **is** the "can finish the player" marker; validation checks it. How those rows are told apart is Q24. | D-20261007-55 |
 | Fitting budgets | The turn, distance and room a fit to the nearest authored direction may use: each a toggle plus a value over the combat-rules default (3.8). | D-20261007-23, D-20261007-53 |
 
 **Finisher row** (proposed struct `FPairedFinisherRow`, the former `FPairedFinisher`): a direction key; the optional
 columns of the vocabulary a row may narrow itself by (a distance range; weight is not used, since the variety rule is
 fixed [D-20261007-31]); and one paired-content asset (4.12) as its output [D-20261010-04]. The content declares the
 ground state each role needs (grounded, airborne or any; both grounded by default), a height-difference limit override,
-and is refused for an invulnerable victim [D-20261007-42]; these answers come through the interface and are **never
-copied into the row** [D-20261010-04].
+the rig and size it fits [D-20261010-19], and is refused for an invulnerable victim [D-20261007-42]; these answers come
+through the interface and are **never copied into the row** [D-20261010-04, D-20261010-19]. No row names a victim kind.
 
 **Validation** (`IsDataValid`, with badges in the paired set editor, 5.9):
 
@@ -2332,7 +2370,6 @@ copied into the row** [D-20261010-04].
 | Warning | A direction with no finisher row, listed as uncovered with the authored direction a fit would use [D-20261005-47, D-20261007-23]. |
 | Warning | A finisher half with no cancel notify; it is read as ending at montage end [D-20261006-02]. |
 | Warning | A row whose content's own alternates span more than one of our directions, so that the content could pick a direction the table did not (**proposed**, from D-20261010-04). |
-| Info | Whether this set can finish the player, read from its player-finisher rows [D-20261007-55]. |
 | Error | A finisher whose two roles share a montage, or whose "can it start here?" check (4.12) can never pass, for example missing roles. |
 | Error | A finisher row whose content answers "counter" through the interface (4.12): counters are reserved for the later graduation [D-20261010-08]. |
 
@@ -2347,8 +2384,9 @@ Parents may be nested, but never in a cycle. This is proposed.
 **It holds** a character's hit reactions, armor base, guard-break settings, its own Staggered time, whether a dodge may
 escape its locked states, and parry assists [D-20261005-48, D-20261005-40 as amended, D-20261007-54]. It covers
 reactions to hits only, never movement or camera [D-20261005-68, D-20261010-03]. Block and parry responses are the
-weapon's (4.6, 4.7); there is no "can be finished" marker and no body type [D-20261005-47]; and the "can finish the
-player" marker is no longer here, since it is content presence on the kit's paired set (4.7) [D-20261007-55].
+weapon's (4.6, 4.7); there is no "can be finished" marker and no body type [D-20261005-47]; and there is no "can finish
+the player" marker here or on any content: whether an enemy executes finishers is a behaviour setting on its AI (3.8)
+[D-20261010-19].
 
 | Section | Contents | Decision |
 |---|---|---|
@@ -2409,7 +2447,8 @@ chosen from a rendered sweep before the parry stage ships [D-20261005-78].
 per-character type default must not fork the globals. Today one settings asset is both, so a per-character default would
 fork every rule with it. With the split, a value changed on the rules asset reaches everyone at once, and a type default
 changed on one character's settings reaches that character only [D-20261007-53]. The global values that D-20261007-53
-does not name are placed on the rules asset by this spec's reading, and Q23 asks the owner to confirm (4.15).
+does not name are on the rules asset by elimination: anything that is neither a per-type default nor a per-character
+choice is a rule (4.15) [D-20261010-16].
 
 ### 4.10 Retiring the defense configuration
 
@@ -2484,9 +2523,10 @@ This follows the plugin review's "narrow seam" idea (proposed).
 - whether it is a kill (a paired finisher) or a counter; counters are reserved for the later graduation (Appendix C),
   and every live row answers kill [D-20261010-08];
 - the ground state each role needs (grounded, airborne or any; both grounded by default), its height-difference limit,
-  and that its victim must not be invulnerable [D-20261007-42];
-- a quiet "can it start here?" check that returns refusal reasons, the ground state, height and invulnerability among
-  them. The editor and the "why didn't it play" debug readout use those reasons. A refusal counts as fitting failed
+  the rig and size it fits, and that its victim must not be invulnerable [D-20261007-42, D-20261010-19]: whether a clip
+  fits a victim is this check, never a victim kind on a row;
+- a quiet "can it start here?" check that returns refusal reasons, the rig, size, ground state, height and
+  invulnerability among them. The editor and the "why didn't it play" debug readout use those reasons. A refusal counts as fitting failed
   (3.8) [D-20261007-42].
 
 **One row, one content asset; alternates inside it** [D-20261010-04]. A paired-set row names exactly one content
@@ -2556,12 +2596,12 @@ point is the Active→Recovery boundary, held as data; a cancel notify on an att
 ### 4.14 The dodge data
 
 **Proposed**, to give the dodge's tunables the home the owner named: "the dodge's own data; settings defaults" (the
-2026-10-07 log, E25). Those defaults sit on the combat rules by this spec's reading of D-20261007-53, decided later the
-same afternoon (Q23).
+2026-10-07 log, E25). Those defaults sit on the combat rules: they are neither a per-type default nor a per-character
+choice [D-20261007-53, D-20261010-16].
 
 - **Proposed class:** `UDodgeData`; **proposed asset name:** `DA_Dodge_<Character>`.
 - **It holds:** the dodge clips (eight-way or free-angle, a content choice [D-20261007-49]); the distance and duration,
-  each a toggle plus a value over the combat-rules default (Q23); the i-frame window and the cancel point, as data windows
+  each a toggle plus a value over the combat-rules default; the i-frame window and the cancel point, as data windows
   anchored like an attack's [D-20261007-50, D-20261007-51]; and the neutral-stick rule's fallback, straight back, as a
   constant [D-20261007-49].
 - **Referenced by** the character, beside its reaction profile: the dodge is the body's move, not the weapon's
@@ -2583,9 +2623,11 @@ the asset is named from a developer-settings entry (a `UDeveloperSettings` subcl
 so that there is one, it is found without opening a character, and a second one cannot be referenced by mistake; this is
 the stress test's seventh item **[reported]**. No character references it.
 
-**What it holds.** Two groups. The first is the decision's own list. The second is every other global value this spec
-had placed on "the combat settings" that is not a per-type default; it is here by elimination, since the settings keep
-only type defaults and the default kit, and that placement is a reading the owner should confirm (Q23).
+**What it holds.** Two groups. The first is the decision's own list. The second is every other global value, here **by
+elimination** [D-20261010-16]: the settings keep only type defaults and the default kit, and the sets, profiles and the
+dodge's data keep only what describes them, so anything that is neither a per-type default nor a per-character choice
+is a rule. The owner's pick: "On the Combat Rules asset, by elimination". The rule is stated once here; the rows below
+that read "no" are placed by it.
 
 | Rule | Value | Named by D-20261007-53? | Decision |
 |---|---|---|---|
@@ -2604,20 +2646,20 @@ only type defaults and the default kit, and that placement is a reading the owne
 | Predictor thresholds (parry window, finisher choice, lethal strike) and confidence scale | Q19 | yes (predictor settings) | D-20261007-24 |
 | Telegraph set | cues per readable flag, chosen on captures; the pooled FX asset holds them (6.5) | yes | D-20261007-37 |
 | Counter damage default | set aside for the later graduation (Appendix C); no live value | yes | D-20261005-80, D-20261006-03, set aside by D-20261010-08 |
-| Blade IK clamp default | about 20 cm / 25°, tuned on captures; a defense set or a deflect row may override it (3.3) | no (Q23) | D-20261010-12 |
-| Attacker nudge limit | about 15 cm, inside the slowdown only, tuned on captures (3.3) | no (Q23) | D-20261010-12 |
-| Guard arc default | ±75°, overridable on a defense set | no (Q23) | D-20261005-11, D-20261005-70 |
-| Block turn rate default | 360°/s, overridable on a defense set | no (Q23) | D-20261005-69 |
-| Fastest natural turn default | 720°/s, overridable on a defense set | no (Q23) | D-20261005-75, D-20261005-68 |
-| Hit-stun floor | 0.12 s | no (Q23) | D-20261005-34 |
-| Flick threshold | no decided value; tuned on captures (proposed) | no (Q23) | D-20261007-13 |
-| Lock grace | no decided value, "short" | no (Q23) | D-20261007-48 |
-| Shove-back distance | no decided value; tuned on captures | no (Q23) | D-20261007-44 |
-| Fitting budget defaults (turn, distance, room) | no decided value; the paired set overrides | no (Q23) | D-20261007-23 |
-| Height-difference limit default | no decided value; "defaults keep today's behaviour" | no (Q23) | D-20261007-42 |
-| Dodge defaults (distance, duration, i-frame window) | no decided value; the dodge's data overrides (Q21) | no (Q23) | D-20261007-21, D-20261007-50 |
-| Guard-facing threat selection, turn rate and budget | today's values, unchanged (3.11); the turn rate and budget overridable on a defense set, since they are weapon behaviour (proposed under D-20261005-68) | no (Q23) | — |
-| Slow-motion watchdog | today's value, unchanged | no (Q23) | — |
+| Blade IK clamp default | about 20 cm / 25°, tuned on captures; a defense set or a deflect row may override it (3.3) | no | D-20261010-12 |
+| Attacker nudge limit | about 15 cm, inside the slowdown only, tuned on captures (3.3) | no | D-20261010-12 |
+| Guard arc default | ±75°, overridable on a defense set | no | D-20261005-11, D-20261005-70 |
+| Block turn rate default | 360°/s, overridable on a defense set | no | D-20261005-69 |
+| Fastest natural turn default | 720°/s, overridable on a defense set | no | D-20261005-75, D-20261005-68 |
+| Hit-stun floor | 0.12 s | no | D-20261005-34 |
+| Flick threshold | no decided value; tuned on captures (proposed) | no | D-20261007-13 |
+| Lock grace | no decided value, "short" | no | D-20261007-48 |
+| Shove-back distance | no decided value; tuned on captures | no | D-20261007-44 |
+| Fitting budget defaults (turn, distance, room) | no decided value; the paired set overrides | no | D-20261007-23 |
+| Height-difference limit default | no decided value; "defaults keep today's behaviour" | no | D-20261007-42 |
+| Dodge defaults (distance, duration, i-frame window) | no decided value; the dodge's data overrides (Q21) | no | D-20261007-21, D-20261007-50 |
+| Guard-facing threat selection, turn rate and budget | today's values, unchanged (3.11); the turn rate and budget overridable on a defense set, since they are weapon behaviour (proposed under D-20261005-68) | no | — |
+| Slow-motion watchdog | today's value, unchanged | no | — |
 
 **What it does not hold:** the per-type defaults (pressure, hit-stun, guard breaker, knockback, block shove, guard-break
 push, impact feedback) and the default kit, which are each character's combat settings (4.9); and the values that live
@@ -2745,10 +2787,15 @@ the grid row's strip as a link to it (5.11); their details are proposed.
 - **Each slot's cell carries a diff marker** [D-20261007-35]: a count pill for the diff, plus a named pill for any
   readable override ("guard breaker", not "+1"), in the diff colour, not a severity colour.
 - **Drag a row** to reorder it within its lane [D-20261005-02]. The lane's Light or Heavy links are rewired so that they
-  follow the new order. The rewiring rule is proposed.
+  follow the new order. The rewiring rule is proposed. **The row's diff travels with it** [D-20261010-17]: the slot keeps
+  its overrides at its new position, and the drop tooltip says so. The drop offers **"keep overrides at position"**,
+  which leaves the overrides where they were, re-applied to the slot that lands there (5.3).
 - **Drop a slot on a cell** to make a branch.
 - **Right-click a cell** to set "back to opener" or to clear it.
 - **"Append to lane"** creates the next slot, already linked.
+- **"Apply to all slots in lane"** is the lane's batch action [D-20261010-18]: it writes one field's value as a slot
+  override on every slot in the lane, in one undo step, for the case a set-level default cannot reach because the set
+  layer sits below the attack layer (4.2). The pills and source labels then show the overrides like any other.
 - **"New attack from montage section"** creates an attack and its slot in one step.
 - **Each drag is one undo step.** The selection is held by slot id, so undo and redo keep it.
 - **Opening a slot opens the timeline** (5.11); the row's timing link (5.4) is the way in [D-20261007-58].
@@ -2776,6 +2823,10 @@ user still gets the full deluge of info without being able to do anything about 
   asset"** button and a reset arrow. Save to asset writes the value into the attack and clears the override, after the
   used-by notice [D-20261007-35].
 - **Turning an override on** seeds it with the current value.
+- **A dragged row keeps its diff** [D-20261010-17]; "keep overrides at position" on the drop re-applies the position's
+  overrides to the slot that lands there, replacing that slot's values for those fields (a reading, Appendix B).
+- **"Apply to all slots in lane"** (5.1) writes the chosen value as an override on every slot in the lane, one undo
+  step, each row then showing it in its diff with "Save to asset" and the reset arrow as usual [D-20261010-18].
 - **"Extract to new attack"** sits on the row header with the used-by line; it replaces "make unique" (4.4)
   [D-20261007-35].
 - **A readable override** (guard breaker, unparryable, unblockable, block-interruptible) shows the telegraph cue that
@@ -2849,10 +2900,9 @@ columns are pickers, and a cell or row is coloured by what would play for it, so
 - **Finisher tab:** the finisher rows, one group per direction, in play order for the variety rule [D-20261007-31]; an
   empty direction is a warning, and it names the authored direction a fit would use [D-20261005-47, D-20261007-23]. The
   fitting budgets (turn, distance, room) sit above the rows with their source, the set or the rules default
-  [D-20261007-23]. Each row's content shows, read through the seam, the ground state it declares per role, its height
-  limit and its alternates [D-20261007-42, D-20261010-04].
-- **Player finishers:** the rows that hold player-finisher content are grouped and counted; the set's header says
-  whether it can finish the player, from that count [D-20261007-55].
+  [D-20261007-23]. Each row's content shows, read through the seam, the ground state it declares per role, the rig and
+  size it fits, its height limit and its alternates; there is no victim column and no "can finish the player" header
+  [D-20261007-42, D-20261010-04, D-20261010-19].
 - **Coverage strip:** the four directions, coloured by whether a finisher row exists, so missing directions are seen
   at a glance; an uncovered direction shows the fit it would take.
 - The paired content's "can it start here?" refusal reasons are shown on hover (4.12).
@@ -3057,9 +3107,9 @@ the highest pressure, then the latest, supplies the reaction, hit-stun and push 
    that target [D-20261007-54]; the cooldown runs from its return, and a freed token waits the re-grant delay.
 2a. The slot is chosen among its kit's combo set's slot rows by their selection columns (weight, distance range, target
    state), through the one evaluator, with the trace kept for the debug readout [D-20261005-63, D-20261007-57].
-3. A marked enemy whose next attack would be lethal, against a player who is Staggered or in hit-stun, with the
-   predictor confirming the hit at the strict threshold, chooses the finisher as that attack, at its start. A swing in
-   progress is never promoted.
+3. An enemy whose type executes finishers (a behaviour setting on its AI [D-20261010-19]), whose next attack would be
+   lethal, against a player who is Staggered or in hit-stun, with the predictor confirming the hit at the strict
+   threshold, chooses the finisher as that attack, at its start. A swing in progress is never promoted.
 
 **A parry or a paired sequence starts** (3.9) [D-20261007-44, D-20261010-09]: a second enemy whose swing is in
 progress aborts with a recoil or abort reaction, is shoved back a short settings distance, returns its token, and
@@ -3072,15 +3122,15 @@ holds.
 | **Combat** (`UCombatComponent`) | The kit in use; the combo set and current slot; the one table evaluator and its trace [D-20261007-57]; the resolved spec at attack start, built from the slot's spec, and `FAttackExecutionSnapshot` built from it rather than from `CurrentAttackData` [D-20261007-35, D-20261007-38]; the window scheduler and the data identity for windows (6.5) [D-20261007-39]; the telegraph at attack start [D-20261007-37]; guard dropping when an attack starts, and Block buffered until Recovery; the parry lockout, with the press remembered through it [D-20261007-18]; hit-stun holding attacks and movement, with the dodge escape after its minimum [D-20261005-87]; the dodge (3.14) [D-20261007-49 to D-20261007-52]; the target of every attack press, from Targeting (3.13); presses buffered inside the parry until the deflect's cancel notify [D-20261007-09, D-20261010-09], honouring the hold when they fire [D-20261007-45]; the contact predictor's per-tick evaluation for the attack in progress (3.15), on a pure library over the trace path (proposed). |
 | **Targeting** | Free mode: the aim cone around the stick direction, or the facing when no direction is held, Staggered or eligible enemies first and the nearest otherwise, for every attack press, with 350 cm for a paired finisher and a follow-up strike [D-20261007-12]; lock mode: the lock press, the locked target for every press, the strafe facing it, the flick (or scroll) switch, the drop on death with the automatic re-pick, and the second press [D-20261007-13]; the lock following action, with the strafe re-centring [D-20261007-46]; the directional light aimed by the stick while locked, transferring or breaking the lock [D-20261007-47]; the events that end a lock, with the grace [D-20261007-48]; a new lock input action; today's soft aim retired. The code-driven turn for block and parry (the adaptive rate and its cap), through the alignment arbiter. Motion warping stays for attacks and paired content [D-20261004-21]; the approach warp of a fit to clip goes through it [D-20261007-23]. |
 | **HitReaction** | Pressure against armor, armor windows and the flinch; armor 0 while Staggered, the base in hit-stun, super armor flinching [D-20261007-26]; the contact order within a frame [D-20261007-19]; the guard ending on an interrupting hit and returning while Block is held [D-20261007-25]; hit-stun from the resolved spec, with its floor, holding the AI too; a hit with no resolved spec applying damage only [D-20261010-06]; the charged damage multiplier at a charged release [D-20261010-07]; one Staggered state using the causing attack's time, starting at the deflect's contact after a parry [D-20261010-08], and always the player's own time for the player [D-20261006-06], running beside hit-stun with both ending before the character is free [D-20261006-01]; any landed aimed hit on a Staggered enemy lethal by rule [D-20261010-10]; the cancel notify on hit and Staggered reactions [D-20261006-02]; the guard-break count, built dormant [D-20261007-15]; knockback by outcome, with the block shove and the guard-break push on their own defaults [D-20261007-27], no push on a flinch, a killing hit or in a paired sequence, a push in flight cancelled only by a dodge [D-20261007-32]; the dodge's i-frame window [D-20261007-50]; the reaction profile in place of the hit-reaction settings, with the player identified by its fields and no is-player branch [D-20261007-54]; death reading the variants array. |
-| **PairedAnimation** (or the component the parry stage names for the deflect) | The parry: the deflect row by direction × height from the defense set; the bounded turn carrying only what the clip's body-yaw coverage leaves; the blade IK toward the predicted contact within its clamp, and the attacker nudge inside the slowdown, each as a capture-gated layer [D-20261010-12 to D-20261010-14]; the attacker Staggered from the deflect's contact, with no damage [D-20261010-08]; the player's protection until the deflect's cancel notify, and the buffered press firing there [D-20261010-09, D-20261007-09]; the follow-up as a paired finisher from the attacker's kit's paired set, found by key, with the variety rule, lethal by rule on a Staggered target [D-20261007-31, D-20261010-01, D-20261010-10]; the alternates chosen by the content inside our choice [D-20261010-04]; whether a kit can finish the player, from its paired set [D-20261007-55]; fit to clip with its budgets and the seam blend [D-20261007-23]; the per-clip ground state, height and invulnerability checks [D-20261007-42]; the paired-content interface. The post-parry timers of today go; the counter paths go dormant with the later graduation (Appendix C). The paired marker verification that re-reads `Notifies[NotifyEventIndex]` (**[reported]** `PairedAnimationComponent.cpp:650-712`) needs an equivalent once window identity is a data identity (6.5). |
+| **PairedAnimation** (or the component the parry stage names for the deflect) | The parry: the deflect row by direction × height from the defense set; the bounded turn carrying only what the clip's body-yaw coverage leaves; the blade IK toward the predicted contact within its clamp, and the attacker nudge inside the slowdown, each as a capture-gated layer [D-20261010-12 to D-20261010-14]; the attacker Staggered from the deflect's contact, with no damage [D-20261010-08]; the player's protection until the deflect's cancel notify, and the buffered press firing there [D-20261010-09, D-20261007-09]; the follow-up as a paired finisher from the attacker's kit's paired set, found by key, with the variety rule, lethal by rule on a Staggered target [D-20261007-31, D-20261010-01, D-20261010-10]; the alternates chosen by the content inside our choice [D-20261010-04]; the clip's fit to its victim (rig, size, ground state) read through the seam, with no victim kind on any row [D-20261010-19]; fit to clip with its budgets and the seam blend [D-20261007-23]; the per-clip ground state, height and invulnerability checks [D-20261007-42]; the paired-content interface. The post-parry timers of today go; the counter paths go dormant with the later graduation (Appendix C). The paired marker verification that re-reads `Notifies[NotifyEventIndex]` (**[reported]** `PairedAnimationComponent.cpp:650-712`) needs an equivalent once window identity is a data identity (6.5). |
 | **Animation blueprint** (`ABP_SamuraiCharacter`) | The deflect's layers at the pose level: the deflect clip over the guard base with the capsule's turn hidden behind the mesh (layer 1), a clamped blade IK node toward the predicted contact (layer 2), released at the cancel point through the inertialization the charge-loop fix adds (7.6). Which nodes carry them is the research report's reading **[reported]** and the implementation brief's choice [D-20261010-12, D-20261010-14]. |
 | **Kit and weapon** (`UCombatKit`, `UWeaponComponent`, `UWeaponData`) | The kit is the root: it holds the weapon (the physical data, `UWeaponData` kept as a sub-asset) and references a combo set, a defense set and a paired set, in place of the attack configuration on the weapon; the character's `WeaponData` slot becomes `Kit`, and the combat settings' default kit stays the fallback for a character without one [D-20261005-48, D-20261005-49, D-20261005-57, D-20261010-02]. |
 | **Defense resolver** (`DefenseResolver.cpp`) | The guard arc at 75°; parry candidates (any direction, unparryable, effective window); lands first. The cone and reachability gates go. |
-| **Enemy AI and attack tokens** (`EnemyCombatAIComponent`, `CombatTokenSubsystem`) | Attacks chosen among the kit's combo-set slot rows by their selection columns (weight, distance range, target state), through the one evaluator, with `AvailableAttacks` and `FEnemyAttackConfig` retired [D-20261005-63, D-20261007-57]; the tokens count the attackers of whoever is targeted [D-20261007-54]; 2 attackers; tokens held until the attack ends for any reason, the cooldown from the return, the re-grant delay, the enemy's finisher as its attack [D-20261007-30]; others hold with "in progress" meaning montage started, combo continuations holding, unstarted tokens returned, and the resume delay [D-20261007-29]; the second attacker's abort and shove-back [D-20261007-44]; hit-stun and Staggered holding attacks and movement; enemy paired finishers only for marked types, chosen at the attack's start against a player who is Staggered or in hit-stun, with the predictor's confirmation, never a mid-swing promotion [D-20261007-20]. |
+| **Enemy AI and attack tokens** (`EnemyCombatAIComponent`, `CombatTokenSubsystem`) | Attacks chosen among the kit's combo-set slot rows by their selection columns (weight, distance range, target state), through the one evaluator, with `AvailableAttacks` and `FEnemyAttackConfig` retired [D-20261005-63, D-20261007-57]; the tokens count the attackers of whoever is targeted [D-20261007-54]; 2 attackers; tokens held until the attack ends for any reason, the cooldown from the return, the re-grant delay, the enemy's finisher as its attack [D-20261007-30]; others hold with "in progress" meaning montage started, combo continuations holding, unstarted tokens returned, and the resume delay [D-20261007-29]; the second attacker's abort and shove-back [D-20261007-44]; hit-stun and Staggered holding attacks and movement; enemy paired finishers only for enemy types whose AI setting executes them (the proposed toggle on this component, 3.8) [D-20261010-19], chosen at the attack's start against a player who is Staggered or in hit-stun, with the predictor's confirmation, never a mid-swing promotion [D-20261007-20]. |
 | **Cinematic effects** (`CombatEffectsWorldSubsystem`) | The attacker slowdown, as an actor time lease (no lower than 50%, at most 0.3 s), on the existing overlap-safe lease system. |
 | **Combat rules and settings** (`UCombatRules`, `UCombatSettings`) | One rules asset for the project, named from a developer-settings entry, holding every global value (4.15); the per-character settings keep the type defaults and the default kit (4.9) [D-20261007-53]. |
 | **Animation notifies** | The cancel notify class and its validation (4.13) [D-20261006-02]; the neutral notify state that spans the attack section and drives the data windows (6.5) [D-20261007-39]; the semantic window notifies kept as derived mirrors that the runtime no longer reads [D-20261007-38]. |
-| **Editor module** | The combo set editor: the grid with diff markers, the map, the diff row with Save to asset and Extract to new attack [D-20261007-35], the timing link into the timeline, which is the attack editor [D-20261007-38, D-20261007-58], and validation; the defense set and paired set editors as coverage-coloured table rows, and the simulate-press panel with the row trace [D-20261007-57]; export to montage and adopt from montage, the derived-notify colour and name, and the Save / Reset / Leave prompt [D-20261007-38, D-20261007-40]; the migration operation (7.1). |
+| **Editor module** | The combo set editor: the grid with diff markers, the row drag carrying the diff with "keep overrides at position" on the drop and the "apply to all slots in lane" batch action [D-20261010-17, D-20261010-18], the map, the diff row with Save to asset and Extract to new attack [D-20261007-35], the timing link into the timeline, which is the attack editor [D-20261007-38, D-20261007-58], and validation; the defense set and paired set editors as coverage-coloured table rows, and the simulate-press panel with the row trace [D-20261007-57]; export to montage and adopt from montage, the derived-notify colour and name, and the Save / Reset / Leave prompt [D-20261007-38, D-20261007-40]; the migration operation (7.1). |
 
 **Project instructions change too.** `CLAUDE.md`'s rule "Stateful Block input is immediate" no longer holds: a Block press
 during your own attack is buffered [D-20261005-13]. Its rule 3, "ParryWindow is on the attacker's montage", becomes "the
@@ -3425,18 +3475,19 @@ In each test, the fixture sets the values named, never the shipped ones.
 | Contact order | `…Contact.FrameJudgedAgainstFrameStartState`, a trade in which both hits land; `…Contact.DamageAppliesBeforeReactions`; `…Contact.KillingHitReplacesReactionNoStunNoPush`; `…Contact.HighestPressureThenLatestSuppliesReaction`. | A trade reads as two hits. |
 | Hit-stun | `…HitStun.NeverBelowFloor`; `…HitStun.ActionsWaitGuardAllowed`; `…HitStun.InputBufferedFiresAfter`; `…HitStun.EnemyAIHoldsThenResumes`; `…HitStun.DodgeEscapeOpensAtMaxOfFloorAndHalf`; `…HitStun.EscapeDodgeIsCommitted`. | Hit-stun lengths read well. |
 | Knockback by outcome | `…Knockback.FlinchDoesNotPush`; `…Knockback.BlockedHitUsesBlockShoveOwnDefault`; `…Knockback.GuardBreakUsesOwnDefault`; `…Knockback.ShoveAndBreakPushNotDerivedFromHitPush` (the fixture sets the hit push and checks the others do not move); `…Knockback.StaggeredOrInHitStunVictimsPushNormally`; `…Knockback.NoneDuringPairedSequence`; `…Knockback.OnlyDodgeCancelsPushInFlight`; `…Knockback.ActionsRideOnPushInFlight`; `…Content.HitStunShorterThanPushWarns`. | The block shove and the break push read as different weights; the shove's direction and the carried-over behaviours are judged on the knockback scenarios [D-20261007-28]. |
-| Paired finishers | `…Finisher.OnlyWhenLethalAndPredictedToLand`; `…Finisher.AnyLethalAimedStrikeQualifies`; `…Finisher.NoHealthPercentRoute`; `…Finisher.StaggeredTargetIsLethalByRule`; `…Finisher.StaggeredWithNoHitKillsNothing`; `…Finisher.KeyedByDirectionOnly`; `…Finisher.ListPerDirectionUsesVarietyRuleNoThrottle`; `…Finisher.UncoveredDirectionFitsToNearestAuthored`; `…Finisher.FitBeyondBudgetsFailsToOrdinaryAttack`; `…Finisher.OrdinaryAttackAfterFailedFitKillsOnlyIfItLands`; `…Finisher.GroundStateHeightAndInvulnerabilityCountAsFitFailed`; `…Finisher.AimConeAndRange`; `…Finisher.EnemyOnlyWhenItsKitsPairedSetHoldsPlayerFinisherContent`; `…Finisher.EnemyFinisherChosenAtAttackStartOnly`; `…Finisher.EnemyNeverPromotesSwingInProgress`; `…Finisher.EnemyFinisherNeedsStaggeredOrHitStunAndPrediction`; `…Finisher.GuardBreakAloneGrantsNoEnemyFinisher`. | Alignment from up to 350 cm; the seam blend of a fitted clip, measured as the other paired checks are. |
+| Paired finishers | `…Finisher.OnlyWhenLethalAndPredictedToLand`; `…Finisher.AnyLethalAimedStrikeQualifies`; `…Finisher.NoHealthPercentRoute`; `…Finisher.StaggeredTargetIsLethalByRule`; `…Finisher.StaggeredWithNoHitKillsNothing`; `…Finisher.KeyedByDirectionOnly`; `…Finisher.ListPerDirectionUsesVarietyRuleNoThrottle`; `…Finisher.UncoveredDirectionFitsToNearestAuthored`; `…Finisher.FitBeyondBudgetsFailsToOrdinaryAttack`; `…Finisher.OrdinaryAttackAfterFailedFitKillsOnlyIfItLands`; `…Finisher.GroundStateHeightAndInvulnerabilityCountAsFitFailed`; `…Finisher.AimConeAndRange`; `…Finisher.EnemyOnlyWhenItsTypeExecutesFinishers` (the fixture sets the AI setting on two enemy types); `…Finisher.EnemyFinisherChosenAtAttackStartOnly`; `…Finisher.EnemyNeverPromotesSwingInProgress`; `…Finisher.EnemyFinisherNeedsStaggeredOrHitStunAndPrediction`; `…Finisher.GuardBreakAloneGrantsNoEnemyFinisher`. | Alignment from up to 350 cm; the seam blend of a fitted clip, measured as the other paired checks are. |
 | Several attackers | `…Attackers.AtMostConfiguredCountPerTarget`; `…Attackers.TokenHeldUntilAttackEndsForAnyReason`; `…Attackers.CooldownRunsFromTokenReturn`; `…Attackers.FreedTokenWaitsReGrantDelay`; `…Attackers.EnemyFinisherHoldsAToken`; `…Attackers.OthersHoldDuringEveryPairedSequence`; `…Attackers.MontageStartedMeansInProgress`; `…Attackers.ComboContinuationHolds`; `…Attackers.UnstartedTokenReturned`; `…Attackers.SecondAttackerAbortsAndIsShovedBack`; `…Attackers.HoldingEnemiesResumeAfterDelay`. | A one-against-four crowd fight; the shove-back's spacing. |
 | Targeting | `…Targeting.FreeModeConeAroundStickDirection`; `…Targeting.FreeModeConeAroundFacingWhenNoDirectionHeld`; `…Targeting.StaggeredOrEligibleWinsTiesElseNearest`; `…Targeting.CameraNeverDecides`; `…Targeting.OneRuleForOrdinaryFollowUpAndFinisher`; `…Targeting.LockPicksBestByConeAndScores`; `…Targeting.LockedPressesAimAtLockedTarget`; `…Targeting.FlickSwitchesToNearestInThatDirection`; `…Targeting.LockDropsOnDeathAndRePicksWhenNear`; `…Targeting.SecondPressDropsLock`; `…Targeting.LockFollowsActionToTheEnemyActedOn`; `…Targeting.DirectionalLightWhileLockedAimsByStickAndTransfers`; `…Targeting.DirectionalLightWithNoEnemyBreaksLockAndMisses`; `…Targeting.LockEndsOutOfRangeOrSightAfterGrace`; `…Targeting.LockEndsWhenPlayerStaggeredOrFinished`. | Attacks go where the stick points; the lock, strafe and switch read as one system. |
 | Dodge | `…Dodge.StickDirectionCameraRelative`; `…Dodge.NeutralStickAwayFromThreatElseStraightBack`; `…Dodge.IFrameWindowIgnoresContacts`; `…Dodge.CancelsRecoveryNeverWindupOrActive`; `…Dodge.DropsGuard`; `…Dodge.EscapesHitStunAndStaggeredAfterMinimums`; `…Dodge.CancelsPushInFlight`; `…Dodge.AttackPressBeforeCancelPointIsBuffered`; `…Dodge.AttackAfterCancelPointStartsOpener`; `…Dodge.NoCooldownConsecutiveDodgesAllowed`; `…Dodge.PressDuringDodgeBuffersToCancelPoint`. | Distance, duration and the i-frame window judged on captures (Q21). |
 | Precedence | `…Data.SlotOverrideWins`; `…Data.AttackOverrideBeatsSetDefault`; `…Data.SetDefaultBeatsSettings`; `…Data.ResolvedSpecUnchangedByMidAttackEdit`. | — |
 | Kit | `…Data.KitSuppliesWeaponAndThreeSets`; `…Data.NoKitUsesSettingsDefaultKit`; `…Data.TwoKitsShareWeaponDefenseAndPairedSets`; `…Data.KitMissingAPartFailsValidation`. | — |
-| Combat rules | `…Rules.OneRulesAssetReadByEveryCharacter`; `…Rules.PerCharacterTypeDefaultDoesNotChangeAGlobalRule`; `…Rules.SettingsHoldOnlyTypeDefaultsAndDefaultKit`. | — |
+| Combat rules | `…Rules.OneRulesAssetReadByEveryCharacter`; `…Rules.PerCharacterTypeDefaultDoesNotChangeAGlobalRule`; `…Rules.SettingsHoldOnlyTypeDefaultsAndDefaultKit`; `…Rules.GlobalNotNamedByTheListReadsFromRulesAsset` (the hit-stun floor, on a fixture) [D-20261010-16]. | — |
 | Player by data | `…Player.ProfileFieldsDecideCountingStaggeredTimeAndDodgeEscape`, on two fixture characters, neither "the player", one with the player's fields; `…Player.TokensCountAttackersOfTheTarget`; `…Content.PlayerProfileHasCountingOff`, the decided-rule check of 8.1. | — |
 | Selection tables | `…Tables.OneEvaluatorServesOpenerSlotDeflectAndFinisherRows`; `…Tables.TraceListsEveryRowWithPassFailPerColumn`; `…Tables.HeightIsAKeyColumn`; `…Tables.LanePreferredWhenItMatches` (on a table built in code; no live table uses lane); `…Tables.VarietyRuleExcludesLastTwo`; `…Tables.BuiltInCodeWithoutAssets`. | — |
-| Paired lookup by key | `…Paired.FinisherRowsFoundByDirectionFromAttackersKit`; `…Paired.NoCrossReferenceExists`; `…Paired.NoCounterRowIsLive`; `…Paired.CanFinishThePlayerIsContentPresence`; `…Content.CoverageGapsNamedNoReferencesChecked`. | — |
+| Paired lookup by key | `…Paired.FinisherRowsFoundByDirectionFromAttackersKit`; `…Paired.NoCrossReferenceExists`; `…Paired.NoCounterRowIsLive`; `…Paired.NoRowNamesAVictimKind`; `…Paired.ClipFitReadThroughSeamNotRow`; `…Content.CoverageGapsNamedNoReferencesChecked`. | — |
 | One row, one content asset | `…Paired.AlternateChosenInsideOurDirectionNeverChangesIt`; `…Paired.GroundStateAndHeightReadThroughSeamNotRow`. | — |
 | Timeline and simulate-press | `…Editor.TimelineLanesDrawDataWindowsOverMontage`; `…Editor.AuthoritativeMarkFollowsSlotDiff`; `…Editor.TimelineDragWritesSlotOrAttackValue`; `…Editor.SimulatePressShowsSameTraceAsRuntime`. | — |
+| Grid drag and the lane batch action | `…Editor.DragCarriesDiffWithRow`; `…Editor.KeepOverridesAtPositionReappliesToLandingSlot`; `…Editor.ApplyToAllSlotsInLaneIsOneUndoStep` [D-20261010-17, D-20261010-18]. | — |
 | Selection function (the evaluator on the combo set) | `…ComboSet.ReturnsChosenAndRejectionReasons`; `…ComboSet.BackToOpenerIsTheOnlyLegalCycle`. | — |
 | Migration | `…Migration.ComboSetReproducesSourceGraph`, run on a fixture graph; `…Migration.HeavyFourLightLinkBecomesBackToOpener` (a Light press after Heavy 4 restarts at Light 1, and no other link changes) [D-20261010-05]; `…Migration.NeverOverwritesDesignerEdits`; `…Migration.RenamesLeaveRedirectors`. | — |
 | Shipped content | `…Content.ShippedSettingsFiniteAndInClamp`; `…Content.ShippedComboSetsValidate`; `…Content.ShippedDefenseAndPairedSetsValidate`; `…Content.CoverageGapsWarnedNotFailed`. | — |
@@ -3472,8 +3523,10 @@ first.
 **Where the 7 and 10 October decisions land** (this spec's call, stated so that it can be overruled): the table
 evaluator and its trace, judging the combo set's openers and entry rules, in 9.1 [D-20261007-57]; the timeline as the
 attack editor and the simulate-press panel in 9.2 [D-20261007-57, D-20261007-58]; the kit rename, the combat rules
-split, the defense and paired sets as tables found by key, the player's profile fields and the marker as content
-presence in 9.3, with the data they shape [D-20261007-53 to -55, D-20261010-01 to -04]; the paired lookup by key in
+split with the unnamed globals on it by elimination, the defense and paired sets as tables found by key and the
+player's profile fields in 9.3, with the data they shape [D-20261007-53, D-20261007-54, D-20261010-01 to -04,
+D-20261010-16]; the row drag carrying the diff and the lane batch action in 9.2 [D-20261010-17, D-20261010-18]; the
+enemy's finisher behaviour setting in 9.8, where enemy finishers land [D-20261010-19]; the paired lookup by key in
 play, for finishers, in 9.8 [D-20261010-01]; the Heavy 4 link in 9.1's migration [D-20261010-05]; hits with no
 resolved spec and the charged damage multiplier in 9.3's data and 9.5's rules [D-20261010-06, D-20261010-07]; the
 simplified parry with the deflect's first layer in 9.7, the two further layers as capture-gated additions to it, and
@@ -3508,10 +3561,13 @@ the lethal follow-up in 9.8 [D-20261010-08 to -10, D-20261010-12 to -14]; the gr
   - pickers and edit-through;
   - the slot row as a diff, with its four groups and counts, "show inherited", Save to asset per field, Extract to new
     attack on the row, and the diff markers on the grid [D-20261007-35];
+  - the row drag carrying the slot's diff, with "keep overrides at position" on the drop, and the "apply to all slots
+    in lane" batch action [D-20261010-17, D-20261010-18];
   - inline overrides for the fields that are already layered (knockback, damage), with the combo-set layer hidden
     until a second combo set differs from the settings [D-20261007-34].
 - **Ships:** the owner's chosen editor, with the timeline and the simulate-press panel.
-- **Decisions:** D-20261005-02, D-20261007-34, D-20261007-35, D-20261007-57, D-20261007-58.
+- **Decisions:** D-20261005-02, D-20261007-34, D-20261007-35, D-20261007-57, D-20261007-58, D-20261010-17,
+  D-20261010-18.
 - **Needs:** approval of section 5.
 
 ### 9.3 Layered attack data, the kit, the combat rules and reaction profiles
@@ -3528,10 +3584,11 @@ the lethal follow-up in 9.8 [D-20261010-08 to -10, D-20261010-12 to -14]; the gr
     with the default kit as the fallback; a second kit per distinct enemy subset for the AI lists (7.2)
     [D-20261010-02, D-20261005-63];
   - **the combat rules split** from the per-character settings (`UCombatRules`, `DA_CombatRules`, the
-    developer-settings root) (4.15, 7.4) [D-20261007-53];
+    developer-settings root), with the globals no decision names on it by elimination (4.15, 7.4) [D-20261007-53,
+    D-20261010-16];
   - `UReactionProfile` with a base profile and inheritance, its player fields with no is-player branch and the
-    shipped-content check on the player's profile [D-20261007-54], and the marker as content presence on the paired set
-    [D-20261007-55];
+    shipped-content check on the player's profile [D-20261007-54]; no marker and no victim kind on the paired set
+    [D-20261010-19];
   - retiring `UDefenseConfiguration`;
   - the owner's held content;
   - the asset renames;
@@ -3546,10 +3603,11 @@ the lethal follow-up in 9.8 [D-20261010-08 to -10, D-20261010-12 to -14]; the gr
 - **Decisions:** D-20261004-20, D-20261004-22 (placement per D-20261005-48), D-20261004-32, D-20261004-38,
   D-20261004-41 (data), D-20261004-19, D-20261002-07, D-20261005-46, D-20261005-47 (no body types), D-20261005-48,
   D-20261005-49, D-20261005-55, D-20261005-56, D-20261005-57, D-20261007-31 (finisher lists), D-20261007-35,
-  D-20261007-36, D-20261007-38, D-20261007-40, D-20261007-42 (per-clip requirements as data), D-20261007-53 to
-  D-20261007-57, D-20261007-59, D-20261010-01 to D-20261010-04, D-20261010-06 and D-20261010-07 (the data), D-20261010-12
-  (the deflect row's fields), D-20261010-13 (the deflect key).
-- **Needs:** Q1, Q15, Q14, Q23, Q24.
+  D-20261007-36, D-20261007-38, D-20261007-40, D-20261007-42 (per-clip requirements as data), D-20261007-53,
+  D-20261007-54, D-20261007-56, D-20261007-57, D-20261007-59, D-20261010-01 to D-20261010-04, D-20261010-06 and
+  D-20261010-07 (the data), D-20261010-12 (the deflect row's fields), D-20261010-13 (the deflect key), D-20261010-16
+  (the unnamed globals), D-20261010-19 (no victim kind on the paired set).
+- **Needs:** Q1, Q14, Q15.
 
 ### 9.4 The dodge
 
@@ -3662,16 +3720,17 @@ the lethal follow-up in 9.8 [D-20261010-08 to -10, D-20261010-12 to -14]; the gr
     rendered check; the ordinary attack only when fitting fails, which on a Staggered enemy kills if it lands
     [D-20261007-22, D-20261007-23, D-20261010-10];
   - the per-clip ground state, height and invulnerability checks [D-20261007-42];
-  - enemy paired finishers only from a kit whose paired set holds player-finisher content [D-20261007-55], chosen at the
-    attack's start against a player who is Staggered or in hit-stun, with the predictor's confirmation, never a mid-swing
-    promotion [D-20261007-20];
+  - enemy paired finishers only from an enemy type whose AI behaviour setting executes them, the proposed toggle on the
+    enemy AI component (3.8) [D-20261010-19], chosen at the attack's start against a player who is Staggered or in
+    hit-stun, with the predictor's confirmation, never a mid-swing promotion [D-20261007-20];
   - the lock transferring to the enemy acted on, when lock mode exists (9.9) [D-20261007-46];
   - the 25% threshold removed.
 - **Decisions:** D-20261005-18 to D-20261005-22, D-20261005-27, D-20261005-28, D-20261005-42, D-20261005-47,
   D-20261005-51, D-20261005-57, D-20261005-85, D-20261005-86, D-20261006-02, D-20261006-04, D-20261007-09,
   D-20261007-10, D-20261007-12, D-20261007-14, D-20261007-17, D-20261007-20, D-20261007-22, D-20261007-23,
-  D-20261007-31, D-20261007-33, D-20261007-42, D-20261007-55, D-20261010-01, D-20261010-07, D-20261010-10.
-- **Needs:** Q4, Q24; the fitting budgets' values from the captures.
+  D-20261007-31, D-20261007-33, D-20261007-42, D-20261010-01, D-20261010-07, D-20261010-10, D-20261010-19.
+- **Needs:** Q4; the fitting budgets' values from the captures; the owner's approval of the finisher setting's proposed
+  home and default (3.8).
 - **Content notes [reported]**, which bind no rule [D-20261006-04]: the finisher pool is authored from in front and
   behind, not the sides, which is what fitting covers [D-20261007-22]. The counter-pair and turn-clip findings that
   sat here belong to the later graduation and are kept in Appendix C.
@@ -3733,9 +3792,13 @@ numbers (Q21, D-20261007-21, D-20261007-50). Lock mode's numbers stay open (Q18)
 The data-model decisions of 7 and 10 October (D-20261007-53 to -59, D-20261010-01 to -04) answered two things before
 they reached this list: the paired-reference question the owner raised ("why do we need references to finishers in all
 these locations?", the 2026-10-07 log, E26) and the marker's home; and they closed the review's question of whose
-settings a rule reads (4.15). They added four: the home of the global values D-20261007-53 does not name (Q23), how a
-paired set holds player-finisher content (Q24), and the two ambiguities the stress test exposed, a row drag carrying the
-slot's diff (Q25) and the set layer sitting below the attack layer (Q26).
+settings a rule reads (4.15). They added four, and the owner's answers of the evening of 10 October (D-20261010-16 to
+-19) closed all four: the home of the global values D-20261007-53 does not name (the combat rules, by elimination,
+D-20261010-16); how a paired set holds player-finisher content (it does not: no row names a victim kind, and whether an
+enemy executes finishers is a behaviour setting on its AI, D-20261010-19, which reverses D-20261007-55); a row drag
+carrying the slot's diff (it does, and the drop offers "keep overrides at position", D-20261010-17); and the set layer
+sitting below the attack layer (kept, with the "apply to all slots in lane" batch action, D-20261010-18). The list
+ends at Q22.
 
 The simplification of 10 October (D-20261010-08 to -10) and its three data-model answers (D-20261010-05 to -07)
 removed one question: a Heavy press's lethality, answered by D-20261010-07 (the uncharged value at the press). The
@@ -3957,52 +4020,6 @@ clamps and the nudge are not asked here: they are tunables proven on captures [D
 - C. Buy or author a matched set of nine before the parry stage ships.
 - D. Author the heights as blend-space poses from one clip, with no per-height clip.
 
-### Data model and editor
-
-**Q23. Which asset holds the global values D-20261007-53 does not name?** The decision lists the window minimum, the
-lockout, the slowdown, the Staggered default, the aim cone, the ranges, the attacker cap and cooldowns, the predictor
-settings, the telegraph set and the counter damage default (since set aside, 4.15) for the rules asset, and type
-defaults plus the default kit for the per-character settings. The hit-stun floor, the guard arc, block turn and fastest turn defaults, the blade IK
-clamp and attacker nudge defaults [D-20261010-12], the fitting budgets, the height-difference limit, the dodge
-defaults, the lock grace, the flick threshold, the shove-back distance, the guard-facing values and the slow-motion
-watchdog are named by neither list (4.15).
-- A. The combat rules hold every global value that is not a per-type default; the settings keep only the type defaults
-  and the default kit, as the decision says. **(Recommended: by elimination, and one asset to open for any rule.)**
-- B. The per-weapon-overridable defaults (guard arc, turn rates, fitting budgets, height limit, dodge defaults) stay on
-  the per-character settings beside the type defaults; the rest go to the rules.
-- C. No global default for the per-weapon-overridable values: each defense set, paired set and dodge asset must set
-  them, and validation errors when one is unset.
-- D. Decide each value by hand, with the list above as the form.
-
-**Q24. How does a paired set "hold player-finisher content"** [D-20261007-55]? The decision makes the content's presence
-the marker and says validation checks it; it does not say how a finisher row that targets the player is told from one
-that targets an enemy (4.7).
-- A. A separate finisher table, "finishers on the player", with the same direction key; the set can finish the player
-  when that table has a row, and validation reads the count. **(Recommended: nothing is flagged by hand, and the lookup
-  for an enemy's finisher reads one table.)**
-- B. A victim column on the one finisher table (enemy or player), with the marker read as "any row whose victim is the
-  player".
-- C. A flag on the paired set, "can finish the player", that validation checks against the content it holds.
-- D. A tag on the paired content itself, read through the seam.
-
-**Q25. A row drag and the slot's diff.** The stress test noted that dragging a row to a new position carries its diff with
-it, so a diff authored for position 3 travels to position 4 **[reported]**; no decision covers it (4.2, 4.4, 5.1).
-- A. The diff travels with the row, and the grid says so in the drop tooltip; "keep overrides at position" is offered on
-  the drop. **(Recommended: the slot is an attack plus a diff [D-20261007-35], so the diff is the slot's, and the owner
-  sees the choice.)**
-- B. The diff always travels with the row, with no option.
-- C. The diff always stays at the position: the rows swap attacks, not overrides.
-- D. A drag asks every time.
-
-**Q26. The set layer sits below the attack layer.** The combo set's type default (layer 2) is overridden by an attack's
-own value (layer 3), so a weapon cannot re-default an attack that sets its own value except slot by slot; the stress test
-raised it and recommended keeping the order with a batch action **[reported]** (4.2).
-- A. Keep the order [D-20261005-61, D-20261007-34] and add a grid batch action, "apply to all slots in this lane", that
-  writes slot overrides. **(Recommended: predictable precedence, and the batch action is explicit.)**
-- B. Allow a set-level "force" that beats the attack's value.
-- C. Move the set layer above the attack layer.
-- D. Leave it: a weapon that needs a different value extracts a new attack.
-
 ---
 
 ## Appendix A. Decisions used
@@ -4038,7 +4055,7 @@ raised it and recommended keeping the order with a batch action **[reported]** (
 | D-20261005-05 to -10 | The parry window, lockout, parryable by default, Staggered default, minimum and scale, slowdown. **D-20261005-09's "on the attacker's animation" is read through D-20261007-38:** the window is the attacker's, held as data | 3.2, 3.4 |
 | D-20261005-11 to -15 | Guard arc and turn, no chip, block in recovery, the player's guard, counted guard break | 3.1, 3.5 |
 | D-20261005-16, -17 | Interruption is pressure against armor | 3.6 |
-| D-20261005-18 to -21 | Finisher eligibility, trigger, enemy finishers, others hold. **D-20261005-20 is narrowed by D-20261007-20** (chosen at the attack's start, against a player who is Staggered or in hit-stun, with prediction), **and its marker moves from the reaction profile to the kit's paired set by D-20261007-55**; **D-20261005-21's "swings already in progress finish" is superseded by D-20261007-44** | 3.8, 3.9, 4.7 |
+| D-20261005-18 to -21 | Finisher eligibility, trigger, enemy finishers, others hold. **D-20261005-20 is narrowed by D-20261007-20** (chosen at the attack's start, against a player who is Staggered or in hit-stun, with prediction), **and its marker, moved from the reaction profile to the kit's paired set by D-20261007-55, is retired as content by D-20261010-19: whether an enemy executes finishers is a behaviour setting on its AI**; **D-20261005-21's "swings already in progress finish" is superseded by D-20261007-44** | 3.8, 3.9, 4.7 |
 | D-20261005-22 to -24 | Opportunity equals Staggered time (live). The single-character strike fallback (-23) and "the parry is the counter" (-24) are **set aside for the later graduation** [D-20261010-08] | 3.3, 3.4, Appendix C |
 | D-20261005-25, -26 | Count by pressure; 4 within 3 s | 3.5 |
 | D-20261005-27, -28 | 60° aim cone; 350 cm. **The cone's camera reference is replaced by D-20261007-12** (the stick direction, else the facing); the 60° stands | 3.3, 3.8, 3.13 |
@@ -4046,7 +4063,7 @@ raised it and recommended keeping the order with a batch action **[reported]** (
 | D-20261005-32, -33 | Lockout 0.25 s; slowdown bounds | 3.2 |
 | D-20261005-34 to -37 | Hit-stun values; 2 attackers; lands first; what hit-stun blocks. **D-20261005-35's cap counts the attackers of whoever is targeted by D-20261007-54, and lives on the combat rules by D-20261007-53** | 3.7, 3.9, 4.15 |
 | D-20261005-38, -39 | Lethal is decided at the press (live, for ordinary attacks). The lethal parry-counter and the ×1.5 follow-up strike are **set aside for the later graduation** [D-20261010-08]; D-20261005-39's "Staggered alone grants no kill" and "the enemy recovers" are **superseded by D-20261010-10** | 3.3, 3.8, Appendix C |
-| D-20261005-40 | The glossary; its parry and counter entries amended by D-20261007-11 and D-20261010-08 (counter and parry-counter reserved); its reaction-profile, defense-set, paired-set and weapon-data entries amended by D-20261007-54, D-20261007-55, D-20261010-01, D-20261010-02 and D-20261010-04 | 2, throughout |
+| D-20261005-40 | The glossary; its parry and counter entries amended by D-20261007-11 and D-20261010-08 (counter and parry-counter reserved); its reaction-profile, defense-set, paired-set and weapon-data entries amended by D-20261007-54, D-20261007-55 (since reversed by D-20261010-19), D-20261010-01, D-20261010-02, D-20261010-04 and D-20261010-19 | 2, throughout |
 | D-20261005-42 | Any lethal aimed strike plays a paired finisher; the glossary line amended | 1.3, 2.1, 3.8 |
 | D-20261005-43 | The follow-up strike is paired when a clip matches. **Set aside for the later graduation:** the follow-up is now a paired finisher or an ordinary attack, never a paired counter clip [D-20261010-08, D-20261010-10] | Appendix C |
 | D-20261005-44 | Armor is the higher of the base and any active window | 2.1, 3.6 |
@@ -4075,7 +4092,7 @@ raised it and recommended keeping the order with a batch action **[reported]** (
 | D-20261005-67 | A Staggered player can do nothing until it ends; input buffered. **Superseded by D-20261005-88** | — |
 | D-20261005-68 | A tunable lives with the thing it describes; the reaction profile covers reactions to hits only. D-20261010-03 keeps the split it draws | 2.1, 4.1, 4.6, 4.8, 4.9, 4.15 |
 | D-20261005-69 | The block turn faces the attacker fully; its rate is a defense tunable, 360°/s to start | 3.1, 4.6, 4.9 |
-| D-20261005-70 | The guard arc's default is in the combat settings, overridable on the defense set. **The default sits on the combat rules since D-20261007-53 (Q23)** | 3.1, 4.6, 4.15 |
+| D-20261005-70 | The guard arc's default is in the combat settings, overridable on the defense set. **The default sits on the combat rules since D-20261007-53, by elimination [D-20261010-16]** | 3.1, 4.6, 4.15 |
 | D-20261005-71 | A missed parry is a press while a parryable attack aimed at you is in progress, outside its window | 3.2 |
 | D-20261005-72 | No lockout after a successful parry | 3.2, 3.9 |
 | D-20261005-73 | Contact is the predicted blade arrival, computed from the swing trajectory | 2.2, 3.2 |
@@ -4092,7 +4109,7 @@ raised it and recommended keeping the order with a batch action **[reported]** (
 | D-20261005-83 | A sliding 3 s guard-break window; the count clears on a break | 3.5 |
 | D-20261005-84 | A per-attack Swing field, filled by an "Auto-detect swing" editor action, overridable by hand | 2.2, 3.3, 4.5, 5.3, 7.3 |
 | D-20261005-85 | Follow-up strike reach 350 cm | 3.3, 3.8, 6.3 |
-| D-20261005-86 | A guard break grants an enemy nothing; a marked enemy's lethal hit still finishes. **Narrowed by D-20261007-20:** it finishes only as a finisher chosen at the attack's start, with prediction, never a promoted swing | 3.5, 3.8 |
+| D-20261005-86 | A guard break grants an enemy nothing; a finishing enemy's lethal hit still finishes (an enemy whose type executes finishers, since D-20261010-19). **Narrowed by D-20261007-20:** it finishes only as a finisher chosen at the attack's start, with prediction, never a promoted swing | 3.5, 3.8 |
 | D-20261005-87 | A dodge press ends the player's hit-stun early, after max(0.12 s, half the stun); the dodge is committed. The dodge itself is designed in 3.14 since D-20261007-49 to -52 | 3.7, 3.14, 6.3 |
 | D-20261005-88 | The player's Staggered state: reaction and full push; no attack, guard or stick movement; a dodge after the minimum ends it and closes the enemy's opening; 0.6 s by default on the player's profile. **The profile field, not the identity, is what the rule reads, by D-20261007-54** | 2.1, 3.1, 3.4, 3.5, 4.8, 6.3 |
 | D-20261006-01 | Hit-stun and Staggered both run, each with its own timer and rules; free when both end; a dodge-out needs both minimums; a hit never shortens a lock or restores guard early | 3.4, 3.7, 6.3, 9.5 |
@@ -4101,7 +4118,7 @@ raised it and recommended keeping the order with a batch action **[reported]** (
 | D-20261006-04 | Rules before content: no rule from what content exists; content made, bought or fitted to the rules | 1.1, 1.3, 3.0, 3.3, 9.8 |
 | D-20261006-05 | Counter damage lands at the counter's contact and never clamps. **Set aside for the later graduation** [D-20261010-08] | Appendix C |
 | D-20261006-06 | The player's own Staggered time always applies; an attack's or slot's override never changes it | 3.4, 3.12, 4.8, 6.4 |
-| D-20261007-07 | Every counter can kill: lethal damage at the counter's contact kills there, the enemy's death outcome taking over; an authored kill sequence plays instead when one exists. **Set aside for the later graduation** [D-20261010-08, which writes its ID as "D-20261006-07", Appendix B 92] | Appendix C |
+| D-20261007-07 | Every counter can kill: lethal damage at the counter's contact kills there, the enemy's death outcome taking over; an authored kill sequence plays instead when one exists. **Set aside for the later graduation** [D-20261010-08; the register's ID for it has been corrected, Appendix B 92] | Appendix C |
 | D-20261007-08 | Inside a parry-counter each character is untouchable until its own cancel notify. **Set aside for the later graduation;** the live protection is D-20261010-09's: the player until the deflect's cancel point, the attacker open from the contact | 3.0, Appendix C |
 | D-20261007-09 | An attack press inside the sequence is buffered and fires as the follow-up at the player's cancel notify; last input wins. **Read for the simplified parry:** the deflect is the sequence (Appendix B 94) | 3.3, 6.3, 6.4 |
 | D-20261007-10 | A press aimed elsewhere no longer ends the opening; Staggered runs its time. Supersedes the aimed-elsewhere half of D-20261005-62 | 3.3, 3.4 |
@@ -4114,7 +4131,7 @@ raised it and recommended keeping the order with a batch action **[reported]** (
 | D-20261007-17 | A light press with a Staggered target is the follow-up with the light opener; the hold does not open; directional lights never follow up | 3.3, 6.3, 9.8 |
 | D-20261007-18 | The lenient lockout: a press during it is remembered and counts if the window is still open at its end; the lockout may go to zero. **My reading of "the more lenient version"; the owner may veto** | 2.1, 3.2, 3.12, 4.9, 6.1, 6.3, 6.4, 9.7 |
 | D-20261007-19 | Contact order: all weapon contacts of a frame judged against the frame-start state (a trade lands both); damage first; a killing hit replaces the reaction; among surviving interrupting hits the highest pressure, then the latest, supplies the reaction, hit-stun and push | 3.6, 3.10, 6.3, 9.5 |
-| D-20261007-20 | Enemy finisher on the player: chosen as the marked enemy's next attack, at that attack's start, only when the player is Staggered or in hit-stun and the predictor says the hit lands; never a mid-swing promotion. Narrows D-20261005-20 and D-20261005-86 | 3.4, 3.7, 3.8, 3.15, 6.3, 6.4, 9.8 |
+| D-20261007-20 | Enemy finisher on the player: chosen as the enemy's next attack (an enemy whose type executes finishers, D-20261010-19), at that attack's start, only when the player is Staggered or in hit-stun and the predictor says the hit lands; never a mid-swing promotion. Narrows D-20261005-20 and D-20261005-86 | 3.4, 3.7, 3.8, 3.15, 6.3, 6.4, 9.8 |
 | D-20261007-21 | The dodge is designed in this spec and delivered as a small stage before hit-stun ships; its numbers are tunables for captures | 3.14, 4.14, 9.4, Q21 |
 | D-20261007-22 | Lethal aimed strikes: coverage of every direction is authoring, not a rule; "will it hit" is predicted, never guessed; an uncovered direction is fitted to a clip; an ordinary attack only when fitting fails, and it kills only if it lands. Amends D-20261005-47's "normal death without a clip" | 1.3, 3.0, 3.3, 3.8, 3.11, 3.15, 6.3, 9.8 |
 | D-20261007-23 | Fit to clip: the approach warp to the nearest authored direction, a small victim turn, budgets on the paired set with settings defaults, validation listing uncovered directions, procedural blending at the seam with a rendered check | 2.2, 3.8, 3.12, 4.7, 4.9, 5.9, 6.4, 9.8 |
@@ -4147,9 +4164,9 @@ raised it and recommended keeping the order with a batch action **[reported]** (
 | D-20261007-50 | The dodge carries an authored invulnerability window, data-owned and sequence-anchored like every other window; its default is tuned on captures | 2.2, 3.0, 3.12, 3.14, 4.13, 4.14, 6.3, 9.4, Q21 |
 | D-20261007-51 | Dodge cancels: a dodge press ends an attack's Recovery, drops guard, and escapes hit-stun or Staggered after their minimums; never Windup or Active; the dodge has its own cancel point, after which an attack press starts the opener, before which it is buffered | 3.0, 3.1, 3.4, 3.7, 3.14, 4.14, 6.3, 9.4 |
 | D-20261007-52 | No resource and no cooldown; consecutive dodges allowed; a dodge press during a dodge is buffered to its cancel point | 2.2, 3.14, 6.3, 9.4 |
-| D-20261007-53 | A project-wide combat rules asset is split from the per-character combat settings: it holds everything that must agree for everyone (window minimum, lockout, slowdown, Staggered default, aim cone, ranges, attacker cap and cooldowns, predictor settings, telegraph set, counter damage default); the settings keep type defaults and the default kit. **The placement of the global values the list does not name is this spec's reading (Q23)**; the counter damage default is set aside [D-20261010-08] | 1.3, 2.2, 3.1–3.15, 4.1, 4.2, 4.9, 4.10, 4.11, 4.15, 6.1, 6.3, 6.4, 6.5, 7.4, 7.5, 9.3 |
+| D-20261007-53 | A project-wide combat rules asset is split from the per-character combat settings: it holds everything that must agree for everyone (window minimum, lockout, slowdown, Staggered default, aim cone, ranges, attacker cap and cooldowns, predictor settings, telegraph set, counter damage default); the settings keep type defaults and the default kit. **The global values the list does not name are on the rules asset by elimination [D-20261010-16]**; the counter damage default is set aside [D-20261010-08] | 1.3, 2.2, 3.1–3.15, 4.1, 4.2, 4.9, 4.10, 4.11, 4.15, 6.1, 6.3, 6.4, 6.5, 7.4, 7.5, 9.3 |
 | D-20261007-54 | The player is identified by data, not identity: every player-specific rule is a profile field (counting toggle, own Staggered time, dodge escape allowed); tokens count the attackers of whoever is targeted; no is-player branch; one shipped-content invariant checks the player's profile has counting off | 1.3, 2.1, 2.2, 3.4, 3.5, 3.7, 3.9, 3.12, 3.14, 4.1, 4.8, 6.3, 6.4, 7.7, 8.1, 8.2, 9.3 |
-| D-20261007-55 | The "can finish the player" marker moves from the reaction profile to the kit's paired set: a paired set that holds player-finisher content can finish the player; validation checks it. Amends the glossary's reaction-profile entry. **How the content is told apart is Q24** | 1.3, 2.1, 3.8, 3.12, 4.1, 4.7, 4.8, 5.9, 6.4, 9.3, 9.8, Q24 |
+| D-20261007-55 | The "can finish the player" marker moves from the reaction profile to the kit's paired set: a paired set that holds player-finisher content can finish the player; validation checks it. Amends the glossary's reaction-profile entry. **Reversed by D-20261010-19:** there is no marker anywhere and no player-specific content; whether an enemy executes finishers is a behaviour setting on its AI | 2.1, 3.8, 4.7, 4.8, Appendix B 82 |
 | D-20261007-56 | The storage model stands after the research pass: weapon → combo set + defense set + paired set; reaction profile per character; global rules asset; slot = attack + diff; data-owned windows. Evidence: the stress test and the survey, both model-written, in `.superpowers/design/` | header, 4.17, Appendix B |
 | D-20261007-57 | Table-shaped selection: the counter grid (the deflect table since D-20261010-13), finisher lists, enemy slot choice and opener/entry rules share one column vocabulary, one evaluator and one "rows evaluated" trace shown in a simulate-press panel; in-house table structs; Epic's Chooser a reference for columns and debugger shape, not a dependency | 1.3, 2.1, 2.2, 3.3, 4.1, 4.4, 4.6, 4.7, 4.16, 5.9, 5.12, 6.2, 6.3, 6.4, 8.1, 8.2, 9.1, 9.2, 9.3 |
 | D-20261007-58 | Timeline-first attack editor: opening an attack or a slot opens a timeline whose lanes are the data windows, phases, contact, armor, hits, telegraph and FX moments over the montage, plus a combo lane; the grid stays for topology and its row strip becomes a link; the Persona export is optional, Save / Reset / Leave stays decided. **The "hits" and "FX moments" lanes' contents are this spec's reading** | 2.2, 3.2, 5.1, 5.3, 5.4, 5.10, 5.11, 6.4, 9.2 |
@@ -4161,7 +4178,7 @@ raised it and recommended keeping the order with a batch action **[reported]** (
 | D-20261010-05 | Migration: Heavy 4's Light link becomes a back-to-opener link, removing the shipped graph's one unsanctioned cycle; the only behaviour change is that a Light press after Heavy 4 restarts at Light 1 | 4.4, 7.2, 8.2, 9.1 |
 | D-20261010-06 | A hit with no resolved attack spec applies damage only: no interruption, hit-stun or push; slotless attacks resolve from the settings and attack layers; a missing kit resolves rules, skips presentation and logs once | 3.6, 3.10, 4.11, 6.3, 6.4, 8.2, 9.3, 9.5 |
 | D-20261010-07 | A charged heavy release applies a per-attack charged damage multiplier (slot-overridable, default to be tuned); pressure, hit-stun and guard breaker come from the Charged column; the lethal check at the press uses the uncharged value, closing the former question on it | 2.2, 3.8, 3.12, 4.5, 4.9, 4.11, 6.3, 6.4, 8.2, 9.3, 9.5, 9.8 |
-| D-20261010-08 | **The parry simplified to the standard model:** press 1, Block inside the attacker-owned window, is the parry: a deflect, no damage, the attacker Staggered (1.5 s default) from the deflect's contact; press 2, an aimed attack on any Staggered enemy, is the follow-up. Paired counters, counter damage, kill sequences, direction × swing counter keying and the parry-counter sequence are set aside as a later graduation, kept in Appendix C. Supersedes D-20261005-24, -38, -39's ×1.5, D-20261006-03, -05, D-20261007-07 (written "D-20261006-07" in the register, Appendix B 92), D-20261007-11's parry-counter as a live term, -33's ×1.5, -41's counter half, -43, D-20261010-04's counter entries | header, 1, 2, 3.0–3.4, 3.8–3.10, 3.12–3.14, 4.1, 4.5–4.7, 4.10, 4.12, 4.15, 4.16, 5, 6, 7, 8.2, 9, 10, Appendix C |
+| D-20261010-08 | **The parry simplified to the standard model:** press 1, Block inside the attacker-owned window, is the parry: a deflect, no damage, the attacker Staggered (1.5 s default) from the deflect's contact; press 2, an aimed attack on any Staggered enemy, is the follow-up. Paired counters, counter damage, kill sequences, direction × swing counter keying and the parry-counter sequence are set aside as a later graduation, kept in Appendix C. Supersedes D-20261005-24, -38, -39's ×1.5, D-20261006-03, -05, D-20261007-07 (the register now reads so, Appendix B 92), D-20261007-11's parry-counter as a live term, -33's ×1.5, -41's counter half, -43, D-20261010-04's counter entries | header, 1, 2, 3.0–3.4, 3.8–3.10, 3.12–3.14, 4.1, 4.5–4.7, 4.10, 4.12, 4.15, 4.16, 5, 6, 7, 8.2, 9, 10, Appendix C |
 | D-20261010-09 | During the parry the player is untouchable until the deflect's cancel point; the attacker is Staggered and open from the contact; a second attacker's in-progress swing aborts and is shoved back (D-20261007-44); after the cancel point the player is free | 2.1, 2.2, 3.0, 3.1, 3.3, 3.4, 3.9, 3.14, 6.3, 6.4, 8.2, 9.7 |
 | D-20261010-10 | **A Staggered enemy dies to the next aimed hit:** every landed aimed attack on it is lethal and plays a paired finisher; the ×1.5 strike and "the enemy recovers" are gone; a guard break on an enemy (when enemies guard) leaves it one hit from death; the Staggered time is how long the player has to claim the kill; enemy toughness comes from being hard to parry (unparryable attacks, feints, armor, numbers). Supersedes D-20261005-39 and D-20261007-33's ×1.5 | 1.3, 2.1, 2.2, 3.3, 3.4, 3.5, 3.8, 3.10, 4.11, 6.3, 6.4, 8.2, 9.7, 9.8, Q2, Q6, Q16 |
 | D-20261010-11 | The deflect's presentation and keying went to a research pass before being decided. **Status: pending research**; closed by D-20261010-12 to -14. The owner's reading of Onimusha ("a mix of IK and additive procedural animation") is carried as the owner's reading (Appendix B 105) | header, 3.3 |
@@ -4169,6 +4186,10 @@ raised it and recommended keeping the order with a batch action **[reported]** (
 | D-20261010-13 | The deflect is keyed by direction × height (front/left/right/rear × high/mid/low; low-rear folds into mid-rear), direction relative to the defender's facing at predicted contact; swing is not a key; the attack's swing field and "Auto-detect swing" stay as not required by any rule | 2.1, 2.2, 3.2, 3.3, 4.1, 4.5, 4.6, 4.16, 5.9, 5.12, 7.3, 7.4, 8.2, 9.3 |
 | D-20261010-14 | The three deflect layers ship in order, each gated by its rendered-capture check: poses and bounded turn first (the parry stage ships with at least this), blade IK second with an IK-off premise capture, the attacker nudge third | 3.3, 6.4, 8.2, 8.3, 9.7 |
 | D-20261010-15 | Housekeeping: the katana's grip socket mismatch with the paired clips' grip (a 12 cm floor on blade contact) is fixed before any contact capture, as a parry-stage prerequisite; CLAUDE.md's stale "only four plugins enabled" note is corrected with the spec PR | 3.3, 6.4, 7.6, 9.7 |
+| D-20261010-16 | Globals not named by D-20261007-53 (the register's list: "hit-stun floor, guard arc and turn defaults, fitting budgets, dodge defaults, telegraph set, and anything else that is neither a per-type default nor a per-character choice") live on the combat rules asset, by elimination. Closes the former question on their home. The owner's pick: "On the Combat Rules asset, by elimination" | 3.3, 3.7–3.10, 3.12–3.14, 4.9, 4.14, 4.15, 8.2, 9.3, Appendix B 111, 112 |
+| D-20261010-17 | Dragging a slot row to a new position carries its overrides with it; the drop offers "keep overrides at position", which leaves them where they were, re-applied to the slot that lands there. Closes the former question on the row drag | 2.2, 4.2, 4.4, 5.1, 5.3, 6.4, 8.2, 9.2, Appendix B 113 |
+| D-20261010-18 | The combo set's type-default layer stays below the attack layer; a grid batch action "apply to all slots in lane" writes slot overrides in one undo step for the whole-lane case. Closes the former question on the set layer | 4.2, 5.1, 5.3, 6.4, 8.2, 9.2, Appendix B 114 |
+| D-20261010-19 | **No player-specific data anywhere:** finisher rows carry no victim kind; whether a clip fits a victim is the content's start check through the seam (rig, size, ground state); whether an enemy executes finishers at all is a per-enemy-type behaviour setting on its AI, under the rules (the register: "only a locked target, only when lethal, predictor says it lands"). **Reverses D-20261007-55** and retires the "can finish the player" marker as content. The owner: "Having a separate container for a specific class on an asset used across classes is code smell" | 1.3, 2.1, 2.2, 3.4, 3.5, 3.7, 3.8, 3.12, 3.15, 4.1, 4.7, 4.8, 4.12, 5.9, 6.3, 6.4, 8.2, 9.3, 9.8, Appendix B 115–117 |
 
 **Superseded, and not used as rules:**
 - D-20261004-28, the two modes by enemy type, superseded by D-20261005-24;
@@ -4193,7 +4214,8 @@ raised it and recommended keeping the order with a batch action **[reported]** (
 - the combo set's per-direction finisher references and the defense entry's counter reference, this spec's proposed
   shapes under D-20261005-57, replaced by lookups by key [D-20261010-01];
 - the "can finish the player" marker on the reaction profile, this spec's placement under D-20261005-20, moved to the
-  kit's paired set as content presence [D-20261007-55];
+  kit's paired set as content presence [D-20261007-55], then retired as content altogether: D-20261010-19 reverses
+  D-20261007-55, and whether an enemy executes finishers is a behaviour setting on its AI;
 - the global rules on `UCombatSettings`, under D-20261003-08 and D-20261004-20, split into the combat rules
   [D-20261007-53];
 - the editable timing strip inside the grid row, replaced by the timeline with the strip as a link [D-20261007-58];
@@ -4209,7 +4231,9 @@ raised it and recommended keeping the order with a batch action **[reported]** (
   -43, -45, -54, -80 to -82, D-20261007-08's two-sided protection, D-20261010-01's and D-20261010-03's counter parts,
   and D-20261004-30's turn-deflects;
 - D-20261005-39's "Staggered alone grants no kill", superseded by D-20261010-10;
-- the former question on a Heavy press's lethality, answered by D-20261010-07.
+- the former question on a Heavy press's lethality, answered by D-20261010-07;
+- the former questions on the unnamed globals' home, how a paired set holds player-finisher content, the row drag and
+  the set layer, answered by D-20261010-16 to -19.
 
 ## Appendix B. Ambiguities, conflicts and readings
 
@@ -4286,7 +4310,8 @@ Each item is either an open question, or a reading this spec chose that the owne
   [D-20261007-45 to D-20261007-48]; the dodge's direction, i-frame window, cancels and limits [D-20261007-49 to
   D-20261007-52];
 - the settings' ownership and whose asset is read: a project-wide combat rules asset split from the per-character
-  settings [D-20261007-53]; the player by data [D-20261007-54]; the marker's home [D-20261007-55];
+  settings [D-20261007-53]; the player by data [D-20261007-54]; the marker's home [D-20261007-55, since reversed by
+  D-20261010-19];
 - the data-model research: the storage model kept, table-shaped selection, the timeline editor, the override breadth
   [D-20261007-56 to D-20261007-59]; paired lookup by key, the kit, the defense split, one entry per content asset
   [D-20261010-01 to D-20261010-04]. The paired-reference question the owner raised at E26 ("why do we need references
@@ -4295,7 +4320,11 @@ Each item is either an open question, or a reading this spec chose that the owne
   [D-20261010-05 to D-20261010-07]; **the parry simplified** to a deflect that Staggers the attacker, the protection
   until the deflect's cancel point, and a Staggered enemy dying to the next aimed hit [D-20261010-08 to D-20261010-10];
   the deflect's presentation, its key, its ship order and the housekeeping [D-20261010-11 to D-20261010-15]. The
-  counter design those decisions set aside is condensed in Appendix C.
+  counter design those decisions set aside is condensed in Appendix C;
+- the four data-model questions the second revision carried: the unnamed globals on the combat rules by elimination,
+  the row drag carrying the diff with "keep overrides at position" on the drop, the set layer kept with the lane batch
+  action, and no player-specific content, with the finisher choice on the enemy's behaviour [D-20261010-16 to
+  D-20261010-19].
 
 **Conflicts between active decisions:**
 1. D-20261004-35's "a press aimed elsewhere … releasing the held enemy" became the Staggered-time rule by D-20261005-22
@@ -4503,8 +4532,9 @@ hedges are carried verbatim; the two research reports are model-written and are 
 78. **D-20261007-53's list and the values it does not name.** The register names the rules asset's contents as "window
     minimum, lockout, slowdown, Staggered default, aim cone, ranges, attacker cap and cooldowns, predictor settings,
     telegraph set, counter damage default" and the settings' as "type defaults and the default weapon data". This spec
-    places every other global value that is not a per-type default on the rules asset by elimination (4.15) and asks
-    the owner to confirm (Q23). "Ranges" is read to cover the finisher and follow-up range and the lock range;
+    placed every other global value that is not a per-type default on the rules asset by elimination (4.15), and **the
+    owner confirmed it** [D-20261010-16]: anything that is neither a per-type default nor a per-character choice is a
+    rule. "Ranges" is read to cover the finisher and follow-up range and the lock range;
     "cooldowns" to cover the per-enemy cooldown, the re-grant delay and the resume delay default.
 79. **D-20261007-53's "per-character combat settings" and whose asset is read.** A per-type default is layer 1 of an
     attack's precedence (4.2), so this spec reads it from the settings of the character whose attack it is, when the
@@ -4516,11 +4546,11 @@ hedges are carried verbatim; the two research reports are model-written and are 
 81. **D-20261007-54's "tokens count attackers of whoever is targeted".** Read as the token subsystem keeping its cap per
     target rather than for the player alone (3.9); today's subsystem counts attackers of the player only **[reported]**.
     Reading 25 is amended to match.
-82. **D-20261007-55 beside D-20261007-54.** The marker is content presence on the paired set, and choosing a finisher on
-    the player must still know that the victim is the player. This spec reads D-20261007-54 as covering rules (who
-    breaks, how long Staggered lasts, who may dodge out) and D-20261007-55 as content selection, where "the player" is a
-    key the finisher rows carry (Q24); it adds no is-player branch to any rule. The owner may prefer the rows keyed by
-    the victim's reaction profile instead, which would take the identity out of the key too.
+82. **Replaced by D-20261010-19.** This reading had the finisher rows carry "the player" as a key, so that D-20261007-55's
+    content-presence marker could be read, and noted that the owner might prefer the identity out of the key. The owner
+    reversed D-20261007-55: no row names a victim kind, whether a clip fits a victim is the content's start check
+    through the seam, and whether an enemy executes finishers is a behaviour setting on its AI (3.8). The identity is
+    out of the key and out of the content; the former question on it is closed.
 83. **D-20261007-57's combo-step column.** The stress test's column list names it "previous step" or with the retired
     word for a run of linked attacks **[reported]**; this spec writes "combo step" (4.16), as reading 27 already does.
 84. **D-20261007-57's lethal column.** The vocabulary has a lethal column; no live table uses it. The counter rows
@@ -4556,11 +4586,9 @@ hedges are carried verbatim; the two research reports are model-written and are 
 **Readings of the decisions D-20261010-05 to -15, for the owner to see.** The register's own hedges are carried
 verbatim; the deflect research report is model-written and is cited as a pointer, never as evidence.
 
-92. **D-20261010-08's set-aside list names "D-20261006-07".** No decision carries that ID: the register runs
-    D-20261006-05, D-20261006-06 and then D-20261007-07. This spec reads "-07" as D-20261007-07 (every counter can kill;
-    the kill sequence), which belongs with the counter design set aside; the log's E2 lists
-    "D-20261006-03/05/07/08-as-counter" the same way, and "08" there would be D-20261007-08. The owner may correct the
-    reading.
+92. **Resolved.** D-20261010-08's set-aside list once named "D-20261006-07", an ID no decision carries. This spec read
+    it as D-20261007-07 (every counter can kill; the kill sequence), and the register was corrected to read
+    "D-20261006-03, -05, D-20261007-07" (the 2026-10-10 log, E8). The reading was right, and nothing remains open.
 93. **What else this spec sets aside.** D-20261010-08 names the parry-counter sequence, paired counters, counter damage,
     kill sequences and direction × swing counter keying, with a list of decisions. This spec also sets aside, as
     consequences with no live home, D-20261005-23 and -30 (the single-character strike and its fallback order), -43
@@ -4624,6 +4652,34 @@ verbatim; the deflect research report is model-written and is cited as a pointer
     no finisher (9.7, "Meanwhile"). The owner may prefer the two stages merged.
 110. **The parry's deflect and 3.11's "the path check before a paired finisher".** The deflect is a single-character
     clip and needs no room check (3.2); the 30 cm sweep stays a start check for paired finishers only.
+
+**Readings of the decisions D-20261010-16 to -19, for the owner to see.** The register's own hedges are carried
+verbatim.
+
+111. **D-20261010-16's list and the telegraph set.** The decision names, among the globals D-20261007-53 does not, "the
+    telegraph set"; 4.15 reads the telegraph set as named by D-20261007-53's own list, and both place it on the rules
+    asset. Nothing turns on the difference, and 4.15 keeps its "yes".
+112. **"Per-character choice" in D-20261010-16.** Read as a value a character's own assets set: its combat settings'
+    type defaults and default kit, its reaction profile's fields, its dodge data, and its kit's set-level overrides (a
+    weapon's arc or turn rate on the defense set, a paired set's fit budgets). Those stay where they are, each with its
+    default on the rules asset where a decision gives it one.
+113. **D-20261010-17's "re-applied to the slot that lands there".** When the slot that lands at the position already
+    overrides one of the same fields, this spec reads the position's override as replacing that slot's value for the
+    field, its other overrides untouched (5.3); the owner may prefer a prompt, or the arriving slot's own value kept.
+114. **D-20261010-18's batch action and existing overrides.** "Apply to all slots in lane" is read as writing the value
+    on every slot in the lane, replacing an existing override of that field where one exists, in one undo step (5.1);
+    the owner may prefer slots that already override the field to be skipped.
+115. **D-20261010-19's home.** The decision puts the finisher choice "on its AI" and names no class. This spec proposes a
+    toggle on the enemy AI component (`UEnemyCombatAIComponent`), set per enemy type, off until a type turns it on,
+    with its StateTree data as the other candidate (3.8); the home and the default are proposed, and the shipped enemy
+    types' values are a content choice the owner makes when the setting lands (9.8).
+116. **D-20261010-19's "only a locked target".** The register's rule list reads "only a locked target, only when
+    lethal, predictor says it lands". "Locked target" is read as the enemy's own attack target, the player it is
+    attacking, not the player's lock mode (3.13); the lethal and predictor rules are 3.8's as already written.
+117. **D-20261010-19's "rig, size, ground state".** The ground state is already the content's declaration
+    [D-20261007-42]; rig and size are read as two more answers the seam gives in its "can it start here?" check (4.12),
+    from the content's own authoring, never from a row. What "size" measures (a capsule height, a skeleton tag) is for
+    the paired-content interface's brief, not this spec.
 
 ## Appendix C. Later graduation: paired counters for all directions
 
