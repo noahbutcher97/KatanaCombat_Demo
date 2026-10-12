@@ -1,7 +1,7 @@
 # Combat rules, data model and attack authoring: design
 
 - **Date:** 2026-10-05.
-- **Revised:** 2026-10-10, three times, and 2026-10-11 once. First for D-20261007-53 to -59 and D-20261010-01 to -04: the kit as the root asset,
+- **Revised:** 2026-10-10, three times, 2026-10-11 once and 2026-10-12 once. First for D-20261007-53 to -59 and D-20261010-01 to -04: the kit as the root asset,
   the combat rules split from the per-character settings, the player by data, the marker's home, table-shaped selection
   with one trace, the timeline as the attack editor, and paired content found by key. Then for D-20261010-05 to -15:
   **the parry simplified to the standard model** (a deflect that Staggers the attacker; a Staggered enemy dies to the
@@ -17,7 +17,11 @@
   **lunges** (an attack's motion class, a deflect row's optional motion criterion, and the turn-deflect clips given
   that one role), one editor action, "Analyze attack", and, after a second research pass, the deflect's architecture
   (authored clips per key, with the layered build a capture-gated experiment), its optional swing-shape criterion and
-  its row model.
+  its row model. Then, on 12 October, for D-20261011-12 to -19 and D-20261012-01, -02: how the old defense
+  configuration leaves (kept and shrunk stage by stage, deleted with the parry stage), the owner's held content landing
+  as its own change before any stage, how the label-carrying assets and tests are renamed, and **the five parry
+  assists**, each with its rule, their home under an "Assists" section of the reaction profile, and the content
+  invariant that shipped enemy profiles keep them neutral.
 - **Status:** draft for the owner's review, section by section. It authorizes no code change and no asset save.
 - **Why this exists.** The owner's standing rule [D-20261004-45]: "i want to get more specific with the rules for guard
   breaks, finishers, parries, and counters, and what causes what and how and why and exact mechanics i dont want to find
@@ -30,7 +34,7 @@
   rework of today's post-parry press window, which stays as the interim behaviour until the parry and follow-up stages
   (9.7, 9.8) retire it. Their effect on the rules is noted where it matters. No pull request that touches these rules is open.
 - **Sources.**
-  - The decisions register, `docs/sessions/registers/decisions.md` (local and git-excluded), through D-20261010-19, plus the ruling R-20261005-01. Only
+  - The decisions register, `docs/sessions/registers/decisions.md` (local and git-excluded), through D-20261012-02, plus the ruling R-20261005-01. Only
     active decisions are used, and "superseded by" is respected. Where the register records the owner's words, those words
     are quoted; where it records a reading of them ("my reading", "the owner may veto"), the hedge is carried into Appendix
     B unchanged.
@@ -330,7 +334,8 @@ additions**, so that the product uses one word for each.
 | **Resolved damage** | The damage a strike would deal to a given target: base damage × weapon multiplier × the attack's charged damage multiplier when a heavy release was charged [D-20261010-07] × the target's damage resistance. Today the first two factors are applied at `WeaponComponent.cpp:927` and the resistance at `HitReactionComponent.cpp:215`. A character dies when its health reaches 0 or below (`BaseCombatCharacter.cpp:277`). A landed aimed hit on a Staggered enemy kills whatever this value is [D-20261010-10]. |
 | **Contact** (predicted arrival) | The moment the attacking blade is predicted to reach the defender, computed at runtime from the swing's trajectory [D-20261005-73]: the "when" of the contact predictor (3.15) [D-20261007-24]. The parry window is measured back from it, the turn finishes at it, and "lands first" compares it. |
 | **Contact predictor** | The runtime function that, for an attack against a target, predicts whether and when the blade path reaches the target's capsule, returning a confidence (3.15). Its users are the parry window, the enemy's finisher choice and the player's lethal strike [D-20261007-24]. |
-| **Effective parry window** | The authored lead time before predicted arrival, after the 0.35 s minimum and the parry-assist scale are applied (section 3.2). |
+| **Effective parry window** | The authored lead time before predicted arrival, after the 0.35 s minimum and the parry-assist window scale are applied; the input buffer and the contact grace, two more assists, extend it before its opening and after the contact (3.2, "Parry assists") [D-20261011-16, D-20261011-17]. |
+| **Parry assist** | One of the designer settings in the reaction profile's "Assists" section that make the parry easier to land: the window scale, the input buffer, the contact grace, slow motion on window, the telegraph and always perfect parry, each with its rule (3.2, "Parry assists"; 4.8) [D-20261004-07, D-20261011-15, D-20261012-02]. Neutral by default [D-20261005-78], and neutral on every shipped enemy profile by a content invariant [D-20261012-02]. |
 | **Missed parry** | A Block press made while a parryable attack aimed at the defender is in progress, outside that attack's window. It starts the parry lockout. A press with nothing incoming is just a guard [D-20261005-71]. |
 | **Deflect** | The parry as content: the defender's clip that meets the incoming blade. "Deflect" names the clip, "parry" the action [D-20261007-11]. |
 | **Turn-deflect** | The owned deflect-and-turn clips D-20261004-30 named: a frontal deflect, then a sidestep and a turn that keep facing an attacker whose lunge carries it past. Their one role in the live parry is the lunge's **sidestep-and-face deflect**, selected by a deflect row's motion criterion (3.3) [D-20261011-04]; they are not the parry's turn, which the deflect's body-yaw coverage and the bounded turn carry [D-20261010-12], not variety entries and not recoveries. |
@@ -385,7 +390,7 @@ additions**, so that the product uses one word for each.
 | **Derived notify** (mirror) | The montage notify that "export to montage" draws from a data window, in a distinct colour with "(from attack data)" in its name. The runtime never reads it [D-20261007-38, D-20261007-40]. |
 | **Export to montage** | The editor action that writes an attack's data windows into its montage as derived notifies; today's notify generator [D-20261007-38]. |
 | **Adopt from montage** | The former name of the timing read: a hand-authored montage's notifies read into the attack's data windows once, for migration; today's timing action [D-20261007-38]. Since D-20261011-06 it is the timing half of "Analyze attack", and this spec uses that name. |
-| **Telegraph** | The automatic cue (trail tint, cue sound, flash) that fires at attack start from the resolved attack spec for each readable flag, from a telegraph set keyed by flag [D-20261007-37]. |
+| **Telegraph** | The automatic cue (trail tint, cue sound, flash) that fires at attack start from the resolved attack spec for each readable flag, from a telegraph set keyed by flag [D-20261007-37]. The parry-assist telegraph draws its cue from the same set, at window open, on the attacker's weapon (3.2, "Parry assists") [D-20261011-19]. |
 | **Base profile** | The reaction profile that character profiles inherit from and override [D-20261004-20]. |
 | **Combat settings** | `UCombatSettings`: a character's per-type defaults and its default kit; the global rules left it for the combat rules [D-20261003-08, D-20261004-20, D-20261007-53]. |
 | **Combat rules** | `UCombatRules` (proposed name): the one asset for the project holding every value that must agree for everyone: the window minimum, the lockout, the slowdown, the Staggered default, the aim cone, the ranges, the attacker cap and cooldowns, the predictor settings, the telegraph set, the deflect's blade IK clamp and attacker nudge defaults, and, proposed, the motion-class thresholds and the contact height buckets (3.3, 4.15) [D-20261007-53, D-20261010-12, D-20261011-05, D-20261011-07]. The counter damage default D-20261007-53 named is set aside with the paired counter [D-20261010-08]. |
@@ -580,6 +585,8 @@ attacker's location, at contact. It is compared with a strict greater-than (`Def
 - D-20261005-79: the window and the turn are independent;
 - D-20261005-40: the glossary;
 - D-20261004-06 and D-20261004-07: readability features and parry assists;
+- D-20261011-15 to D-20261011-19, D-20261012-01 and D-20261012-02: the five parry assists, each with its rule, their
+  home and the content invariant (below, "Parry assists");
 - D-20261004-23: a parry from any direction;
 - D-20261004-30: turn-deflects; closed by D-20261011-04: the clips are the lunge's sidestep-and-face deflects,
   selected by a deflect row's motion criterion (3.3), not the parry's turn;
@@ -608,8 +615,8 @@ counts (today).
 | # | Condition | If it fails |
 |---|---|---|
 | Parry-1 | The press passed Guard-1 to Guard-4 and is a live press: a press buffered through the defender's own attack never parries [D-20261005-66]. A press during hit-stun is live and can parry [D-20261005-77]. | No parry. |
-| Parry-2 | The defender is not in the parry lockout. | No parry now. Guard still rises: "blocking still works" [D-20261005-06]. **The press is remembered:** if a candidate's window (Parry-3) is still open when the lockout ends, the remembered press counts as a parry then [D-20261007-18; the lenient reading, Appendix B]. The press counts as a miss only if it meets Parry-3's definition of one, so a press with nothing incoming never extends the lockout [D-20261005-71]. |
-| Parry-3 | At least one **candidate** exists. A candidate is an attack that: (a) belongs to a hostile, living character; (b) is aimed at this defender; (c) is in progress and not consumed; (d) is not flagged unparryable [D-20261005-07]; (e) has its effective parry window open now, including the input buffer [D-20261004-06]; and (f) has not already touched this defender (today, `CombatComponent.cpp:3078-3086`). **The attacker's direction does not matter** [D-20261004-23]. | Guard rises. **It is a missed parry**, starting the 0.25 s lockout, when some parryable attack aimed at this defender is in progress but outside its window [D-20261005-71]. With nothing incoming it is just a guard. |
+| Parry-2 | The defender is not in the parry lockout. | No parry now. Guard still rises: "blocking still works" [D-20261005-06]. **The press is remembered:** if a candidate's window (Parry-3) is still open when the lockout ends, the remembered press counts as a parry then [D-20261007-18; the lenient reading, Appendix B]. The press counts as a miss only if it meets Parry-3's definition of one, so a press with nothing incoming never extends the lockout [D-20261005-71]. A press the input buffer holds is never a miss and charges no lockout, and with always perfect parry on there is no lockout at all (below, "Parry assists") [D-20261011-16, D-20261012-01]. |
+| Parry-3 | At least one **candidate** exists. A candidate is an attack that: (a) belongs to a hostile, living character; (b) is aimed at this defender; (c) is in progress and not consumed; (d) is not flagged unparryable [D-20261005-07]; (e) has its effective parry window open now, the input buffer before its opening and the contact grace after the contact included, or, with always perfect parry on, is anywhere between its start and its contact (below, "Parry assists") [D-20261004-06, D-20261011-16, D-20261011-17, D-20261012-01]; and (f) has not already touched this defender (today, `CombatComponent.cpp:3078-3086`). **The attacker's direction does not matter** [D-20261004-23]. | Guard rises. **It is a missed parry**, starting the 0.25 s lockout, when some parryable attack aimed at this defender is in progress but outside its window [D-20261005-71]. With nothing incoming it is just a guard. |
 | Parry-4 | **Arbitration: lands first.** Of several candidates, the one whose predicted arrival comes first is parried [D-20261005-36]. Equal arrivals fall back to today's lower tie-breaks: smaller angle, then shorter distance, then stable id (`DefenseResolver.cpp:119-146`). | — |
 | Parry-5 | **The parry succeeds.** No lockout follows a success: a second incoming attack can be parried at once with a fresh press [D-20261005-72]. | — |
 
@@ -657,7 +664,9 @@ predictor's; what the decision does not fix is proposed:**
 - **Effective length L = max(0.35 s, L_a × k).** Scaling first and then applying the floor keeps both "never shorter
   than 0.35 s" and "scales every window" true (a reading, Appendix B).
 - **Effective window:** [C − L, C], where C is the predicted arrival. The input buffer extends it before the opening,
-  and the contact grace after C [D-20261004-06]; both default to 0 [D-20261005-78].
+  and the contact grace after C, with the attacker's hit deferred by the same grace (below, "Parry assists")
+  [D-20261004-06, D-20261011-16, D-20261011-17]; both default to 0 s [D-20261005-78]. With always perfect parry on the
+  window is the whole attack, from its start to its contact [D-20261012-01].
 - **No authored window:** the attack gets the 0.35 s minimum at runtime, and the editor warns [D-20261005-74].
 - **A window cannot open before its attack starts.** An attack whose arrival comes less than L after its start is
   parryable from its first frame. This follows from the arithmetic; it is not a decision (Appendix B).
@@ -696,6 +705,8 @@ predictor's; what the decision does not fix is proposed:**
      The deflect's blade IK, within its clamp, hides what it can (3.3) [D-20261010-12]; the rest is visible.
    - **The turn is never limited to the window** [D-20261005-05]. It may continue after the window closes, until
      arrival.
+   - **With the slow motion on window assist on**, the attacker's own slowdown is deepened to the profile's factor for
+     the whole window, the attacker only, never world time (below, "Parry assists") [D-20261011-18].
 5. **Readability** [D-20261004-06]:
    - the parry has its own contact feedback (hitstop, camera kick, sound and effect), distinct from a block;
    - its animation differs from the block reaction;
@@ -704,16 +715,9 @@ predictor's; what the decision does not fix is proposed:**
    Today a parry uses the block's halved hitstop (**[reported]** `CombatComponent.cpp:184-190`), and on shipped data the
    same sound and effect as a block **[reported]**.
 6. **Parry assists** are designer settings on the reaction profile, not debug switches [D-20261004-07]. Their defaults
-   are neutral [D-20261005-78]:
-
-   | Assist | Default |
-   |---|---|
-   | Window scale | 1.0 |
-   | Input buffer | 0 |
-   | Contact grace | 0 |
-   | Slow motion while a window is open | off |
-   | Telegraph | on |
-   | Always perfect parry | off (not named in D-20261005-78; a reading, Appendix B) |
+   are neutral [D-20261005-78]. The window scale is above; the five others each have their rule below ("Parry
+   assists") [D-20261011-15 to D-20261011-19, D-20261012-01], and all six live in the profile's "Assists" section
+   [D-20261012-02].
 
 **Failure paths:**
 - **No candidate, an attack incoming:** guard rises, and the press is a missed parry that starts the 0.25 s lockout
@@ -735,9 +739,7 @@ predictor's; what the decision does not fix is proposed:**
 |---|---|---|---|---|
 | Minimum parry window | 0.35 s before arrival | combat rules | D-20261005-09 | none; the one shipped window is 0.10 s |
 | Window lead time | per attack, as data, with a slot diff; the lead-time form is proposed | the attack; the montage notify is a derived mirror | D-20261005-09, D-20261007-36, D-20261007-38, R-20261005-01 | a start and end on the montage, read by the runtime |
-| Window scale (parry assist) | 1.0 | reaction profile, parry assists | D-20261005-09, D-20261005-78 | none |
-| Input buffer, contact grace | 0, 0 | reaction profile, parry assists | D-20261004-06, D-20261005-78 | none |
-| Slow motion on window, telegraph, always perfect parry | off, on, off | reaction profile, parry assists | D-20261004-07, D-20261005-78 | none |
+| Parry assists: window scale; input buffer; contact grace; slow motion on window and its factor; telegraph and its intensity; always perfect parry | 1.0; 0 s; 0 s; off, with no decided factor; on, with no decided intensity; off. Each has its rule and its own row below ("Parry assists") | reaction profile, "Assists" | D-20261004-06, D-20261004-07, D-20261005-09, D-20261005-78, D-20261011-16 to D-20261011-19, D-20261012-01, D-20261012-02 | none |
 | Parry lockout | 0.25 s, after a miss only; lenient: a press during it is honoured if the window is still open when it ends; to be felt first, and it may go to zero | combat rules | D-20261005-06, D-20261005-32, D-20261005-72, D-20261007-18 | none: a failed press is a free guard |
 | Attacker slowdown, lowest speed | 50% | combat rules | D-20261005-33 | none |
 | Attacker slowdown, longest time | 0.3 s | combat rules | D-20261005-33 | none |
@@ -761,6 +763,74 @@ predictor's; what the decision does not fix is proposed:**
   attacker's montage" becomes "the parry window is the attacker's, held as data" [D-20261007-38]; `CLAUDE.md` follows
   with the pull request.
 - **Arrival:** the contact predictor's "when", with a confidence (3.15) [D-20261007-24].
+- **Assists:** five parry assists with rules, neutral by default and on every shipped enemy profile (below).
+
+#### Parry assists
+
+**Decisions:**
+- D-20261004-07: parry assists are designer settings, not debug switches;
+- D-20261005-78: their defaults are neutral;
+- D-20261005-09: the window scale (above);
+- D-20261011-15: all five assists get their rules now, before the parry stage. The owner's pick: "B. Specify all five
+  now";
+- D-20261011-16 to D-20261011-19 and D-20261012-01: the five rules, below;
+- D-20261012-02: their home, the reaction profile's "Assists" section, and the content invariant that shipped enemy
+  profiles have them neutral;
+- D-20261007-54: the player by data: each assist is a field read from the defender's profile, never an identity check.
+
+**What they are.** Six designer settings on the defender's reaction profile, under an "Assists" section (4.8)
+[D-20261004-07, D-20261012-02]: the window scale (above) and the five below. Each is read from the defender's profile at
+the press, like every other player-by-data field [D-20261007-54]; no rule asks who the defender is. Their defaults are
+neutral [D-20261005-78], and **every shipped enemy profile has them neutral**, as a content invariant: a decided rule
+checked on shipped content, not a pinned tunable (8.1) [D-20261012-02].
+
+**The rules**, one per assist, as the register states them. N is the profile's value for that assist.
+
+| Assist | Default | Rule | Decision |
+|---|---|---|---|
+| **Input buffer** | 0 s | A Block press up to N s before the window opens is held and counts at the window's first frame. It is never a miss and charges no lockout. If a closer threat's window opens first, the held press parries that one (lands first). The attacker's slowdown and the turn start at the window, not at the press. | D-20261011-16 |
+| **Contact grace** | 0 s | The window extends past the predicted contact by N s, and the attacker's hit resolution is deferred by the same N s, inside its slowdown. A late press within the grace parries; nothing is undone, because the hit has not applied yet. The hit applies only when the grace ends without a parry. The turn rate uses the remaining time, with a small floor. | D-20261011-17 |
+| **Slow motion on window** | off | Deepens the attacker's own slowdown (above, "On success", item 4) to a per-profile factor for the whole window. The attacker only, never world time. Two attackers each slow on their own window. The predictor moves the contact with the slowdown (3.15). | D-20261011-18 |
+| **Telegraph** | on | A cue from the telegraph set (6.5) at window open, on the attacker's weapon: a flash or tint and a sound, scaled by the profile's intensity. Off means no cue. It is driven by the predictor's window-open event (3.15). An unparryable attack shows its own readable cue instead [D-20261007-37]. | D-20261011-19 |
+| **Always perfect parry** | off | Any Block press while a parryable attack is incoming, from the attack's start to its contact, parries it: the window is the whole approach. No lockout. The timing cues play at the perfect tier. Unparryable stays unparryable. Lands first picks the threat. Validation adds an info note when a shipped profile has it on. | D-20261012-01 |
+
+**How they combine:**
+- **The buffer and the lockout.** A press the buffer holds is never a miss, so it never starts a lockout and never
+  extends one [D-20261011-16]. A press outside any buffer, with a parryable attack in progress and outside its window,
+  is still a miss (Parry-3) [D-20261005-71].
+- **The buffer and lands first.** A held press is spent on whichever candidate's window opens first, the closer
+  threat; the other can be parried with a fresh press, as always [D-20261011-16, D-20261005-36, D-20261005-72].
+- **The grace and the predictor.** The predicted contact C stays the window's nominal end; the grace defers the
+  attacker's hit resolution by N s inside its slowdown, so the contact the hit lands at is deferred by the same N s, and
+  a parry inside the grace finds nothing to undo [D-20261011-17]. The turn's T (above, item 4) is read as the time left
+  to the deferred contact, with a small floor so that a press late in the grace never asks for an infinite rate; the
+  floor has no decided value (a reading, Appendix B).
+- **Slow motion and two attackers.** Each attacker slows on its own window, and its slowdown is its own; world time
+  never changes [D-20261011-18]. How the per-profile factor sits against the slowdown's 50% floor and 0.3 s cap
+  [D-20261005-33] is a reading (Appendix B): the assist deepens and lengthens that slowdown for the whole window.
+- **The telegraph and an unparryable attack.** The window-open cue fires only for a parryable attack; an unparryable
+  attack has no window to open, and shows its own readable cue from the flag telegraph of 6.5 [D-20261011-19,
+  D-20261007-37].
+- **Always perfect parry and the rest.** With it on, the window is the whole approach and there is no lockout; lands
+  first still picks the threat when two are incoming, and unparryable stays unparryable [D-20261012-01]. What a
+  non-zero buffer or grace adds to a whole-approach window is not stated by the decision (a reading, Appendix B).
+
+**Tunables:**
+
+| Tunable | Unit | Default | Home | Decision | Today |
+|---|---|---|---|---|---|
+| Window scale | a factor on the authored lead | 1.0 | reaction profile, "Assists" | D-20261005-09, D-20261005-78 | none |
+| Input buffer | seconds before the window opens | 0 | reaction profile, "Assists" | D-20261011-16 | none |
+| Contact grace | seconds past the predicted contact | 0 | reaction profile, "Assists" | D-20261011-17 | none |
+| Slow motion on window | on or off | off | reaction profile, "Assists" | D-20261011-18 | none |
+| Slow-motion factor | the attacker's speed while the window is open, a per-profile value | no decided number | reaction profile, "Assists" | D-20261011-18 | none |
+| Telegraph | on or off | on | reaction profile, "Assists" | D-20261011-19 | none |
+| Telegraph intensity | a per-profile scale on the cue | no decided number | reaction profile, "Assists" | D-20261011-19 | none |
+| Always perfect parry | on or off | off | reaction profile, "Assists" | D-20261012-01 | none |
+| Shipped enemy profiles | every assist at its neutral value | rule, a content invariant | checked on shipped content (8.1) | D-20261012-02 | no profile exists |
+
+**Changes from today:** none of the six exists today **[reported]**; a Block press parries only inside the montage's
+window, and nothing holds it, extends it, deepens the slowdown or cues the window.
 
 ### 3.3 The parry and the follow-up
 
@@ -1924,11 +1994,16 @@ neither a per-type default nor a per-character choice is a rule (4.15) [D-202610
 | Guard arc | ±75° | combat rules; defense set override | per weapon | D-20261005-11, D-20261005-70 |
 | Block turn rate (the turn is always the full angle) | 360°/s | combat rules; defense set override | per weapon | D-20261005-69 |
 | Minimum parry window | 0.35 s | combat rules | no | D-20261005-09, D-20261007-53 |
-| Parry window scale | 1.0 | reaction profile, parry assists | yes | D-20261005-09, D-20261005-78 |
+| Parry window scale | 1.0 | reaction profile, "Assists" | yes | D-20261005-09, D-20261005-78 |
 | Parry lockout | 0.25 s, lenient; to be felt first, and it may go to zero | combat rules | no | D-20261005-32, D-20261007-18 |
 | Attacker slowdown | ≥ 50% speed, ≤ 0.3 s | combat rules | no | D-20261005-33 |
 | Fastest natural turn | 720°/s | combat rules; defense set override | per weapon | D-20261005-75, D-20261005-68 |
-| Other parry assists (input buffer, contact grace, slow motion on window, telegraph, always perfect parry) | 0, 0, off, on, off | reaction profile | yes | D-20261004-07, D-20261005-78 |
+| Input buffer (parry assist) | 0 s | reaction profile, "Assists" | yes | D-20261004-07, D-20261011-16 |
+| Contact grace (parry assist) | 0 s | reaction profile, "Assists" | yes | D-20261004-07, D-20261011-17 |
+| Slow motion on window (parry assist), and its factor | off; the factor a per-profile value with no decided number | reaction profile, "Assists" | yes | D-20261004-07, D-20261011-18 |
+| Telegraph (parry assist), and its intensity | on; the intensity a per-profile value with no decided number | reaction profile, "Assists" | yes | D-20261004-07, D-20261011-19 |
+| Always perfect parry (parry assist) | off | reaction profile, "Assists" | yes | D-20261004-07, D-20261012-01 |
+| Parry assists on shipped enemy profiles | neutral, by a content invariant | rule | — | D-20261012-02 |
 | Staggered time | 1.5 s (one default) | combat rules → attack → slot | per attack | D-20261005-08, D-20261005-31 |
 | Body-yaw coverage of a deflect clip | per clip; the report's starting values **[reported]**: front ±45°, side ±100°, rear 180° | the deflect row | per row | D-20261010-12 |
 | Blade IK clamp | about 20 cm / 25°, tuned on captures | combat rules; defense set and deflect row override | per weapon, per row | D-20261010-12 |
@@ -2164,7 +2239,10 @@ contacts so we dont have to guess whether attacks are going to land" [D-20261007
 - **whether:** a confidence that the path reaches the capsule within the horizon, judged with a tolerance;
 - **where:** the predicted contact point on the defender, from which the deflect key takes its height, bucketed
   against the defender's body, and the attacker's direction relative to the defender's facing at that moment (3.3)
-  [D-20261011-07]. The key reads the predictor's "where" and "when", never its confidence.
+  [D-20261011-07]. The key reads the predictor's "where" and "when", never its confidence;
+- **window open:** an event when an attack's effective window opens for a defender, which drives the telegraph assist's
+  cue (3.2, "Parry assists") [D-20261011-19]. The contact it predicts moves with the attacker's slowdown, deepened or not
+  by the slow motion on window assist [D-20261011-18], and a contact grace defers the hit it times [D-20261011-17].
 
 **Users and thresholds** [D-20261007-24]. Each user has its own threshold:
 
@@ -2198,7 +2276,8 @@ The asset layout is the owner's [D-20261005-48, D-20261005-57, D-20261010-02]: t
 **defense set** (block and parry responses) and a **paired set** (every two-character sequence). The per-character
 **reaction profile** keeps what belongs to the body. The global rules live in one **combat rules** asset for the
 project; each character's **combat settings** keep its type defaults and its default kit [D-20261007-53]. The old
-defense configuration is retired. A character with no kit uses its combat settings' default kit, so its sets apply with
+defense configuration is kept and shrunk stage by stage, and deleted with the parry stage (4.10) [D-20261011-12]. A
+character with no kit uses its combat settings' default kit, so its sets apply with
 no special case [D-20261005-49]. Two kits may share the weapon and the defense and paired sets and differ only in combo
 set: an enemy with the same katana and fewer moves is a second kit, not a second weapon [D-20261010-02].
 
@@ -2664,7 +2743,7 @@ the player" marker here or on any content: whether an enemy executes finishers i
 | Guard break | Counting toggle: on in the base profile, off for the player. Threshold N, default 4. Window W, default 3 s. | D-20261005-15, D-20261005-26, D-20261005-46, D-20261005-56, D-20261007-54 |
 | Staggered | This character's own Staggered time, a toggle plus a value. Unset in the base profile, so enemies take the causing attack's time; set to 0.6 s on the player's profile. When set, it always applies: an attack's or a slot's override never changes it. | D-20261005-88, D-20261006-06 |
 | Dodge escape | Whether a dodge press may end this character's hit-stun and Staggered state after their minimums (3.4, 3.7, 3.14): on for the player; off in the base profile, since no rule gives an enemy a dodge (a reading, Appendix B). | D-20261005-87, D-20261005-88, D-20261007-54 |
-| Parry assists | Window scale 1.0, input buffer 0, contact grace 0, slow motion on window off, telegraph on, always perfect parry off. | D-20261004-07, D-20261005-09, D-20261005-78 |
+| Assists | The parry assists (3.2, "Parry assists"), each a designer setting: window scale 1.0; input buffer 0 s; contact grace 0 s; slow motion on window off, with its per-profile factor; telegraph on, with its per-profile intensity; always perfect parry off. Every shipped enemy profile has them neutral, a content invariant checked on shipped content (8.1); a shipped profile with always perfect parry on gets a validation info note. | D-20261004-07, D-20261005-09, D-20261005-78, D-20261011-16 to D-20261011-19, D-20261012-01, D-20261012-02 |
 | Resume delay | This enemy's wait before re-entering the attack queue when others hold ends: a toggle plus a value over the combat-rules default [D-20261007-53]. D-20261007-29 says "per-profile override"; this is the only per-character profile, although D-20261005-68 keeps it to reactions to hits (a reading, Appendix B). | D-20261007-29 |
 | Other per-character hit values | `KnockbackScale` and damage resistance: how this body takes a hit. They move here; proposed. The guard-facing turn and the block turn do **not** live here [D-20261005-68]. | D-20260930-01 |
 
@@ -2672,8 +2751,9 @@ the player" marker here or on any content: whether an enemy executes finishers i
 rules each read a field above: the guard-break counting toggle (off for the player, 3.5), the character's own Staggered
 time (0.6 s for the player, 3.4) and the dodge escape (allowed for the player, 3.4, 3.7, 3.14). The attack tokens count
 the attackers of whoever is targeted (3.9). A second character given the player's fields would be treated exactly as the
-player is; the owner's pick: "By data, not identity". One shipped-content check asserts that the player's profile has
-counting off: a decided rule, not a pinned tunable (8.1).
+player is; the owner's pick: "By data, not identity". Two shipped-content checks assert decided rules, not pinned
+tunables (8.1): the player's profile has counting off [D-20261007-54], and every shipped enemy profile has its assists
+neutral [D-20261012-02].
 
 **Where it is referenced.**
 - The combat settings' `HitReactionSettings` and `DefenseConfiguration` slots (`CombatSettings.h:82, 86`) become one
@@ -2720,8 +2800,12 @@ choice is a rule (4.15) [D-20261010-16].
 
 ### 4.10 Retiring the defense configuration
 
-`UDefenseConfiguration` is removed [D-20261003-08, confirmed by D-20261004-20 and D-20261005-48]. Its contents split
-three ways:
+`UDefenseConfiguration` goes [D-20261003-08, confirmed by D-20261004-20 and D-20261005-48], but not in one step. **The
+class is kept and shrunk stage by stage** [D-20261011-12]: the data-model stage (9.3) moves out only what today's rules
+do not read differently, so that nothing changes in play at that stage; every field today's parry path still reads
+stays on the class, read as today, until the parry stage (9.7) replaces the interim post-parry sequence that reads it;
+the class is deleted in that stage. The owner's pick: "Keep the class, shrink it each stage, delete it with the parry
+stage". Which fields move at 9.3 is the migration audit's list for the owner (7.4). Its contents split three ways:
 - **The weapon's responses** go to the defense set (the block reactions, the parry deflects, the guard enter and exit
   clips [D-20261005-55]) and the paired set (the finishers [D-20261005-57]; the counters are set aside, Appendix C).
 - **The body's reactions** go to the reaction profile: the Staggered reaction and recoil [D-20261005-55].
@@ -3370,7 +3454,9 @@ a different attacker (a reading).
 
 **A Block press:**
 1. The guard rules (3.1).
-2. The parry rules (3.2), including the press remembered through a lockout [D-20261007-18].
+2. The parry rules (3.2), including the press remembered through a lockout [D-20261007-18] and the defender's parry
+   assists: a press the input buffer holds, a press inside the contact grace, or any press with always perfect parry
+   on [D-20261011-16, D-20261011-17, D-20261012-01].
 3. The parry (3.3): the deflect row by its key, the attacker's direction and the contact's height from the predictor,
    with any swing-shape or motion criterion, falling back by the order of 4.6 and recording the matched key, tier, mode
    and clamp state [D-20261011-02, D-20261011-07, D-20261011-11]; the bounded turn; the deflect's contact, which
@@ -3408,7 +3494,7 @@ holds.
 
 | Component | What changes |
 |---|---|
-| **Combat** (`UCombatComponent`) | The kit in use; the combo set and current slot; the one table evaluator and its trace [D-20261007-57]; the resolved spec at attack start, built from the slot's spec, and `FAttackExecutionSnapshot` built from it rather than from `CurrentAttackData` [D-20261007-35, D-20261007-38]; the window scheduler and the data identity for windows (6.5) [D-20261007-39]; the telegraph at attack start [D-20261007-37]; guard dropping when an attack starts, and Block buffered until Recovery; the parry lockout, with the press remembered through it [D-20261007-18]; hit-stun holding attacks and movement, with the dodge escape after its minimum [D-20261005-87]; the dodge (3.14) [D-20261007-49 to D-20261007-52]; the target of every attack press, from Targeting (3.13); presses buffered inside the parry until the deflect's cancel notify [D-20261007-09, D-20261010-09], honouring the hold when they fire [D-20261007-45]; the contact predictor's per-tick evaluation for the attack in progress (3.15), on a pure library over the trace path (proposed), supplying the deflect key's direction and height [D-20261011-07]. |
+| **Combat** (`UCombatComponent`) | The kit in use; the combo set and current slot; the one table evaluator and its trace [D-20261007-57]; the resolved spec at attack start, built from the slot's spec, and `FAttackExecutionSnapshot` built from it rather than from `CurrentAttackData` [D-20261007-35, D-20261007-38]; the window scheduler and the data identity for windows (6.5) [D-20261007-39]; the telegraph at attack start [D-20261007-37]; guard dropping when an attack starts, and Block buffered until Recovery; the parry lockout, with the press remembered through it [D-20261007-18]; the parry assists read from the defender's profile: the held press of the input buffer, the contact grace deferring the attacker's hit, and always perfect parry [D-20261011-16, D-20261011-17, D-20261012-01]; hit-stun holding attacks and movement, with the dodge escape after its minimum [D-20261005-87]; the dodge (3.14) [D-20261007-49 to D-20261007-52]; the target of every attack press, from Targeting (3.13); presses buffered inside the parry until the deflect's cancel notify [D-20261007-09, D-20261010-09], honouring the hold when they fire [D-20261007-45]; the contact predictor's per-tick evaluation for the attack in progress (3.15), on a pure library over the trace path (proposed), supplying the deflect key's direction and height [D-20261011-07]. |
 | **Targeting** | Free mode: the aim cone around the stick direction, or the facing when no direction is held, Staggered or eligible enemies first and the nearest otherwise, for every attack press, with 350 cm for a paired finisher and a follow-up strike [D-20261007-12]; lock mode: the lock press, the locked target for every press, the strafe facing it, the flick (or scroll) switch, the drop on death with the automatic re-pick, and the second press [D-20261007-13]; the lock following action, with the strafe re-centring [D-20261007-46]; the directional light aimed by the stick while locked, transferring or breaking the lock [D-20261007-47]; the events that end a lock, with the grace [D-20261007-48]; a new lock input action; today's soft aim retired. The code-driven turn for block and parry (the adaptive rate and its cap), through the alignment arbiter. Motion warping stays for attacks and paired content [D-20261004-21]; the approach warp of a fit to clip goes through it [D-20261007-23]. |
 | **HitReaction** | Pressure against armor, armor windows and the flinch; armor 0 while Staggered, the base in hit-stun, super armor flinching [D-20261007-26]; the contact order within a frame [D-20261007-19]; the guard ending on an interrupting hit and returning while Block is held [D-20261007-25]; hit-stun from the resolved spec, with its floor, holding the AI too; a hit with no resolved spec applying damage only [D-20261010-06]; the charged damage multiplier at a charged release [D-20261010-07]; one Staggered state using the causing attack's time, starting at the deflect's contact after a parry [D-20261010-08], with the deflected-lunge reaction in place of the Staggered reaction when the parried attack's motion class is lunge (proposed home) [D-20261011-04], and always the player's own time for the player [D-20261006-06], running beside hit-stun with both ending before the character is free [D-20261006-01]; any landed aimed hit on a Staggered enemy lethal by rule [D-20261010-10]; the cancel notify on hit and Staggered reactions [D-20261006-02]; the guard-break count, built dormant [D-20261007-15]; knockback by outcome, with the block shove and the guard-break push on their own defaults [D-20261007-27], no push on a flinch, a killing hit or in a paired sequence, a push in flight cancelled only by a dodge [D-20261007-32]; the dodge's i-frame window [D-20261007-50]; the reaction profile in place of the hit-reaction settings, with the player identified by its fields and no is-player branch [D-20261007-54]; death reading the variants array. |
 | **PairedAnimation** (or the component the parry stage names for the deflect) | The parry: the deflect row by its key from the defense set, the direction and the contact's height from the predictor, the optional swing-shape and motion criteria, the fallback order and the resolver's record of the matched key, tier, mode and clamp state [D-20261011-02, D-20261011-07, D-20261011-09, D-20261011-11]; a layered row's base plus pose where the experiment adopted one [D-20261011-10]; the sidestep-and-face deflect for a lunge [D-20261011-04]; the bounded turn carrying only what the clip's body-yaw coverage leaves; the blade IK toward the predicted contact within its clamp, and the attacker nudge inside the slowdown, each as a capture-gated layer [D-20261010-12 to D-20261010-14]; the attacker Staggered from the deflect's contact, with no damage [D-20261010-08]; the player's protection until the deflect's cancel notify, and the buffered press firing there [D-20261010-09, D-20261007-09]; the follow-up as a paired finisher from the attacker's kit's paired set, found by key, with the variety rule, lethal by rule on a Staggered target [D-20261007-31, D-20261010-01, D-20261010-10]; the alternates chosen by the content inside our choice [D-20261010-04]; the clip's fit to its victim (rig, size, ground state) read through the seam, with no victim kind on any row [D-20261010-19]; fit to clip with its budgets and the seam blend [D-20261007-23]; the per-clip ground state, height and invulnerability checks [D-20261007-42]; the paired-content interface. The post-parry timers of today go; the counter paths go dormant with the later graduation (Appendix C). The paired marker verification that re-reads `Notifies[NotifyEventIndex]` (**[reported]** `PairedAnimationComponent.cpp:650-712`) needs an equivalent once window identity is a data identity (6.5). |
@@ -3416,7 +3502,7 @@ holds.
 | **Kit and weapon** (`UCombatKit`, `UWeaponComponent`, `UWeaponData`) | The kit is the root: it holds the weapon (the physical data, `UWeaponData` kept as a sub-asset) and references a combo set, a defense set and a paired set, in place of the attack configuration on the weapon; the character's `WeaponData` slot becomes `Kit`, and the combat settings' default kit stays the fallback for a character without one [D-20261005-48, D-20261005-49, D-20261005-57, D-20261010-02]. |
 | **Defense resolver** (`DefenseResolver.cpp`) | The guard arc at 75°; parry candidates (any direction, unparryable, effective window); lands first. The cone and reachability gates go. |
 | **Enemy AI and attack tokens** (`EnemyCombatAIComponent`, `CombatTokenSubsystem`) | Attacks chosen among the kit's combo-set slot rows by their selection columns (weight, distance range, target state), through the one evaluator, with `AvailableAttacks` and `FEnemyAttackConfig` retired [D-20261005-63, D-20261007-57]; the tokens count the attackers of whoever is targeted [D-20261007-54]; 2 attackers; tokens held until the attack ends for any reason, the cooldown from the return, the re-grant delay, the enemy's finisher as its attack [D-20261007-30]; others hold with "in progress" meaning montage started, combo continuations holding, unstarted tokens returned, and the resume delay [D-20261007-29]; the second attacker's abort and shove-back [D-20261007-44]; hit-stun and Staggered holding attacks and movement; enemy paired finishers only for enemy types whose AI setting executes them (the proposed toggle on this component, 3.8) [D-20261010-19], chosen at the attack's start against a player who is Staggered or in hit-stun, with the predictor's confirmation, never a mid-swing promotion [D-20261007-20]. |
-| **Cinematic effects** (`CombatEffectsWorldSubsystem`) | The attacker slowdown, as an actor time lease (no lower than 50%, at most 0.3 s), on the existing overlap-safe lease system. |
+| **Cinematic effects** (`CombatEffectsWorldSubsystem`) | The attacker slowdown, as an actor time lease (no lower than 50%, at most 0.3 s), on the existing overlap-safe lease system. The slow motion on window assist deepens that lease to the profile's factor for the whole window, the attacker only, each attacker on its own window [D-20261011-18]. |
 | **Combat rules and settings** (`UCombatRules`, `UCombatSettings`) | One rules asset for the project, named from a developer-settings entry, holding every global value (4.15); the per-character settings keep the type defaults and the default kit (4.9) [D-20261007-53]. |
 | **Animation notifies** | The cancel notify class and its validation (4.13) [D-20261006-02]; the neutral notify state that spans the attack section and drives the data windows (6.5) [D-20261007-39]; the semantic window notifies kept as derived mirrors that the runtime no longer reads [D-20261007-38]. |
 | **Editor module** | The combo set editor: the grid with diff markers, the row drag carrying the diff with "keep overrides at position" on the drop and the "apply to all slots in lane" batch action [D-20261010-17, D-20261010-18], the map, the diff row with Save to asset and Extract to new attack [D-20261007-35], the timing link into the timeline, which is the attack editor [D-20261007-38, D-20261007-58], and validation; the defense set and paired set editors as coverage-coloured table rows, and the simulate-press panel with the row trace [D-20261007-57]; export to montage and "Analyze attack", with its per-field derived or by-hand marks and its ask before overwriting a by-hand value [D-20261011-06], the derived-notify colour and name, and the Save / Reset / Leave prompt [D-20261007-38, D-20261007-40]; the coverage validator and the layered-row chips of the defense set editor [D-20261011-11]; the migration operation (7.1). |
@@ -3461,6 +3547,10 @@ cues are chosen from rendered captures** [D-20261007-37]; none is decided here. 
 attacker's outcome, not the defender's reading, so it may need no cue; that is the design pass's view, and the captures
 decide.
 
+**The telegraph assist** [D-20261011-19] draws a second cue from the same set: at window open, on the attacker's weapon,
+a flash or tint and a sound, scaled by the defender's profile's intensity, driven by the predictor's window-open event
+(3.15); off means no cue; an unparryable attack shows its flag cue above instead (3.2, "Parry assists").
+
 ---
 
 ## 7. Migration
@@ -3474,7 +3564,9 @@ This section names today's code and assets, so the retired words appear here whe
   reusable editor operation workflow exists, they go through that instead [D-20260930-04].
 - **Each stage migrates only what it needs**, behind a green baseline.
 - **The owner's work in progress is never resaved or committed without the owner's go-ahead** (`AGENTS.md`).
-- **Renames happen in the editor, with redirectors.** Tests, manifests and source move in the same change.
+- **Renames happen in the editor, with redirectors fixed up and deleted in the same change** [D-20261011-14]. Tests,
+  manifests, source and every hard-coded path move in that change, and a test asserts that no package path or test
+  name carries an internal planning label (7.5, 8.2).
 
 ### 7.1 What ships today
 
@@ -3568,6 +3660,14 @@ This section names today's code and assets, so the retired words appear here whe
   - the single variant slots become arrays [D-20261002-07];
   - the stale saved `KnockbackForce` is dropped.
 
+**When each field moves** [D-20261011-12]. The table below says where a field goes, not when. The class is kept and
+shrunk stage by stage: the data-model stage (9.3) moves out only what today's rules do not read differently, that is, a
+field with no reader, or one whose reader reads the same value from its new home; everything today's parry path still
+reads (its gates, its post-parry timers, the presentation and attacker-response rows the resolver matches) stays on the
+class, read as today, until the parry stage (9.7) replaces that path, and the class is deleted there. The migration's
+audit step lists which fields it moves at 9.3, for the owner; this spec names none beyond the rule (a reading, Appendix
+B).
+
 **Field by field, `UDefenseConfiguration` and its rows (section 4.10):**
 
 | Today's field or group | What it does today | Where it goes | Why |
@@ -3614,8 +3714,8 @@ below are proposed** (Q15). They describe each asset, and they avoid the retired
 | Folder `Animation/Montages/Defense/GateB/` | `Animation/Montages/Defense/DefenseMatrix/` |
 | — | `DA_Kit_Katana`, new: the katana's kit, holding the weapon data and the three sets (4.3) [D-20261010-02] |
 | — | `DA_CombatRules`, new: the one combat rules asset (4.15) [D-20261007-53] |
-| `DA_DefenseConfiguration_GateA` | removed: its contents go to `DA_DefenseSet_Katana`, `DA_PairedSet_Katana` and `DA_ReactionProfile_Base` |
-| `DA_DefenseConfiguration_GateB` | removed: its contents go to `DA_DefenseSet_DefenseMatrix`, `DA_PairedSet_DefenseMatrix` and `DA_ReactionProfile_DefenseMatrix` |
+| `DA_DefenseConfiguration_GateA` | removed with the parry stage (9.7), after shrinking stage by stage [D-20261011-12]: its contents go to `DA_DefenseSet_Katana`, `DA_PairedSet_Katana` and `DA_ReactionProfile_Base` |
+| `DA_DefenseConfiguration_GateB` | removed with the parry stage (9.7), the same way [D-20261011-12]: its contents go to `DA_DefenseSet_DefenseMatrix`, `DA_PairedSet_DefenseMatrix` and `DA_ReactionProfile_DefenseMatrix` |
 | `DA_ParryBridge_GateA` | kept as an asset, referenced by nothing, set aside with the later graduation (Appendix C); its defender half is a front deflect candidate (Q22) |
 | `DA_Counter_GateA` | kept as an asset, referenced by nothing, set aside with the later graduation (Appendix C); not renamed until it is used |
 | `DA_Finisher_GateA` | `DA_Paired_Finisher_Front`, the paired set's front finisher |
@@ -3628,37 +3728,54 @@ below are proposed** (Q15). They describe each asset, and they avoid the retired
 | `DA_CombatSettings_DefenseMatrix`, `AM_Recoil_Generic` | names kept; folder moves |
 | `AI/ST_EnemyCombatProof` | `AI/ST_EnemyCombat`: it is the live enemy StateTree |
 
-**Matching changes in the same pass:**
+**Matching changes in the same change** [D-20261011-14]:
+- **redirectors are fixed up and deleted in the same change**, so no redirector carrying an old name survives it;
 - the test-level names (`Lvl_DefenseMatrix`, `BP_DefenseMatrix*`) already follow this pattern;
-- the automation tests named with GateA and GateB (12 of them **[reported]**) and the manifests under
-  `Tools/Codex/manifests/` are renamed together with the assets.
+- the automation tests named with GateA and GateB (12 of them **[reported]**) are renamed with the assets, and **a test
+  asserts that no package path or test name carries an internal planning label** (8.2); it replaces the earlier idea of
+  a test that redirectors are left behind;
+- the manifests under `Tools/Codex/manifests/` get a **schema change**: the keys that name the gate and the removed
+  asset go, in place of a rename of their values (a reading of "a schema change", Appendix B);
+- every hard-coded path is updated: in the two authoring operations, the two target lists, the capture pair files and
+  the evidence file names;
+- of the two authoring operations, the one tied to the retiring parry sequence (today's paired parry, 7.3) retires with
+  it, and the contact-matrix one is re-targeted to the new sets.
 
 The proof-split draft of 2026-10-03 proposed `<Seed>_GateA` names. D-20261004-17 supersedes that.
 
 ### 7.6 The owner's held content
 
-Held for this work [D-20261004-09]. This list comes from the 2026-10-04 log (E13) and the current-rules reference
-**[reported]**:
+Held for this work [D-20261004-09], and **landing now, as its own change before any stage** [D-20261011-13]. The owner's
+pick: "A. Now, as its own change before any stage, with the one test it breaks updated in the same change". Later stages
+work from committed assets: no stage resaves, migrates or reads around an uncommitted file.
 
-| Held change | Its new home |
+**What lands.** About 326 uncommitted files, as the owner's working tree holds them (the count and the list are from the
+session of 11 October, **[reported]**; the change itself is the record). Where a value is quoted it comes from the
+2026-10-04 log (E13) and the current-rules reference **[reported]**:
+
+| Held content | Then, in the stages |
 |---|---|
-| `LightAttack_1`–`5` knockback overrides, and `LightAttack_5`'s 0.3 s hitstop | Attack overrides |
-| `DA_CombatSettings_Default` knockback defaults: Light 60 cm / 0.2 s, Heavy 150 cm / 0.4 s, as the condensed 10-04 summary records them. **Verify on the asset.** | Combat settings type defaults. The asset is the source [D-20261004-38]. |
-| Trimmed hit-reaction montages, about 1–2 s per section | The base profile's hit reactions |
-| Force Root Lock on all 274 DynamicKatana sequences | Kept [D-20261004-34] |
-| The GhostSamurai block, parry, broken, rebound and guard enter and exit montages (untracked) | The defense set: the front block reaction, the front deflect, and guard enter and exit [D-20261005-55]. The base profile: the Staggered reaction ("broken") [D-20261005-55]. They must be committed together with the assets that reference them. |
-| `ABP_SamuraiCharacter` and blend-space edits | Land with the inertialization fix below |
-| `DA_HitReaction` with `HeavyDamageHealthPercent` = 1 | The field is removed [D-20261004-42] |
-| The `DA_DefenseConfiguration_GateA` edit (GhostSamurai rows, guard enter and exit) | The defense set and the base profile, as above |
-| `AM_Heavy_Katana_Event` | Kept as the owner left it |
+| 274 DynamicKatana sequences, with Force Root Lock on | Kept as they land [D-20261004-34] |
+| 22 GhostSamurai defense sequences: block, parry, broken, rebound, and guard enter and exit | The defense set takes the front block reaction, the front deflect and guard enter and exit; the base profile takes the Staggered reaction ("broken") [D-20261005-55], at 9.3 |
+| The animation blueprint, `ABP_SamuraiCharacter`, with its blend-space edits | The charge-loop snap fix edits the committed blueprint at 9.3 (below) |
+| 8 hit-reaction montages, trimmed to about 1–2 s per section | The base profile's hit reactions, at 9.3 |
+| `LightAttack_1`–`5`: knockback overrides, and `LightAttack_5`'s 0.3 s hitstop | Attack overrides, at 9.3 |
+| Three data assets: `DA_CombatSettings_Default` (knockback defaults Light 60 cm / 0.2 s, Heavy 150 cm / 0.4 s, as the condensed 10-04 summary records them; **verify on the asset**), `DA_HitReaction` (`HeavyDamageHealthPercent` = 1) and `DA_DefenseConfiguration_GateA` (the GhostSamurai rows, guard enter and exit) | Combat settings type defaults, the asset being the source [D-20261004-38]; the field removed [D-20261004-42]; the defense set and the base profile, as above, by the stages of 4.10 |
+| Guard locomotion | Kept as it lands |
 
-**The charge-loop snap fix** lands with the animation-blueprint edits, as the owner chose [D-20261004-32]:
+`AM_Heavy_Katana_Event`, once in this list, is already on `main` and is not part of the change.
+
+**The one test it breaks** is updated in the same change [D-20261011-13]: the defense-authoring recipe test, which reads
+`DA_DefenseConfiguration_GateA` and which the uncommitted edit of that asset was expected to break (the 2026-10-04
+reading, from code only, **[reported]**). The test is updated to the asset as it lands, not deleted: the class and the
+asset stay until the parry stage [D-20261011-12]. If the change breaks any other test, that is a finding for the owner,
+not a second test to update quietly (a reading, Appendix B).
+
+**The charge-loop snap fix** [D-20261004-32] was tied to the animation-blueprint edits. With those edits landing before
+any stage, the fix lands at 9.3, editing the committed blueprint (a reading, Appendix B):
 - the code requests inertialization after each section jump, using the authored blend times;
 - `ABP_SamuraiCharacter` gets one Inertialization node, between the layered blend per bone and the output pose
   (the 2026-10-04 log, E14).
-
-**A known breakage, from code reading only [reported]:** the uncommitted `DA_DefenseConfiguration_GateA` edit likely
-breaks today's defense-authoring recipe test. Retiring the asset removes that test's subject.
 
 **A prerequisite beside the held content** [D-20261010-15]: the project katana sits on `weapon_r`, not on the grip the
 paired clips were authored for, which puts a 12 cm floor under every blade-contact measurement (3.3, **[reported]**
@@ -3667,7 +3784,9 @@ from the prototype's metrics). The socket mismatch is fixed before any contact c
 
 ### 7.7 Code retired
 
-- **The defense configuration:** `UDefenseConfiguration`, its row and payload types, and its resolution path.
+- **The defense configuration:** `UDefenseConfiguration`, its row and payload types, and its resolution path: shrunk
+  stage by stage and deleted with the parry stage (9.7), which replaces the interim post-parry sequence that still
+  reads it (4.10, 7.4) [D-20261011-12].
 - **Today's post-parry stages** and their timers: the deflect stage before the press, the press window, and the
   finisher-ready window. PR #137 (merged as `e47da15e`) fixed the live bug in that window and is the interim behaviour;
   the parry stage (9.7) and the follow-up stage (9.8) retire it and keep its failure-path tests.
@@ -3711,8 +3830,9 @@ readable as it was.
   - no test asserts a shipped tunable.
 - **A decided-rule check on shipped content is not a pinned tunable.** A check that the player's profile has guard-break
   counting off asserts a decided rule, "the player's guard breaks only to guard breakers" [D-20261005-14,
-  D-20261007-54], not a tuning value; such a check names its decision in its name or its message, and there is one of
-  them [D-20261007-54].
+  D-20261007-54], not a tuning value; such a check names its decision in its name or its message, and there are two of
+  them: the player's counting off [D-20261007-54], and every shipped enemy profile's parry assists neutral
+  [D-20261012-02].
 - **Every float assertion also checks finiteness.** In this build `TestEqual` and `IsNearlyEqual` pass on NaN (project
   memory).
 - **Test the premise.** Each rule's test is shown to fail first, against today's code or against a deliberate mutation of
@@ -3727,7 +3847,7 @@ readable as it was.
   - the interrupt rule;
   - the table evaluator and its trace, on tables built in code [D-20261007-57].
 - **Names describe behaviour**, follow `KatanaCombat.*`, use glossary terms [D-20261005-40], and carry no planning labels
-  [D-20261004-17].
+  [D-20261004-17]. A test asserts the last for every package path and test name (8.2) [D-20261011-14].
 - **Feel is judged on rendered captures** with the capture plugins. Their metrics are reported to the owner and never gate
   the baseline, because they measure tuning.
 - **Every stage ends with a green baseline** (`Tools/Codex/run-agent-baseline.ps1`).
@@ -3752,6 +3872,7 @@ In each test, the fixture sets the values named, never the shipped ones.
 | Unparryable | `…Parry.UnparryableAttackIsNotACandidate`; `…Parry.AttacksAreParryableByDefault`. | — |
 | Lands first | `…Parry.AnswersEarliestContact`; `…Parry.EqualContactFallsBackToAngle`. | — |
 | Adaptive turn and slowdown | `…Parry.TurnFinishesExactlyAtPredictedArrival`; `…Parry.SlowdownEasesInAndOut`; `…Parry.SlowdownNeverBelowFloorSpeedOrBeyondMaxTime`; `…Parry.SucceedsWhenTurnCannotFinish`. | Side and rear parries pressed late, midway and early, measured for foot slide, pelvis jump and yaw rate, as in the earlier prototype. |
+| Parry assists | `…Parry.Assist.BufferedPressCountsAtWindowFirstFrame`; `…Parry.Assist.BufferedPressIsNeverAMissAndStartsNoLockout`; `…Parry.Assist.BufferedPressParriesTheWindowThatOpensFirst`; `…Parry.Assist.SlowdownAndTurnStartAtTheWindowNotThePress`; `…Parry.Assist.GraceExtendsWindowAndDefersAttackerHitBySameTime`; `…Parry.Assist.LatePressInsideGraceParriesAndNothingIsUndone`; `…Parry.Assist.HitAppliesOnlyWhenGraceEndsWithoutAParry`; `…Parry.Assist.GraceTurnRateUsesRemainingTimeWithFloor`; `…Parry.Assist.SlowMotionDeepensAttackerOnlyNeverWorldTime`; `…Parry.Assist.TwoAttackersEachSlowOnTheirOwnWindow`; `…Parry.Assist.PredictorMovesContactWithTheDeepenedSlowdown`; `…Parry.Assist.TelegraphCueFiresAtWindowOpenScaledByIntensity`; `…Parry.Assist.TelegraphOffFiresNoCue`; `…Parry.Assist.UnparryableShowsItsOwnCueNotTheWindowCue`; `…Parry.Assist.AlwaysPerfectParriesAnyPressFromAttackStartToContact`; `…Parry.Assist.AlwaysPerfectStartsNoLockout`; `…Parry.Assist.AlwaysPerfectLeavesUnparryableUnparryable`; `…Parry.Assist.AlwaysPerfectLandsFirstPicksTheThreat`; `…Parry.Assist.NeutralValuesChangeNothing` (every assist at its default, and 3.2's plain rules hold); `…Content.ShippedEnemyProfilesHaveAssistsNeutral`, the second decided-rule check of 8.1 [D-20261012-02]; `…Content.ShippedProfileWithAlwaysPerfectOnGetsAnInfoNote`. The fixture sets each assist's value; none is read from a shipped profile. | The perfect-tier cues and the telegraph's flash, tint and sound are chosen on the feedback sweep [D-20261005-78]; the slow-motion factor is felt on captures. |
 | Parry outcome | `…Parry.DealsNoDamage`; `…Parry.AttackerStaggeredFromDeflectContact`; `…Parry.AttackerStaggeredForParriedAttacksTime`; `…Parry.PlayerUntouchableUntilDeflectCancelNotify`; `…Parry.PlayerFreeFromDeflectCancelNotify`; `…Parry.NoCounterPlaysAndNoCounterAssetIsRead`. | Front, side and rear parries: the deflect's contact and the attacker's Staggered reaction read as one beat. |
 | Deflect selection and layers | `…Deflect.KeyedByDirectionAndHeightRelativeToFacingAtPredictedContact`; `…Deflect.HeightBucketedFromPredictedContactAgainstDefenderBody` (the fixture moves the contact point, not the attack, and the row changes) [D-20261011-07]; `…Deflect.NoAuthoredHeightIsRead`; `…Deflect.SwingShapeCriterionDefaultsToAnyAndNarrowsWhenSet` [D-20261011-09]; `…Deflect.MotionCriterionMatchesOnlyALungeClass` [D-20261011-04]; `…Deflect.LowRearFoldsIntoMidRear`; `…Deflect.MissingKeyFallsToNearestSameDirectionThenFrontAndWarns` [D-20261011-02]; `…Deflect.ResolverRecordsMatchedKeyTierModeClampAndGripDelta` [D-20261011-11]; `…Deflect.TurnCarriesOnlyRemainderOfBodyYawCoverage` (the fixture sets the coverage); `…Deflect.BladeIKNeverExceedsClamp` (the fixture sets the clamp); `…Deflect.AttackerNudgeOnlyInsideSlowdownAndWithinLimit`; `…Content.DeflectCoverageValidatorWalksEveryKeyAndShowsFallback`; `…Content.LayeredRowPoseFingerprintMustMatchItsBase`; `…Content.DeflectRowWithoutPresentationOrCoverageFailsValidation`. | The capture checks of 3.3, one per layer in ship order [D-20261010-14]: the IK-off premise capture first; blade-to-blade at predicted contact; planted-foot slide against the front control; peak yaw on every key; pose deviation; the nudge inside the slowdown; hand-off continuity into the follow-up. The layered experiment on its five keys and five conditions, judged by the measures of 3.3 against the authored controls [D-20261011-10]. |
 | Cancel notify | `…CancelNotify.PlayerFreeFromTheirOwn`; `…CancelNotify.PlayerUntouchableUntilTheirOwn`; `…CancelNotify.HitReactionActsOnceHitStunAlsoOver`; `…CancelNotify.AttacksCancelAtPhaseTransition`; `…CancelNotify.MissingMeansMontageEndAndWarns`. | The hand-off from the deflect to free play reads as one motion. |
@@ -3772,14 +3893,14 @@ In each test, the fixture sets the values named, never the shipped ones.
 | Precedence | `…Data.SlotOverrideWins`; `…Data.AttackOverrideBeatsSetDefault`; `…Data.SetDefaultBeatsSettings`; `…Data.ResolvedSpecUnchangedByMidAttackEdit`. | — |
 | Kit | `…Data.KitSuppliesWeaponAndThreeSets`; `…Data.NoKitUsesSettingsDefaultKit`; `…Data.TwoKitsShareWeaponDefenseAndPairedSets`; `…Data.KitMissingAPartFailsValidation`. | — |
 | Combat rules | `…Rules.OneRulesAssetReadByEveryCharacter`; `…Rules.PerCharacterTypeDefaultDoesNotChangeAGlobalRule`; `…Rules.SettingsHoldOnlyTypeDefaultsAndDefaultKit`; `…Rules.GlobalNotNamedByTheListReadsFromRulesAsset` (the hit-stun floor, on a fixture) [D-20261010-16]. | — |
-| Player by data | `…Player.ProfileFieldsDecideCountingStaggeredTimeAndDodgeEscape`, on two fixture characters, neither "the player", one with the player's fields; `…Player.TokensCountAttackersOfTheTarget`; `…Content.PlayerProfileHasCountingOff`, the decided-rule check of 8.1. | — |
+| Player by data | `…Player.ProfileFieldsDecideCountingStaggeredTimeAndDodgeEscape`, on two fixture characters, neither "the player", one with the player's fields; `…Player.TokensCountAttackersOfTheTarget`; `…Content.PlayerProfileHasCountingOff`, one of the two decided-rule checks of 8.1. | — |
 | Selection tables | `…Tables.OneEvaluatorServesOpenerSlotDeflectAndFinisherRows`; `…Tables.TraceListsEveryRowWithPassFailPerColumn`; `…Tables.HeightIsAKeyColumn`; `…Tables.LanePreferredWhenItMatches` (on a table built in code; no live table uses lane); `…Tables.VarietyRuleExcludesLastTwo`; `…Tables.BuiltInCodeWithoutAssets`. | — |
 | Paired lookup by key | `…Paired.FinisherRowsFoundByDirectionFromAttackersKit`; `…Paired.NoCrossReferenceExists`; `…Paired.NoCounterRowIsLive`; `…Paired.NoRowNamesAVictimKind`; `…Paired.ClipFitReadThroughSeamNotRow`; `…Content.CoverageGapsNamedNoReferencesChecked`. | — |
 | One row, one content asset | `…Paired.AlternateChosenInsideOurDirectionNeverChangesIt`; `…Paired.GroundStateAndHeightReadThroughSeamNotRow`. | — |
 | Timeline and simulate-press | `…Editor.TimelineLanesDrawDataWindowsOverMontage`; `…Editor.AuthoritativeMarkFollowsSlotDiff`; `…Editor.TimelineDragWritesSlotOrAttackValue`; `…Editor.SimulatePressShowsSameTraceAsRuntime`. | — |
 | Grid drag and the lane batch action | `…Editor.DragCarriesDiffWithRow`; `…Editor.KeepOverridesAtPositionReappliesToLandingSlot`; `…Editor.ApplyToAllSlotsInLaneIsOneUndoStep` [D-20261010-17, D-20261010-18]. | — |
 | Selection function (the evaluator on the combo set) | `…ComboSet.ReturnsChosenAndRejectionReasons`; `…ComboSet.BackToOpenerIsTheOnlyLegalCycle`. | — |
-| Migration | `…Migration.ComboSetReproducesSourceGraph`, run on a fixture graph; `…Migration.HeavyFourLightLinkBecomesBackToOpener` (a Light press after Heavy 4 restarts at Light 1, and no other link changes) [D-20261010-05]; `…Migration.NeverOverwritesDesignerEdits`; `…Migration.RenamesLeaveRedirectors`. | — |
+| Migration | `…Migration.ComboSetReproducesSourceGraph`, run on a fixture graph; `…Migration.HeavyFourLightLinkBecomesBackToOpener` (a Light press after Heavy 4 restarts at Light 1, and no other link changes) [D-20261010-05]; `…Migration.NeverOverwritesDesignerEdits`; `…Content.NoPackagePathOrTestNameCarriesAPlanningLabel`, run after the renames, with their redirectors fixed up and deleted in the same change [D-20261011-14]. | — |
 | Shipped content | `…Content.ShippedSettingsFiniteAndInClamp`; `…Content.ShippedComboSetsValidate`; `…Content.ShippedDefenseAndPairedSetsValidate`; `…Content.CoverageGapsWarnedNotFailed`. | — |
 | Glossary | `…Content.NoRetiredWordsInNewIdentifiers`: a scan that ratchets down as renames land. | — |
 
@@ -3815,6 +3936,10 @@ In each test, the fixture sets the values named, never the shipped ones.
 **The order below is proposed** (Q17). Each stage lists the decisions it implements and the questions it needs answered
 first.
 
+**Before stage one** [D-20261011-13]: the owner's held content (7.6) lands as its own change, with the one test it
+breaks updated in the same change. No stage starts on uncommitted assets. The grip socket fix [D-20261010-15] stays a
+parry-stage prerequisite (9.7).
+
 **Where the 7 and 10 October decisions land** (this spec's call, stated so that it can be overruled): the table
 evaluator and its trace, judging the combo set's openers and entry rules, in 9.1 [D-20261007-57]; the timeline as the
 attack editor and the simulate-press panel in 9.2 [D-20261007-57, D-20261007-58]; the kit rename, the combat rules
@@ -3831,7 +3956,11 @@ three readings and the missing-key fallback in 9.7 [D-20261011-01, D-20261011-02
 the dropped height, the swing-shape criterion and the row model in 9.3, with the data [D-20261011-05 to -07,
 D-20261011-09, D-20261011-11]; authored clips for the eleven keys in 9.7, with the layered experiment as a
 capture-gated addition to it [D-20261011-10]; the lunge content in a stage of its own after the parry, 9.9
-[D-20261011-04].
+[D-20261011-04]. The 11 and 12 October answers that followed: the defense configuration shrunk at 9.3 and deleted at
+9.7 [D-20261011-12]; the held content before 9.1 [D-20261011-13]; the renames, with their redirectors deleted, the label
+test and the manifests' schema change, in 9.3 [D-20261011-14]; the five parry assists as profile fields in 9.3 and as
+rules with their tests in 9.7, with the shipped-profile invariant checked from 9.3 [D-20261011-15 to D-20261011-19,
+D-20261012-01, D-20261012-02].
 
 ### 9.1 Combo sets with today's behaviour
 
@@ -3894,10 +4023,14 @@ capture-gated addition to it [D-20261011-10]; the lunge content in a stage of it
   - `UReactionProfile` with a base profile and inheritance, its player fields with no is-player branch and the
     shipped-content check on the player's profile [D-20261007-54]; no marker and no victim kind on the paired set
     [D-20261010-19];
-  - retiring `UDefenseConfiguration`;
-  - the owner's held content;
-  - the asset renames;
-  - the charge-loop snap fix;
+  - shrinking `UDefenseConfiguration`: only what today's rules do not read differently moves out; the class, and every
+    field today's parry path reads, stay until 9.7 (4.10, 7.4) [D-20261011-12];
+  - the asset renames, with redirectors fixed up and deleted in the same change, the label test, the manifests' schema
+    change and every hard-coded path updated (7.5) [D-20261011-14];
+  - the charge-loop snap fix, on the committed animation blueprint (7.6) [D-20261004-32];
+  - the reaction profile's "Assists" section, with the five parry assists and the window scale as fields, neutral by
+    default, and the shipped-content check that every shipped enemy profile has them neutral (4.8, 8.1)
+    [D-20261012-02]; their rules land in 9.7;
   - **the timing windows as attack data** (4.5, 4.13), anchored to sequence time plus segment, with the "adopt from
     montage" one-shot over the 29 attacks and "export to montage" redrawing the mirrors (7.3); the windows edited in the
     timeline of 9.2 (5.11), with the Save / Reset / Leave prompt where a mirror exists; the one-shot is "Analyze
@@ -3905,7 +4038,8 @@ capture-gated addition to it [D-20261011-10]; the lunge content in a stage of it
     this stage:** the mirrors drive play exactly as the
     hand-authored notifies did, until the runtime reads the data in 9.7 [D-20261007-36, D-20261007-38, D-20261007-40];
   - every attack field slot-overridable, in the data [D-20261007-35].
-- **Ships:** the same rules, with one place per question and the owner's tuning live.
+- **Ships:** the same rules, with one place per question; the owner's tuning, committed before stage one, read from its
+  new homes.
 - **Decisions:** D-20261004-20, D-20261004-22 (placement per D-20261005-48), D-20261004-32, D-20261004-38,
   D-20261004-41 (data), D-20261004-19, D-20261002-07, D-20261005-46, D-20261005-47 (no body types), D-20261005-48,
   D-20261005-49, D-20261005-55, D-20261005-56, D-20261005-57, D-20261007-31 (finisher lists), D-20261007-35,
@@ -3914,8 +4048,9 @@ capture-gated addition to it [D-20261011-10]; the lunge content in a stage of it
   D-20261010-07 (the data), D-20261010-12 (the deflect row's fields), D-20261010-13 (the deflect key), D-20261010-16
   (the unnamed globals), D-20261010-19 (no victim kind on the paired set), D-20261011-04 and D-20261011-09 (the row's
   optional criteria), D-20261011-05 (the motion class), D-20261011-06 ("Analyze attack"), D-20261011-07 (the height
-  dropped), D-20261011-11 (the row model and the coverage validator).
-- **Needs:** Q1, Q14, Q15.
+  dropped), D-20261011-11 (the row model and the coverage validator), D-20261011-12 (the class shrunk, not yet
+  deleted), D-20261011-14 (the renames), D-20261012-02 (the "Assists" section as data).
+- **Needs:** Q1, Q14, Q15; the held content committed before stage one (7.6) [D-20261011-13].
 
 ### 9.4 The dodge
 
@@ -3993,7 +4128,9 @@ capture-gated addition to it [D-20261011-10]; the lunge content in a stage of it
   - **the layered experiment as a capture-gated addition** to this stage [D-20261011-10]: on the five keys, with the
     five conditions and the measures of 3.3, against the authored controls; its blade-IK-off arm is the second layer's
     premise capture; a key switches to a layered row only where it passes, each adoption its own pull request;
-  - parry feedback and parry assists;
+  - parry feedback, and **the five parry assists** with their rules and tests (3.2, "Parry assists"): the input
+    buffer, the contact grace, slow motion on window, the telegraph and always perfect parry, on the "Assists" fields
+    9.3 added [D-20261011-15 to D-20261011-19, D-20261012-01, D-20261012-02];
   - **the window-ownership runtime change** (6.5), placed here because the parry window is the first window whose home
     the rules depend on: the neutral notify state spanning the attack section drives every data window of the attack
     instance; window identity becomes a data identity in the existing registry; `FAttackExecutionSnapshot` is built
@@ -4002,7 +4139,8 @@ capture-gated addition to it [D-20261011-10]; the lunge content in a stage of it
   - the telegraph for readable flags at attack start, with its cues chosen on captures [D-20261007-37];
   - the contact predictor (3.15), serving the parry window and the deflect's contact point first [D-20261007-24];
   - today's post-parry stages, including #137's interim window, removed: after a parry the attacker is Staggered and
-    nothing waits for a press.
+    nothing waits for a press; **`UDefenseConfiguration` is deleted here**, with the last fields that sequence read
+    (4.10, 7.4) [D-20261011-12].
 - **Prerequisite** [D-20261010-15]: the katana's grip socket mismatch is fixed before any contact capture of this
   stage (3.3, 7.6).
 - **Meanwhile:** until 9.8 ships, an aimed hit on the Staggered enemy kills with the ordinary attack, with no finisher
@@ -4011,7 +4149,8 @@ capture-gated addition to it [D-20261011-10]; the lunge content in a stage of it
   D-20261005-36, D-20261005-50, D-20261005-64, D-20261005-71 to D-20261005-79, D-20261004-06, D-20261004-07,
   D-20261007-18, D-20261007-24, D-20261007-37, D-20261007-38, D-20261007-39, D-20261007-44, D-20261010-08,
   D-20261010-09, D-20261010-12 to D-20261010-15, D-20261011-01, D-20261011-02, D-20261011-07, D-20261011-09,
-  D-20261011-10, D-20261011-11.
+  D-20261011-10, D-20261011-11, D-20261011-12 (the class deleted), D-20261011-15 to D-20261011-19, D-20261012-01,
+  D-20261012-02.
 - **Also needs:** the owner's veto or approval of the lead-time form (R-20261005-01); the home is decided.
 - **Needs:** Q7; Q19 for the predictor's thresholds and scale; Q22 for the front clips' heights; the captures of
   each layer.
@@ -4155,6 +4294,13 @@ height buckets are proposed on the combat rules, tuned on captures (3.3, 3.12); 
 are the research's, judged on captures (3.3). Q22 stays, reworded: the design is still an authored clip per key, so the
 owned front clips still need their heights, and the sidestep-and-face clips are no longer candidates for it. The list
 still ends at Q22.
+
+The answers of 11 and 12 October that followed (D-20261011-12 to -19, D-20261012-01 and -02) settled delivery and the
+parry assists, and closed one reading rather than a question: the default of always perfect parry, which Appendix B 12
+had set off, is now decided off (D-20261012-01). No question was open on them: how the defense configuration leaves,
+when the held content lands and how the renames are done were this spec's proposals, now decided; the assists' two
+per-profile numbers (the slow-motion factor and the telegraph intensity) are tunables with no decided value, not
+questions. The list still ends at Q22.
 
 ### Hits
 
@@ -4387,7 +4533,7 @@ No side or rear deflect is owned. The clamps and the nudge are not asked here: t
 | D-20261004-02 | Guard aim with magnetism (queued) | 3.11 |
 | D-20261004-03 | Player free, attacker held | 3.3, 3.4 |
 | D-20261004-06, -07 | Parry readability; parry assists as settings | 3.2, 4.8 |
-| D-20261004-09 | Hold the owner's content for this work | 7.6 |
+| D-20261004-09 | Hold the owner's content for this work. **Released by D-20261011-13:** it lands as its own change before any stage | 7.6, 9 |
 | D-20261004-17, -19 | No planning labels; Gate assets renamed here | 7.5, 8.1, 9 |
 | D-20261004-20 | Data model with defaults and overrides, and a base profile. Its "profile holds block and parry" is superseded by D-20261005-48 | 1.3, 4 |
 | D-20261004-21 | Code-driven block and parry turn | 3.1, 3.2 |
@@ -4397,7 +4543,7 @@ No side or rear deflect is owned. The clamps and the nudge are not asked here: t
 | D-20261004-26 | Design pillars | 1.2 |
 | D-20261004-27 | Defense role per enemy type (Q16) | 3.5, Q16 |
 | D-20261004-30 | Turn-deflect into front pairs. **Closed by D-20261011-04:** the clips have one role in the live parry, the lunge's sidestep-and-face deflect selected by a deflect row's motion criterion; they are not the parry's turn, which the deflect's body-yaw coverage and the bounded turn carry [D-20261010-12] | 2.2, 3.2, 3.3, 9.9 |
-| D-20261004-32 | Charge-loop snap fix with the redesign | 7.6, 9.3 |
+| D-20261004-32 | Charge-loop snap fix with the redesign; tied to the animation-blueprint edits, which now land before any stage [D-20261011-13], so the fix edits the committed blueprint at 9.3 (Appendix B 132) | 7.6, 9.3 |
 | D-20261004-33 | Timing read from the montage (merged in #139); now the timing read of "Analyze attack" [D-20261011-06] | 4.13, 5.4, 7.2 |
 | D-20261004-34 | Keep Force Root Lock | 7.6 |
 | D-20261004-35 | Aim decides; the state is called Staggered | 3.3, 3.4 |
@@ -4453,7 +4599,7 @@ No side or rear deflect is owned. The clamps and the nudge are not asked here: t
 | D-20261005-75 | The fastest natural parry turn: defense set with a settings default, 720°/s to start | 3.2, 4.6, 4.9 |
 | D-20261005-76 | The attacker slowdown eases in and out | 3.2 |
 | D-20261005-77 | A Block press during hit-stun can parry | 3.1, 3.2, 3.7 |
-| D-20261005-78 | Assists default neutral; parry feedback values from a rendered sweep | 3.2, 4.8, 4.9 |
+| D-20261005-78 | Assists default neutral; parry feedback values from a rendered sweep. The five assists' rules are D-20261011-16 to -19 and D-20261012-01, their home D-20261012-02 | 3.2, 4.8, 4.9 |
 | D-20261005-79 | The window and the turn are independent; both reference the predicted arrival | 3.2 |
 | R-20261005-01 | A ruling, proposed: the window is authored as a lead time before arrival | 3.2 |
 | D-20261005-80 | Each counter's own damage; settings default 50; its home amended by D-20261006-03. **Set aside for the later graduation** [D-20261010-08] | 4.15, Appendix C |
@@ -4554,6 +4700,16 @@ No side or rear deflect is owned. The clamps and the nudge are not asked here: t
 | D-20261011-09 | Blade class (swing or thrust) is not a deflect key. The existing optional swing-shape row criterion stays (default: match any); a thrust changes the blade line at the meet (IK orientation from the predicted path), the attacker's reaction row and the spark; a thrust-specific deflect row is authored only if a capture shows the swing deflect fails on a thrust. Closes D-20261011-08 (a) | 2.1, 2.2, 3.3, 4.5, 4.6, 4.16, 5.9, 6.4, 7.3, 7.4, 8.2, 9.3, 9.7, Appendix B 128 |
 | D-20261011-10 | Deflect architecture: authored full clips per key are the spec's design (the only design with shipped precedent, and the control set); the layered build (3–4 base clips + 10–13 single-frame poses cut from owned clips + off-hand grip IK + clamped blade IK; the rear as a separate one-handed base) is a capture-gated experiment on five keys (front-mid swing, side-high, rear-mid, front-mid thrust, lunge) with authored, blade-IK-off, grid-off and grip-IK-off conditions; "a key switches to layered only where it beats the authored control and the premise conditions are worse". Closes D-20261011-08 (b) | 2.2, 3.3, 4.6, 6.4, 8.2, 8.3, 9.7, 10, Appendix B 124–126 |
 | D-20261011-11 | Deflect row content model: a row = its key criteria + a Presentation that is either a full clip (today's payload, unchanged) or a layered reference (a named base on the defense set + an additive pose, with the pose fingerprinted against its base, optional IK clamp overrides); no whole-row overrides; a coverage validator walks every key with the fallback order shown; the resolver records the matched key, tier, mode and clamp state for the simulate-press panel. Closes D-20261011-08 (c) | 2.1, 2.2, 3.3, 4.1, 4.3, 4.6, 4.16, 5.9, 5.12, 6.3, 6.4, 7.4, 8.2, 9.3, 9.7, Appendix B 123, 127 |
+| D-20261011-12 | The defense configuration class is kept and shrunk stage by stage; the data-model stage moves out only what today's rules do not read differently; it is deleted with the parry stage, which replaces the interim post-parry sequence that still reads it. The owner's pick: "A. Keep the class, shrink it each stage, delete it with the parry stage" | 4.1, 4.10, 7.4, 7.6, 7.7, 9, 9.3, 9.7, Appendix B 131 |
+| D-20261011-13 | The owner's held content (about 326 uncommitted files) lands now as its own change before any stage, with the one test it breaks updated in the same change; later stages work from committed assets. The owner's pick: "A. Now, as its own change before any stage, with the one test it breaks updated in the same change" | 7.6, 9, 9.3, Appendix B 132, 133 |
+| D-20261011-14 | Renames of label-carrying test assets and test names: redirectors fixed up and deleted in the same change; a test asserts that no package path or test name carries an internal planning label; the manifests get a schema change; the authoring operation tied to the retiring parry sequence retires with it, the contact-matrix one is re-targeted to the new sets | 7.0, 7.5, 8.1, 8.2, 9, 9.3, Appendix B 134 |
+| D-20261011-15 | All five parry assists (input buffer, contact grace, slow motion on window, telegraph, always perfect parry) get rules now, before the parry stage. The owner's pick: "B. Specify all five now" | 2.2, 3.2, 9, 9.7 |
+| D-20261011-16 | Parry assist, input buffer (default 0 s): a Block press up to N s before the window opens is held and counts at the window's first frame; it is never a miss and charges no lockout; if a closer threat's window opens first the held press parries that one (lands-first); the attacker's slowdown and the turn start at the window | 2.2, 3.2, 3.12, 4.8, 6.3, 6.4, 8.2, 9.7 |
+| D-20261011-17 | Parry assist, contact grace (default 0 s): the window extends past the predicted contact by N s and the attacker's hit resolution is deferred by the same N s inside its slowdown; a late press within the grace parries; nothing is undone; the hit applies only when the grace ends without a parry; the turn rate uses the remaining time with a small floor | 2.2, 3.2, 3.12, 3.15, 4.8, 6.3, 6.4, 8.2, 9.7, Appendix B 135 |
+| D-20261011-18 | Parry assist, slow motion on window (default off): deepens the attacker's own slowdown to a per-profile factor for the whole window; the attacker only, never world time; two attackers each slow on their own window; the predictor moves the contact with the slowdown | 3.2, 3.12, 3.15, 4.8, 6.4, 8.2, 9.7, Appendix B 136 |
+| D-20261011-19 | Parry assist, telegraph (default on): a cue from the telegraph set at window open, on the attacker's weapon (flash/tint and a sound), scaled by the profile's intensity; off = no cue; driven by the predictor's window-open event; unparryable attacks show their own readable cue instead | 2.2, 3.2, 3.12, 3.15, 4.8, 6.4, 6.5, 8.2, 9.7, Appendix B 136 |
+| D-20261012-01 | Parry assist, always perfect parry (default off): any Block press while a parryable attack is incoming, from the attack's start to its contact, parries it; no lockout; timing cues play at the perfect tier; unparryable stays unparryable; lands-first picks the threat; a validation info note when a shipped profile has it on. Closes Appendix B 12 | 3.2, 3.12, 4.8, 6.3, 6.4, 8.2, 9.7, 10, Appendix B 12, 137, 139 |
+| D-20261012-02 | The five assists live on the reaction profile under an "Assists" section; shipped enemy profiles have them neutral by a content invariant (a decided rule, not a pinned tunable) | 2.2, 3.2, 3.12, 4.8, 8.1, 8.2, 9, 9.3, 9.7, Appendix B 138 |
 
 **Superseded, and not used as rules:**
 - D-20261004-28, the two modes by enemy type, superseded by D-20261005-24;
@@ -4607,7 +4763,14 @@ No side or rear deflect is owned. The clamps and the nudge are not asked here: t
 - this spec's proposed missing-key order ("the same direction at the nearest height, mid first; then the front row"),
   decided with its own wording by D-20261011-02;
 - this spec's three simplification readings held open for the owner (one-sided protection, others hold through the
-  deflect, the missed follow-up), confirmed by D-20261011-01.
+  deflect, the missed follow-up), confirmed by D-20261011-01;
+- this spec's retirement of `UDefenseConfiguration` at the data-model stage: the class is kept and shrunk stage by
+  stage and deleted with the parry stage [D-20261011-12];
+- this spec's holding of the owner's content for the data-model stage: it lands as its own change before any stage
+  [D-20261011-13];
+- this spec's test that renames leave redirectors: redirectors are fixed up and deleted in the same change, and a test
+  asserts that no package path or test name carries an internal planning label [D-20261011-14];
+- this spec's reading that always perfect parry defaults to off (Appendix B 12), now decided off [D-20261012-01].
 
 ## Appendix B. Ambiguities, conflicts and readings
 
@@ -4703,7 +4866,11 @@ Each item is either an open question, or a reading this spec chose that the owne
   missed follow-up leaving Staggered running) [D-20261011-01]; a missing deflect key's fallback [D-20261011-02]; the
   turn-deflect clips researched and given the lunge's role, with the attack's motion class and "Analyze attack"
   [D-20261011-03 to D-20261011-06]; the authored height dropped for the predicted contact [D-20261011-07]; the
-  deflect's blade class, architecture and row model, after research [D-20261011-08 to D-20261011-11].
+  deflect's blade class, architecture and row model, after research [D-20261011-08 to D-20261011-11];
+- the delivery answers of 11 October: the old defense configuration kept and shrunk, deleted with the parry stage
+  [D-20261011-12]; the held content landing before any stage [D-20261011-13]; the renames with redirectors deleted, a
+  label test and a manifest schema change [D-20261011-14]; and the five parry assists, each with its rule, their home
+  and the shipped-profile invariant [D-20261011-15 to D-20261011-19, D-20261012-01, D-20261012-02].
 
 **Conflicts between active decisions:**
 1. D-20261004-35's "a press aimed elsewhere … releasing the held enemy" became the Staggered-time rule by D-20261005-22
@@ -4730,7 +4897,8 @@ Each item is either an open question, or a reading this spec chose that the owne
 10. How the predicted blade arrival is computed (D-20261005-73 names the reference, not the method); the computation in
    3.2 is proposed.
 11. The ease shape of the attacker slowdown (D-20261005-76 fixes the kind of curve, not its numbers).
-12. The default of "always perfect parry", which D-20261005-78 does not name; the spec sets it off.
+12. **Resolved.** The default of "always perfect parry", which D-20261005-78 does not name, was set off by this spec;
+    D-20261012-01 decides it off, with the assist's rule (3.2, "Parry assists").
 13. The swing classification thresholds of "Analyze attack" (D-20261005-84 names the action, not the thresholds;
     D-20261011-06 folds it into the one action); 4.5's are proposed.
 14. "Charged" is not an attack type, and the latched charge is never written today (Q1).
@@ -4757,7 +4925,8 @@ Each item is either an open question, or a reading this spec chose that the owne
     D-20261005-34; the option's description (session transcript, 04:02 EDT) calls it "the 0.12 s floor decided earlier".
 27. The glossary's back-to-opener entry uses a word that its own last table retires, for the parry and the paired
     finisher. This spec says "combo" for a run of linked attacks.
-28. The owner's held knockback values (60 cm and 150 cm) come from a condensed summary. Check them on the asset.
+28. The owner's held knockback values (60 cm and 150 cm) come from a condensed summary. Check them on the asset, which
+    lands before any stage [D-20261011-13] (7.6).
 29. An entry that names the parried attack's lane is preferred over one that does not, as the ordering of D-20261005-45's
     "optional refinement". **Decided since** by D-20261010-01's "lane preferred".
 30. **Set aside with the paired counter (Appendix C).** A follow-up strike's paired non-lethal clip was taken from the
@@ -5116,8 +5285,51 @@ their "inferred" and "hypothesis" marks kept.
     not say which of the owned left and right clips a row plays; the research suggests the side opposite the attack's
     lane. This spec carries that as a reading; where the lane is unknown the row's own choice stands (3.3). The
     decision puts the content "in a stage after the parry ships"; this spec gives it a stage of its own after the
-    follow-up (9.9), since the follow-up's reach is what its capture check measures against; the owner may prefer it
+    follow-up (9.8), since the follow-up's reach is what its capture check measures against; the owner may prefer it
     folded into 9.8.
+
+**Readings of the decisions D-20261011-12 to -19 and D-20261012-01, -02, for the owner to see.** The register's own
+hedges are carried verbatim; where a detail comes from the session's form rather than the register's condensed entry,
+it says so.
+
+131. **D-20261011-12's "what today's rules do not read differently".** The decision says what the data-model stage may
+    move out and names no field. This spec reads it as a field with no reader, or one whose reader reads the same value
+    from its new home, and keeps everything today's parry path still reads on the class until 9.7 (4.10, 7.4); the
+    migration's audit step lists the fields it moves, and this spec names none beyond the rule.
+132. **D-20261011-13 and the charge-loop snap fix.** D-20261004-32 tied the fix to the animation-blueprint edits;
+    D-20261011-13 lands those edits before any stage, as content alone. This spec reads the fix's code and its
+    Inertialization node as landing at 9.3, on the committed blueprint (7.6), so that the content change stays its own
+    change; the owner may prefer the fix in the content change itself.
+133. **D-20261011-13's "the one test it breaks".** The decision names one test and not which. This spec reads it as the
+    defense-authoring recipe test, the one the 2026-10-04 code reading expected the uncommitted defense configuration
+    edit to break (7.6, **[reported]**), updated to the asset as it lands. A second broken test would be a finding for
+    the owner, not a quiet second update.
+134. **D-20261011-14's "schema change" and its path list.** The register says the manifests "get a schema change" and
+    names no key; this spec reads it as the keys that name the gate and the removed asset going, in place of a rename
+    of their values (7.5). The list of hard-coded paths (the two authoring operations, the two target lists, the capture
+    pair files and the evidence file names) and the fate of the two authoring operations come from the session's form,
+    not from the register's condensed entry; they are carried as stated there.
+135. **D-20261011-17's "a small floor".** The decision gives the turn rate "the remaining time with a small floor" and
+    no value. This spec reads the turn's T, within the grace, as the time left to the deferred contact, floored so that
+    a press late in the grace never asks for an infinite rate (3.2, "Parry assists"); the floor is a tunable with no
+    decided value, and no question is asked for it.
+136. **D-20261011-18's factor and D-20261011-19's intensity.** Both are "per-profile" values with no decided number;
+    this spec lists them as tunables and asks no question (3.2, 3.12). The factor deepens a slowdown that
+    D-20261005-33 bounds at 50% speed and 0.3 s; the assist applies "for the whole window", which is at least 0.35 s,
+    so this spec reads the assist, when on, as replacing those bounds for the window's length; the owner may prefer the
+    bounds kept and the assist clamped by them.
+137. **D-20261012-01's "perfect tier".** The decision has the timing cues "play at the perfect tier". This spec has one
+    parry outcome and no graded timing tiers, so it reads the phrase as the parry's own contact feedback at its full
+    value, what a perfectly timed press would get (3.2, "On success", item 5), with the values from the feedback sweep
+    [D-20261005-78]; the owner may want graded timing cues defined, which would be a new rule.
+138. **D-20261012-02's "neutral", and the window scale's home.** "Neutral" is read as the defaults the register states
+    (buffer 0 s, grace 0 s, slow motion off, telegraph on, always perfect parry off), telegraph on included, since
+    D-20261005-78 calls those defaults neutral. The decision names five assists; this spec puts the window scale of
+    D-20261005-09 in the same "Assists" section, as the sixth setting, so that one section holds every parry assist
+    (4.8).
+139. **Always perfect parry beside a non-zero buffer or grace.** D-20261012-01 makes the window the whole approach and
+    says nothing about the buffer or the grace on such a profile; this spec states no combination (3.2, "Parry assists")
+    and leaves it for the owner if a profile ever sets both.
 
 ## Appendix C. Later graduation: paired counters for all directions
 
