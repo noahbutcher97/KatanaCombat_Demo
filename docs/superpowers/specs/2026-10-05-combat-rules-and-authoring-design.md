@@ -1,7 +1,7 @@
 # Combat rules, data model and attack authoring: design
 
 - **Date:** 2026-10-05.
-- **Revised:** 2026-10-10, three times, 2026-10-11 once, 2026-10-12 twice and 2026-10-13 once. First for D-20261007-53 to -59 and D-20261010-01 to -04: the kit as the root asset,
+- **Revised:** 2026-10-10, three times, 2026-10-11 once, 2026-10-12 twice, 2026-10-13 once and 2026-11-01 once. First for D-20261007-53 to -59 and D-20261010-01 to -04: the kit as the root asset,
   the combat rules split from the per-character settings, the player by data, the marker's home, table-shaped selection
   with one trace, the timeline as the attack editor, and paired content found by key. Then for D-20261010-05 to -15:
   **the parry simplified to the standard model** (a deflect that Staggers the attacker; a Staggered enemy dies to the
@@ -33,10 +33,13 @@
   sources, with D-20261011-07's premise corrected; **the parry lead as a rule with exceptions** (R-20261005-01
   vetoed); **charge as a level from 0 to 1**; the lunge and dodge passages stating each rule's own reason; and **the
   enemy playing its moveset**, a weighted opener then weighted links, with the variety rule moved to the
-  presentation tables.
-- **Status:** draft for the owner's read-through, which is under way; section 5 is proposed and is read as part of it.
+  presentation tables. Then for D-20261101-01, -02, -04 and -05: what the held-content change leaves out and when
+  it lands, and the owner reading this spec stage by stage after it merges as the current draft.
+- **Status:** the current draft, merged to `main` before the owner's full read [D-20261101-04]. The owner reads the
+  sections each stage needs before that stage starts [D-20261101-02], and later changes land as small edits; section 5
+  is proposed and is read before the stage that builds it.
   Every section has been walked, the fresh-eyes consistency pass of D-20261012-29 has been applied, and no question is
-  open. The register is used through D-20261013-05; the ruling R-20261005-01 is **vetoed** [D-20261013-02]. It
+  open. The register is used through D-20261101-05; the ruling R-20261005-01 is **vetoed** [D-20261013-02]. It
   authorizes no code change and no asset save.
 - **Why this exists.** The owner's standing rule [D-20261004-45]: "i want to get more specific with the rules for guard
   breaks, finishers, parries, and counters, and what causes what and how and why and exact mechanics i dont want to find
@@ -49,7 +52,7 @@
   rework of today's post-parry press window, which stays as the interim behaviour until the parry and follow-up stages
   (9.7, 9.8) retire it. Their effect on the rules is noted where it matters. No pull request that touches these rules is open.
 - **Sources.**
-  - The decisions register, `docs/sessions/registers/decisions.md` (local and git-excluded), through D-20261013-05. The ruling R-20261005-01 is vetoed [D-20261013-02] and is named only as such. Only
+  - The decisions register, `docs/sessions/registers/decisions.md` (local and git-excluded), through D-20261101-05. The ruling R-20261005-01 is vetoed [D-20261013-02] and is named only as such. Only
     active decisions are used, and "superseded by" is respected. Where the register records the owner's words, those words
     are quoted; where it records a reading of them ("my reading", "the owner may veto"), the hedge is carried into Appendix
     B unchanged.
@@ -4186,12 +4189,14 @@ The proof-split draft of 2026-10-03 proposed `<Seed>_GateA` names. D-20261004-17
 
 ### 7.6 The owner's held content
 
-Held for this work [D-20261004-09], and **landing now, as its own change before any stage** [D-20261011-13]. The owner's
-pick: "A. Now, as its own change before any stage, with the one test it breaks updated in the same change". Later stages
-work from committed assets: no stage resaves, migrates or reads around an uncommitted file.
+Held for this work [D-20261004-09]. It is committed on a local branch and **lands as its own change when a stage first
+uses it, which as specified is the start of 9.3** [D-20261101-05, amending D-20261011-13]. 9.1 and 9.2 work from `main`
+and resave none of its files; from 9.3 on, no stage resaves, migrates or reads around a file that has not landed.
 
-**What lands.** About 326 uncommitted files, as the owner's working tree holds them (the count and the list are from the
-session of 11 October, **[reported]**; the change itself is the record). Where a value is quoted it comes from the
+**What lands.** 326 uncommitted files, as the owner's working tree holds them: 314 modified and 12 new (counted on
+2026-11-01; the change itself is the record). Two untracked animation folders in the same tree,
+`Content/Grave_Mercer/` and `Content/Assets/Animations/Ninja_Anims/` (277 files that no other asset, source or config
+file refers to), are not part of it [D-20261101-01]. Where a value is quoted it comes from the
 2026-10-04 log (E13) and the current-rules reference **[reported]**:
 
 | Held content | Then, in the stages |
@@ -4201,7 +4206,7 @@ session of 11 October, **[reported]**; the change itself is the record). Where a
 | The animation blueprint, `ABP_SamuraiCharacter`, with its blend-space edits | The charge-loop snap fix edits the committed blueprint at 9.3 (below) |
 | 8 hit-reaction montages, trimmed to about 1–2 s per section | The base profile's hit reactions, at 9.3 |
 | `LightAttack_1`–`5`: knockback overrides, and `LightAttack_5`'s 0.3 s hitstop | Attack overrides, at 9.3 |
-| Three data assets: `DA_CombatSettings_Default` (knockback defaults Light 60 cm / 0.2 s, Heavy 150 cm / 0.4 s, as the condensed 10-04 summary records them; **verify on the asset**), `DA_HitReaction` (`HeavyDamageHealthPercent` = 1) and `DA_DefenseConfiguration_GateA` (the GhostSamurai rows, guard enter and exit) | Combat settings type defaults, the asset being the source [D-20261004-38]; the field removed [D-20261004-42]; the defense set and the base profile, as above, by the stages of 4.10 |
+| Three data assets: `DA_CombatSettings_Default` (knockback defaults Light 60 cm / 0.2 s, Heavy 150 cm / 0.4 s, read from the asset on 2026-11-01), `DA_HitReaction` (`HeavyDamageHealthPercent` = 1) and `DA_DefenseConfiguration_GateA` (the GhostSamurai rows, guard enter and exit) | Combat settings type defaults, the asset being the source [D-20261004-38]; the field removed [D-20261004-42]; the defense set and the base profile, as above, by the stages of 4.10 |
 | Guard locomotion | Kept as it lands |
 
 `AM_Heavy_Katana_Event`, once in this list, is already on `main` and is not part of the change.
@@ -4212,8 +4217,8 @@ reading, from code only, **[reported]**). The test is updated to the asset as it
 asset stay until the parry stage [D-20261011-12]. If the change breaks any other test, that is a finding for the owner,
 not a second test to update quietly (a reading, Appendix B).
 
-**The charge-loop snap fix** [D-20261004-32] was tied to the animation-blueprint edits. With those edits landing before
-any stage, the fix lands at 9.3, editing the committed blueprint (a reading, Appendix B):
+**The charge-loop snap fix** [D-20261004-32] was tied to the animation-blueprint edits. With those edits landing at the
+start of 9.3, the fix lands in that stage, editing the committed blueprint (a reading, Appendix B):
 - the code requests inertialization after each section jump, using the authored blend times;
 - `ABP_SamuraiCharacter` gets one Inertialization node, between the layered blend per bone and the output pose
   (the 2026-10-04 log, E14).
@@ -4388,8 +4393,8 @@ In each test, the fixture sets the values named, never the shipped ones.
 **The order below is approved** [D-20261012-03], with 9.3 delivered as four changes (9.3). Each stage lists the
 decisions it implements and what it needs first; nothing it needs is an open question.
 
-**Before stage one** [D-20261011-13]: the owner's held content (7.6) lands as its own change, with the one test it
-breaks updated in the same change. No stage starts on uncommitted assets. The grip socket fix [D-20261010-15] stays a
+**Before 9.3** [D-20261101-05]: the owner's held content (7.6) lands as its own change, with the one test it
+breaks updated in the same change. 9.1 and 9.2 work from `main` and resave none of its files. The grip socket fix [D-20261010-15] stays a
 parry-stage prerequisite (9.7).
 
 **Where the 7 and 10 October decisions land** (this spec's call, stated so that it can be overruled): the table
@@ -4410,7 +4415,7 @@ the dropped height, the swing-shape criterion and the row model in 9.3, with the
 D-20261011-09, D-20261011-11]; authored clips for the eleven keys in 9.7, with the layered experiment as a
 capture-gated addition to it [D-20261011-10]; the lunge content in a stage of its own after the parry, 9.9
 [D-20261011-04]. The 11 and 12 October answers that followed: the defense configuration shrunk at 9.3 and deleted at
-9.7 [D-20261011-12]; the held content before 9.1 [D-20261011-13]; the renames, with their redirectors deleted, the label
+9.7 [D-20261011-12]; the held content before 9.1 [D-20261011-13], since moved to 9.3 [D-20261101-05]; the renames, with their redirectors deleted, the label
 test and the manifests' schema change, in 9.3 [D-20261011-14]; the five parry assists as profile fields in 9.3 and as
 rules with their tests in 9.7, with the shipped-profile invariant checked from 9.3 [D-20261011-15 to D-20261011-19,
 D-20261012-01, D-20261012-02].
@@ -4456,7 +4461,8 @@ playing its moveset in 9.3's profile rows and, in play, from 9.3, when the profi
   and one trace that says why a press chose what it chose.
 - **Decisions:** D-20261005-01 (structure), D-20261005-03, D-20261007-57 (the evaluator), D-20261010-05 (the Heavy 4
   link), D-20261012-06, D-20261012-11, D-20261012-16 to D-20261012-20.
-- **Needs:** nothing open. PR #139 has merged.
+- **Needs:** nothing open. PR #139 has merged. Starts from `main`; the migration reads the 20 attacks and resaves none
+  of them, because five (`LightAttack_1` to `5`) are in the held content (7.6) [D-20261101-05].
 
 ### 9.2 The moveset grid
 
@@ -4480,8 +4486,7 @@ playing its moveset in 9.3's profile rows and, in play, from 9.3, when the profi
 - **Ships:** the owner's chosen editor, with the timeline and the simulate-press panel.
 - **Decisions:** D-20261005-02, D-20261007-34, D-20261007-35, D-20261007-57, D-20261007-58, D-20261010-17,
   D-20261010-18, D-20261012-17, D-20261012-20.
-- **Needs:** section 5, which is proposed and is read as part of the owner's read-through now under way (the status
-  line); nothing else.
+- **Needs:** section 5, which is proposed and is read before this stage starts [D-20261101-02]; nothing else.
 
 ### 9.3 Layered attack data, the kit, the combat rules and reaction profiles
 
@@ -4536,7 +4541,7 @@ assignment (Appendix B).
     this stage:** the mirrors drive play exactly as the
     hand-authored notifies did, until the runtime reads the data in 9.7 [D-20261007-36, D-20261007-38, D-20261007-40];
   - every attack field slot-overridable, in the data [D-20261007-35].
-- **Ships:** the same rules, with one place per question; the owner's tuning, committed before stage one, read from its
+- **Ships:** the same rules, with one place per question; the owner's tuning, landed at the start of this stage, read from its
   new homes.
 - **Decisions:** D-20261004-20, D-20261004-22 (placement per D-20261005-48), D-20261004-32, D-20261004-38,
   D-20261004-41 (data), D-20261004-19, D-20261002-07, D-20261005-46, D-20261005-47 (no body types), D-20261005-48,
@@ -4552,7 +4557,7 @@ assignment (Appendix B).
   D-20261012-21 (the enemy kit and the per-instance overrides), D-20261012-23 (the names), D-20261012-30 ("Staggered is
   fatal" as data), D-20261012-33 (the height sources in the row model), D-20261013-02 (the extra lead as data),
   D-20261013-03 (the charge level, as data), D-20261013-05 (the profile's rows and the pick policies).
-- **Needs:** nothing open; the held content committed before stage one (7.6) [D-20261011-13].
+- **Needs:** nothing open; the held content lands at the start of this stage (7.6) [D-20261101-05].
 
 ### 9.4 The dodge
 
@@ -4811,7 +4816,7 @@ charge as a level (3.6) [D-20261013-03, which replaces D-20261012-05]; the lunge
 own reason (3.3, 3.14) [D-20261013-04]; and the enemy playing its moveset, with the variety rule moved to the
 presentation tables (4.15, 4.17) [D-20261013-05]. The register (`docs/sessions/registers/decisions.md`) holds the
 owner's picks and words, the 2026-10-12 and 2026-10-13 logs the order they were answered in, and Appendix A each
-decision with the places it touches. Section 5 is proposed and is read as part of the read-through now under way; it
+decision with the places it touches. Section 5 is proposed and is read before the stage that builds it [D-20261101-02]; it
 waits on no separate approval.
 
 **Evidence-pending.** Two decisions are made as to method and wait on evidence, not on the owner:
@@ -4850,7 +4855,7 @@ now.
 | D-20261004-02 | Guard aim with magnetism (queued) | 3.11 |
 | D-20261004-03 | Player free, attacker held | 3.3, 3.4 |
 | D-20261004-06, -07 | Parry readability; parry assists as settings | 3.2, 4.8 |
-| D-20261004-09 | Hold the owner's content for this work. **Released by D-20261011-13:** it lands as its own change before any stage | 7.6, 9 |
+| D-20261004-09 | Hold the owner's content for this work. **Released by D-20261011-13:** it lands as its own change, at 9.3 since D-20261101-05 | 7.6, 9 |
 | D-20261004-17, -19 | No planning labels; the label-carrying assets renamed here | 7.5, 8.1, 9 |
 | D-20261004-20 | Data model with defaults and overrides, and a base profile. Its "profile holds block and parry" is superseded by D-20261005-48 | 1.3, 4 |
 | D-20261004-21 | Code-driven block and parry turn | 3.1, 3.2 |
@@ -4860,7 +4865,7 @@ now.
 | D-20261004-26 | Design pillars | 1.2 |
 | D-20261004-27 | Defense role per enemy type. **Superseded in rules by D-20261012-22:** the rules are the same for every enemy; its intent, grunts that fall at once and elites that demand the harder parry, lives in content and profile values | 3.5, 3.9 |
 | D-20261004-30 | Turn-deflect into front pairs. **Closed by D-20261011-04:** the clips have one role in the live parry, the lunge's sidestep-and-face deflect selected by a deflect row's motion criterion; they are not the parry's turn, which the deflect's body-yaw coverage and the bounded turn carry [D-20261010-12] | 2.2, 3.2, 3.3, 9.9 |
-| D-20261004-32 | Charge-loop snap fix with the redesign; tied to the animation-blueprint edits, which now land before any stage [D-20261011-13], so the fix edits the committed blueprint at 9.3 (Appendix B 132) | 7.6, 9.3 |
+| D-20261004-32 | Charge-loop snap fix with the redesign; tied to the animation-blueprint edits, which land at the start of 9.3 [D-20261101-05], so the fix edits the committed blueprint in that stage (Appendix B 132) | 7.6, 9.3 |
 | D-20261004-33 | Timing read from the montage (merged in #139); now the timing read of "Analyze attack" [D-20261011-06] | 4.13, 5.4, 7.2 |
 | D-20261004-34 | Keep Force Root Lock | 7.6 |
 | D-20261004-35 | Aim decides; the state is called Staggered | 3.3, 3.4 |
@@ -5018,7 +5023,7 @@ now.
 | D-20261011-10 | Deflect architecture: authored full clips per key are the spec's design (the only design with shipped precedent, and the control set); the layered build (3–4 base clips + 10–13 single-frame poses cut from owned clips + off-hand grip IK + clamped blade IK; the rear as a separate one-handed base) is a capture-gated experiment on five keys (front-mid swing, side-high, rear-mid, front-mid thrust, lunge) with authored, blade-IK-off, grid-off and grip-IK-off conditions; "a key switches to layered only where it beats the authored control and the premise conditions are worse". Closes D-20261011-08 (b); the front clips' review of D-20261012-28 decides what to attempt per key within it | 2.2, 3.3, 4.6, 6.4, 8.2, 8.3, 9.7, Appendix B 124–126 |
 | D-20261011-11 | Deflect row content model: a row = its key criteria + a Presentation that is either a full clip (today's payload, unchanged) or a layered reference (a named base on the defense set + an additive pose, with the pose fingerprinted against its base, optional IK clamp overrides); no whole-row overrides; a coverage validator walks every key with the fallback order shown; the resolver records the matched key, tier, mode and clamp state for the simulate-press panel. Closes D-20261011-08 (c) | 2.1, 2.2, 3.3, 4.1, 4.3, 4.6, 4.17, 5.9, 5.12, 6.3, 6.4, 7.4, 8.2, 9.3, 9.7, Appendix B 123, 127 |
 | D-20261011-12 | The defense configuration class is kept and shrunk stage by stage; the data-model stage moves out only what today's rules do not read differently; it is deleted with the parry stage, which replaces the interim post-parry sequence that still reads it. The owner's pick: "A. Keep the class, shrink it each stage, delete it with the parry stage" | 4.1, 4.10, 7.4, 7.6, 7.7, 9, 9.3, 9.7, Appendix B 131 |
-| D-20261011-13 | The owner's held content (about 326 uncommitted files) lands now as its own change before any stage, with the one test it breaks updated in the same change; later stages work from committed assets. The owner's pick: "A. Now, as its own change before any stage, with the one test it breaks updated in the same change" | 7.6, 9, 9.3, Appendix B 132, 133 |
+| D-20261011-13 | **Amended by D-20261101-05: it lands at 9.3.** The owner's held content (about 326 uncommitted files) lands now as its own change before any stage, with the one test it breaks updated in the same change; later stages work from committed assets. The owner's pick: "A. Now, as its own change before any stage, with the one test it breaks updated in the same change" | 7.6, 9, 9.3, Appendix B 132, 133 |
 | D-20261011-14 | Renames of label-carrying test assets and test names: redirectors fixed up and deleted in the same change; a test asserts that no package path or test name carries an internal planning label; the manifests get a schema change; the authoring operation tied to the retiring parry sequence retires with it, the contact-matrix one is re-targeted to the new sets | 7.0, 7.5, 8.1, 8.2, 9, 9.3, Appendix B 134 |
 | D-20261011-15 | All five parry assists (input buffer, contact grace, slow motion on window, telegraph, always perfect parry) get rules now, before the parry stage. The owner's pick: "B. Specify all five now" | 2.2, 3.2, 9, 9.7 |
 | D-20261011-16 | Parry assist, input buffer (default 0 s): a Block press up to N s before the window opens is held and counts at the window's first frame; it is never a miss and charges no lockout; if a closer threat's window opens first the held press parries that one (lands-first); the attacker's slowdown and the turn start at the window | 2.2, 3.2, 3.12, 4.8, 6.3, 6.4, 8.2, 9.7 |
@@ -5027,7 +5032,7 @@ now.
 | D-20261011-19 | Parry assist, telegraph (default on): a cue from the telegraph set at window open, on the attacker's weapon (flash/tint and a sound), scaled by the profile's intensity; off = no cue; driven by the predictor's window-open event; unparryable attacks show their own readable cue instead | 2.2, 3.2, 3.12, 3.15, 4.8, 6.4, 6.5, 8.2, 9.7, Appendix B 136 |
 | D-20261012-01 | Parry assist, always perfect parry (default off): any Block press while a parryable attack is incoming, from the attack's start to its contact, parries it; no lockout; timing cues play at the perfect tier; unparryable stays unparryable; lands-first picks the threat; a validation info note when a shipped profile has it on. Closes Appendix B 12 | 3.2, 3.12, 4.8, 6.3, 6.4, 8.2, 9.7, Appendix B 12, 137, 139 |
 | D-20261012-02 | The five assists live on the reaction profile under an "Assists" section; shipped enemy profiles have them neutral by a content invariant (a decided rule, not a pinned tunable) | 2.2, 3.2, 3.12, 4.8, 8.1, 8.2, 9, 9.3, 9.7, Appendix B 138 |
-| D-20261012-03 | The stage order is approved as listed: the held content first; combo sets with today's behaviour; the grid, timeline and simulate-press panel; the data model, delivered as four changes (the resolved spec and impact block; the kit, sets and profile; the rules split and window-ownership data; the renames); the dodge; hit rules; guard rules; parry rules with the deflect's first layer; the follow-up and paired finishers; lunges; lock mode; several attackers; removing deprecated fields. The owner's pick: "A. As listed, with 9.3 delivered as four changes". Closed the former stage-order question | 9, 9.3, 10, Appendix B 150 |
+| D-20261012-03 | **Amended by D-20261101-05: the held content moves to 9.3.** The stage order is approved as listed: the held content first; combo sets with today's behaviour; the grid, timeline and simulate-press panel; the data model, delivered as four changes (the resolved spec and impact block; the kit, sets and profile; the rules split and window-ownership data; the renames); the dodge; hit rules; guard rules; parry rules with the deflect's first layer; the follow-up and paired finishers; lunges; lock mode; several attackers; removing deprecated fields. The owner's pick: "A. As listed, with 9.3 delivered as four changes". Closed the former stage-order question | 9, 9.3, 10, Appendix B 150 |
 | D-20261012-04 | The parry stage's exit gate: the rendered checks named for the deflect's first layer (the eleven authored keys; foot slide and yaw within the limits; press-to-contact within a frame; the telegraph on the window) plus a green baseline; the layered experiment and the lunge content are not required to pass it | 9.7, Appendix B 145 |
 | D-20261012-05 | A heavy attack is "charged" when its hold check found Heavy still held, so that it entered its charge loop (today's yes-or-no state); pressure 3, hit-stun 0.6 s, the guard breaker and the charged damage multiplier key on it. Closed the former question on "charged". **Replaced by D-20261013-03:** charge is a level from 0 to 1 | 3.6, 10, Appendix B 14 |
 | D-20261012-06 | The unused Special attack type is removed from the code until a special attack is designed: no asset, input or rule uses it, and the type-default tables lose the column. The owner: "When did we discuss special attacks?" (never: the value exists only in today's enums). Closed the former question on its defaults | 2.2, 3.3, 3.6, 3.8, 4.2, 4.5, 4.9, 6.4, 7.2, 7.7, 8.2, 9.1, 9.3, 10, Appendix B 32 |
@@ -5063,6 +5068,10 @@ now.
 | D-20261013-03 | **Charge is a level from 0 to 1** (time in the charge loop over the attack's full-charge time): damage and knockback lerp from 1× to the attack's max multipliers; the discrete charged effects (pressure 3, hit-stun 0.6 s, guard breaker) trip at a per-attack threshold, default full. Full-charge time and the threshold are attack data, slot-diffable; the trace carries the level. **Replaces D-20261012-05** (yes/no). Today's code has the level's plumbing (`ChargeLevel`, `PushDistance`'s lerp) but never computes it, so "scaled by charge, as today" meant no scaling. The owner: "aren't we scaling charge damage and knockback by the percentage of the way to fully charged reached before releasing?" | 2.2, 3.6, 3.10, 3.12, 4.2, 4.5, 4.9, 4.11, 4.17, 6.3, 6.4, 8.2, 9.3, 9.5, 10, Appendix B 14 |
 | D-20261013-04 | **The lunge motion class and the dodge's starting numbers stand;** the spec states each rule's own reason (a thrust closes distance on a line, which changes the deflect's turn and the attacker's nudge; the clip's travel and length are starting values before the capture sweep) and names the clips only as the prompt. Answers the review's R15 under "rules before content". The owner's pick: "Keep both; the spec states the rule's own reason and names the clips only as the prompt" | 3.3, 3.12, 3.14, 4.16, 9.4, 9.9, 10 |
 | D-20261013-05 | **Enemy attack choice is redesigned: the enemy plays its moveset.** It picks an opener by weighted draw among the openers whose range and target state pass, then at each combo window follows a link (light, heavy, each directional) or stops, each weighted on the AI profile per slot; repeats are links in the enemy's combo set; flurries are authored chains. The variety rule leaves AI tables and becomes a pick policy of the presentation tables; the shared evaluator filters and traces, and each table names its pick policy. AI profile rows keyed by slot id carry opener weight, range, target state and the link weights out of that slot. **Amends D-20261005-63 and D-20261012-12** (row contents); cooldown and resume delay unchanged. The owner: "what if we want an enemy to try a specific attack type like lunging more than once in a row?", then "this sounds like it needs a redesign" | 1.3, 2.2, 3.9, 3.12, 4.1, 4.4, 4.7, 4.15, 4.17, 5.12, 6.3, 6.4, 7.2, 8.2, 9.1, 9.3, 10, Appendix B 141, 148, 160 |
+| D-20261101-01 | Two untracked animation folders, `Content/Grave_Mercer/` and `Content/Assets/Animations/Ninja_Anims/`, stay out of the held-content change | 7.6 |
+| D-20261101-02 | The owner reads the sections each stage needs before that stage starts, in place of one read of the whole spec before any code | Status, 9.2, 10 |
+| D-20261101-04 | This spec merges to `main` as the current draft; later review changes land as small edits | Status |
+| D-20261101-05 | The held content stays on a local branch until a stage first uses it, 9.3 as specified; 9.1 and 9.2 work from `main` and resave none of its files. Amends D-20261011-13 and D-20261012-03 | 7.6, 9, 9.1, 9.3 |
 
 **Superseded, and not used as rules:**
 - D-20261004-28, the two modes by enemy type, superseded by D-20261005-24;
@@ -5120,7 +5129,7 @@ now.
 - this spec's retirement of `UDefenseConfiguration` at the data-model stage: the class is kept and shrunk stage by
   stage and deleted with the parry stage [D-20261011-12];
 - this spec's holding of the owner's content for the data-model stage: it lands as its own change before any stage
-  [D-20261011-13];
+  [D-20261011-13], since moved to 9.3 [D-20261101-05];
 - this spec's test that renames leave redirectors: redirectors are fixed up and deleted in the same change, and a test
   asserts that no package path or test name carries an internal planning label [D-20261011-14];
 - this spec's reading that always perfect parry defaults to off (Appendix B 12), now decided off [D-20261012-01];
@@ -5319,8 +5328,8 @@ its decision.
     D-20261005-34; the option's description (session transcript, 04:02 EDT) calls it "the 0.12 s floor decided earlier".
 27. The glossary's back-to-opener entry uses a word that its own last table retires, for the parry and the paired
     finisher. This spec says "combo" for a run of linked attacks.
-28. The owner's held knockback values (60 cm and 150 cm) come from a condensed summary. Check them on the asset, which
-    lands before any stage [D-20261011-13] (7.6).
+28. The owner's held knockback values (60 cm and 150 cm) came from a condensed summary; they were read from the asset on
+    2026-11-01 and are correct (7.6).
 29. An entry that names the parried attack's lane is preferred over one that does not, as the ordering of D-20261005-45's
     "optional refinement". **Decided since** by D-20261010-01's "lane preferred".
 30. **Set aside with the paired counter (Appendix C).** A follow-up strike's paired non-lethal clip was taken from the
