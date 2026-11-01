@@ -95,6 +95,8 @@ Core combat rules to preserve:
 - Parry is defender-side logic checking the attacker's parry window.
 - Hold logic checks current button state at the window boundary, not duration.
 
+Use the combat glossary in new identifiers, tooltips, logs and docs: one meaning per term, and no retired words. Section 2 of `docs/superpowers/specs/2026-10-05-combat-rules-and-authoring-design.md` is the glossary and lists the retired words. Existing names keep working until the change that renames them.
+
 ## Testing Guidelines
 
 Name automation suites with the `KatanaCombat.*` path pattern, for example `KatanaCombat.CombatComponent.InputBuffering`. Add focused tests in `Source/KatanaCombatTest/Private/` and reuse `CombatTestHelpers.h` for world, character, and attack data setup. Cover state transitions, null safety, component interaction, and animation-window behavior when changing combat logic.

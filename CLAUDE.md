@@ -305,6 +305,9 @@ This applies to ALL `BlueprintNativeEvent` interface methods:
   - Where: names of assets, folders, files, classes and tests; code comments, tooltips and log text; commit messages, branch names and PR titles.
   - Describe the thing instead, so a reader without our planning docs understands it: "the rendered parry, counter and finisher test", not "the Gate A proof". See `AGENTS.md` → Coding Style & Naming Conventions.
   - Gameplay vocabulary (Windup/Active/Recovery phases, combo steps, chain stages) is fine.
+- **Use retired combat words in new work**: one meaning per term, in identifiers, tooltips, logs and docs.
+  - Section 2 of `docs/superpowers/specs/2026-10-05-combat-rules-and-authoring-design.md` is the glossary and lists the retired words.
+  - Existing names keep working until the change that renames them; don't add new uses.
 
 ## Editor Tool Architecture Patterns
 
@@ -657,4 +660,4 @@ with detected CPU contention (35 and 38.6 FPS); every D3D12 clip-recording run h
 PSO creation, SM6 render cost, CPU contention). AnimationAnalysis async, surface and GPU-mesh capture are
 D3D11-only. Use `-dx12` per launch (`run_scenario.py --rhi dx12`) when D3D12 is wanted.
 
-**Plugin Conflicts**: 14 conflicting marketplace plugins disabled in `KatanaCombat.uproject:53-109`. Only enabled: ModelingToolsEditorMode, StateTree, GameplayStateTree, MotionWarping.
+**Plugin Conflicts**: conflicting marketplace plugins are disabled in `KatanaCombat.uproject`. That file is the list of what is enabled, including StateTree, GameplayStateTree, MotionWarping, AnimationWarping, PoseSearch, MotionTrajectory, Chooser and PhysicsControl, plus the pinned AnimationAnalysis and PresentationCapture.
