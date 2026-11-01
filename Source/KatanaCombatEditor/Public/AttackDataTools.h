@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
 #include "CombatTypes.h"
+#include "Data/AttackTimingDerivationTypes.h"
 #include "AttackDataTools.generated.h"
 
 class UAttackData;
@@ -83,6 +84,20 @@ public:
      */
     UFUNCTION(BlueprintCallable, Category = "Attack Data Tools")
     static bool GetTimingPercentages(UAttackData* AttackData, float& OutWindupPercent, float& OutActivePercent, float& OutRecoveryPercent);
+
+    /**
+     * Write the timing the attack's montage section plays into ManualTiming, the timing notify generation uses:
+     * Windup, Active and Recovery from the section's AnimNotify_AttackPhaseTransition notifies, and HoldWindowStart
+     * from its AnimNotify_HoldWindowStart when the attack uses a hold. HoldWindowDuration has no montage source and
+     * is kept. Undoable; marks the asset dirty. Writes nothing when a notify is missing or ambiguous, or when notify
+     * generation would refuse the result; OutResult.Derivation.Errors says why.
+     *
+     * @param AttackData - Attack whose timing to derive
+     * @param OutResult - Before and after values, outcome, reasons and notes
+     * @return True when the timing was written or already matched
+     */
+    UFUNCTION(BlueprintCallable, Category = "Attack Data Tools")
+    static bool DeriveTimingFromMontage(UAttackData* AttackData, FAttackTimingApplyResult& OutResult);
 
     // ============================================================================
     // ANIMNOTIFY GENERATION
@@ -290,6 +305,20 @@ public:
      * @param OutValidAssets - Assets that passed validation
      * @param OutInvalidAssets - Assets that failed validation
      */
+    /**
+     * DeriveTimingFromMontage for several assets under one transaction, so one undo reverts every write.
+     *
+     * @param AttackDataArray - Assets to process
+     * @param OutResults - One result per asset, in order
+     * @param OutAppliedCount - Assets whose timing was written
+     * @param OutUnchangedCount - Assets whose timing already matched
+     * @param OutRefusedCount - Assets left unchanged because their timing could not be derived
+     * @return True if no asset was refused
+     */
+    UFUNCTION(BlueprintCallable, Category = "Attack Data Tools")
+    static bool BatchDeriveTimingFromMontage(const TArray<UAttackData*>& AttackDataArray, TArray<FAttackTimingApplyResult>& OutResults,
+        int32& OutAppliedCount, int32& OutUnchangedCount, int32& OutRefusedCount);
+
     UFUNCTION(BlueprintCallable, Category = "Attack Data Tools")
     static void BatchValidate(const TArray<UAttackData*>& AttackDataArray, TArray<UAttackData*>& OutValidAssets, TArray<UAttackData*>& OutInvalidAssets);
 

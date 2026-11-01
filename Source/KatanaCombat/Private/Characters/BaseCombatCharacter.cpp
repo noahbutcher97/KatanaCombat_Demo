@@ -1277,13 +1277,9 @@ float ABaseCombatCharacter::ApplyDamage_Implementation(const FHitReactionInfo& H
         return 0.0f;
     }
 
-    if (CombatComponent && CombatComponent->CanBlockHit(HitInfo))
-    {
-        UE_LOG(LogTemp, Log, TEXT("[DAMAGE] %s blocked %.1f incoming damage"),
-            *GetName(), HitInfo.Damage);
-        return 0.0f;
-    }
-
+    // Direct damage is applied as given; a held guard does not reclassify it. Whether a weapon contact is
+    // blocked is decided once, by the defense resolver in ResolveAndCommitCombatContact, which commits its
+    // damage without coming through here.
     const float DamageDealt = HitReactionComponent->ApplyDamage(HitInfo);
 
     // Modify health by damage amount
@@ -1486,6 +1482,18 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         return;
     }
 
+    // A weapon contact with a combat character is resolved by the defense resolver when the weapon trace
+    // lands (UWeaponComponent::ProcessHitWithAttackData), which commits its damage, block and impact effects
+    // and never broadcasts OnWeaponHit. A broadcast that names a combat character carries no contact identity
+    // for the resolver, so it must not decide damage or blocking here.
+    if (Cast<ABaseCombatCharacter>(HitActor))
+    {
+        UE_LOG(LogCombat, Warning,
+            TEXT("[HIT] %s IGNORED: weapon hits on combat character %s are resolved at contact by the defense resolver"),
+            *GetName(), *HitActor->GetName());
+        return;
+    }
+
     UE_LOG(LogTemp, Log, TEXT("[HIT] %s hit %s with %s"),
         *GetName(),
         *HitActor->GetName(),
@@ -1497,17 +1505,6 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         UE_LOG(LogCombat, Verbose, TEXT("[HIT] %s SKIPPED: Target %s is friendly"),
             *GetName(), *HitActor->GetName());
         return;
-    }
-
-    // Skip dead/dying actors entirely - no damage, no reactions
-    if (ABaseCombatCharacter* CombatChar = Cast<ABaseCombatCharacter>(HitActor))
-    {
-        if (CombatChar->IsDeadOrDying())
-        {
-            UE_LOG(LogTemp, Warning, TEXT("[HIT] %s SKIPPED: Target %s is dead or dying"),
-                *GetName(), *HitActor->GetName());
-            return;
-        }
     }
 
     // Check if victim is in i-frames (invulnerable during hit reaction)
@@ -1603,13 +1600,10 @@ void ABaseCombatCharacter::OnWeaponHitTarget(AActor* HitActor, const FHitResult&
         // HIT-1: Populate bWasCounter from attacker's counter window state
         HitInfo.bWasCounter = CombatComponent ? CombatComponent->IsInCounterWindow() : false;
 
-        // Compute block state once for damage, audio, and hitstop.
-        bool bWasBlocked = IDamageableInterface::Execute_IsBlocking(HitActor);
-        if (ABaseCombatCharacter* HitCombatCharacter = Cast<ABaseCombatCharacter>(HitActor))
-        {
-            bWasBlocked = HitCombatCharacter->CombatComponent &&
-                HitCombatCharacter->CombatComponent->CanBlockHit(HitInfo);
-        }
+        // Combat characters never reach this point (see above), so no defense resolution exists for this
+        // target. A damageable actor outside the combat-character defense model reports its own blocking
+        // through IDamageableInterface; that report selects the blocked audio, VFX and hitstop variants.
+        const bool bWasBlocked = IDamageableInterface::Execute_IsBlocking(HitActor);
 
         UE_LOG(LogCombat, Log, TEXT("[HIT] %s applying %.1f damage to %s (blocked: %s)"),
             *GetName(), HitInfo.Damage, *HitActor->GetName(),

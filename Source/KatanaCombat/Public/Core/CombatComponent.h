@@ -354,7 +354,11 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Combat|Input")
 	bool CanProcessInput(EInputType InputType) const;
 
-	/** Begin sustained normal blocking when Block is held and no counter/parry consumed the input. */
+	/**
+	 * Begin sustained normal blocking when Block is held and no counter/parry consumed the input.
+	 * Refused while the character is dead or dying, mid-attack, or held by a paired animation: the victim or
+	 * owner of a counter or finisher, or either side of a parry, counter or finisher sequence.
+	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Block")
 	bool BeginBlock(AActor* ThreatActor = nullptr);
 
@@ -362,17 +366,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Combat|Block")
 	void EndBlock();
 
-	/** Is the owning character currently holding a normal block? */
+	/**
+	 * Is the owning character currently holding its guard? Holding the guard does not by itself block anything:
+	 * the defense resolver decides at weapon contact whether that contact is blocked, using the defense
+	 * configuration's Normal Block Final Tolerance.
+	 */
 	UFUNCTION(BlueprintPure, Category = "Combat|Block")
 	bool IsBlocking() const { return bIsBlocking; }
-
-	/** True when the held block should mitigate an incoming attack from this attacker. */
-	UFUNCTION(BlueprintPure, Category = "Combat|Block")
-	bool CanBlockAttackFrom(AActor* Attacker) const;
-
-	/** True when the held block should mitigate this concrete incoming hit. */
-	UFUNCTION(BlueprintPure, Category = "Combat|Block")
-	bool CanBlockHit(const FHitReactionInfo& HitInfo) const;
 
 	/** Native guard snapshot used by the rich defense resolver. */
 	bool IsGuardHeldForDefense() const { return bIsBlocking; }
@@ -502,6 +502,20 @@ public:
 	 */
 	UFUNCTION(BlueprintCallable, Category = "Combat|Queue")
 	void ClearQueue(bool bCancelCurrent = false);
+
+	/**
+	 * Execute the Light/Heavy response buffered during this interaction's committed stage (the parry bridge
+	 * or the counter), now that its response window (CounterWindow or FinisherReady) is open. A response
+	 * buffered for another interaction expires instead.
+	 */
+	void ReleaseBufferedChainResponse(FDefenseInteractionId OpenedInteraction);
+
+	/**
+	 * Expire any buffered Chain response that can no longer execute: its sequence ended, or a stage started
+	 * without it. Reason is recorded in action-reaction telemetry.
+	 */
+	void DiscardBufferedChainResponse(
+		EActionReactionTelemetryReason Reason = EActionReactionTelemetryReason::TerminalCleanup);
 
 	/**
 	 * Cancel actions based on priority
@@ -983,6 +997,7 @@ public:
 	friend class FCombatInputPairedVictimTakeoverTest;
 	friend class FCombatInputRejectedReleaseCleanupTest;
 	friend class FCombatHoldCleanupPreservesMovementModeTest;
+	friend struct FDefenseChainFixture;
 #endif // WITH_AUTOMATION_TESTS
 
 protected:
@@ -1049,6 +1064,26 @@ protected:
 	/** Process-monotonic identity for the next captured input edge. */
 	uint64 NextCombatInputSerial = 1;
 	uint64 NextActionQueueEntryId = 1;
+
+	/**
+	 * One newest-wins ChainOnly slot for Light/Heavy pressed during a committed stage that has a response
+	 * window to come (the parry bridge before CounterWindow, the counter before FinisherReady). Released when
+	 * that interaction's window opens; expired if the sequence ends or a stage starts without it. It never
+	 * feeds ActionQueue.
+	 */
+	struct FBufferedChainResponse
+	{
+		EInputType InputType = EInputType::None;
+		uint64 InputSerial = 0;
+		FDefenseInteractionId Interaction;
+	};
+	TOptional<FBufferedChainResponse> BufferedChainResponse;
+
+	/** Capture a Light/Heavy press made before its response window opened into the newest-wins slot. */
+	void BufferChainResponse(
+		EInputType InputType,
+		uint64 InputSerial,
+		const FDefenseInteractionId& Interaction);
 
 	/** Current attack phase (tracked independently) */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
@@ -1134,10 +1169,6 @@ protected:
 	/** True while the Block input is held and not consumed by a parry/counter. */
 	UPROPERTY(VisibleAnywhere, Category = "Combat|State")
 	bool bIsBlocking = false;
-
-	/** Half-angle of the normal block defensive cone. */
-	UPROPERTY(EditAnywhere, Category = "Combat|Block", meta = (ClampMin = "0.0", ClampMax = "180.0"))
-	float BlockFacingConeHalfAngle = 70.0f;
 
 	UPROPERTY(Transient)
 	TMap<FDefenseInteractionKey, FDefenseInteractionCacheRecord> DefenseInteractionCache;

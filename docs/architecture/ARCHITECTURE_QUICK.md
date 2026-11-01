@@ -85,6 +85,9 @@ Central resolver returns one contact outcome
 └─ Unblockable/out of alignment → HIT
 ```
 
+"Aligned" means within the defense configuration's Normal Block Final Tolerance, the only block angle. Damage
+applied directly through `IDamageableInterface::ApplyDamage` is not a contact and a held guard never blocks it.
+
 **Parry window is on ATTACKER's montage**. Perfect parry requires both the
 window and `Attack.Defense.Parryable`; normal block remains available while
 guard is held regardless of parry timing.

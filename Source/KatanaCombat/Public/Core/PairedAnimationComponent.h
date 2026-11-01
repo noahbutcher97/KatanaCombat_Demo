@@ -205,6 +205,14 @@ public:
 			|| ChainState == EChainCounterState::FinisherReady;
 	}
 
+	/**
+	 * True while this component owns a committed stage whose response window has not opened yet: a parry
+	 * bridge before CounterWindow, or a counter that can reach FinisherReady (it has finisher data and either
+	 * waits for input or has a retryable automatic finisher). Light/Heavy pressed now is captured as a
+	 * ChainOnly response and executes when that window opens.
+	 */
+	bool IsChainAwaitingResponseWindow() const;
+
 	/** True while Chain mode has a retained parried target for follow-up counter/finisher steps. */
 	UFUNCTION(BlueprintPure, Category = "Combat|Counter")
 	bool HasActiveChainTarget() const { return ActiveChainTarget.IsValid(); }
@@ -329,7 +337,11 @@ public:
 	/** True only when this component owns the active sequence whose authored victim is Actor. */
 	bool IsPairedSequenceOwnerFor(const AActor* Actor) const;
 
-	/** True for either retained role in an active defense sequence, with or without montages. */
+	/**
+	 * True for a role an active defense sequence currently holds, with or without montages. The source
+	 * attacker is held for the whole sequence; the defender is not held while a response window waits
+	 * after its stage montage has ended.
+	 */
 	bool IsDefenseSequenceParticipant() const;
 
 	/** True when this owner's death was committed by its retained lethal paired sequence.
@@ -520,6 +532,40 @@ protected:
 	/** Open CounterWindow only for the currently owned defense-stage generation. */
 	bool EnterDefenseCounterWindow(int32 ExpectedStageGeneration);
 
+	/**
+	 * Keep a started bridge's roles in their ready sections, or the source attacker on its reviewed terminal
+	 * pose when it authors no ready section, and watch the driver for a missed marker.
+	 */
+	void ArmBridgeReadyPoseHold(
+		const UPairedAnimationData* BridgeData,
+		UAnimInstance* DefenderAnim,
+		UAnimInstance* SourceAnim,
+		int32 StageGeneration);
+
+	/** The bridge driver reached its ready pose; clean up if that generation never opened CounterWindow. */
+	void HandleBridgeReadyPoseEntered(
+		UAnimMontage* Montage,
+		FName SectionName,
+		bool bLooped,
+		int32 ExpectedStageGeneration,
+		FName ReadySection);
+
+	/**
+	 * Watch a source-driven bridge whose attacker holds its terminal pose: that montage never ends on its own,
+	 * so resting on its last frame while still ParryActive is the sign that its marker never opened CounterWindow.
+	 */
+	void ScheduleBridgeTerminalPoseWatch(
+		UAnimInstance* SourceAnim,
+		UAnimMontage* Montage,
+		int32 ExpectedStageGeneration);
+	bool HandleBridgeTerminalPoseWatch(
+		FDefenseInteractionId Interaction,
+		TWeakObjectPtr<UAnimInstance> SourceAnim,
+		TWeakObjectPtr<UAnimMontage> Montage,
+		int32 ExpectedStageGeneration,
+		FDefenseAsyncHandle AsyncHandle,
+		float DeltaTime);
+
 	/** Schedule and receive the no-montage parry bridge. */
 	bool ScheduleNoMontageDefenseBridge(int32 ExpectedStageGeneration);
 	void HandleNoMontageDefenseBridgeElapsed(
@@ -582,6 +628,22 @@ protected:
 	void HandleDefenseOwnerDestroyed(AActor* DestroyedActor);
 	UFUNCTION()
 	void HandleDefenseSourceDestroyed(AActor* DestroyedActor);
+	/** The defender reacted to a hit (reaction, stun or stagger): the sequence it owns ends. */
+	UFUNCTION()
+	void HandleDefenderHitReactionStarted(EAttackDirection Direction, bool bIsHeavyHit);
+	UFUNCTION()
+	void HandleDefenderStunBegin(float Duration);
+	UFUNCTION()
+	void HandleDefenderStaggered(AActor* StaggeredActor, float Duration);
+	void CleanupDefenseSequenceForDefenderReaction();
+	/**
+	 * A response window is waiting and the defender has no stage montage left: release the defender's
+	 * input, movement, collision, alignment, stage slow motion and paired status. The source attacker
+	 * stays held.
+	 */
+	void ReleaseDefenderForResponseWindow();
+	/** True when the active counter stage can wait in FinisherReady instead of ending with its montage. */
+	bool CanCounterWaitForFinisher() const;
 	void CleanupDefenseSequence(int32 ExpectedStageGeneration, float BlendOutTime, FName Reason);
 	void ScheduleChainResponseDeadline(
 		EChainCounterState ResponseState,

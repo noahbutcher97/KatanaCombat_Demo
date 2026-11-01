@@ -57,6 +57,7 @@ class KATANACOMBAT_API UHitReactionComponent : public UActorComponent
 	friend class FKnockbackEndPlayReleaseTest;
 	friend class FDefenseChainStageStartReleasesDefenderPushTest;
 	friend class FDefenseChainSequenceBeginReleasesDefenderPushTest;
+	friend struct FDefenseChainFixture;
 
 public:
     UHitReactionComponent();
@@ -449,15 +450,11 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "Hit Reaction")
     FOnDamageReceived OnDamageReceived;
 
-    /** Event called when hit reaction starts playing */
-    DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnHitReactionStarted, EAttackDirection, Direction, bool, bIsHeavyHit);
-
+    /** Event called when hit reaction starts playing (FOnHitReactionStarted is declared in CombatTypes.h) */
     UPROPERTY(BlueprintAssignable, Category = "Hit Reaction")
     FOnHitReactionStarted OnHitReactionStarted;
 
-    /** Event called when stun begins */
-    DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnStunBegin, float, Duration);
-
+    /** Event called when stun begins (FOnStunBegin is declared in CombatTypes.h) */
     UPROPERTY(BlueprintAssignable, Category = "Hit Reaction")
     FOnStunBegin OnStunBegin;
 

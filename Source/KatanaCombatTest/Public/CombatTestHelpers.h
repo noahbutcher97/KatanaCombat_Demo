@@ -347,6 +347,58 @@ public:
     }
 
     /**
+     * Hit result for a weapon sweep from SourceLocation that lands on Target's body. Pass it to
+     * UWeaponComponent::ProcessHitForTesting to drive the same contact path as a live weapon trace.
+     */
+    static FHitResult CreateWeaponContactHit(AActor* Target, const FVector& SourceLocation)
+    {
+        FHitResult Hit;
+        Hit.HitObjectHandle = FActorInstanceHandle(Target);
+        Hit.TraceStart = SourceLocation;
+        Hit.TraceEnd = Target ? Target->GetActorLocation() : SourceLocation + FVector::ForwardVector;
+        Hit.ImpactPoint = Hit.TraceEnd;
+        Hit.ImpactNormal = FVector::BackwardVector;
+        Hit.BoneName = TEXT("spine_03");
+        return Hit;
+    }
+
+    /**
+     * Strike Target with Source's weapon through the weapon contact path, where the defense resolver
+     * decides whether the contact is blocked. OutResolution receives the resolution Target committed.
+     * @return True when exactly one resolution was committed for the strike
+     */
+    static bool StrikeWithWeapon(
+        ABaseCombatCharacter* Source,
+        ABaseCombatCharacter* Target,
+        UAttackData* AttackData,
+        FDefenseResolution& OutResolution)
+    {
+        OutResolution = FDefenseResolution();
+        if (!Source || !Target || !Source->WeaponComponent || !Target->CombatComponent)
+        {
+            return false;
+        }
+
+        int32 ResolutionCount = 0;
+        FDefenseResolution Captured;
+        const TWeakObjectPtr<UCombatComponent> TargetCombat = Target->CombatComponent.Get();
+        const FDelegateHandle Handle = TargetCombat->OnDefenseResolvedNative.AddLambda(
+            [&ResolutionCount, &Captured](const FDefenseResolution& Resolved)
+            {
+                ++ResolutionCount;
+                Captured = Resolved;
+            });
+        Source->WeaponComponent->ProcessHitForTesting(
+            CreateWeaponContactHit(Target, Source->GetActorLocation()), AttackData);
+        if (TargetCombat.IsValid())
+        {
+            TargetCombat->OnDefenseResolvedNative.Remove(Handle);
+        }
+        OutResolution = Captured;
+        return ResolutionCount == 1;
+    }
+
+    /**
      * Get HitReactionComponent from a character
      * @param Character - Character to query
      * @return HitReactionComponent or nullptr

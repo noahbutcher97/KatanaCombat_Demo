@@ -31,4 +31,7 @@ private:
 
     /** Unregister custom details customizations */
     void UnregisterCustomizations();
+
+    /** Add AttackData actions to the Content Browser asset context menu */
+    void RegisterAttackDataAssetMenu();
 };

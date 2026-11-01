@@ -577,7 +577,8 @@ must come strictly before the section's first Active `AnimNotify_AttackPhaseTran
 charge loop, so a hold at or after Active enters the loop already Active. Asset validation reports each late
 hold notify, and notify generation refuses a charged heavy whose `ManualTiming.HoldWindowStart` is not below
 `WindupDuration`. At runtime, phase and window notifies from the section a charge left are ignored while the
-hold lasts, because one slow animation tick can queue them behind the hold.
+hold lasts, because one slow animation tick can queue them behind the hold. To make `ManualTiming` describe the
+authored montage rather than typing it, use [Derive Timing From Montage](#derive-timing-from-montage).
 
 **3. Configure Charge Sections** (optional, advanced):
 ```cpp
@@ -848,7 +849,46 @@ bool bValid = UAttackDataTools::ValidateAttackData(AttackData, Warnings, Errors)
 
 // Find conflicts (multiple attacks using same section)
 TArray<UAttackData*> Conflicts = UAttackDataTools::FindSectionConflicts(AttackData);
+
+// Write ManualTiming from the montage section's notifies (undoable)
+FAttackTimingApplyResult Result;
+UAttackDataTools::DeriveTimingFromMontage(AttackData, Result);
 ```
+
+### Derive Timing From Montage
+
+`ManualTiming` is the timing notify generation writes into the montage. Instead of typing it, read it from the
+notifies the attack's section already plays, so the data matches the animation:
+
+- **Details panel**: open the AttackData asset and press **Derive Timing From Montage** in the **Timing** category.
+  A dialog lists every field before and after, with any notes or reasons.
+- **Content Browser**: select one or more AttackData assets, right-click, and choose **Derive Timing From Montage**.
+  All the writes are one undo step, and a summary lists each asset.
+- **Scripting**: `UAttackDataTools::DeriveTimingFromMontage` and `UAttackDataTools::BatchDeriveTimingFromMontage`.
+
+Only notifies whose trigger time falls in the attack's section are read (`MontageSection`, or the whole montage when
+it is None), the same filter asset validation and notify generation use:
+
+| Field | Source |
+|-------|--------|
+| `WindupDuration` | Section start to the `AnimNotify_AttackPhaseTransition` to Active |
+| `ActiveDuration` | Active transition to the transition to Recovery |
+| `RecoveryDuration` | Recovery transition to the section end |
+| `HoldWindowStart` | Section start to the earliest `AnimNotify_HoldWindowStart` checking the input generation writes (HeavyAttack for a heavy, LightAttack otherwise). Only for attacks that use a hold: a light attack with `bCanHold`, or a heavy with a `ChargeLoopSection` |
+| `HoldWindowDuration` | Not derived. A hold starts at a point notify, so the montage has no duration; the value is kept |
+
+The action writes nothing, and says why, when:
+
+- the section has no transition to Active or to Recovery, or more than one of either (the fields describe one Active window);
+- Active is at the section start, or Recovery does not come after Active;
+- the attack uses a hold, but no hold notify in the section checks the generated input;
+- the attack is a charged heavy and any hold notify in the section, of any input, starts at or after Active;
+- notify generation's own analysis would reject the derived timing.
+
+When the timing already matches, it writes nothing and leaves no undo entry. Notes that do not stop it name hold
+notifies the single `HoldWindowStart` cannot describe and phase transitions to other phases; regenerating notifies
+removes those. Deprecated `AnimNotifyState_AttackPhase` states are never read. After the action, **Generate
+AnimNotifies** reproduces the authored phase and hold notifies at the same times.
 
 ### Custom Details Panel (Future)
 

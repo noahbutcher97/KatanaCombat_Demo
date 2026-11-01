@@ -283,6 +283,130 @@ void AppendDefenseSequenceTelemetry(
 	}
 	Sink->AppendDefenseTelemetry(MoveTemp(Record));
 }
+
+/**
+ * Link a stage montage's played section chain into its authored ready section.
+ *
+ * The engine stops an instance whose current section has no successor as soon as the remaining play time
+ * falls inside the montage's blend-out, and a stopping instance is no longer reachable through the
+ * active-instance section API. A bridge whose window marker lies inside that tail (the shipped parry bridge
+ * AM_ParryBridge_Defender: blend-out from 0.45 s, marker at 0.65 s) therefore lost its pose before the
+ * marker could ask for it. Linking the played chain's terminal section into the ready section removes that
+ * early tail: the bridge plays through to its ready pose. bHoldReadyPose then sets what the ready section
+ * does:
+ * - true, for the parried attacker: the ready section loops, holding the pose until a successor stage or
+ *   terminal cleanup stops it;
+ * - false, for the parrying defender: the ready section is the montage's terminal section, so the bridge
+ *   ends after one pass and returns the defender to its AnimBP and the player, even if the authored
+ *   section loops.
+ * Idempotent. Returns whether the instance reaches the ready section.
+ *
+ * When the played chain can never reach the ready section (an authored cycle), it is entered by a jump
+ * only if bJumpWhenUnreachable: the stage start must not skip its bridge, the opened window may.
+ */
+bool LinkStageIntoReadySection(
+	UAnimInstance* AnimInstance,
+	const UAnimMontage* Montage,
+	const FName ReadySection,
+	const bool bHoldReadyPose,
+	const bool bJumpWhenUnreachable)
+{
+	FAnimMontageInstance* Instance = AnimInstance && Montage && !ReadySection.IsNone()
+		? AnimInstance->GetActiveInstanceForMontage(Montage)
+		: nullptr;
+	const int32 ReadyIndex = Instance ? Montage->GetSectionIndex(ReadySection) : INDEX_NONE;
+	if (ReadyIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	bool bReachesReady = false;
+	int32 SectionIndex = Montage->GetSectionIndex(Instance->GetCurrentSection());
+	TSet<int32, DefaultKeyFuncs<int32>, TInlineSetAllocator<8>> Visited;
+	while (SectionIndex != INDEX_NONE && !Visited.Contains(SectionIndex))
+	{
+		if (SectionIndex == ReadyIndex)
+		{
+			bReachesReady = true;
+			break;
+		}
+		Visited.Add(SectionIndex);
+		const int32 NextIndex = Instance->GetNextSectionID(SectionIndex);
+		if (NextIndex == INDEX_NONE)
+		{
+			bReachesReady = Instance->SetNextSectionID(SectionIndex, ReadyIndex);
+			break;
+		}
+		SectionIndex = NextIndex;
+	}
+	if (!Instance->SetNextSectionID(ReadyIndex, bHoldReadyPose ? ReadyIndex : INDEX_NONE))
+	{
+		return false;
+	}
+	if (!bReachesReady && bJumpWhenUnreachable)
+	{
+		bReachesReady = Instance->JumpToSectionName(ReadySection);
+	}
+	return bReachesReady;
+}
+
+/** The source role authors no hold section and relies on its reviewed terminal pose instead. */
+bool SourceRoleHoldsTerminalPose(const FPairedChainTransitionPolicy& Policy)
+{
+	return Policy.VictimReadySection.IsNone() && Policy.bVictimTerminalPoseCompatible;
+}
+
+/**
+ * A role that relies on its terminal pose keeps it by never ending: with auto blend-out off on the instance,
+ * the engine stops advancing a montage at its last frame and keeps its weight, exactly as it does for a
+ * montage asset authored without auto blend-out. Only this instance is changed, never the asset, so the same
+ * montage still blends out on its own wherever else it plays. A successor stage or terminal cleanup stops the
+ * held instance; nothing else ends it. Idempotent. Returns whether the instance now holds its terminal pose;
+ * an instance that is already blending out cannot be recovered, so the hold must be armed at stage start,
+ * before the blend-out tail its marker may lie inside.
+ */
+bool HoldStageTerminalPose(UAnimInstance* AnimInstance, const UAnimMontage* Montage)
+{
+	FAnimMontageInstance* Instance = AnimInstance && Montage
+		? AnimInstance->GetActiveInstanceForMontage(Montage)
+		: nullptr;
+	if (!Instance || Instance->IsStopped())
+	{
+		return false;
+	}
+	Instance->bEnableAutoBlendOut = false;
+	return true;
+}
+
+/**
+ * A role montage instance that is still on its mesh: playing, or resting on a held last frame, which no
+ * longer counts as playing. Its end callback is still to come, so a stage that stops it retires that callback.
+ * A stopped instance is no longer active, even while it blends out.
+ */
+bool IsStageRoleMontageActive(const UAnimInstance* AnimInstance, const UAnimMontage* Montage)
+{
+	return AnimInstance && Montage && AnimInstance->GetActiveInstanceForMontage(Montage) != nullptr;
+}
+
+/**
+ * A parry bridge's defender montage must end on its own, whichever role drives the bridge: its end releases the
+ * defender into the response window and, for a defender-driven bridge, catches a marker that never opened it. A
+ * montage without auto blend-out holds its last frame and never ends.
+ */
+bool DoesBridgeDefenderMontageEndOnItsOwn(const UPairedAnimationData& BridgeData)
+{
+	return BridgeData.AttackerMontage && BridgeData.AttackerMontage->bEnableAutoBlendOut;
+}
+
+const TCHAR* const BridgeDefenderMontageNeverEndsReason =
+	TEXT("parry bridge defender montage has auto blend-out disabled, so it would never end and never release the defender");
+
+FName ResolveChainResponseExpiryReason(const EChainCounterState ResponseState)
+{
+	return ResponseState == EChainCounterState::FinisherReady
+		? FName(TEXT("FinisherReadyExpired"))
+		: FName(TEXT("CounterWindowExpired"));
+}
 }
 
 // ============================================================================
@@ -1175,7 +1299,11 @@ bool UPairedAnimationComponent::HandleChainResponseDeadline(
 		CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("DeadlineParticipantUnavailable"));
 		return false;
 	}
-	CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("ResponseTimeout"));
+	// The response deadline is the only normal end of a waiting window; name it by the window it closed.
+	CleanupDefenseSequence(
+		ExpectedStageGeneration,
+		0.1f,
+		ResolveChainResponseExpiryReason(ExpectedState));
 	return false;
 }
 
@@ -1421,6 +1549,130 @@ void UPairedAnimationComponent::HandleDefenseSourceDestroyed(AActor* DestroyedAc
 		TEXT("DefenseSourceDestroyed"));
 }
 
+void UPairedAnimationComponent::HandleDefenderHitReactionStarted(
+	const EAttackDirection Direction,
+	const bool bIsHeavyHit)
+{
+	(void)Direction;
+	(void)bIsHeavyHit;
+	CleanupDefenseSequenceForDefenderReaction();
+}
+
+void UPairedAnimationComponent::HandleDefenderStunBegin(const float Duration)
+{
+	(void)Duration;
+	CleanupDefenseSequenceForDefenderReaction();
+}
+
+void UPairedAnimationComponent::HandleDefenderStaggered(AActor* StaggeredActor, const float Duration)
+{
+	(void)Duration;
+	if (StaggeredActor == ActiveDefenseSequence.Defender.Get())
+	{
+		CleanupDefenseSequenceForDefenderReaction();
+	}
+}
+
+void UPairedAnimationComponent::CleanupDefenseSequenceForDefenderReaction()
+{
+	// A defender interrupted by a hit (reaction montage, stun or stagger) no longer owns the counter:
+	// the sequence ends here and terminal cleanup releases the held attacker. While the defender is
+	// committed to a montage stage it is a paired participant whose third-party contacts do not land, so
+	// in practice this fires while a released defender waits in a response window, or during a
+	// no-montage bridge.
+	if (ChainState == EChainCounterState::None
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		return;
+	}
+	CleanupDefenseSequence(
+		ActiveDefenseSequence.StageGeneration,
+		0.1f,
+		TEXT("DefenderHitReaction"));
+}
+
+bool UPairedAnimationComponent::IsChainAwaitingResponseWindow() const
+{
+	if (!ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		return false;
+	}
+	return ChainState == EChainCounterState::ParryActive
+		|| (ChainState == EChainCounterState::CounterActive && CanCounterWaitForFinisher());
+}
+
+bool UPairedAnimationComponent::CanCounterWaitForFinisher() const
+{
+	const UPairedAnimationData* CounterData = ActiveDefenseSequence.ActivePairedData.Get();
+	return ActiveDefenseSequence.FinisherData
+		&& (!CounterData
+			|| !CounterData->ChainTransitionPolicy.bAutoContinue
+			|| CounterData->ChainTransitionPolicy.bFinisherRetryable);
+}
+
+void UPairedAnimationComponent::ReleaseDefenderForResponseWindow()
+{
+	if (ActiveDefenseSequence.bDefenderReleased
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid()
+		|| !IsChainWaitingForResponse())
+	{
+		return;
+	}
+	ABaseCombatCharacter* Defender = Cast<ABaseCombatCharacter>(ActiveDefenseSequence.Defender.Get());
+	UCombatComponent* DefenderCombat = CachedCombatComponent
+		? CachedCombatComponent.Get()
+		: Defender ? Defender->CombatComponent.Get() : nullptr;
+	ActiveDefenseSequence.bDefenderReleased = true;
+
+	// The player is free between committed stages: input, movement, partner collision, the stage's
+	// alignment request, stage slow motion and paired status (so other attackers' contacts land and AI may
+	// engage) are all released. The source attacker keeps its AI suppression, paired-victim state, held
+	// pose and movement lease until the window resolves, and Light/Heavy still route only to this window.
+	// The window keeps a single owner, its deadline: moving, guarding and hits that cause no reaction leave
+	// it open; a response starts the next stage; a defender reaction, death or cancel ends it.
+	ReleaseInputOwnership(ActiveDefenseSequence.InputOwnershipLease);
+	ActiveDefenseSequence.InputOwnershipLease = {};
+	ReleasePairedStateLeasesForGeneration(ActiveDefenseSequence.StageGeneration);
+	ActiveDefenseSequence.AttackerCollisionLease = {};
+	if (UTargetingComponent* DefenderTargeting = Defender ? Defender->TargetingComponent.Get() : nullptr)
+	{
+		DefenderTargeting->ReleaseAlignmentRequest(ActiveDefenseSequence.AttackerAlignmentLease);
+	}
+	ActiveDefenseSequence.AttackerAlignmentLease = {};
+	if (ActiveDefenseSequence.TimeDilationLease.IsValid())
+	{
+		if (UCombatEffectsWorldSubsystem* Effects = GetWorld()
+			? GetWorld()->GetSubsystem<UCombatEffectsWorldSubsystem>()
+			: nullptr)
+		{
+			Effects->ReleaseLease(ActiveDefenseSequence.TimeDilationLease);
+		}
+		ActiveDefenseSequence.TimeDilationLease = {};
+	}
+	ActivePairedAnimData = nullptr;
+	if (DefenderCombat)
+	{
+		// A completed counter leaves the Active phase (and its weapon hit detection) behind; a free player
+		// starts from no attack, as after terminal cleanup.
+		if (DefenderCombat->GetCurrentPhase() != EAttackPhase::None)
+		{
+			DefenderCombat->SetPhase(EAttackPhase::None);
+		}
+		DefenderCombat->RefreshGuardThreat(EThreatRefreshReason::ManualRevalidation);
+	}
+	AppendPairedStageActionReactionTelemetry(
+		CachedCombatComponent.Get(),
+		ActiveDefenseSequence,
+		EActionReactionTelemetryEvent::MovementStateChanged,
+		EActionReactionTelemetryReason::MovementRestored,
+		ActiveDefenseSequence.ActivePairedData.Get(),
+		Defender,
+		INDEX_NONE,
+		nullptr,
+		TEXT("defender released for the response window; source attacker stays held"));
+	OnDefenseSequenceParticipationChanged.Broadcast(false);
+}
+
 void UPairedAnimationComponent::CleanupDefenseSequence(
 	const int32 ExpectedStageGeneration,
 	const float BlendOutTime,
@@ -1466,6 +1718,18 @@ void UPairedAnimationComponent::CleanupDefenseSequence(
 		Defender->OnDestroyed.RemoveDynamic(
 			this,
 			&UPairedAnimationComponent::HandleDefenseOwnerDestroyed);
+		if (UHitReactionComponent* DefenderHitReaction = Defender->HitReactionComponent.Get())
+		{
+			DefenderHitReaction->OnHitReactionStarted.RemoveDynamic(
+				this,
+				&UPairedAnimationComponent::HandleDefenderHitReactionStarted);
+			DefenderHitReaction->OnStunBegin.RemoveDynamic(
+				this,
+				&UPairedAnimationComponent::HandleDefenderStunBegin);
+			DefenderHitReaction->OnStaggered.RemoveDynamic(
+				this,
+				&UPairedAnimationComponent::HandleDefenderStaggered);
+		}
 	}
 	if (SourceAttacker)
 	{
@@ -1544,7 +1808,7 @@ void UPairedAnimationComponent::CleanupDefenseSequence(
 		{
 			if (UAnimInstance* Anim = Defender->GetMesh()->GetAnimInstance())
 			{
-				if (Anim->Montage_IsPlaying(Sequence.ActivePairedData->AttackerMontage))
+				if (IsStageRoleMontageActive(Anim, Sequence.ActivePairedData->AttackerMontage))
 				{
 					RetireOwnerMontageCallback(Sequence.ActivePairedData->AttackerMontage);
 				}
@@ -1558,7 +1822,7 @@ void UPairedAnimationComponent::CleanupDefenseSequence(
 			if (UAnimInstance* Anim = SourceAttacker->GetMesh()->GetAnimInstance())
 			{
 				if (SourcePaired
-					&& Anim->Montage_IsPlaying(Sequence.ActivePairedData->VictimMontage))
+					&& IsStageRoleMontageActive(Anim, Sequence.ActivePairedData->VictimMontage))
 				{
 					SourcePaired->RetireOwnerMontageCallback(
 						Sequence.ActivePairedData->VictimMontage);
@@ -1610,6 +1874,8 @@ void UPairedAnimationComponent::CleanupDefenseSequence(
 
 	if (DefenderCombat)
 	{
+		// A response buffered for a window this sequence never opened must not reach a later sequence.
+		DefenderCombat->DiscardBufferedChainResponse();
 		DefenderCombat->SetPhase(EAttackPhase::None);
 		DefenderCombat->ClearQueue(false);
 		DefenderCombat->RefreshGuardThreat(EThreatRefreshReason::ManualRevalidation);
@@ -1775,6 +2041,18 @@ bool UPairedAnimationComponent::BeginDefenseSequence(const FDefenseResolution& R
 	Defender->OnDestroyed.AddUniqueDynamic(
 		this,
 		&UPairedAnimationComponent::HandleDefenseOwnerDestroyed);
+	if (UHitReactionComponent* DefenderHitReaction = Defender->HitReactionComponent.Get())
+	{
+		DefenderHitReaction->OnHitReactionStarted.AddUniqueDynamic(
+			this,
+			&UPairedAnimationComponent::HandleDefenderHitReactionStarted);
+		DefenderHitReaction->OnStunBegin.AddUniqueDynamic(
+			this,
+			&UPairedAnimationComponent::HandleDefenderStunBegin);
+		DefenderHitReaction->OnStaggered.AddUniqueDynamic(
+			this,
+			&UPairedAnimationComponent::HandleDefenderStaggered);
+	}
 	SourceAttacker->OnCharacterDying.AddUniqueDynamic(
 		this,
 		&UPairedAnimationComponent::HandleDefenseSourceDying);
@@ -1940,6 +2218,13 @@ bool UPairedAnimationComponent::PreflightDefenseBridge(
 			&& !BridgeData->VictimMontage->IsValidSectionName(BridgeData->VictimMontageSection)))
 	{
 		OutFailureReason = TEXT("bridge montage, section, or reaction role is invalid");
+		return false;
+	}
+	// Checked here as well as at stage start, so a perfect parry falls back to the no-montage bridge instead of
+	// committing a bridge that its stage start would refuse.
+	if (!DoesBridgeDefenderMontageEndOnItsOwn(*BridgeData))
+	{
+		OutFailureReason = BridgeDefenderMontageNeverEndsReason;
 		return false;
 	}
 	if (RetiredOwnerMontageCallbacks.Contains(BridgeData->AttackerMontage)
@@ -2321,34 +2606,27 @@ bool UPairedAnimationComponent::EnterDefenseCounterWindow(
 		ActiveDefenseSequence,
 		EDefenseTelemetryEvent::StageTransition,
 		EChainCounterState::CounterWindow);
-	if (UPairedAnimationData* StageData = ActiveDefenseSequence.ActivePairedData.Get())
+	UPairedAnimationData* StageData = ActiveDefenseSequence.ActivePairedData.Get();
+	if (StageData)
 	{
+		// The parried attacker stays held for the whole window. The stage start already linked it into its
+		// ready loop, or held its montage's last frame when it relies on its terminal pose; reassert either.
+		// It plays its remaining bridge frames into the hold rather than skipping them; only a role whose
+		// authored sections can never reach the hold jumps to it. The defender's bridge is left to play out:
+		// the player is free once it ends.
+		UAnimInstance* SourceAnim = SourceAttacker->GetMesh()
+			? SourceAttacker->GetMesh()->GetAnimInstance()
+			: nullptr;
 		const FPairedChainTransitionPolicy& Policy = StageData->ChainTransitionPolicy;
-		if (!Policy.AttackerReadySection.IsNone())
+		if (!LinkStageIntoReadySection(
+				SourceAnim,
+				StageData->VictimMontage,
+				Policy.VictimReadySection,
+				true,
+				true)
+			&& SourceRoleHoldsTerminalPose(Policy))
 		{
-			if (UAnimInstance* Anim = Defender->GetMesh()
-				? Defender->GetMesh()->GetAnimInstance()
-				: nullptr)
-			{
-				Anim->Montage_JumpToSection(Policy.AttackerReadySection, StageData->AttackerMontage);
-				Anim->Montage_SetNextSection(
-					Policy.AttackerReadySection,
-					Policy.AttackerReadySection,
-					StageData->AttackerMontage);
-			}
-		}
-		if (!Policy.VictimReadySection.IsNone())
-		{
-			if (UAnimInstance* Anim = SourceAttacker->GetMesh()
-				? SourceAttacker->GetMesh()->GetAnimInstance()
-				: nullptr)
-			{
-				Anim->Montage_JumpToSection(Policy.VictimReadySection, StageData->VictimMontage);
-				Anim->Montage_SetNextSection(
-					Policy.VictimReadySection,
-					Policy.VictimReadySection,
-					StageData->VictimMontage);
-			}
+			HoldStageTerminalPose(SourceAnim, StageData->VictimMontage);
 		}
 	}
 
@@ -2377,6 +2655,23 @@ bool UPairedAnimationComponent::EnterDefenseCounterWindow(
 		EChainCounterState::CounterWindow,
 		WindowDuration,
 		ExpectedStageGeneration);
+
+	// A defender with no bridge montage left (the no-montage bridge, or a bridge whose end was already
+	// handled before the source attacker's marker) is free from the moment the window opens. A defender
+	// still in its bridge, including its blend-out, is released when that montage's end is handled.
+	if (!StageData
+		|| ActiveDefenseSequence.LastOwnerMontageEndHandledStageGeneration
+			== ActiveDefenseSequence.StageGeneration)
+	{
+		ReleaseDefenderForResponseWindow();
+	}
+
+	// A response pressed during the bridge executes now that the window and its deadline exist, so a
+	// failed counter start rolls back into this same window rather than an unscheduled one.
+	if (DefenderCombat)
+	{
+		DefenderCombat->ReleaseBufferedChainResponse(ActiveDefenseSequence.OriginatingInteraction);
+	}
 	return true;
 }
 
@@ -2445,7 +2740,11 @@ bool UPairedAnimationComponent::HandleDefenseAutoContinueMarker(
 		ActiveDefenseSequence,
 		EDefenseTelemetryEvent::StageTransition,
 		EChainCounterState::FinisherReady);
-	UCombatComponent* DefenderCombat = CachedCombatComponent.Get();
+	// Resolve the defender's configuration as CounterWindow does, so the window's length never depends on
+	// whether the component cache has been populated.
+	UCombatComponent* DefenderCombat = CachedCombatComponent
+		? CachedCombatComponent.Get()
+		: Defender->CombatComponent.Get();
 	const UDefenseConfiguration* Configuration = DefenderCombat
 		? DefenderCombat->GetEffectiveDefenseConfiguration()
 		: GetDefault<UDefenseConfiguration>();
@@ -2459,6 +2758,18 @@ bool UPairedAnimationComponent::HandleDefenseAutoContinueMarker(
 		EChainCounterState::FinisherReady,
 		Duration,
 		ActiveDefenseSequence.StageGeneration);
+	// A failed start that had already stopped the counter montage left no montage end to free the defender.
+	// Otherwise the counter montage's own end frees it.
+	if (ActiveDefenseSequence.LastOwnerMontageEndHandledStageGeneration
+		== ActiveDefenseSequence.StageGeneration)
+	{
+		ReleaseDefenderForResponseWindow();
+	}
+	// A press made for the finisher while the counter played retries it now that FinisherReady is open.
+	if (DefenderCombat)
+	{
+		DefenderCombat->ReleaseBufferedChainResponse(ActiveDefenseSequence.OriginatingInteraction);
+	}
 	return false;
 }
 
@@ -2574,12 +2885,7 @@ bool UPairedAnimationComponent::HandleOwnerPairedMontageEnded(
 				TEXT("CounterCompletionParticipantInvalid"));
 			return true;
 		}
-		UPairedAnimationData* CounterData = ActiveDefenseSequence.ActivePairedData.Get();
-		const bool bCanWaitForFinisher = ActiveDefenseSequence.FinisherData
-			&& (!CounterData
-				|| !CounterData->ChainTransitionPolicy.bAutoContinue
-				|| CounterData->ChainTransitionPolicy.bFinisherRetryable);
-		if (!bCanWaitForFinisher)
+		if (!CanCounterWaitForFinisher())
 		{
 			CleanupDefenseSequence(Generation, 0.0f, TEXT("CounterEndedWithoutSuccessor"));
 			return true;
@@ -2594,8 +2900,11 @@ bool UPairedAnimationComponent::HandleOwnerPairedMontageEnded(
 			EChainCounterState::FinisherReady);
 		ActiveDefenseSequence.AttackerMontageInstanceId = INDEX_NONE;
 		ActiveDefenseSequence.VictimMontageInstanceId = INDEX_NONE;
-		const UDefenseConfiguration* Configuration = CachedCombatComponent
-			? CachedCombatComponent->GetEffectiveDefenseConfiguration()
+		UCombatComponent* DefenderCombat = CachedCombatComponent
+			? CachedCombatComponent.Get()
+			: Defender->CombatComponent.Get();
+		const UDefenseConfiguration* Configuration = DefenderCombat
+			? DefenderCombat->GetEffectiveDefenseConfiguration()
 			: GetDefault<UDefenseConfiguration>();
 		const float ConfiguredDuration = Configuration
 			? Configuration->FinisherReadySeconds
@@ -2606,9 +2915,53 @@ bool UPairedAnimationComponent::HandleOwnerPairedMontageEnded(
 				? ConfiguredDuration
 				: 2.0f,
 			Generation);
+		// The counter montage has ended: the player is free while the finisher prompt waits.
+		ReleaseDefenderForResponseWindow();
+		// A press made for the finisher while the counter played executes now that FinisherReady is open.
+		if (DefenderCombat)
+		{
+			DefenderCombat->ReleaseBufferedChainResponse(ActiveDefenseSequence.OriginatingInteraction);
+		}
+		return true;
+	}
+	if (IsChainWaitingForResponse())
+	{
+		// An open response window is owned by its deadline, not by the stage montage that opened it. A
+		// stage montage that finishes while the window waits (the bridge that opened CounterWindow) hands
+		// the defender back to the AnimBP and the player; the source attacker stays held.
+		AppendPairedStageActionReactionTelemetry(
+			CachedCombatComponent.Get(),
+			ActiveDefenseSequence,
+			EActionReactionTelemetryEvent::MontageCallbackAccepted,
+			EActionReactionTelemetryReason::MontageCompleted,
+			ActiveDefenseSequence.ActivePairedData.Get(),
+			GetOwner(),
+			ActiveDefenseSequence.AttackerMontageInstanceId,
+			nullptr,
+			TEXT("stage montage completed while the response window stays open until its deadline"));
+		ReleaseDefenderForResponseWindow();
+		return true;
+	}
+	if (ChainState == EChainCounterState::ParryActive
+		&& ActiveDefenseSequence.ActivePairedData->ChainTransitionPolicy.DriverRole
+			!= EPairedAnimationRole::Attacker)
+	{
+		// The source attacker's marker drives this bridge: the defender stays committed, with no montage,
+		// until that marker opens the window and releases it. The driver's hold entry is the failure net.
+		AppendPairedStageActionReactionTelemetry(
+			CachedCombatComponent.Get(),
+			ActiveDefenseSequence,
+			EActionReactionTelemetryEvent::MontageCallbackAccepted,
+			EActionReactionTelemetryReason::MontageCompleted,
+			ActiveDefenseSequence.ActivePairedData.Get(),
+			GetOwner(),
+			ActiveDefenseSequence.AttackerMontageInstanceId,
+			nullptr,
+			TEXT("defender bridge completed before the source attacker's marker opened the window"));
 		return true;
 	}
 
+	// Only a defender-driven bridge that ends before its marker opened CounterWindow lands here.
 	CleanupDefenseSequence(Generation, 0.0f, TEXT("BridgeEndedBeforeCounter"));
 	return true;
 }
@@ -2657,8 +3010,12 @@ bool UPairedAnimationComponent::HandleSourcePairedMontageEnded(
 			0.0f,
 			TEXT("SourceMontageInterrupted"));
 	}
-	else
+	else if (!IsChainWaitingForResponse())
 	{
+		// As for the owner role, an open response window ends only at its deadline or on response input,
+		// so only a stage that is still playing verifies a natural source-role end. The source attacker is
+		// held through the window, in its ready loop or on its terminal pose, so its montage does not end on
+		// its own while the window waits; a natural end here arrives only when no montage was played for it.
 		ScheduleSourceMontageEndVerification(
 			Montage,
 			ChainState,
@@ -3299,6 +3656,12 @@ bool UPairedAnimationComponent::PreflightDefenseChainStage(
 		OutFailureReason = TEXT("parry bridge lacks an unambiguous retained-pose marker policy");
 		return false;
 	}
+	if (ReactionType == EPairedReactionType::Parry
+		&& !DoesBridgeDefenderMontageEndOnItsOwn(*PairedAnimData))
+	{
+		OutFailureReason = BridgeDefenderMontageNeverEndsReason;
+		return false;
+	}
 	if (ReactionType == EPairedReactionType::Counter && Policy.bAutoContinue)
 	{
 		if (!UAnimNotify_ChainStageTransition::HasExactlyOnePlayableMarker(
@@ -3372,7 +3735,11 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 	}
 
 	const FDefenseSequenceContext Previous = ActiveDefenseSequence;
-	UPairedAnimationData* PreviousData = ActivePairedAnimData.Get();
+	// The outgoing stage's montages, and the source attacker's held victim state, follow the retained stage
+	// data. ActivePairedAnimData is the defender's own paired status, which a response window that released
+	// the defender has already cleared.
+	UPairedAnimationData* PreviousStageData = Previous.ActivePairedData.Get();
+	UPairedAnimationData* PreviousOwnerData = ActivePairedAnimData.Get();
 	const EPairedReactionType PreviousReaction = ActivePairedReactionType;
 	const TWeakObjectPtr<AActor> PreviousVictim = CurrentFinisherVictim;
 	const EChainCounterState PreviousChainState = ChainState;
@@ -3561,21 +3928,22 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 	bool bUsedPlaybackOverride = false;
 	int32 DefenderMontageInstanceId = INDEX_NONE;
 	int32 SourceMontageInstanceId = INDEX_NONE;
+	// Outgoing role montages still playing when this start begins; their end callbacks are retired below.
+	bool bHadOutgoingOwnerMontage = false;
+	bool bHadOutgoingSourceMontage = false;
 	if (bOwnershipReady)
 	{
-		const bool bHadOutgoingOwnerMontage = PreviousData
-			&& DefenderAnim
-			&& DefenderAnim->Montage_IsPlaying(PreviousData->AttackerMontage);
-		const bool bHadOutgoingSourceMontage = PreviousData
-			&& SourceAnim
-			&& SourceAnim->Montage_IsPlaying(PreviousData->VictimMontage);
+		bHadOutgoingOwnerMontage = PreviousStageData
+			&& IsStageRoleMontageActive(DefenderAnim, PreviousStageData->AttackerMontage);
+		bHadOutgoingSourceMontage = PreviousStageData
+			&& IsStageRoleMontageActive(SourceAnim, PreviousStageData->VictimMontage);
 		if (bHadOutgoingOwnerMontage)
 		{
-			RetireOwnerMontageCallback(PreviousData->AttackerMontage);
+			RetireOwnerMontageCallback(PreviousStageData->AttackerMontage);
 		}
 		if (bHadOutgoingSourceMontage)
 		{
-			SourcePaired->RetireOwnerMontageCallback(PreviousData->VictimMontage);
+			SourcePaired->RetireOwnerMontageCallback(PreviousStageData->VictimMontage);
 		}
 		// The defender's own knockback push ends when its stage starts. Its stage bridge outranks the push, so
 		// without this the push would only be suspended and could resume once the chain releases the bridge.
@@ -3610,16 +3978,6 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 				0.0f,
 				true);
 			bDefenderStarted = DefenderLength > 0.0f;
-		}
-		if (!bDefenderStarted && bHadOutgoingOwnerMontage
-			&& DefenderAnim->Montage_IsPlaying(PreviousData->AttackerMontage))
-		{
-			CancelRetiredOwnerMontageCallback(PreviousData->AttackerMontage);
-		}
-		if (!bDefenderStarted && bHadOutgoingSourceMontage
-			&& SourceAnim->Montage_IsPlaying(PreviousData->VictimMontage))
-		{
-			SourcePaired->CancelRetiredOwnerMontageCallback(PreviousData->VictimMontage);
 		}
 		if (bDefenderStarted && !bUsedPlaybackOverride)
 		{
@@ -3706,20 +4064,44 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 				bSourceStarted ? TEXT("true") : TEXT("false"),
 				DefenderMontageInstanceId,
 				SourceMontageInstanceId));
+		// Each outgoing role montage whose end callback this start retired is now one of two things. Still
+		// playing (the start failed before stopping it, or the new montage is in another montage group): its own
+		// end is still to come and must be handled normally, so its callback is no longer retired. Stopped by the
+		// defender's new montage in its group: its interrupted end is consumed as stale, so no montage end is left
+		// to release the defender, and the rolled-back stage treats its owner montage end as handled.
+		bool bOutgoingOwnerMontageStopped = false;
+		if (bHadOutgoingOwnerMontage)
+		{
+			if (IsStageRoleMontageActive(DefenderAnim, PreviousStageData->AttackerMontage))
+			{
+				CancelRetiredOwnerMontageCallback(PreviousStageData->AttackerMontage);
+			}
+			else
+			{
+				bOutgoingOwnerMontageStopped = true;
+			}
+		}
+		if (bHadOutgoingSourceMontage
+			&& IsStageRoleMontageActive(SourceAnim, PreviousStageData->VictimMontage))
+		{
+			SourcePaired->CancelRetiredOwnerMontageCallback(PreviousStageData->VictimMontage);
+		}
+
 		ActiveDefenseSequence = Previous;
 		ActiveDefenseSequence.StageGeneration = SuccessorGeneration;
 		if (Previous.LastDamageAppliedStageGeneration == Previous.StageGeneration)
 		{
 			ActiveDefenseSequence.LastDamageAppliedStageGeneration = SuccessorGeneration;
 		}
-		if (Previous.LastOwnerMontageEndHandledStageGeneration == Previous.StageGeneration)
+		if (Previous.LastOwnerMontageEndHandledStageGeneration == Previous.StageGeneration
+			|| bOutgoingOwnerMontageStopped)
 		{
 			ActiveDefenseSequence.LastOwnerMontageEndHandledStageGeneration =
 				SuccessorGeneration;
 		}
 		ActiveDefenseSequence.AttackerMontageInstanceId = INDEX_NONE;
 		ActiveDefenseSequence.VictimMontageInstanceId = INDEX_NONE;
-		ActivePairedAnimData = PreviousData;
+		ActivePairedAnimData = PreviousOwnerData;
 		ActivePairedReactionType = PreviousReaction;
 		CurrentFinisherVictim = PreviousVictim;
 		ChainState = PreviousChainState;
@@ -3729,7 +4111,7 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 			SuccessorGeneration);
 		if (bDefenderStarted && !bUsedPlaybackOverride && DefenderAnim)
 		{
-			if (DefenderAnim->Montage_IsPlaying(PairedAnimData->AttackerMontage))
+			if (IsStageRoleMontageActive(DefenderAnim, PairedAnimData->AttackerMontage))
 			{
 				RetireOwnerMontageCallback(PairedAnimData->AttackerMontage);
 			}
@@ -3739,7 +4121,7 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 		}
 		if (bSourceStarted && !bUsedPlaybackOverride && SourceAnim)
 		{
-			if (SourceAnim->Montage_IsPlaying(PairedAnimData->VictimMontage))
+			if (IsStageRoleMontageActive(SourceAnim, PairedAnimData->VictimMontage))
 			{
 				SourcePaired->RetireOwnerMontageCallback(PairedAnimData->VictimMontage);
 			}
@@ -3774,17 +4156,17 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 				Effects->ReleaseLease(NewTimeLease);
 			}
 		}
-		if (!PreviousData)
+		if (!PreviousStageData)
 		{
 			SourceHitReaction->ExitPairedAnimationState();
 		}
 		else
 		{
 			SourceHitReaction->EnterPairedAnimationState(
-				PreviousData->VictimMontage,
-				PreviousData->VictimDeathOutcome,
-				PreviousData->RagdollBlendTime,
-				ShouldTreatPairedAnimationAsLethal(PreviousReaction, PreviousData),
+				PreviousStageData->VictimMontage,
+				PreviousStageData->VictimDeathOutcome,
+				PreviousStageData->RagdollBlendTime,
+				ShouldTreatPairedAnimationAsLethal(PreviousReaction, PreviousStageData),
 				Defender);
 		}
 		if (PreviousChainState == EChainCounterState::CounterWindow
@@ -3796,6 +4178,12 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 				static_cast<float>(FMath::Max(0.0, PreservedDeadline - Now)),
 				SuccessorGeneration,
 				PreservedDeadline);
+		}
+		// With its stage montage gone, a defender waiting in a response window is free now. After a failed
+		// automatic finisher (CounterActive), FinisherReady releases it when it opens.
+		if (bOutgoingOwnerMontageStopped && IsChainWaitingForResponse())
+		{
+			ReleaseDefenderForResponseWindow();
 		}
 		return false;
 	}
@@ -3812,6 +4200,9 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 	ActiveDefenseSequence.TimeDilationLease = NewTimeLease;
 	ActiveDefenseSequence.ChainState = SuccessState;
 	ChainState = SuccessState;
+	// A buffered response executes by releasing its slot before it starts a stage, so a press still buffered
+	// here was made for a window this stage skipped (an automatic finisher started without it).
+	DefenderCombat->DiscardBufferedChainResponse(EActionReactionTelemetryReason::ChainExpired);
 	AppendDefenseSequenceTelemetry(
 		DefenderCombat,
 		ActiveDefenseSequence,
@@ -3852,12 +4243,218 @@ bool UPairedAnimationComponent::TryStartDefenseChainStage(
 		}
 	}
 
+	// A successor only stops the outgoing montages in its own montage group. Stop any outgoing role montage
+	// still on its mesh in another group (a held ready loop or a held terminal pose would otherwise never
+	// end); its callback was retired above, so the stop is consumed as stale.
+	if (PreviousStageData && !bUsedPlaybackOverride)
+	{
+		if (IsStageRoleMontageActive(DefenderAnim, PreviousStageData->AttackerMontage))
+		{
+			DefenderAnim->Montage_Stop(
+				FMath::Max(0.0f, PairedAnimData->AttackerBlendIn),
+				PreviousStageData->AttackerMontage);
+		}
+		if (IsStageRoleMontageActive(SourceAnim, PreviousStageData->VictimMontage))
+		{
+			SourceAnim->Montage_Stop(
+				FMath::Max(0.0f, PairedAnimData->VictimBlendIn),
+				PreviousStageData->VictimMontage);
+		}
+	}
+
+	// A defender released into a response window commits to the started stage again: input is owned by
+	// the sequence and the defender is once more a held participant.
+	const bool bRecommittedDefender = ActiveDefenseSequence.bDefenderReleased;
+	if (!ActiveDefenseSequence.InputOwnershipLease.IsValid())
+	{
+		ActiveDefenseSequence.InputOwnershipLease = AcquireInputOwnership(
+			TEXT("DefenseSequence"),
+			SuccessorGeneration);
+	}
+	ActiveDefenseSequence.bDefenderReleased = false;
+
+	if (ReactionType == EPairedReactionType::Parry && !bUsedPlaybackOverride)
+	{
+		ArmBridgeReadyPoseHold(PairedAnimData, DefenderAnim, SourceAnim, SuccessorGeneration);
+	}
 	if (CachedCombatComponent && ReactionType != EPairedReactionType::Parry)
 	{
 		CachedCombatComponent->SetPhase(EAttackPhase::Active);
 	}
+	if (bRecommittedDefender)
+	{
+		OnDefenseSequenceParticipationChanged.Broadcast(true);
+	}
 	OnPairedAnimationStarted.Broadcast(ReactionType, true);
 	return true;
+}
+
+void UPairedAnimationComponent::ArmBridgeReadyPoseHold(
+	const UPairedAnimationData* BridgeData,
+	UAnimInstance* DefenderAnim,
+	UAnimInstance* SourceAnim,
+	const int32 StageGeneration)
+{
+	if (!BridgeData)
+	{
+		return;
+	}
+	const FPairedChainTransitionPolicy& Policy = BridgeData->ChainTransitionPolicy;
+	// The defender's bridge plays through its ready pose once and ends, so its marker is never cut off by
+	// an early blend-out and the player is free when the bridge is over. The source attacker holds its
+	// ready pose until the window resolves: its ready section loops, or, when it authors none and attests
+	// its terminal pose instead, its montage instance holds its last frame rather than blending out on its
+	// own. Without that hold the parried attacker would return to its AnimBP while still movement-, AI- and
+	// reaction-locked for the rest of the window.
+	LinkStageIntoReadySection(
+		DefenderAnim,
+		BridgeData->AttackerMontage,
+		Policy.AttackerReadySection,
+		false,
+		false);
+	const bool bSourceHoldsReadySection = LinkStageIntoReadySection(
+		SourceAnim,
+		BridgeData->VictimMontage,
+		Policy.VictimReadySection,
+		true,
+		false);
+	const bool bSourceHoldsTerminalPose = !bSourceHoldsReadySection
+		&& SourceRoleHoldsTerminalPose(Policy)
+		&& HoldStageTerminalPose(SourceAnim, BridgeData->VictimMontage);
+
+	// A defender driver keeps its natural end, which is the signal that its marker never opened
+	// CounterWindow. Holding the source attacker's pose removes that signal for a source driver, so watch
+	// the hold instead: reaching it while still ParryActive means the bridge played out without opening the
+	// window. For a ready section that is its entry; the engine dispatches notifies before montage section
+	// events, so a marker and the hold entry inside one long frame still open the window first and the watch
+	// then ignores the entry. For a terminal pose it is the montage resting on its last frame.
+	if (Policy.DriverRole == EPairedAnimationRole::Attacker)
+	{
+		return;
+	}
+	if (bSourceHoldsReadySection)
+	{
+		FOnMontageSectionChanged HoldEntered = FOnMontageSectionChanged::CreateUObject(
+			this,
+			&UPairedAnimationComponent::HandleBridgeReadyPoseEntered,
+			StageGeneration,
+			Policy.VictimReadySection);
+		SourceAnim->Montage_SetSectionChangedDelegate(HoldEntered, BridgeData->VictimMontage);
+	}
+	else if (bSourceHoldsTerminalPose)
+	{
+		ScheduleBridgeTerminalPoseWatch(SourceAnim, BridgeData->VictimMontage, StageGeneration);
+	}
+}
+
+void UPairedAnimationComponent::ScheduleBridgeTerminalPoseWatch(
+	UAnimInstance* SourceAnim,
+	UAnimMontage* Montage,
+	const int32 ExpectedStageGeneration)
+{
+	if (!SourceAnim
+		|| !Montage
+		|| ExpectedStageGeneration <= 0
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		return;
+	}
+
+	// A montage resting on a held last frame raises no event, so the watch reads the instance each frame.
+	// It lives only while the bridge is ParryActive: the window opening, a stage change or the sequence's
+	// end retires it, and terminal cleanup removes it with the other response tickers.
+	const FDefenseAsyncHandle AsyncHandle = AllocateDefenseAsyncHandle();
+	const FDefenseInteractionId Interaction = ActiveDefenseSequence.OriginatingInteraction;
+	const TWeakObjectPtr<UPairedAnimationComponent> WeakThis(this);
+	const TWeakObjectPtr<UWorld> WeakWorld(GetWorld());
+	const TWeakObjectPtr<UAnimInstance> WeakAnim(SourceAnim);
+	const TWeakObjectPtr<UAnimMontage> WeakMontage(Montage);
+	const FTSTicker::FDelegateHandle TickerHandle = FTSTicker::GetCoreTicker().AddTicker(
+		FTickerDelegate::CreateLambda(
+			[WeakThis, WeakWorld, Interaction, WeakAnim, WeakMontage, ExpectedStageGeneration, AsyncHandle](
+				const float DeltaTime)
+			{
+				UPairedAnimationComponent* Component = WeakThis.Get();
+				UWorld* World = WeakWorld.Get();
+				return Component && World && Component->GetWorld() == World
+					? Component->HandleBridgeTerminalPoseWatch(
+						Interaction,
+						WeakAnim,
+						WeakMontage,
+						ExpectedStageGeneration,
+						AsyncHandle,
+						DeltaTime)
+					: false;
+			}),
+		0.0f);
+	DefenseResponseTickers.Add(AsyncHandle, TickerHandle);
+}
+
+bool UPairedAnimationComponent::HandleBridgeTerminalPoseWatch(
+	const FDefenseInteractionId Interaction,
+	const TWeakObjectPtr<UAnimInstance> SourceAnim,
+	const TWeakObjectPtr<UAnimMontage> Montage,
+	const int32 ExpectedStageGeneration,
+	const FDefenseAsyncHandle AsyncHandle,
+	const float DeltaTime)
+{
+	(void)DeltaTime;
+	if (ActiveDefenseSequence.OriginatingInteraction != Interaction
+		|| ActiveDefenseSequence.StageGeneration != ExpectedStageGeneration
+		|| ActiveDefenseSequence.ChainState != EChainCounterState::ParryActive
+		|| ChainState != EChainCounterState::ParryActive)
+	{
+		DefenseResponseTickers.Remove(AsyncHandle);
+		return false;
+	}
+	const UAnimInstance* Anim = SourceAnim.Get();
+	const UAnimMontage* WatchedMontage = Montage.Get();
+	const FAnimMontageInstance* Instance = Anim && WatchedMontage
+		? Anim->GetActiveInstanceForMontage(WatchedMontage)
+		: nullptr;
+	if (!Instance)
+	{
+		// Stopped from outside the hold: its interrupted end callback ends the sequence.
+		DefenseResponseTickers.Remove(AsyncHandle);
+		return false;
+	}
+	const int32 SectionIndex = WatchedMontage->GetSectionIndexFromPosition(Instance->GetPosition());
+	float SectionStart = 0.0f;
+	float SectionEnd = 0.0f;
+	if (SectionIndex != INDEX_NONE)
+	{
+		WatchedMontage->GetSectionStartAndEndTime(SectionIndex, SectionStart, SectionEnd);
+	}
+	const bool bRestingOnLastFrame = !Instance->IsPlaying()
+		&& SectionIndex != INDEX_NONE
+		&& SectionEnd - Instance->GetPosition() <= UE_KINDA_SMALL_NUMBER;
+	if (!bRestingOnLastFrame)
+	{
+		return true;
+	}
+	DefenseResponseTickers.Remove(AsyncHandle);
+	CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("BridgeEndedBeforeCounter"));
+	return false;
+}
+
+void UPairedAnimationComponent::HandleBridgeReadyPoseEntered(
+	UAnimMontage* Montage,
+	const FName SectionName,
+	const bool bLooped,
+	const int32 ExpectedStageGeneration,
+	const FName ReadySection)
+{
+	(void)Montage;
+	(void)bLooped;
+	if (SectionName != ReadySection
+		|| ChainState != EChainCounterState::ParryActive
+		|| ActiveDefenseSequence.ChainState != EChainCounterState::ParryActive
+		|| ActiveDefenseSequence.StageGeneration != ExpectedStageGeneration
+		|| !ActiveDefenseSequence.OriginatingInteraction.IsValid())
+	{
+		return;
+	}
+	CleanupDefenseSequence(ExpectedStageGeneration, 0.1f, TEXT("BridgeEndedBeforeCounter"));
 }
 
 bool UPairedAnimationComponent::TryStartPairedAnimationWithTarget(AActor* TargetActor, UPairedAnimationData* PairedAnimData, EPairedReactionType ReactionType)
@@ -4522,8 +5119,12 @@ bool UPairedAnimationComponent::IsDefenseSequenceParticipant() const
 	}
 
 	const AActor* const OwnerActor = GetOwner();
+	if (SequenceOwner->ActiveDefenseSequence.SourceAttacker.Get() == OwnerActor)
+	{
+		return true;
+	}
 	return SequenceOwner->ActiveDefenseSequence.Defender.Get() == OwnerActor
-		|| SequenceOwner->ActiveDefenseSequence.SourceAttacker.Get() == OwnerActor;
+		&& !SequenceOwner->ActiveDefenseSequence.bDefenderReleased;
 }
 
 // ============================================================================
